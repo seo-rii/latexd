@@ -1,0 +1,14 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimunicode{plain}
+\DeclareOption{unicode}{\def\shimunicode{unicode}}
+\ProcessOptions\relax
+\makeatletter
+\def\shimtestopt{\@testopt\shimtestoptaux{package-default}}
+\def\shimtestoptaux{\@ifnextchar[{\shimtestoptbranch}{\shimtestoptplain}}
+\def\shimtestoptbranch{package-testopt}
+\def\shimtestoptplain{package-testopt-plain}
+\def\shimdblarg{\@dblarg\shimdblargaux}
+\def\shimdblargaux{\@ifnextchar[{\shimdblargbranch}{\shimdblargplain}}
+\def\shimdblargbranch{package-dblarg}
+\def\shimdblargplain{package-dblarg-plain}
+\makeatother

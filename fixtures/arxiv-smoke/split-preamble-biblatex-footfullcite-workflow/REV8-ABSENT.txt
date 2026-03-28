@@ -1,0 +1,9 @@
+\tableofcontents
+\bibliographystyle
+\bibliography
+\newtheorem
+\smartcite
+\footfullcite
+\section[
+\begin{thebibliography}
+\end{thebibliography}

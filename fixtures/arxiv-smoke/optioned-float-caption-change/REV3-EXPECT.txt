@@ -1,0 +1,4 @@
+wrapperarticleonecolumnplain
+Figure 1: Long Figure Title Updated
+1 Short Figure Updated .... 1
+See Long Figure Title Updated. Figure 1.

@@ -1,0 +1,8 @@
+\ProvidesPackage{shim}[2024/01/01]
+\makeatletter
+\toksdef\shimtoks=17
+\shimtoks={plain}
+\DeclareOption{unicode}{\shimtoks={unicode}}
+\ProcessOptions\relax
+\edef\shimcapture{\the\shimtoks}
+\makeatother

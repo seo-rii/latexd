@@ -1,0 +1,2 @@
+name: string-helper-stack
+summary: Wrapper class/package preamble uses `\string` under an option-forwarding stack.

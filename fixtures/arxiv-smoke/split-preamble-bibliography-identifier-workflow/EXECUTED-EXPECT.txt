@@ -1,0 +1,5 @@
+main.tex::\input{refs-a.bbl}
+main.tex::\input{refs-b.bbl}
+main.tex::See Section 1, 10.1000/example, arXiv:2401.00001, 978-1-4028-9462-6, 2049-3630, and https://example.test/beta.
+sections/intro.tex::Observation Lemma 1.1 (Split Workflow Result).
+sections/intro.tex::See Split Workflow Result.

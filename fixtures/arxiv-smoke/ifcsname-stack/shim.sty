@@ -1,0 +1,6 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimhook{hook}
+\DeclareOption{unicode}{}
+\ProcessOptions\relax
+\ifcsname shimhook\endcsname\def\shimguard{shim-present}\else\def\shimguard{shim-missing}\fi
+\ifcsname shimmissing\endcsname\def\shimmissingguard{shim-unexpected}\else\def\shimmissingguard{shim-absent}\fi

@@ -1,0 +1,2 @@
+name: file-found-helper-stack
+summary: Wrapper package captures `\\@filef@und` through `\\IfFileExists` and `\\InputIfFileExists` under a local option-forwarding stack.

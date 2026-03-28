@@ -1,0 +1,2 @@
+name: case-transform-stack
+summary: Wrapper class/package preamble uses `\uppercase` and `\lowercase` under an option-forwarding stack.

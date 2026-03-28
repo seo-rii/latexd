@@ -1,0 +1,7 @@
+\tableofcontents
+\appendices
+\section[
+\newtheorem
+\autoref
+\cref
+\nameref

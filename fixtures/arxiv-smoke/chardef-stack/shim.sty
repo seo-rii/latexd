@@ -1,0 +1,9 @@
+\ProvidesPackage{shim}[2024/01/01]
+\makeatletter
+\chardef\shimflag=`S
+\DeclareOption{unicode}{\chardef\shimflag=`U}
+\ProcessOptions\relax
+\ifnum\shimflag=`U\def\shimmark{shim-unicode}\else\def\shimmark{shim-plain}\fi
+\edef\shimcaptured{\shimflag}
+\edef\shimcode{\number\shimflag}
+\makeatother

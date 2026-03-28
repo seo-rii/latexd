@@ -1,0 +1,2 @@
+name: aftergroup-stack
+summary: Wrapper class/package preamble uses `\aftergroup` to install grouped hooks under an option-forwarding stack.

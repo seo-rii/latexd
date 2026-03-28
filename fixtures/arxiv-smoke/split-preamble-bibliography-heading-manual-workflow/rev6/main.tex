@@ -1,0 +1,12 @@
+\documentclass[unicode]{wrapper}
+\input{preamble/setup}
+\bibliographystyle{abbrvnat}
+\bibliography{refs-b,refs-a}
+\begin{document}
+\tableofcontents
+\wrapperclass\articleclass\layoutmode\hyperdriver\hyperxmploaded\shimready
+\input{sections/frontmatter}
+\input{sections/intro}
+\input{sections/bibliography}
+See \cref{sec:intro} and \citeauthor{alpha} \citeyearpar{alpha}; compare \citep[see][pp.~1--2]{beta}.
+\end{document}

@@ -1,0 +1,16 @@
+\tableofcontents
+\listoffigures
+\bibliographystyle
+\bibliography
+\newtheorem
+\citeauthor
+\citeyearpar
+\citep
+\appendices
+\autoref
+\nameref
+\begin{figure}
+\end{figure}
+\section[
+\begin{thebibliography}
+\end{thebibliography}

@@ -1,0 +1,1 @@
+wrapperarticleonecolumn[wrapper-one-shim-unicode][onecolumn]

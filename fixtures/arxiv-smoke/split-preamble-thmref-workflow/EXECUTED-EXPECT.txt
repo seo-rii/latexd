@@ -1,0 +1,3 @@
+sections/intro.tex::Theorem 1.
+sections/intro.tex::Corollary 2.
+sections/intro.tex::See Theorem 1, Corollary 2, theorem, and corollary 2 on page 1.

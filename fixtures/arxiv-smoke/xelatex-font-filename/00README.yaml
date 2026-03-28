@@ -1,0 +1,3 @@
+compiler: xe_latex
+toplevel:
+  - main.tex

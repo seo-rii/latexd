@@ -1,0 +1,3 @@
+sections/intro.tex::Figure 1: Lead Figure
+sections/intro.tex::Figure 2: Panel Figure
+sections/intro.tex::See 2 and (2).

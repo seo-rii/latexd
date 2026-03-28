@@ -1,0 +1,1 @@
+\ProvidesClass{wrapper}[2025/03/27 v2.4 Wrapper class fixture]\def\wrapperclass{wrapper}\DeclareOption{twocolumn}{\PassOptionsToClass{\CurrentOption}{profile}}\DeclareOption*{\PassOptionsToPackage{\CurrentOption}{hyperxmp}}\ProcessOptions\relax\LoadClass{profile}

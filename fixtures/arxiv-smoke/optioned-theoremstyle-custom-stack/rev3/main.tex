@@ -1,0 +1,17 @@
+\documentclass{wrapper}
+\begin{document}
+\wrapperclass\articleclass\layoutmode\hypermode
+\theoremstyle{definition}
+\newtheoremstyle{tight}{}{}{}{}{}{}{ }{}
+\swapnumbers
+\newtheorem{oblemma}{Observation Lemma}[section]
+\newtheorem{obcor}[oblemma]{Observation Corollary}
+\section{Intro}
+\begin{oblemma}[Stacked Result Updated]\label{obs:first}
+a
+\end{oblemma}
+\begin{obcor}\label{obs:second}
+b
+\end{obcor}
+See \autoref{obs:first}, \autoref{obs:second}, and \nameref{obs:first}.
+\end{document}

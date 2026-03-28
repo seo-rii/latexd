@@ -1,0 +1,3 @@
+stage="compile"
+subject_kind="package"
+surface_kind="latex-error"

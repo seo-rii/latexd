@@ -1,0 +1,2 @@
+name: public-counter-format-stack
+summary: Wrapper class/package preamble uses public `\arabic`, `\roman`, `\Roman`, `\alph`, and `\Alph` helpers on `\newcount\c@...` registers under an option-forwarding stack.

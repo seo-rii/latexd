@@ -1,0 +1,15 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\PassOptionsToPackage{unicode}{shim}
+\makeatletter
+\def\wrappertestopt{\@testopt\wrappertestoptaux{wrapper-default}}
+\def\wrappertestoptaux{\@ifnextchar[{\wrappertestoptbranch}{\wrappertestoptplain}}
+\def\wrappertestoptbranch{wrapper-testopt}
+\def\wrappertestoptplain{wrapper-testopt-plain}
+\def\wrapperdblarg{\@dblarg\wrapperdblargaux}
+\def\wrapperdblargaux{\@ifnextchar[{\wrapperdblargbranch}{\wrapperdblargplain}}
+\def\wrapperdblargbranch{wrapper-dblarg}
+\def\wrapperdblargplain{wrapper-dblarg-plain}
+\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

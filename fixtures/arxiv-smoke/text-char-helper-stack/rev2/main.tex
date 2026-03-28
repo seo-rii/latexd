@@ -1,0 +1,5 @@
+\documentclass[onecolumn]{wrapper}
+\makeatletter
+\edef\capturedchars{\@backslashchar\@percentchar\@hashchar a\space b}
+\makeatother
+\begin{document}\wrapperclass\articleclass\layoutmode[\makeatletter\@backslashchar\makeatother][\makeatletter\@percentchar\makeatother][\makeatletter\@hashchar\makeatother][\makeatletter\@backslashchar\@percentchar\@hashchar a\space b\makeatother][\capturedchars]\end{document}

@@ -1,0 +1,2 @@
+name: advance-dimen-skip-stack
+summary: Wrapper class/package preamble uses `\advance` over dimen and skip helpers under an option-forwarding stack.

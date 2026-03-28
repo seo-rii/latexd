@@ -1,0 +1,13 @@
+\tableofcontents
+\listoffigures
+\addbibresource
+\printbibliography
+\newtheorem
+\textcite
+\parencite
+\autoref
+\nameref
+\caption[
+\section[
+\begin{figure}
+\end{figure}

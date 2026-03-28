@@ -1,0 +1,8 @@
+\ProvidesPackage{shim}[2024/01/01]
+\makeatletter
+\newskip\shimskip
+\shimskip=0.5pt plus 0.5pt
+\DeclareOption{unicode}{\shimskip=1.25pt plus 1pt}
+\ProcessOptions\relax
+\edef\shimdimcheck{\ifdim\shimskip<\p@ LT\else GE\fi}
+\makeatother

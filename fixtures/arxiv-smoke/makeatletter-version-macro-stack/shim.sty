@@ -1,0 +1,7 @@
+\ProvidesPackage{shim}[2024/03/01]
+\def\shimunicode{plain}
+\DeclareOption{unicode}{\def\shimunicode{unicode}}
+\ProcessOptions\relax
+\makeatletter
+\def\packageversion{\@nameuse{ver@shim.sty}}
+\makeatother

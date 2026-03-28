@@ -1,0 +1,10 @@
+\tableofcontents
+\listoffigures
+\section[
+\caption[
+\autoref
+\cref
+\namecref
+\nameref
+\begin{figure}
+\end{figure}

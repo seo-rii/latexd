@@ -1,0 +1,2 @@
+name: makeatletter-car-cdr-stack
+summary: Wrapper class/package preamble uses makeatletter-scoped @car/@cdr helpers under an option-forwarding stack.

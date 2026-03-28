@@ -1,0 +1,2 @@
+name: makeatletter-iden-stack
+summary: Wrapper class/package option stack uses makeatletter-scoped @iden helper under a later option-only revision.

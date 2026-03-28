@@ -1,0 +1,2 @@
+name: filename-parse-stack
+summary: Wrapper class/package preamble uses `\filename@parse` under an option-forwarding stack.

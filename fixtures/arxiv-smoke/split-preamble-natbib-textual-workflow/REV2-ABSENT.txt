@@ -1,0 +1,14 @@
+\tableofcontents
+\bibliographystyle
+\bibliography
+\newtheorem
+\citet
+\citep
+\citealt
+\citealp
+\onlinecite
+\citetext
+\citeyearpar
+\section[
+\begin{thebibliography}
+\end{thebibliography}

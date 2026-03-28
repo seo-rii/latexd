@@ -1,0 +1,6 @@
+main.tex::\input{refs-b.bbl}
+main.tex::\input{refs-a.bbl}
+main.tex::See Section 1, Alpha (2025), Beta and Gamma (2023), and Exact Revised Title.
+sections/intro.tex::Observation Lemma 1.1 (Split Workflow Result).
+sections/intro.tex::See Split Workflow Result.
+refs-a.bbl::[2] Alpha and Beta. 2025. Exact Revised Title.

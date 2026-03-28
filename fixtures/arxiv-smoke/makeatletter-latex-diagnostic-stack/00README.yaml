@@ -1,0 +1,2 @@
+name: makeatletter-latex-diagnostic-stack
+summary: Wrapper class/package stack uses makeatletter-scoped @latex@info and @latex@warning helpers without leaking into output.

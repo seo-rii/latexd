@@ -1,0 +1,8 @@
+\ProvidesPackage{shim}[2024/01/01]
+\makeatletter
+\countdef\shimcountreg=252
+\shimcountreg=\tw@
+\DeclareOption{unicode}{\multiply\shimcountreg by \tw@}
+\ProcessOptions\relax
+\ifnum\shimcountreg=4\def\shimcount{shim-count}\else\def\shimcount{shim-bad}\fi
+\makeatother

@@ -1,0 +1,9 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\PassOptionsToPackage{unicode}{shim}
+\makeatletter
+\def\wrapperempty{\@ifnotempty{}{wrapper-nonempty}{wrapper-empty}}
+\def\wrappernonempty{\@ifnotempty{x}{wrapper-nonempty}{wrapper-empty}}
+\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

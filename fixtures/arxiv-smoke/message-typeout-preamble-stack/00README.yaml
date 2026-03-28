@@ -1,0 +1,2 @@
+name: message-typeout-preamble-stack
+summary: Wrapper class/package preamble uses message and typeout helpers without leaking into output.

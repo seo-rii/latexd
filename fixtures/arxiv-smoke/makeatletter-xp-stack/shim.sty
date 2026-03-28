@@ -1,0 +1,6 @@
+\ProvidesPackage{shim}[2024/01/01]
+\makeatletter
+\@xp\def\csname shimmode\endcsname{shim-plain}
+\DeclareOption{unicode}{\@xp\def\csname shimmode\endcsname{shim-unicode}}
+\makeatother
+\ProcessOptions\relax

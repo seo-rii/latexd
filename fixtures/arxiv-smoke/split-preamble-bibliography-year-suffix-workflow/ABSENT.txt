@@ -1,0 +1,9 @@
+\tableofcontents
+\bibliographystyle
+\bibliography
+\newtheorem
+\citeyear
+\citeyearpar
+\section[
+\begin{thebibliography}
+\end{thebibliography}

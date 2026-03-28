@@ -1,0 +1,13 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\PassOptionsToPackage{unicode}{shim}
+\makeatletter
+\@tempswatrue
+\if@tempswa
+\def\wrapperguard{wrapper-true}
+\else
+\def\wrapperguard{wrapper-false}
+\fi
+\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

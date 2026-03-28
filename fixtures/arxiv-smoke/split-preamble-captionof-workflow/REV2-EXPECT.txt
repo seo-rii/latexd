@@ -1,0 +1,6 @@
+wrapperarticletwocolumnhyperrefhyperxmp
+Renamed Intro .... 1
+1 Captionof Short Revised .... 1
+Long Introduction Revised
+Figure 1: Captionof Figure Revised
+See Figure 1, Figure 1, figure, and Captionof Figure Revised.

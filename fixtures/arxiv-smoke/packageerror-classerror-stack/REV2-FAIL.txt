@@ -1,0 +1,2 @@
+internal compiler reported diagnostics
+package shim: package failure

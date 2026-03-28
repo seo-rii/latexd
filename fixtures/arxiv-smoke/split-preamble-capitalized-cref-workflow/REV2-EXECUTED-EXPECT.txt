@@ -1,0 +1,1 @@
+sections/intro.tex::See Equation 2, Equations 2, 3, and Equation.

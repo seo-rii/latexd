@@ -1,0 +1,13 @@
+\ProvidesPackage{shim}[2024/01/01]
+\newcount\shimlimit
+\shimlimit=1
+\newcount\shimcount
+\shimcount=0
+\def\shimtrace{}
+\DeclareOption{unicode}{\shimlimit=3}
+\ProcessOptions\relax
+\loop
+\advance\shimcount by 1
+\edef\shimtrace{\shimtrace P\number\shimcount}
+\ifnum\shimcount<\shimlimit
+\repeat

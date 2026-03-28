@@ -1,0 +1,2 @@
+name: makeatletter-latexerr-stack
+summary: Wrapper class/package stack exercises makeatletter-scoped `\@latexerr` failure and recovery revisions.

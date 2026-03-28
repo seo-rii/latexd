@@ -1,0 +1,8 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimunicode{plain}
+\DeclareOption{unicode}{\def\shimunicode{unicode}}
+\ProcessOptions\relax
+\def\shimready{shim-ready}
+\makeatletter
+\@ifundefined{shimready}{\def\packageguard{package-missing}}{\def\packageguard{package-defined}}
+\makeatother

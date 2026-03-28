@@ -1,0 +1,2 @@
+name: makeatletter-protect-alias-stack
+summary: Wrapper class/package preamble uses `\@typeset@protect` and `\@unexpandable@protect` as the same narrow runtime/edef aliases as `\protect` under an option-forwarding stack.

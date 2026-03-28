@@ -1,0 +1,10 @@
+\documentclass[unicode]{wrapper}
+\input{preamble/setup}
+\bibliographystyle{plainnat}
+\bibliography{refs-a,refs-b}
+\begin{document}
+\tableofcontents
+\wrapperclass\articleclass\layoutmode\hyperdriver\hyperxmploaded\shimready
+\input{sections/intro}
+See \cref{sec:intro}, \nameref{obs:main}, \autocite{alpha}, \autocites[see][chap.~2]{alpha}[cf.][pp.~1--2]{beta}, \footcite{beta}, and \footcites{alpha}[cf.]{beta}.
+\end{document}

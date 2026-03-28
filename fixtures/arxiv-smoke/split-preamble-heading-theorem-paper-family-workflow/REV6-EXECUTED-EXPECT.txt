@@ -1,0 +1,13 @@
+main.tex::\input{refs-b.bbl}
+main.tex::\input{refs-a.bbl}
+main.tex::See Section 1, Figure 1, Figure 2, and Observation Corollary A; compare Alpha (2025) and (see Beta et al., 2023, pp.~1--2).
+sections/frontmatter.tex::Opening Notes
+sections/intro.tex::Observation Lemma 1.1 (Split Workflow Result).
+sections/intro.tex::Observation Corollary 1.2 (Split Workflow Consequence).
+sections/intro.tex::Figure 1: Workflow Figure
+sections/intro.tex::Figure 2: Captionof Figure
+sections/intro.tex::See Split Workflow Result, Split Workflow Consequence, Workflow Figure, and Captionof Figure.
+sections/intro.tex::Observation Lemma A.1 (Appendix Result).
+sections/intro.tex::Observation Corollary A.2 (Appendix Consequence).
+sections/intro.tex::See Figure 1, Figure 2, Observation Lemma A.1, Observation Corollary A.2, and Appendix Result.
+refs-a.bbl::Alpha revised entry.

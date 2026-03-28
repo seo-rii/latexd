@@ -1,0 +1,8 @@
+build-meta.json::aux_sensitive=true
+build-meta.json::dirty_files.0="refs-b.bbl"
+build-meta.json::semantic_aux_backdated=false
+semantic-index.json::files.6.path="sections/related.tex"
+semantic-index.json::files.6.label_keys.0="sec:related"
+semantic-index.json::files.6.toc.0.title="Related Work"
+semantic-index.json::files.6.citation_keys.0="alpha"
+semantic-index.json::files.6.citation_keys.1="beta"

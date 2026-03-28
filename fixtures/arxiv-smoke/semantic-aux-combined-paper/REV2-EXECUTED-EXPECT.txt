@@ -1,0 +1,3 @@
+main.tex::\input{refs.bbl}
+main.tex::See Key Observation. Alpha (2024) and (see Beta et al., 2023, pp.~1--2).
+sections/intro.tex::Observation Lemma 1.1 (Key Observation).

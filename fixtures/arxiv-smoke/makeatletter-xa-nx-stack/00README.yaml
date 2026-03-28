@@ -1,0 +1,2 @@
+name: makeatletter-xa-nx-stack
+summary: Wrapper class/package preamble uses makeatletter-scoped `\@xa` and `\@nx` under an option-forwarding stack.

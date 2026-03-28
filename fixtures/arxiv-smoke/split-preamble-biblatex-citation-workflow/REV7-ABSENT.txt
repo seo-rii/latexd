@@ -1,0 +1,10 @@
+\tableofcontents
+\bibliographystyle
+\bibliography
+\newtheorem
+\textcite
+\parencite
+\section[
+\begin{thebibliography}
+\end{thebibliography}
+\input{refs-b.bbl}

@@ -1,0 +1,6 @@
+wrapperarticletwocolumnhyperrefhyperxmp
+Short Intro .... 1
+1 Captionof Short .... 1
+Long Introduction
+Figure 1: Captionof Figure
+See Figure 1, Figure 1, figure, and Captionof Figure.

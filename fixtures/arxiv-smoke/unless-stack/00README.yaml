@@ -1,0 +1,2 @@
+name: unless-stack
+summary: Wrapper class/package preamble uses `\unless` to invert low-level conditional helpers under an option-forwarding stack.

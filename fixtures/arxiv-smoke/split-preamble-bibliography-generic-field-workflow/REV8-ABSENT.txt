@@ -1,0 +1,8 @@
+\tableofcontents
+\bibliographystyle
+\bibliography
+\newtheorem
+\citefield
+\section[
+\begin{thebibliography}
+\end{thebibliography}

@@ -1,0 +1,1 @@
+\ProvidesFile{shim.def}[2025/03/27 v0.8 Shim definition fixture]\def\shimcfgloaded{shim-cfg}

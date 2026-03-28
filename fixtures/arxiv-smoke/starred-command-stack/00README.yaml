@@ -1,0 +1,2 @@
+name: starred-command-stack
+summary: Wrapper class/package preamble uses starred command declarations under an option-forwarding stack.

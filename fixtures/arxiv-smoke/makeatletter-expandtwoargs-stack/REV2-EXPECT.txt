@@ -1,0 +1,1 @@
+wrapperarticleonecolumn<WRAP|CLASS>[C]unicode(PKG/HELPER)[N]

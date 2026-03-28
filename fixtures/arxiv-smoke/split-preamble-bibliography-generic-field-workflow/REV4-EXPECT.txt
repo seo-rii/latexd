@@ -1,0 +1,8 @@
+wrapperarticleonecolumnhyperrefhyperxmpshim-ready
+Short Intro .... 1
+Long Introduction
+Observation Lemma 1.1 (Split Workflow Result).
+See Split Workflow Result.
+See Section 1, Alpha, 2025, Exact Revised Title, Alpha 2025, Journal of Testing, and 10--20.
+[1] Alpha and Beta. 2025. Exact Revised Title. 10.1000/revised. arXiv:2501.00001.
+[2] Journal of Testing. 10--20. Beta entry.

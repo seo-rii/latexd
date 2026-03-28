@@ -1,0 +1,14 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\def\wrappermode{one}
+\PassOptionsToPackage{unicode}{shim}
+\DeclareOption{twocolumn}{\def\wrappermode{two}}
+\ProcessOptions\relax
+\makeatletter
+\def\wrapperseed{wrapper-init-\wrappermode}
+\edef\wrapperdeferred{\@unexpandable@protect\wrapperseed}
+{\def\wrapperseed{wrapper-local-\wrappermode}\xdef\wrapperxdeferred{\@unexpandable@protect\wrapperseed}}
+\def\wrapperseed{wrapper-mutated-\wrappermode}
+\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

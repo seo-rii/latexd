@@ -1,0 +1,2 @@
+name: unexpanded-stack
+summary: Wrapper class/package preamble uses `\unexpanded{...}` inside `\edef` and `\xdef` under an option-forwarding stack.

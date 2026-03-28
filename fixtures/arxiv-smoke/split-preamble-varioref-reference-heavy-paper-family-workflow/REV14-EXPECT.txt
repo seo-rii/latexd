@@ -1,0 +1,18 @@
+wrapperarticleonecolumnhyperrefhyperxmpshim-ready
+Opening Notes .... 1
+Short Intro .... 1
+1.1 Detail .... 1
+1 Workflow Short .... 1
+Long Introduction
+Observation Lemma 1.1 (Split Workflow Result).
+Figure 1: Workflow Figure
+See Section 1 (Long Introduction), Observation Lemma 1.1 (Split Workflow Result), Detail, Split Workflow Result, section, Subsection, section; subsection, observation lemma, page 1, Page 1, page 1, section 1 on page 1, and Observation lemma 1.1 on page 1.
+See Section 1, (1), Equation 1, Equations 1, 2, equation, equation 1 on page 1, Equations 1 to 3, and Figure 1.
+See 1, (1) and 1, 1.
+A Proof Notes .... 1
+Proofs and Details
+Observation Lemma A.1 (Appendix Result).
+See Figure 1, Observation Lemma A.1, and Appendix Result.
+See Section 1, Figure 1, and Observation Lemma A; compare Alpha (2025) and (see Beta et al., 2023, pp.~1--2).
+[1] Beta entry.
+[2] Alpha revised entry.

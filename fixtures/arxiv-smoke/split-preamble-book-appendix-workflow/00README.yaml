@@ -1,0 +1,12 @@
+compiler: pdf_latex
+sources:
+  - path: main.tex
+    usage: toplevel
+  - book.cls
+  - wrapper.cls
+  - hyperref.sty
+  - hyperxmp.sty
+  - preamble/setup.tex
+  - chapters/body.tex
+toplevel:
+  - main.tex

@@ -1,0 +1,4 @@
+\ProvidesPackage{shim}[2024/01/01]
+{\global\newif\ifshimunicode\shimunicodefalse\global\newcommand{\shimflag}[1][shim-plain]{[#1]}}
+\DeclareOption{unicode}{\global\renewcommand{\shimflag}[1][shim-unicode]{[#1]}\global\shimunicodetrue}
+\ProcessOptions\relax

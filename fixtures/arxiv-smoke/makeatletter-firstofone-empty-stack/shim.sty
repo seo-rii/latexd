@@ -1,0 +1,8 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimunicode{plain}
+\DeclareOption{unicode}{\def\shimunicode{unicode}}
+\ProcessOptions\relax
+\makeatletter
+\let\packageempty\@empty
+\def\packageguard{\ifx\packageempty\@empty P\else X\fi\@firstofone{package-first}}
+\makeatother

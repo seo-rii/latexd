@@ -1,0 +1,9 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\PassOptionsToPackage{unicode}{shim}
+\makeatletter
+\@ifdefinable\wrapperguard{\def\wrapperguard{wrapper-defined}}
+\@ifdefinable\wrapperguard{\def\wrapperguard{wrapper-redefined}}
+\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

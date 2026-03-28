@@ -1,0 +1,8 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimunicode{plain}
+\DeclareOption{unicode}{\def\shimunicode{unicode}}
+\ProcessOptions\relax
+\makeatletter
+\def\shimmtempty{\@ifmtarg{}{package-mt-empty}{package-mt-nonempty}}
+\def\shimmtnonempty{\@ifnotmtarg{x}{package-mt-nonempty}{package-mt-empty}}
+\makeatother

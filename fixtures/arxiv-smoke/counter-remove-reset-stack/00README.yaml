@@ -1,0 +1,2 @@
+name: counter-remove-reset-stack
+summary: Wrapper class/package preamble uses `\makeatletter`-scoped `\@removefromreset` so parent counter steps stop resetting child `\newcount\c@...` counters under an option-forwarding stack.

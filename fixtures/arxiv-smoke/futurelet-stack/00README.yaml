@@ -1,0 +1,2 @@
+name: futurelet-stack
+summary: Wrapper class/package preamble uses `\futurelet` next-token lookahead under an option-forwarding stack.

@@ -1,0 +1,2 @@
+name: atenddocument-stack
+summary: Wrapper class/package stack uses `\AtEndDocument` in class, package, and document scope, and keeps those end hooks stable across a later option-only revision.

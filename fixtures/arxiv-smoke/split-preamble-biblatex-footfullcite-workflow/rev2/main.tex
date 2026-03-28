@@ -1,0 +1,10 @@
+\documentclass[unicode]{wrapper}
+\input{preamble/setup}
+\bibliographystyle{plainnat}
+\bibliography{refs-a,refs-b}
+\begin{document}
+\tableofcontents
+\wrapperclass\articleclass\layoutmode\hyperdriver\hyperxmploaded\shimready
+\input{sections/intro}
+See \cref{sec:intro}. \smartcite{alpha}, \footfullcite{alpha}, and \footfullcite{beta}.
+\end{document}

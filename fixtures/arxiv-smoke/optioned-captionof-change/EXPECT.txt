@@ -1,0 +1,4 @@
+wrapperarticletwocolumnunicode
+Figure 1: Long Captionof Title
+1 Short Captionof .... 1
+See Long Captionof Title. Figure 1.

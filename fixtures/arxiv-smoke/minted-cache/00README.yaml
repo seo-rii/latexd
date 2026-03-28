@@ -1,0 +1,3 @@
+compiler: pdf_latex
+toplevel:
+  - main.tex

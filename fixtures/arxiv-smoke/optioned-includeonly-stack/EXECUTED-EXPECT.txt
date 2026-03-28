@@ -1,0 +1,3 @@
+main.tex::\includeonly{chapters/intro}
+chapters/intro.tex::Intro
+chapters/intro.tex::See 1.

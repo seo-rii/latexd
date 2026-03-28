@@ -1,0 +1,7 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimunicode{plain}
+\DeclareOption{unicode}{\def\shimunicode{unicode}}
+\ProcessOptions\relax
+\makeatletter
+\def\shimin{\in@{cod}{unicode}\ifin@ package-hit\else package-miss\fi\in@{zzz}{unicode}\ifin@ package-bad\else package-ok\fi}
+\makeatother

@@ -1,0 +1,2 @@
+name: ifdim-stack
+summary: Wrapper class/package preamble uses `\ifdim` over dimen and skip helpers under an option-forwarding stack.

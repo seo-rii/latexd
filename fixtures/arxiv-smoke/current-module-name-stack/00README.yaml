@@ -1,0 +1,2 @@
+name: current-module-name-stack
+summary: Wrapper class/package preamble captures `\@currname` and `\@currext` under an option-forwarding stack.

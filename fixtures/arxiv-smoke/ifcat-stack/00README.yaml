@@ -1,0 +1,2 @@
+name: ifcat-stack
+summary: Wrapper class/package preamble uses `\ifcat` under an option-forwarding stack.

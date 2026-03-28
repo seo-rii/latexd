@@ -1,0 +1,10 @@
+\documentclass[unicode]{wrapper}
+\input{preamble/setup}
+\bibliographystyle{abbrvnat}
+\bibliography{refs-b,refs-a}
+\begin{document}
+\tableofcontents
+\wrapperclass\articleclass\layoutmode\hyperdriver\hyperxmploaded\shimready
+\input{sections/intro}
+See \cref{sec:intro}, \citefield{alpha}{fullauthor}, \citefield{alpha}{text}, \citefield{beta}{labelname}, and \citefield{beta}{fullauthor}.
+\end{document}

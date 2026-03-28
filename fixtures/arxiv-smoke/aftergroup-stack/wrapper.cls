@@ -1,0 +1,10 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\PassOptionsToPackage{unicode}{shim}
+\def\wrapperguard{wrapper-pending}
+\def\wrapperafterhook{\def\wrapperguard{wrapper-onecolumn}}
+\DeclareOption{twocolumn}{\def\wrapperafterhook{\def\wrapperguard{wrapper-twocolumn}}}
+\ProcessOptions\relax
+{\aftergroup\wrapperafterhook}
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

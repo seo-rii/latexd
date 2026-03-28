@@ -1,0 +1,10 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\PassOptionsToPackage{unicode}{shim}
+\newif\ifwrappertwocolumn
+\DeclareOption{twocolumn}{\wrappertwocolumntrue}
+\ProcessOptions\relax
+\ifwrappertwocolumn\def\wrapperflag{wrapper-two}\else\def\wrapperflag{wrapper-one}\fi%
+\makeatletter\count0=0\@whilenum\count0<3\do{\number\count0\ifnum\count0=0\count0=1\else\ifnum\count0=1\count0=2\else\count0=3\fi\fi}\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

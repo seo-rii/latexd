@@ -1,0 +1,1 @@
+\ProvidesClass{wrapper}[2024/01/01]\def\wrapperclass{wrapper}\DeclareOption{twocolumn}{\PassOptionsToClass{\CurrentOption}{article}}\DeclareOption*{\PassOptionsToPackage{\CurrentOption}{hyperxmp}}\ProcessOptions\relax\LoadClass{article}

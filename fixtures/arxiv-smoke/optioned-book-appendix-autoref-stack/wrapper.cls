@@ -1,0 +1,1 @@
+\ProvidesClass{wrapper}[2024/01/01]\def\wrapperclass{wrapper}\DeclareOption{twocolumn}{\PassOptionsToClass{\CurrentOption}{book}}\DeclareOption*{\PassOptionsToPackage{\CurrentOption}{hyperref}}\ProcessOptions\relax\LoadClass{book}\RequirePackage{hyperref}

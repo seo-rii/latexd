@@ -1,0 +1,9 @@
+Short Intro .... 1
+Long Introduction
+Observation Lemma 1.1 (Key Observation).
+Figure 1: Long Figure Title
+1 Short Figure .... 1
+See Key Observation. Alpha (2024) and (see Beta et al., 2023, pp.~1--2).
+[1] Alpha entry.
+[2] Beta entry.
+References .... 1

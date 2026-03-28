@@ -1,0 +1,4 @@
+main.tex::\usepackage{hyperxmp,cleveref}
+main.tex::\input{refs.bbl}
+main.tex::See Section 1, Stacked Result, and Alpha (2024).
+sections/intro.tex::Observation Lemma 1.1 (Stacked Result).

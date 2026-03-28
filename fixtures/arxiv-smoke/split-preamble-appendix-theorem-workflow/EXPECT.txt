@@ -1,0 +1,6 @@
+wrapperarticletwocolumnhyperrefhyperxmp
+1 Intro .... 1
+A Proof Notes .... 1
+Proofs and Details
+Observation Lemma A.1 (Appendix Result).
+See Appendix A, Observation Lemma A.1, and Appendix Result.

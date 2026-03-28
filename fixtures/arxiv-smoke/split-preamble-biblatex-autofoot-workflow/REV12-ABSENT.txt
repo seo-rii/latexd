@@ -1,0 +1,11 @@
+\tableofcontents
+\bibliographystyle
+\bibliography
+\newtheorem
+\autocite
+\autocites
+\footcite
+\footcites
+\section[
+\begin{thebibliography}
+\end{thebibliography}

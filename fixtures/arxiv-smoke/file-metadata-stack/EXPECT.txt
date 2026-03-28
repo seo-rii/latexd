@@ -1,0 +1,1 @@
+wrapperarticletwocolumn[2024/02/01][v2.3][Wrapper class fixture][2024/01/01][][Local article fixture][2024/03/01][v1.4][Shim package fixture][2024/04/01][v0.7][Shim config fixture]

@@ -1,0 +1,23 @@
+compiler: pdf_latex
+sources:
+  - path: main.tex
+    usage: toplevel
+  - article.cls
+  - profile.cls
+  - shim.sty
+  - shim.cfg
+  - shim.def
+  - wrapper.cls
+  - hyperref.sty
+  - hyperxmp.sty
+  - cleveref.sty
+  - preamble/setup.tex
+  - preamble/core.tex
+  - preamble/macros.tex
+  - preamble/theorems.tex
+  - sections/frontmatter.tex
+  - sections/intro.tex
+  - refs-a.bbl
+  - refs-b.bbl
+toplevel:
+  - main.tex

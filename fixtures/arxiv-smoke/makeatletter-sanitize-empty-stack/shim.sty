@@ -1,0 +1,8 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimflag{shimplain}
+\DeclareOption{unicode}{\def\shimflag{shimunicode}}
+\ProcessOptions\relax
+\makeatletter
+\def\shimmtarg{\@ifmtarg{ }{E}{N}}
+\def\shimnotmtarg{\@ifnotmtarg{ x }{N}{E}}
+\makeatother

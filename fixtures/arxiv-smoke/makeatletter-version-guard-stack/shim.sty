@@ -1,0 +1,8 @@
+\ProvidesPackage{shim}[2024/03/01]
+\def\shimunicode{plain}
+\DeclareOption{unicode}{\def\shimunicode{unicode}}
+\ProcessOptions\relax
+\makeatletter
+\@ifpackagelater{shim}{2024/02/01}{\def\packageversion{package-later}}{\def\packageversion{package-not-later}}
+\makeatother
+\def\shimready{shim-ready}

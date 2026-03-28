@@ -1,0 +1,3 @@
+stage="compile"
+subject_kind="class"
+surface_kind="internal-diagnostic"

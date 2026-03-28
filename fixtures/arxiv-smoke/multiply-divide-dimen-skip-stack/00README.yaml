@@ -1,0 +1,2 @@
+name: multiply-divide-dimen-skip-stack
+summary: Wrapper class/package preamble uses `\multiply` and `\divide` over dimen and skip registers under an option-forwarding stack.

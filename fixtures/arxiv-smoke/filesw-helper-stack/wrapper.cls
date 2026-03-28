@@ -1,0 +1,14 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\PassOptionsToPackage{unicode}{shim}
+\DeclareOption{nofiles}{\nofiles}
+\DeclareOption*{\PassOptionsToClass{\CurrentOption}{article}}
+\ProcessOptions\relax
+\makeatletter
+\if@filesw
+  \def\wrapperfilesw{files-on}
+\else
+  \def\wrapperfilesw{files-off}
+\fi
+\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

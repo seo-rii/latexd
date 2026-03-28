@@ -1,0 +1,12 @@
+\ProvidesPackage{shim}[2024/01/01]
+\newcount\shimcount
+\shimcount=2
+\DeclareOption{unicode}{\advance\shimcount by 1}
+\ProcessOptions\relax
+\unless\ifodd\shimcount\def\shimguard{shim-even}\else\def\shimguard{shim-odd}\fi
+\edef\shimtail{shim-tail-\number\shimcount}
+\makeatletter
+\unless\ifcsname shimseed\endcsname\def\shimbefore{shim-missing}\else\def\shimbefore{shim-present}\fi
+\@namedef{shimseed}{shim-seed}
+\unless\ifcsname shimseed\endcsname\def\shimafter{shim-undefined}\else\def\shimafter{shim-defined}\fi
+\makeatother

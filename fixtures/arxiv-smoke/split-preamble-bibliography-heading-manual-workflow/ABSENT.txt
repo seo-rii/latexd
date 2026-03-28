@@ -1,0 +1,13 @@
+\tableofcontents
+\bibliographystyle
+\bibliography
+\printbibheading
+\phantomsection
+\addcontentsline
+\newtheorem
+\citeauthor
+\citeyearpar
+\citep
+\section[
+\begin{thebibliography}
+\end{thebibliography}

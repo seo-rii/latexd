@@ -1,0 +1,1 @@
+\ProvidesClass{article}[2025/03/27 v0.8 Article class fixture]\def\articleclass{article}\def\layoutmode{onecolumn}\DeclareOption{twocolumn}{\def\layoutmode{twocolumn}}\DeclareOption*{}\ProcessOptions\relax

@@ -1,0 +1,9 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\PassOptionsToPackage{unicode}{shim}
+\makeatletter
+\def\wrapperempty{\@ifempty{}{wrapper-empty}{wrapper-filled}}
+\def\wrappernonempty{\@ifempty{x}{wrapper-empty}{wrapper-nonempty}}
+\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

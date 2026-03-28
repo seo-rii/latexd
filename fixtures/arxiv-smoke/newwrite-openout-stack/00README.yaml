@@ -1,0 +1,2 @@
+name: newwrite-openout-stack
+summary: Wrapper class/package stack uses `\newwrite` plus `\openout`/`\closeout` non-visibly without leaking write payload into visible output, even across a later option-only revision.

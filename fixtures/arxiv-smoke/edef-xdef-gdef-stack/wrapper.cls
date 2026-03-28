@@ -1,0 +1,12 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\def\wrappermode{one}
+\PassOptionsToPackage{unicode}{shim}
+\DeclareOption{twocolumn}{\def\wrappermode{two}}
+\ProcessOptions\relax
+\def\wrapperseed{seed-\wrappermode}
+\edef\wrapperexpanded{\wrapperseed}
+{\def\wrapperseed{seed-local-\wrappermode}\gdef\wrapperglobal{\wrapperseed}\xdef\wrapperxglobal{\wrapperseed}}
+\def\wrapperseed{mutated-\wrappermode}
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

@@ -1,0 +1,5 @@
+wrapperarticletwocolumnhyperrefhyperxmp
+1 Intro .... 1
+Theorem 1.
+Corollary 2.
+Theorem 1. Corollary 2.

@@ -1,0 +1,10 @@
+\documentclass[twocolumn]{wrapper}
+\input{preamble/setup}
+\addbibresource{refs.bib}
+\begin{document}
+\tableofcontents
+\wrapperclass\articleclass\layoutmode\hyperdriver\hyperxmploaded\shimready
+\input{sections/intro}
+See \cref{sec:intro}, \nameref{obs:main}, \textcites[see][chap.~2]{alpha}[cf.][pp.~1--2]{beta} and \parencites{alpha}[cf.]{beta}.
+\printbibliography[heading=bibintoc,title={References}]
+\end{document}

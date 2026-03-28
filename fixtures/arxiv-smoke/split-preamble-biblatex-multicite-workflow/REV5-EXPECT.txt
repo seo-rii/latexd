@@ -1,0 +1,8 @@
+wrapperarticleonecolumnhyperrefhyperxmpshim-ready
+Short Intro .... 1
+Long Introduction
+Observation Result 1.1 (Split Preamble Result).
+See Section 1, Split Preamble Result, see Alpha (2024, chap.~2); cf. Beta et al. (2023, pp.~1--2) and (Alpha, 2024; cf. Beta et al., 2023).
+References .... 1
+[1] Alpha entry.
+[2] Beta entry.

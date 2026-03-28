@@ -1,0 +1,20 @@
+wrapperarticleonecolumnhyperrefhyperxmpshim-ready
+Opening Notes .... 1
+Short Intro .... 1
+1 Workflow Short .... 1
+2 Captionof Short .... 1
+Long Introduction
+Observation Result 1.1 (Split Workflow Result).
+Observation Corollary 1.2 (Split Workflow Consequence).
+Figure 1: Workflow Figure
+Figure 2: Captionof Figure
+See Split Workflow Result, Split Workflow Consequence, Workflow Figure, and Captionof Figure.
+A Proof Notes .... 1
+Proofs and Details
+Observation Result A.1 (Appendix Result).
+Observation Corollary A.2 (Appendix Consequence).
+See Figure 1, Figure 2, Observation Result A.1, Observation Corollary A.2, and Appendix Result.
+See Section 1, Figure 1, Figure 2, and Observation Corollary A; compare Alpha (2025) and (see Beta et al., 2023, pp.~1--2).
+Works Cited .... 1
+[1] Beta entry.
+[2] Alpha revised entry.

@@ -1,0 +1,5 @@
+\newtheorem
+\thmref
+\Thmref
+\namecref
+\vref

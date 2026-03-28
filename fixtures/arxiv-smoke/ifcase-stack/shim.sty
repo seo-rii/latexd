@@ -1,0 +1,14 @@
+\ProvidesPackage{shim}[2024/01/01]
+\newcount\shimcount
+\shimcount=1
+\DeclareOption{unicode}{\shimcount=2}
+\ProcessOptions\relax
+\ifcase\shimcount
+\def\shimbranch{shim-zero}
+\or
+\def\shimbranch{shim-one}
+\or
+\def\shimbranch{shim-two}
+\else
+\def\shimbranch{shim-else}
+\fi

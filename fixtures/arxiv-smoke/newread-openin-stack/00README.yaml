@@ -1,0 +1,2 @@
+name: newread-openin-stack
+summary: Wrapper class/package stack uses `\newread`, `\openin`, `\closein`, and narrow `\ifeof` state without leaking filename payload into visible output, even across a later option-only revision.

@@ -1,0 +1,13 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimunicode{plain}
+\DeclareOption{unicode}{\def\shimunicode{unicode}}
+\ProcessOptions\relax
+\makeatletter
+\def\shimleft{\shimleftalias}
+\def\shimleftalias{PKG}
+\def\shimright{\shimrightalias}
+\def\shimrightalias{HELPER}
+\def\shimpair#1#2{(#1/#2)}
+\def\shimexpanded{\@expandtwoargs\shimpair{\shimleft}{\shimright}}
+\def\shimthird{\@thirdofthree{L}{M}{N}}
+\makeatother

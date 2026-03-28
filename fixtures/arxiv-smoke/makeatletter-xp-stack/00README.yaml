@@ -1,0 +1,2 @@
+name: makeatletter-xp-stack
+summary: Wrapper class/package preamble uses makeatletter-scoped `\@xp` as a narrow `\expandafter` alias under an option-forwarding stack.

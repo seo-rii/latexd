@@ -1,0 +1,2 @@
+name: inputiffileexists-class-stack
+summary: Wrapper class exercises InputIfFileExists-based local class config load, config deletion/recovery, and later option-only revision.

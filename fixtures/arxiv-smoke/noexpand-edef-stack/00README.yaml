@@ -1,0 +1,2 @@
+name: noexpand-edef-stack
+summary: Wrapper class/package preamble uses `\noexpand` inside `\edef` and `\xdef` under an option-forwarding stack.

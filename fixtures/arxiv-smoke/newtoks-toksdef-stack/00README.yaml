@@ -1,0 +1,2 @@
+name: newtoks-toksdef-stack
+summary: Wrapper class/package preamble uses `\newtoks`, `\toksdef`, plain `\toks`, and `\the` over token registers under an option-forwarding stack.

@@ -1,0 +1,2 @@
+name: makeatletter-version-macro-stack
+summary: Wrapper class/package preamble reads low-level ver@... macros emitted by ProvidesClass/ProvidesPackage/ProvidesFile under an option-forwarding stack.

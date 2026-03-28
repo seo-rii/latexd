@@ -1,0 +1,4 @@
+wrapperarticleonecolumnplain
+Figure 1: Long Captionof Title Updated
+1 Short Captionof Updated .... 1
+See Long Captionof Title Updated. Figure 1.

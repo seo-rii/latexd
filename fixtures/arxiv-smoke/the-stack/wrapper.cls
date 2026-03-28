@@ -1,0 +1,9 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\newcount\wrappercount
+\wrappercount=1
+\PassOptionsToPackage{unicode}{shim}
+\DeclareOption{twocolumn}{\wrappercount=2}
+\ProcessOptions\relax
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

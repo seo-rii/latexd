@@ -1,0 +1,2 @@
+name: makeatletter-onelevel-sanitize-stack
+summary: Wrapper class/package preamble uses makeatletter-scoped @onelevel@sanitize helper under an option-forwarding stack.

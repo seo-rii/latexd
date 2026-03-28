@@ -1,0 +1,12 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimunicode{plain}
+\DeclareOption{unicode}{\def\shimunicode{unicode}}
+\ProcessOptions\relax
+\makeatletter
+\@tempswafalse
+\if@tempswa
+\def\packageguard{package-true}
+\else
+\def\packageguard{package-false}
+\fi
+\makeatother

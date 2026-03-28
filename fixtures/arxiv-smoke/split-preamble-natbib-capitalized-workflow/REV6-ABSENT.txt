@@ -1,0 +1,12 @@
+\tableofcontents
+\bibliographystyle
+\bibliography
+\newtheorem
+\Citet
+\Citep
+\Citealt
+\Citealp
+\Textcite
+\section[
+\begin{thebibliography}
+\end{thebibliography}

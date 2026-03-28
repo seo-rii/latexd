@@ -1,0 +1,9 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\PassOptionsToPackage{unicode}{shim}
+\makeatletter
+\def\wrappermtempty{\@ifmtarg{}{wrapper-mt-empty}{wrapper-mt-nonempty}}
+\def\wrappermtnonempty{\@ifnotmtarg{x}{wrapper-mt-nonempty}{wrapper-mt-empty}}
+\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

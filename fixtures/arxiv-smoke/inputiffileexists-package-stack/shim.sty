@@ -1,0 +1,6 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimunicode{plain}
+\def\cfgbody{}
+\DeclareOption{unicode}{\def\shimunicode{unicode}}
+\ProcessOptions\relax
+\def\loadshimcfg{\InputIfFileExists{shim.cfg}{\def\cfgstatus{cfg-loaded}}{\def\cfgstatus{cfg-missing}}}

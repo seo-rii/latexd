@@ -1,0 +1,3 @@
+main.tex::\input{refs.bbl}
+main.tex::See Section 1, \SplitPreambleTheoremTitle, and Alpha (2024).
+sections/intro.tex::Observation Lemma 1.1 (\SplitPreambleTheoremTitle).

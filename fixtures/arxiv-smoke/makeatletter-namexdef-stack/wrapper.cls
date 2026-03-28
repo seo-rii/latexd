@@ -1,0 +1,13 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\def\wrappermode{wrapper-one}
+\PassOptionsToPackage{unicode}{shim}
+\DeclareOption{twocolumn}{\def\wrappermode{wrapper-two}}
+\ProcessOptions\relax
+\makeatletter
+{\def\wrapperseed{seed-\wrappermode}\@namexdef{wrapperhook}{\wrapperseed}}
+\def\wrapperseed{mutated-\wrappermode}
+\def\wrapperguard{\@nameuse{wrapperhook}}
+\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

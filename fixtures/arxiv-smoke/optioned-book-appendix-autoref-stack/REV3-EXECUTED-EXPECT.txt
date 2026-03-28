@@ -1,0 +1,3 @@
+main.tex::Detailed Proofs
+main.tex::Technical Lemma
+main.tex::See Chapter 1, Appendix A.1, and Appendix A.

@@ -1,0 +1,2 @@
+name: makeatletter-testopt-stack
+summary: Wrapper class/package preamble uses makeatletter-scoped @testopt/@dblarg helpers under an option-forwarding stack.

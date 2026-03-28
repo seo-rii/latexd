@@ -1,0 +1,8 @@
+compiler: pdf_latex
+sources:
+  - path: main.tex
+    usage: toplevel
+  - sections/intro.tex
+  - refs.bbl
+toplevel:
+  - main.tex

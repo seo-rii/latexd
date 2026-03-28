@@ -1,0 +1,10 @@
+\documentclass[unicode]{wrapper}
+\input{preamble/setup}
+\bibliographystyle{plainnat}
+\bibliography{refs-a,refs-b}
+\begin{document}
+\tableofcontents
+\wrapperclass\articleclass\layoutmode\hyperdriver\hyperxmploaded\shimready
+\input{sections/intro}
+See \cref{sec:intro}, \citet[see][chap.~2]{alpha}, \citep{alpha}, \citealt[e.g.][pp.~1--2]{beta}, \citealp{beta}, \onlinecite{beta}, and \citetext{compare \citealp{beta} with \citeyearpar{alpha}}.
+\end{document}

@@ -1,0 +1,6 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimguard{shim-pending}
+\def\shimafterhook{\def\shimguard{shim-plain}}
+\DeclareOption{unicode}{\def\shimafterhook{\def\shimguard{shim-unicode}}}
+\ProcessOptions\relax
+{\aftergroup\shimafterhook}

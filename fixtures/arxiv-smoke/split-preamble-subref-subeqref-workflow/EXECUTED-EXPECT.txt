@@ -1,0 +1,2 @@
+sections/intro.tex::Figure 1: Panel Figure
+sections/intro.tex::See 1 and (1).

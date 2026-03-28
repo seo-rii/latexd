@@ -1,0 +1,12 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimunicode{plain}
+\DeclareOption{unicode}{\def\shimunicode{unicode}}
+\ProcessOptions\relax
+\makeatletter
+\def\shimopt{\kernel@ifnextchar[{\shimoptbranch}{\shimplainbranch}}
+\def\shimoptbranch{shim-opt}
+\def\shimplainbranch{shim-plain}
+\def\shimstar{\kernel@ifstar{\shimstarbranch}{\shimnostarbranch}}
+\def\shimstarbranch{shim-star}
+\def\shimnostarbranch{shim-nostar}
+\makeatother

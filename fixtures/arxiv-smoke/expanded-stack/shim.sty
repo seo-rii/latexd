@@ -1,0 +1,8 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimmode{plain}
+\DeclareOption{unicode}{\def\shimmode{unicode}}
+\ProcessOptions\relax
+\def\shimseed{shim-\shimmode}
+\edef\shimexpanded{\expanded{\shimseed+\shimseed}}
+{\def\shimseed{shim-local-\shimmode}\xdef\shimxexpanded{\expanded{\shimseed+\shimseed}}}
+\def\shimseed{shimmutated-\shimmode}

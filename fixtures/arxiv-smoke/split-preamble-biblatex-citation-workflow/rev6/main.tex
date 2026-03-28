@@ -1,0 +1,10 @@
+\documentclass[unicode]{wrapper}
+\input{preamble/setup}
+\bibliographystyle{abbrvnat}
+\bibliography{refs-b,refs-a}
+\begin{document}
+\tableofcontents
+\wrapperclass\articleclass\layoutmode\hyperdriver\hyperxmploaded\shimready
+\input{sections/intro}
+See \cref{sec:intro}, \nameref{obs:main}, \textcite{alpha}, and \parencite[see][pp.~1--2]{beta}.
+\end{document}

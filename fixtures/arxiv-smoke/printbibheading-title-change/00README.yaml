@@ -1,0 +1,6 @@
+compiler: pdf_latex
+sources:
+  - path: main.tex
+    usage: toplevel
+toplevel:
+  - main.tex

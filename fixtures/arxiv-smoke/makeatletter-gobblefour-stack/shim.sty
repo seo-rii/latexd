@@ -1,0 +1,7 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimunicode{plain}
+\DeclareOption{unicode}{\def\shimunicode{unicode}}
+\ProcessOptions\relax
+\makeatletter
+\def\shimtail{\@gobblefour{drop-a}{drop-b}{drop-c}{drop-d}package-\shimunicode}
+\makeatother

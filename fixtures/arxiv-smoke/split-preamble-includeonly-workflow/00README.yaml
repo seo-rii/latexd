@@ -1,0 +1,19 @@
+compiler: pdf_latex
+sources:
+  - path: main.tex
+    usage: toplevel
+  - article.cls
+  - profile.cls
+  - shim.sty
+  - shim.cfg
+  - shim.def
+  - wrapper.cls
+  - hyperref.sty
+  - hyperxmp.sty
+  - preamble/setup.tex
+  - preamble/core.tex
+  - preamble/macros.tex
+  - chapters/intro.tex
+  - chapters/extra.tex
+toplevel:
+  - main.tex

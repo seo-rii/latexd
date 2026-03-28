@@ -1,0 +1,13 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\PassOptionsToPackage{unicode}{shim}
+\makeatletter
+\def\wrapperopt{\kernel@ifnextchar[{\wrapperoptbranch}{\wrapperplainbranch}}
+\def\wrapperoptbranch{wrapper-opt}
+\def\wrapperplainbranch{wrapper-plain}
+\def\wrapperstar{\kernel@ifstar{\wrapperstarbranch}{\wrappernostarbranch}}
+\def\wrapperstarbranch{wrapper-star}
+\def\wrappernostarbranch{wrapper-nostar}
+\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

@@ -1,0 +1,2 @@
+name: makeatletter-ifdefinable-stack
+summary: Wrapper class/package preamble uses makeatletter-scoped @ifdefinable helper under an option-forwarding stack.

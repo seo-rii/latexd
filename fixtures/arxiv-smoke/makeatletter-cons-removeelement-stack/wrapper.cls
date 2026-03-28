@@ -1,0 +1,11 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\PassOptionsToPackage{unicode}{shim}
+\makeatletter
+\def\wrapperlist{}
+\@cons\wrapperlist{W}
+\@cons\wrapperlist{{CL}}
+\@removeelement{drop}{keep,drop,stay}\wrapperfiltered
+\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

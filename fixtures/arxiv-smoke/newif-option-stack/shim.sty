@@ -1,0 +1,9 @@
+\ProvidesPackage{shim}[2024/01/01]
+\newif\ifshimunicode
+\DeclareOption{unicode}{\shimunicodetrue}
+\ProcessOptions\relax
+\ifshimunicode
+  \def\shimflag{shim-unicode}
+\else
+  \def\shimflag{shim-plain}
+\fi

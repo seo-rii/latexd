@@ -1,0 +1,2 @@
+name: command-guard-stack
+summary: Wrapper class/package stack exercises narrow `\newcommand` and `\renewcommand` guard diagnostics with failure and recovery revisions.

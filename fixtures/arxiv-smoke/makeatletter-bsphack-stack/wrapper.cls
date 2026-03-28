@@ -1,0 +1,10 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\PassOptionsToPackage{unicode}{shim}
+\makeatletter
+\@bsphack
+\def\wrapperhook{wrapper-defined}
+\@esphack
+\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

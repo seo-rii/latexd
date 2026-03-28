@@ -1,0 +1,2 @@
+name: packageerror-classerror-stack
+summary: Wrapper class/package stack exercises narrow PackageError and ClassError diagnostics with failure and recovery revisions.

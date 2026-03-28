@@ -1,0 +1,3 @@
+main.tex::Observation Lemma 1.1 (Stacked Result).
+main.tex::Observation Corollary 1.2.
+main.tex::See Observation Lemma 1.1, Observation Corollary 1.2, and Stacked Result.

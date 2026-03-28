@@ -1,0 +1,2 @@
+name: newcount-countdef-stack
+summary: Wrapper class/package preamble uses `\newcount` and `\countdef` register aliases under an option-forwarding stack.

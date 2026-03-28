@@ -1,0 +1,2 @@
+name: globaldefs-stack
+summary: Wrapper class/package preamble uses grouped `\globaldefs` to keep option-driven definitions alive under an option-forwarding stack.

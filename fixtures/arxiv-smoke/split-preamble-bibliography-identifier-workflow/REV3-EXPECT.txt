@@ -1,0 +1,8 @@
+wrapperarticleonecolumnhyperrefhyperxmpshim-ready
+Short Intro .... 1
+Long Introduction
+Observation Lemma 1.1 (Split Workflow Result).
+See Split Workflow Result.
+See Section 1, 10.1000/example, arXiv:2401.00001, 978-1-4028-9462-6, 2049-3630, and https://example.test/beta.
+[1] 10.1000/example. arXiv:2401.00001. 978-1-4028-9462-6. 2049-3630.
+[2] https://example.test/beta.

@@ -1,0 +1,2 @@
+name: read-helper-stack
+summary: Wrapper class/package stack uses plain `\read ... to ...` to materialize config lines under a later option-only revision.

@@ -1,0 +1,5 @@
+\ProvidesPackage{shim}[2024/01/01]
+\makeatletter
+\IfFileExists{shim.cfg}{\edef\shimprobe{[\@filef@und]}}{\def\shimprobe{missing}}
+\def\loadcfg{\InputIfFileExists{shim.cfg}{cfg[\@filef@und]}{missing}}
+\makeatother

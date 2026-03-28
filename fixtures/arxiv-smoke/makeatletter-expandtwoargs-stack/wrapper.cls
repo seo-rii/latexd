@@ -1,0 +1,14 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\PassOptionsToPackage{unicode}{shim}
+\makeatletter
+\def\wrapperleft{\wrapperleftalias}
+\def\wrapperleftalias{WRAP}
+\def\wrapperright{\wrapperrightalias}
+\def\wrapperrightalias{CLASS}
+\def\wrapperpair#1#2{<#1|#2>}
+\def\wrapperexpanded{\@expandtwoargs\wrapperpair{\wrapperleft}{\wrapperright}}
+\def\wrapperthird{\@thirdofthree{A}{B}{C}}
+\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

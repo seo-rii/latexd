@@ -1,0 +1,12 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\layoutmode{onecolumn}
+\DeclareOption{twocolumn}{\def\layoutmode{twocolumn}}
+\PassOptionsToPackage{unicode}{shim}
+\makeatletter
+\newtoks\wrappertoks
+\wrappertoks={wrapper}
+\edef\wrappercapture{\the\wrappertoks}
+\ProcessOptions\relax
+\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

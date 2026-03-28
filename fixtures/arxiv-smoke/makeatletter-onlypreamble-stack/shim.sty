@@ -1,0 +1,8 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimunicode{plain}
+\DeclareOption{unicode}{\def\shimunicode{unicode}}
+\ProcessOptions\relax
+\def\packagehook{package-defined}
+\makeatletter
+\@onlypreamble\packagehook
+\makeatother

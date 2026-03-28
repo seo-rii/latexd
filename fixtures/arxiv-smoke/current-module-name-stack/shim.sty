@@ -1,0 +1,4 @@
+\ProvidesPackage{shim}[2024/01/01]
+\makeatletter\edef\shimmodule{\@currname\@currext}\makeatother
+\DeclareOption{unicode}{\def\shimstate{unicode}}
+\ProcessOptions\relax

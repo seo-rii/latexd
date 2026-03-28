@@ -1,0 +1,9 @@
+\tableofcontents
+\listoffigures
+\section[
+\caption[
+\captionof{figure}
+\autoref
+\cref
+\namecref
+\nameref

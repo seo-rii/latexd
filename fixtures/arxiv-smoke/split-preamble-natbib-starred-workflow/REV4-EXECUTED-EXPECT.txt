@@ -1,0 +1,6 @@
+main.tex::\input{refs-a.bbl}
+main.tex::\input{refs-b.bbl}
+main.tex::See Section 1, Beta and Delta (2025), (Beta and Delta, 2025), Beta and Delta 2025 / Beta and Delta 2025, and Beta and Delta (2025).
+sections/intro.tex::Observation Lemma 1.1 (Split Workflow Result).
+sections/intro.tex::See Split Workflow Result.
+refs-b.bbl::[2] Beta revised entry.

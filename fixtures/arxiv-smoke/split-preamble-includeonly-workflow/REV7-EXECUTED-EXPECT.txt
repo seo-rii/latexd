@@ -1,0 +1,3 @@
+main.tex::\includeonly{chapters/intro,chapters/extra}
+chapters/intro.tex::Intro
+chapters/extra.tex::Extra

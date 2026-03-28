@@ -1,0 +1,2 @@
+name: edef-xdef-gdef-stack
+summary: Wrapper class/package preamble uses `\edef`, `\xdef`, and `\gdef` under an option-forwarding stack.

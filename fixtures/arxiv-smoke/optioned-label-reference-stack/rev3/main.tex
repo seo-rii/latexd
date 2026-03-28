@@ -1,0 +1,9 @@
+\documentclass{wrapper}
+\begin{document}
+\wrapperclass\articleclass\layoutmode\hypermode
+\section{Intro}\label{sec:intro}
+\begin{equation}x\end{equation}
+\begin{equation}\label{eq:first}a\end{equation}
+\subsection{Detail}\label{sub:detail}
+See \labelcref{sec:intro,eq:first} and \labelcpageref{sec:intro,sub:detail}.
+\end{document}

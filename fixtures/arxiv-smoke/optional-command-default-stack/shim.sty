@@ -1,0 +1,5 @@
+\ProvidesPackage{shim}[2024/01/01]
+\providecommand*{\shimflag}[1][shim-plain]{#1}
+\DeclareRobustCommand*{\shimtag}[1][shim-plain-tag]{#1}
+\DeclareOption{unicode}{\renewcommand*{\shimflag}[1][shim-unicode]{#1}\renewcommand*{\shimtag}[1][shim-unicode-tag]{#1}}
+\ProcessOptions\relax

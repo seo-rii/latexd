@@ -1,0 +1,5 @@
+main.tex::\input{refs-a.bbl}
+main.tex::\input{refs-b.bbl}
+main.tex::See Section 1, see Alpha (2024, chap.~2), (Alpha, 2024), e.g. Beta et al. 2023, pp.~1--2, Beta et al. 2023, Beta et al. 2023, and (compare Beta et al. 2023 with (2024)).
+sections/intro.tex::Observation Lemma 1.1 (Split Workflow Result).
+sections/intro.tex::See Split Workflow Result.

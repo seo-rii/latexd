@@ -1,0 +1,16 @@
+compiler: pdf_latex
+sources:
+  - path: main.tex
+    usage: toplevel
+  - article.cls
+  - wrapper.cls
+  - hyperref.sty
+  - hyperxmp.sty
+  - cleveref.sty
+  - preamble/setup.tex
+  - preamble/theorems.tex
+  - sections/intro.tex
+  - refs-a.bbl
+  - refs-b.bbl
+toplevel:
+  - main.tex

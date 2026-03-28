@@ -1,0 +1,9 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\PassOptionsToPackage{unicode}{shim}
+\makeatletter
+\def\wrapperguard{\@firstoftwo{wrapper-keep}{wrapper-drop}}
+\@gobble{gone}
+\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

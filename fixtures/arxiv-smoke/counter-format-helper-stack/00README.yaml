@@ -1,0 +1,2 @@
+name: counter-format-helper-stack
+summary: Wrapper class/package preamble uses `\@arabic`, `\@roman`, `\@Roman`, `\@alph`, and `\@Alph` under an option-forwarding stack.

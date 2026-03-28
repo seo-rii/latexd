@@ -1,0 +1,5 @@
+\documentclass[onecolumn]{wrapper}
+\makeatletter
+\edef\capturedwrapper{\expandafter\strip@prefix\meaning\wrapperseed}
+\makeatother
+\begin{document}\wrapperclass\articleclass\layoutmode[\makeatletter\expandafter\strip@prefix\meaning\wrapperseed\makeatother][\makeatletter\expandafter\strip@prefix\meaning\shimseed\makeatother][\capturedwrapper]\end{document}

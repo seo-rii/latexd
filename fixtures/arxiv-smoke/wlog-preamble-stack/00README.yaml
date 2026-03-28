@@ -1,0 +1,2 @@
+name: wlog-preamble-stack
+summary: Wrapper class/package preamble uses `\wlog` without leaking into output.

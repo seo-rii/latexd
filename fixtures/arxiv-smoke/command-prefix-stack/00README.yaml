@@ -1,0 +1,2 @@
+name: command-prefix-stack
+summary: Wrapper class/package preamble uses `\global` definition semantics and `\long`/`\protected`/`\outer` declaration prefixes under an option-forwarding stack.

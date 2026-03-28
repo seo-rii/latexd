@@ -1,0 +1,13 @@
+\tableofcontents
+\bibliographystyle
+\bibliography
+\newtheorem
+\citeauthor
+\citeyear
+\citetitle
+\citefield
+\citep
+\section[
+\begin{thebibliography}
+\end{thebibliography}
+\input{refs-b.bbl}

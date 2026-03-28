@@ -1,0 +1,16 @@
+\documentclass[unicode]{wrapper}
+\input{preamble/setup}
+\addbibresource{refs-a.bib}
+\addbibresource{refs-b.bib}
+\begin{document}
+\tableofcontents
+\listoffigures
+\wrapperclass\articleclass\layoutmode\hyperdriver\hyperxmploaded\shimready
+\input{sections/frontmatter}
+\input{sections/intro}
+\input{sections/related}
+\appendices
+\input{sections/appendix}
+See \fullref{sec:intro}, \Fullref{obs:main}, \titleref{sub:detail}, \Titleref{obc:main}, \namecref{sec:intro}, \nameCref{sub:detail}, \namecrefs{sec:intro,sub:detail}, \lcnamecref{obs:main}, \cpageref{sec:intro}, \Cpageref{sub:detail}, \autopageref{obs:main}, \vref{sec:intro}, and \Vref{obs:main}; compare \textcite{alpha} and \parencite[see][pp.~1--2]{beta}.
+\printbibliography[heading=bibintoc,title={References}]
+\end{document}

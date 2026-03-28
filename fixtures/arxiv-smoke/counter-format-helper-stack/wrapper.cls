@@ -1,0 +1,11 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\makeatletter
+\newcount\c@demo
+\c@demo=2
+\makeatother
+\PassOptionsToPackage{unicode}{shim}
+\DeclareOption{twocolumn}{\makeatletter\c@demo=3\makeatother}
+\ProcessOptions\relax
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

@@ -1,0 +1,4 @@
+main.tex::\input{refs.bbl}
+main.tex::See Stacked Option Result and Alpha (2025).
+sections/intro.tex::Observation Lemma 1.1 (Stacked Option Result).
+refs.bbl::Alpha revised entry.

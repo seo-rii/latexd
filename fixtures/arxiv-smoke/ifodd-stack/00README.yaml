@@ -1,0 +1,2 @@
+name: ifodd-stack
+summary: Wrapper class/package preamble uses `\ifodd` with scratch counters under an option-forwarding stack.

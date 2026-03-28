@@ -1,0 +1,12 @@
+\tableofcontents
+\bibliographystyle
+\bibliography
+\newtheorem
+\citedoi
+\citeeprint
+\citeisbn
+\citeissn
+\citeurl
+\section[
+\begin{thebibliography}
+\end{thebibliography}

@@ -1,0 +1,12 @@
+\documentclass[unicode]{wrapper}
+\input{preamble/setup}
+\bibliographystyle{abbrvnat}
+\bibliography{refs-b,refs-a}
+\begin{document}
+\tableofcontents
+\listoffigures
+\wrapperclass\articleclass\layoutmode\hyperdriver\hyperxmploaded\shimready
+\input{sections/frontmatter}
+\input{sections/intro}
+See \cref{sec:intro}, \autoref{fig:workflow}, and \autoref{sec:proof}; compare \citeauthor{alpha} \citeyearpar{alpha} and \citep[see][pp.~1--2]{beta}.
+\end{document}

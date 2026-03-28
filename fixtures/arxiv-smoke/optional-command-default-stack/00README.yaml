@@ -1,0 +1,2 @@
+name: optional-command-default-stack
+summary: Wrapper class/package preamble uses newcommand-family optional default arguments under an option-forwarding stack.

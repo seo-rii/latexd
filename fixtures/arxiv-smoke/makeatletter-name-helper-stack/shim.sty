@@ -1,0 +1,9 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimunicode{plain}
+\DeclareOption{unicode}{\def\shimunicode{unicode}}
+\ProcessOptions\relax
+\makeatletter
+\@namedef{shimhook}{package-named}
+\def\packageguard{\@nameuse{shimhook}}
+\makeatother
+\def\shimready{shim-ready}

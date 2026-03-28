@@ -1,0 +1,12 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\PassOptionsToPackage{unicode}{shim}
+\makeatletter
+\newcount\c@wrapperdemo
+\c@wrapperdemo=3
+\makeatother
+\DeclareOption{twocolumn}{\PassOptionsToClass{\CurrentOption}{article}\makeatletter\c@wrapperdemo=4\makeatother}
+\DeclareOption*{\PassOptionsToClass{\CurrentOption}{article}}
+\ProcessOptions\relax
+\edef\wrappercount{\arabic{wrapperdemo}/\roman{wrapperdemo}/\Roman{wrapperdemo}/\alph{wrapperdemo}/\Alph{wrapperdemo}}
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

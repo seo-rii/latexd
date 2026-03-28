@@ -1,0 +1,5 @@
+wrapperarticletwocolumnhyperrefhyperxmp
+1 Intro .... 1
+1.1 Detail .... 1
+Observation Lemma 1 (First Claim).
+See Section 1 (Intro), Observation Lemma 1 (First Claim), Detail, First Claim, section, Subsection, section; subsection, observation lemma, page 1, Page 1, page 1, section 1 on page 1, and Observation lemma 1 on page 1.

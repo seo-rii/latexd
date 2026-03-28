@@ -1,0 +1,8 @@
+\ProvidesPackage{shim}[2024/01/01]
+\makeatletter
+\@tempcntb=\thr@@
+\advance\@tempcntb by \m@ne
+\DeclareOption{unicode}{\advance\@tempcntb by \@ne}
+\ProcessOptions\relax
+\ifnum\@tempcntb=3\def\shimcount{shim-three}\else\ifnum\@tempcntb=\tw@\def\shimcount{shim-two}\else\def\shimcount{shim-bad}\fi\fi
+\makeatother

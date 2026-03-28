@@ -1,0 +1,2 @@
+name: chardef-stack
+summary: Wrapper class/package preamble uses `\chardef` and backtick char constants under an option-forwarding stack.

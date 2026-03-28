@@ -1,0 +1,2 @@
+name: makeatletter-ifempty-stack
+summary: Wrapper class/package preamble uses makeatletter-scoped @ifempty helper under an option-forwarding stack.

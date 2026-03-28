@@ -1,0 +1,2 @@
+name: length-helper-stack
+summary: Wrapper class/package preamble uses public length helpers plus low-level dimen aliases under an option-forwarding stack.

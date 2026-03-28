@@ -1,0 +1,4 @@
+wrapperarticleonecolumnplain
+Theorem 1.1.
+Corollary 1.2.
+Theorem 1.1. Corollary 1.2.

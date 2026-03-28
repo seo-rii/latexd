@@ -1,0 +1,2 @@
+name: atend-module-hook-stack
+summary: Wrapper class/package stack uses `\AtEndOfClass` and `\AtEndOfPackage` to install end-of-module hooks that survive later option-only revisions.

@@ -1,0 +1,1 @@
+wrapperarticleunicode[cfg-twocolumn-unicode]

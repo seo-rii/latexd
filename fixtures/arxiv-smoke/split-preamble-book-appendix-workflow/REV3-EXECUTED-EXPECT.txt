@@ -1,0 +1,3 @@
+chapters/body.tex::Detailed Proofs
+chapters/body.tex::Technical Lemma
+chapters/body.tex::See Chapter 1, Appendix A.1, and Appendix A.

@@ -1,0 +1,15 @@
+wrapperarticletwocolumnhyperrefhyperxmpshim-ready
+Prelude .... 1
+Short Intro .... 1
+1 Workflow Short .... 1
+Long Introduction
+Observation Lemma 1.1 (Split Workflow Result).
+Figure 1: Workflow Figure
+See Split Workflow Result and Workflow Figure.
+A Proof Notes .... 1
+Proofs and Details
+Observation Lemma A.1 (Appendix Result).
+See Figure 1, Observation Lemma A.1, and Appendix Result.
+See Section 1, Figure 1, and Observation Lemma A; compare Alpha (2024) and (see Beta et al., 2023, pp.~1--2).
+[1] Alpha entry.
+[2] Beta entry.

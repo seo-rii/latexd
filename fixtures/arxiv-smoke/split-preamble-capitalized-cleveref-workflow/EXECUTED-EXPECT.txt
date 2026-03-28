@@ -1,0 +1,3 @@
+sections/intro.tex::Theorem 1.
+sections/intro.tex::Lemma 1.
+sections/intro.tex::See Subsections 1.1 to 1.2, Paragraphs, and theorem; lemma.

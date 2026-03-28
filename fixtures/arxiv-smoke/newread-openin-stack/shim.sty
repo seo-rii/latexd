@@ -1,0 +1,17 @@
+\ProvidesPackage{shim}[2024/01/01 Shim package fixture]
+\def\shimstate{plain}
+\DeclareOption{unicode}{\def\shimstate{unicode}}
+\ProcessOptions\relax
+\newread\pkgstream
+\openin\pkgstream={missing.cfg}
+\ifeof\pkgstream
+  \def\pkgread{missing}
+\else
+  \def\pkgread{open}
+\fi
+\closein\pkgstream
+\ifeof\pkgstream
+  \def\pkgclosed{closed}
+\else
+  \def\pkgclosed{open}
+\fi

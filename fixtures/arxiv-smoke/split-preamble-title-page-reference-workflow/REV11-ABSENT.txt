@@ -1,0 +1,14 @@
+\newtheorem
+\fullref
+\Fullref
+\titleref
+\Titleref
+\namecref
+\nameCref
+\namecrefs
+\lcnamecref
+\cpageref
+\Cpageref
+\autopageref
+\vref
+\Vref

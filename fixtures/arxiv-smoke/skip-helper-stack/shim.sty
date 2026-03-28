@@ -1,0 +1,8 @@
+\ProvidesPackage{shim}[2024/01/01]
+\makeatletter
+\newskip\shimskip
+\shimskip=2pt plus 1pt
+\DeclareOption{unicode}{\shimskip=3.5pt plus 1pt}
+\ProcessOptions\relax
+\edef\shimskips{\the\shimskip}
+\makeatother

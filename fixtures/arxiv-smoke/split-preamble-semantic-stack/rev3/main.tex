@@ -1,0 +1,10 @@
+\documentclass{wrapper}
+\input{preamble/setup}
+\addbibresource{refs.bib}
+\begin{document}
+\tableofcontents
+\wrapperclass\articleclass\layoutmode\hyperdriver\hyperxmploaded\shimready
+\input{sections/intro}
+See \cref{sec:intro}, \nameref{obs:main}, and \textcite{alpha}.
+\printbibliography[heading=bibintoc,title={References}]
+\end{document}

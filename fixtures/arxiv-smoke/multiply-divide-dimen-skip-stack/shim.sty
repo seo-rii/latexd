@@ -1,0 +1,9 @@
+\ProvidesPackage{shim}[2024/01/01]
+\makeatletter
+\newskip\shimskip
+\shimskip=1pt plus 1pt
+\def\shimflag{shimplain}
+\DeclareOption{unicode}{\def\shimflag{shimunicode}\multiply\shimskip by \thr@@\divide\shimskip by \tw@}
+\ProcessOptions\relax
+\edef\shimarithmetic{\the\shimskip}
+\makeatother

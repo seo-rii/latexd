@@ -1,0 +1,2 @@
+name: ifchar-stack
+summary: Wrapper class/package preamble uses `\if` under an option-forwarding stack.

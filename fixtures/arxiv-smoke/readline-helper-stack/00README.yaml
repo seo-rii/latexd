@@ -1,0 +1,2 @@
+name: readline-helper-stack
+summary: Wrapper class/package preamble uses plain `\readline ... to ...` under an option-forwarding stack.

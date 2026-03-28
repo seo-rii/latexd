@@ -1,0 +1,2 @@
+name: makeatletter-sanitize-empty-stack
+summary: Wrapper class/package preamble uses low-level sanitize/no-op and empty-argument helpers under an option-forwarding stack.

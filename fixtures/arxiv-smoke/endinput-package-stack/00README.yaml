@@ -1,0 +1,2 @@
+name: endinput-package-stack
+summary: Wrapper package uses `\endinput` to stop loading trailing tokens under an option-forwarding stack.

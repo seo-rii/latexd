@@ -1,0 +1,3 @@
+\theoremstyle
+\newtheoremstyle
+\swapnumbers

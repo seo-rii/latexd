@@ -1,0 +1,5 @@
+\ProvidesPackage{shim}[2024/01/03]
+\def\shimstate{plain-recovered}
+\DeclareOption{unicode}{\def\shimstate{unicode-recovered}}
+\ProcessOptions\relax
+\renewcommand{\guarded}{pkg-\shimstate}

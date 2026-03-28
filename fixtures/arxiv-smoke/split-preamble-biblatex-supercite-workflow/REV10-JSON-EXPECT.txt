@@ -1,0 +1,3 @@
+build-meta.json::aux_sensitive=true
+build-meta.json::dirty_files.0="preamble/theorems.tex"
+build-meta.json::semantic_aux_backdated=true

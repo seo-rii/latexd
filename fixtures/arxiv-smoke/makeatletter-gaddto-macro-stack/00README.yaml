@@ -1,0 +1,2 @@
+name: makeatletter-gaddto-macro-stack
+summary: Wrapper class/package preamble uses makeatletter-scoped g@addto@macro helper under an option-forwarding stack.

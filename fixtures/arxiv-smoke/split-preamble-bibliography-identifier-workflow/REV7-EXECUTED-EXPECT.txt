@@ -1,0 +1,5 @@
+main.tex::\input{refs-a.bbl}
+main.tex::See Section 1, 10.1000/revised, arXiv:2501.00001, 978-1-4028-9999-9, 2049-4000, and ??.
+sections/intro.tex::Observation Lemma 1.1 (Split Workflow Result).
+sections/intro.tex::See Split Workflow Result.
+refs-a.bbl::[1] 10.1000/revised. arXiv:2501.00001. 978-1-4028-9999-9. 2049-4000.

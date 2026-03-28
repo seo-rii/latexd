@@ -1,0 +1,7 @@
+articlerevtexhyperrefhyperxmpshim-ready
+Short Intro .... 1
+Long Introduction
+Observation Lemma 1.1 (Stacked Result).
+See Section 1, Stacked Result, and Alpha (2025).
+References .... 1
+[1] Alpha revised entry.

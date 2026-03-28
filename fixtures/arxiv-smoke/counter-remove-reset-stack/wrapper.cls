@@ -1,0 +1,16 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\PassOptionsToPackage{unicode}{shim}
+\makeatletter
+\newcount\c@section
+\newcount\c@equation
+\@addtoreset{equation}{section}
+\@removefromreset{equation}{section}
+\c@section=0
+\c@equation=5
+\makeatother
+\DeclareOption{twocolumn}{\PassOptionsToClass{\CurrentOption}{article}\stepcounter{section}}
+\DeclareOption*{\PassOptionsToClass{\CurrentOption}{article}}
+\ProcessOptions\relax
+\edef\wrappercount{\value{section}/\value{equation}}
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

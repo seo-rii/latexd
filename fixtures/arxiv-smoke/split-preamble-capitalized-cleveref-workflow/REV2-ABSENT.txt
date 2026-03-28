@@ -1,0 +1,4 @@
+\newtheorem
+\Crefrange
+\nameCrefs
+\lcnamecrefs

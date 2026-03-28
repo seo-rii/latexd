@@ -1,0 +1,10 @@
+\ProvidesPackage{shim}[2024/01/01]
+\newlength{\shimlen}
+\setlength{\shimlen}{2pt}
+\DeclareOption{unicode}{\addtolength{\shimlen}{1.5pt}}
+\makeatletter
+\newdimen\shimraw
+\shimraw=0.5pt
+\ProcessOptions\relax
+\edef\shimlengths{\the\shimlen|\the\shimraw}
+\makeatother

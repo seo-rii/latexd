@@ -1,0 +1,15 @@
+\tableofcontents
+\bibliographystyle
+\bibliography
+\newtheorem
+\defcitealias
+\citetalias
+\citepalias
+\Citetalias
+\citefullauthor
+\Citefullauthor
+\Citeyearpar
+\citenum
+\section[
+\begin{thebibliography}
+\end{thebibliography}

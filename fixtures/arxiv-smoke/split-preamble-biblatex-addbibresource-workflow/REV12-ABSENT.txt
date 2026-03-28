@@ -1,0 +1,11 @@
+\tableofcontents
+\bibliographystyle
+\bibliography
+\addbibresource
+\printbibliography
+\newtheorem
+\textcite
+\parencite
+\section[
+\begin{thebibliography}
+\end{thebibliography}

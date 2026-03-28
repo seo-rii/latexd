@@ -1,0 +1,3 @@
+stage="compile"
+subject_kind="command"
+surface_kind="internal-diagnostic"

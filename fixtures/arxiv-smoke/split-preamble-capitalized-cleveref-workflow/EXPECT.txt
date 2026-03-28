@@ -1,0 +1,7 @@
+wrapperarticletwocolumnhyperrefhyperxmp
+1 Intro .... 1
+1.1 Detail .... 1
+1.2 Boundary .... 1
+Theorem 1.
+Lemma 1.
+See Subsections 1.1 to 1.2, Paragraphs, and theorem; lemma.

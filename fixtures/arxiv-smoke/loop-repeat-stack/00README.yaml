@@ -1,0 +1,2 @@
+name: loop-repeat-stack
+summary: Wrapper class/package preamble uses plain `\loop...\repeat` under an option-forwarding stack.

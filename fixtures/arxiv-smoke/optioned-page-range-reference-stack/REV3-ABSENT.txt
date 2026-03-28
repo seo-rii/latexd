@@ -1,0 +1,4 @@
+\pagerefrange
+\vpagerefrange
+\vrefrange
+\cpagerefrange

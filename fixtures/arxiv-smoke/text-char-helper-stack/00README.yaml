@@ -1,0 +1,2 @@
+name: text-char-helper-stack
+summary: Wrapper class/package preamble uses builtin text helper macros under an option-forwarding stack.

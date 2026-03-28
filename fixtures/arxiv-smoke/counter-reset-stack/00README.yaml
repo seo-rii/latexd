@@ -1,0 +1,2 @@
+name: counter-reset-stack
+summary: Wrapper class/package preamble uses `\makeatletter`-scoped `\@addtoreset` so `\stepcounter` and `\refstepcounter` reset child `\newcount\c@...` counters under an option-forwarding stack.

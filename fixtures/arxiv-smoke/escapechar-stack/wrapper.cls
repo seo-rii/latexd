@@ -1,0 +1,9 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\PassOptionsToPackage{unicode}{shim}
+\escapechar=`\#
+\edef\wrapperflag{[\string\wrapperplain][\detokenize{\wrapperplain}]}
+\DeclareOption{twocolumn}{\escapechar=`\!\edef\wrapperflag{[\string\wrappertwo][\detokenize{\wrappertwo}]}}
+\ProcessOptions\relax
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

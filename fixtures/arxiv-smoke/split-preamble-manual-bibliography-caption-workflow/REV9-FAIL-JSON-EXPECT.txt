@@ -1,0 +1,3 @@
+stage="semantic-aux-scan"
+subject_kind="input"
+surface_kind="direct"

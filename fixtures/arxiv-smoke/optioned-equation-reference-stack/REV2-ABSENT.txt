@@ -1,0 +1,6 @@
+\eqref
+\autoref
+\cref
+\namecref
+\vref
+\crefrange

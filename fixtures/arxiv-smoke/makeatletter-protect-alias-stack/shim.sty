@@ -1,0 +1,10 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimmode{plain}
+\DeclareOption{unicode}{\def\shimmode{unicode}}
+\ProcessOptions\relax
+\makeatletter
+\def\shimseed{shim-\shimmode}
+\edef\shimdeferred{\@unexpandable@protect\shimseed}
+{\def\shimseed{shim-local-\shimmode}\xdef\shimxdeferred{\@unexpandable@protect\shimseed}}
+\def\shimseed{shimmutated-\shimmode}
+\makeatother

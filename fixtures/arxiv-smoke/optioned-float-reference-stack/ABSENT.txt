@@ -1,0 +1,4 @@
+\autoref
+\cref
+\namecref
+\vref

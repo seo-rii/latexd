@@ -1,0 +1,2 @@
+name: meaning-stack
+summary: Wrapper class/package preamble uses `\meaning` under an option-forwarding stack.

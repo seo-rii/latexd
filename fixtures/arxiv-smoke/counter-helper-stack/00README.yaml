@@ -1,0 +1,2 @@
+name: counter-helper-stack
+summary: Wrapper class/package preamble uses `\advance`, scratch counter aliases, and low-level numeric constant macros under an option-forwarding stack.

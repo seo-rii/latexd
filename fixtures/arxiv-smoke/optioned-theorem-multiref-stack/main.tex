@@ -1,0 +1,13 @@
+\documentclass[twocolumn,unicode]{wrapper}
+\begin{document}
+\wrapperclass\articleclass\layoutmode\hypermode
+\newtheorem{oblemma}{Observation Lemma}
+\section{Intro}
+\begin{oblemma}\label{obs:first}
+a
+\end{oblemma}
+\begin{oblemma}[Second]\label{obs:second}
+b
+\end{oblemma}
+See \autoref{obs:first}, \cref{obs:first,obs:second}, \namecrefs{obs:first,obs:second}, and \nameref{obs:second}.
+\end{document}

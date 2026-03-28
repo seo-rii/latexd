@@ -1,0 +1,2 @@
+name: counter-command-stack
+summary: Wrapper class/package preamble uses `\setcounter`, `\addtocounter`, `\stepcounter`, and `\value` on `\newcount\c@...` registers under an option-forwarding stack.

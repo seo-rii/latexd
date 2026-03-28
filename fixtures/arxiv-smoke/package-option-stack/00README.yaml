@@ -1,0 +1,8 @@
+compiler: pdf_latex
+sources:
+  - path: main.tex
+    usage: toplevel
+  - driver.sty
+  - shim.sty
+toplevel:
+  - main.tex

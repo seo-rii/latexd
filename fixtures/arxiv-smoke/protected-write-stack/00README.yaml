@@ -1,0 +1,2 @@
+name: protected-write-stack
+summary: Wrapper class/package stack uses makeatletter-scoped `\protected@write` without leaking aux-write payload into visible output, even across a later option-only revision.

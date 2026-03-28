@@ -1,0 +1,8 @@
+compiler: pdf_latex
+sources:
+  - path: main.tex
+    usage: toplevel
+  - refsa.bbl
+  - refsb.bbl
+toplevel:
+  - main.tex

@@ -1,0 +1,2 @@
+name: version-guard-preamble-stack
+summary: Wrapper class/package preamble uses IfClassAtLeastTF and IfPackageAtLeastTF against provided dates.

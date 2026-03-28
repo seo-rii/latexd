@@ -1,0 +1,8 @@
+\ProvidesPackage{shim}[2024/01/01]
+\makeatletter
+\@tempcntb=\@ne
+\multiply\@tempcntb by \tw@
+\DeclareOption{unicode}{\divide\@tempcntb by \tw@}
+\ProcessOptions\relax
+\ifnum\@tempcntb=\@ne\def\shimquotient{shim-quotient}\else\def\shimquotient{shim-bad}\fi
+\makeatother

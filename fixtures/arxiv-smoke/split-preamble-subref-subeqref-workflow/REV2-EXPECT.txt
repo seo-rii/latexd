@@ -1,0 +1,4 @@
+wrapperarticletwocolumnhyperrefhyperxmp
+Figure 1: Lead Figure
+Figure 2: Panel Figure
+See 2 and (2).

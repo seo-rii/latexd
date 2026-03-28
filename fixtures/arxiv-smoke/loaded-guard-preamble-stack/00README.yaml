@@ -1,0 +1,2 @@
+name: loaded-guard-preamble-stack
+summary: Wrapper class/package preamble uses IfClassLoadedTF and IfPackageLoadedTF without leaking into output.

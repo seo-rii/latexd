@@ -1,0 +1,2 @@
+internal compiler reported diagnostics
+newcommand \guarded already defined

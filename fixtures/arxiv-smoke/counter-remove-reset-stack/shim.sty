@@ -1,0 +1,12 @@
+\ProvidesPackage{shim}[2024/01/01]
+\makeatletter
+\newcount\c@shimparent
+\newcount\c@shimchild
+\@addtoreset{shimchild}{shimparent}
+\@removefromreset{shimchild}{shimparent}
+\c@shimparent=1
+\c@shimchild=4
+\makeatother
+\DeclareOption{unicode}{\refstepcounter{shimparent}}
+\ProcessOptions\relax
+\edef\shimcount{\value{shimparent}/\value{shimchild}}

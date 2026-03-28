@@ -1,0 +1,6 @@
+\subref
+\subeqref
+\begin{equation}
+\end{equation}
+\begin{figure}
+\end{figure}

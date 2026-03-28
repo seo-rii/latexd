@@ -1,0 +1,4 @@
+\ProvidesPackage{shim}[2024/01/01]
+\makeatletter\filename@parse{cfgs/shim.cfg}\edef\shimpath{\filename@area\filename@base\filename@ext}\makeatother
+\DeclareOption{unicode}{\def\shimstate{unicode}}
+\ProcessOptions\relax

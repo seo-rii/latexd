@@ -1,0 +1,9 @@
+\tableofcontents
+\bibliographystyle
+\bibliography
+\newtheorem
+\supercite
+\supercites
+\section[
+\begin{thebibliography}
+\end{thebibliography}

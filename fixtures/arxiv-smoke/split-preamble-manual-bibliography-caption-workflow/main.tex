@@ -1,0 +1,13 @@
+\documentclass[twocolumn,unicode]{wrapper}
+\input{preamble/setup}
+\addbibresource{refs-a.bib}
+\addbibresource{refs-b.bib}
+\begin{document}
+\tableofcontents
+\listoffigures
+\wrapperclass\articleclass\layoutmode\hyperdriver\hyperxmploaded\shimready
+\input{sections/frontmatter}
+\input{sections/intro}
+See \cref{sec:intro}, \autoref{fig:workflow}, and \autoref{sec:proof}; compare \textcite{alpha} and \parencite[see][pp.~1--2]{beta}.
+\printbibliography[heading=bibintoc,title={References}]
+\end{document}

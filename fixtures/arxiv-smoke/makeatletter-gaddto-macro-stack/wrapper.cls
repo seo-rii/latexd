@@ -1,0 +1,10 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\PassOptionsToPackage{unicode}{shim}
+\makeatletter
+\def\wrapperhook{wrapper}
+{\g@addto@macro\wrapperhook{A}}
+\g@addto@macro\wrapperhook{B}
+\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

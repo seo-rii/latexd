@@ -1,0 +1,2 @@
+name: makeatletter-nextchar-star-stack
+summary: Wrapper class/package preamble uses makeatletter-scoped @ifnextchar/@ifstar helpers under an option-forwarding stack.

@@ -1,0 +1,7 @@
+build-meta.json::aux_sensitive=true
+build-meta.json::dirty_files.0="main.tex"
+build-meta.json::semantic_aux_backdated=false
+semantic-index.json::bibliography_inputs.0="refs-b.bbl"
+semantic-index.json::bibliography_inputs.1="refs-a.bbl"
+semantic-index.json::bibliography_style="abbrvnat"
+semantic-index.json::bibliography_style="abbrvnat"

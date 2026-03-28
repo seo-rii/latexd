@@ -1,0 +1,11 @@
+main.tex::See Section 1, Figure 1, and Observation Lemma A; compare Alpha (2026) and (see Beta et al., 2023, pp.~1--2).
+sections/frontmatter.tex::Opening Notes
+sections/intro.tex::Observation Lemma 1.1 (Split Workflow Result).
+sections/intro.tex::Figure 1: Workflow Figure
+sections/intro.tex::See Split Workflow Result and Workflow Figure.
+sections/intro.tex::Observation Lemma A.1 (Appendix Result).
+sections/intro.tex::See Figure 1, Observation Lemma A.1, and Appendix Result.
+refs-a.bbl::Alpha final entry.
+main.tex::\input{sections/related}
+sections/related.tex::Related Work
+sections/related.tex::See Alpha (2026); compare Alpha (2026) and (see Beta et al., 2023, pp.~1--2).

@@ -1,0 +1,13 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\PassOptionsToPackage{unicode}{shim}
+\makeatletter
+\newcount\c@wrapperdemo
+\c@wrapperdemo=1
+\makeatother
+\DeclareOption{twocolumn}{\PassOptionsToClass{\CurrentOption}{article}\setcounter{wrapperdemo}{2}}
+\DeclareOption*{\PassOptionsToClass{\CurrentOption}{article}}
+\ProcessOptions\relax
+\addtocounter{wrapperdemo}{3}
+\edef\wrappercount{\value{wrapperdemo}}
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

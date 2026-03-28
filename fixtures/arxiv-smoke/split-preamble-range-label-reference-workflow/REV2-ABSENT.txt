@@ -1,0 +1,6 @@
+\pagerefrange
+\vpagerefrange
+\vrefrange
+\cpagerefrange
+\labelcref
+\labelcpageref

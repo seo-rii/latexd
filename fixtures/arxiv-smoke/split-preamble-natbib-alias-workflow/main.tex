@@ -1,0 +1,10 @@
+\documentclass[twocolumn,unicode]{wrapper}
+\input{preamble/setup}
+\bibliographystyle{plainnat}
+\bibliography{refs-a,refs-b}
+\begin{document}
+\tableofcontents
+\wrapperclass\articleclass\layoutmode\hyperdriver\hyperxmploaded\shimready
+\input{sections/intro}
+\defcitealias{alpha}{Paper I}See \cref{sec:intro}, \citetalias{alpha}, \citepalias{alpha}, \Citetalias{alpha}, \citefullauthor{alpha}, \Citefullauthor*{beta} in \Citeyearpar{alpha}, and \citenum{alpha,beta}.
+\end{document}

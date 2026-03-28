@@ -1,0 +1,8 @@
+\eqref
+\autoref
+\cref
+\namecref
+\vref
+\crefrange
+\begin{equation}
+\end{equation}

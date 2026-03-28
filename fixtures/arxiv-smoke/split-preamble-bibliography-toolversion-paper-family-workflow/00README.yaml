@@ -1,0 +1,25 @@
+compiler: pdf_latex
+summary: Wrapper-heavy paper-family fixture with split preamble, bibliography style/input/order drift, and explicit toolchain-version metadata churn.
+sources:
+  - path: main.tex
+    usage: toplevel
+  - article.cls
+  - profile.cls
+  - preamble/toolchain.tex
+  - shim.sty
+  - shim.cfg
+  - shim.def
+  - wrapper.cls
+  - hyperref.sty
+  - hyperxmp.sty
+  - cleveref.sty
+  - preamble/setup.tex
+  - preamble/core.tex
+  - preamble/macros.tex
+  - preamble/theorems.tex
+  - sections/frontmatter.tex
+  - sections/intro.tex
+  - refs-a.bbl
+  - refs-b.bbl
+toplevel:
+  - main.tex

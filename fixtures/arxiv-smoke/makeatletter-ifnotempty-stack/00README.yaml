@@ -1,0 +1,2 @@
+name: makeatletter-ifnotempty-stack
+summary: Wrapper class/package preamble uses makeatletter-scoped @ifnotempty helper under an option-forwarding stack.

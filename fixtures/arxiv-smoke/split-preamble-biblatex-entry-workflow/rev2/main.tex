@@ -1,0 +1,10 @@
+\documentclass[unicode]{wrapper}
+\input{preamble/setup}
+\bibliographystyle{plainnat}
+\bibliography{refs-a,refs-b}
+\begin{document}
+\tableofcontents
+\wrapperclass\articleclass\layoutmode\hyperdriver\hyperxmploaded\shimready
+\input{sections/intro}
+See \cref{sec:intro}. \smartcite{alpha} and \smartcites[see][chap.~2]{alpha}[cf.][pp.~1--2]{beta}. \fullcite{alpha} and \bibentry{beta}.
+\end{document}

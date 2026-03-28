@@ -1,0 +1,17 @@
+\tableofcontents
+\listoffigures
+\addbibresource
+\printbibliography
+\phantomsection
+\addcontentsline
+\newtheorem
+\textcite
+\parencite
+\appendices
+\autoref
+\nameref
+\begin{figure}
+\end{figure}
+\section[
+\begin{thebibliography}
+\end{thebibliography}

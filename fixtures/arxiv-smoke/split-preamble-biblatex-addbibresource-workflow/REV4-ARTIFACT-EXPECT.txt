@@ -1,0 +1,11 @@
+aux.json
+semantic.aux
+semantic-index.json
+build-meta.json
+semantic.aux::\newlabel{7365633a696e74726f}
+semantic.aux::\newlabel{6f62733a6d61696e}
+semantic.aux::\citation{616c706861,62657461}
+semantic.aux::\bibdata{726566732d612e62626c,726566732d622e62626c}
+semantic.aux::\bibcite{616c706861}{416c7068612032303235}
+semantic.aux::\bibcite{62657461}
+semantic.aux::\@writefile{toc}

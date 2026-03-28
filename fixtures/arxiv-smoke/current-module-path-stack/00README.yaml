@@ -1,0 +1,2 @@
+name: current-module-path-stack
+summary: Wrapper class/package preamble captures `\@currpath` under an option-forwarding stack.

@@ -1,0 +1,2 @@
+name: endlinechar-stack
+summary: Wrapper class/package preamble uses plain `\endlinechar` to control the suffix appended by `\read ... to ...` and `\readline ... to ...` under an option-forwarding stack.

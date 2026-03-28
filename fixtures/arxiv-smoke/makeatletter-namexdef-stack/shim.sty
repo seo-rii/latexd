@@ -1,0 +1,10 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimmode{shim-plain}
+\DeclareOption{unicode}{\def\shimmode{shim-unicode}}
+\ProcessOptions\relax
+\makeatletter
+{\def\shimseed{seed-\shimmode}\@namexdef{shimhook}{\shimseed}}
+\def\shimseed{mutated-\shimmode}
+\def\packageguard{\@nameuse{shimhook}}
+\makeatother
+\def\shimready{shim-ready}

@@ -1,0 +1,2 @@
+name: makeatletter-input-stack
+summary: Wrapper package uses `\makeatletter`-scoped `\@input` to load an optional local config file under an option-forwarding stack.

@@ -1,0 +1,4 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimflag{unicode}
+\def\shimprobe{\futurelet\shimnext\shimprobeaux}
+\def\shimprobeaux{\ifx\shimnext[BRACKET\else PLAIN\fi}

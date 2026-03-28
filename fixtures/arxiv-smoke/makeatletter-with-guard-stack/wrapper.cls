@@ -1,0 +1,10 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\DeclareOption*{\PassOptionsToPackage{\CurrentOption}{hyperref}}
+\ProcessOptions\relax
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{hyperref}
+\makeatletter
+\@ifclasswith{article}{twocolumn}{\def\classwith{class-twocolumn}}{\def\classwith{class-onecolumn}}
+\@ifpackagewith{hyperref}{unicode}{\def\packagewith{package-unicode}}{\def\packagewith{package-plain}}
+\makeatother

@@ -1,0 +1,13 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\PassOptionsToPackage{unicode}{shim}
+\newif\ifwrappertwocolumn
+\DeclareOption{twocolumn}{\wrappertwocolumntrue}
+\ProcessOptions\relax
+\ifwrappertwocolumn
+  \def\wrapperflag{wrapper-two}
+\else
+  \def\wrapperflag{wrapper-one}
+\fi
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

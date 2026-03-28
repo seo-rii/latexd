@@ -1,0 +1,2 @@
+name: the-stack
+summary: Wrapper class/package preamble uses `\the` on count registers under an option-forwarding stack.

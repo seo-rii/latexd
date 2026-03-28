@@ -1,0 +1,2 @@
+name: explicit-grouping-stack
+summary: Wrapper class/package preamble uses explicit begingroup/endgroup and bgroup/egroup helpers under an option-forwarding stack.

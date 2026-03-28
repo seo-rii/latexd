@@ -1,0 +1,11 @@
+\tableofcontents
+\bibliographystyle
+\bibliography
+\newtheorem
+\citedate
+\Citedate
+\citeurldate
+\Citeurldate
+\section[
+\begin{thebibliography}
+\end{thebibliography}

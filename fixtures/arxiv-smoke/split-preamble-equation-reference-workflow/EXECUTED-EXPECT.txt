@@ -1,0 +1,1 @@
+sections/intro.tex::See (1), Equation 1, Equations 1, 2, equation, equation 1 on page 1, and Equations 1 to 2.

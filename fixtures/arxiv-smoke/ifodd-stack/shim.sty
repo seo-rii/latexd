@@ -1,0 +1,7 @@
+\ProvidesPackage{shim}[2024/01/01]
+\newcount\shimcount
+\shimcount=2
+\DeclareOption{unicode}{\advance\shimcount by 1}
+\ProcessOptions\relax
+\ifodd\shimcount\def\shimguard{shim-odd}\else\def\shimguard{shim-even}\fi
+\edef\shimtail{shim-tail-\number\shimcount}

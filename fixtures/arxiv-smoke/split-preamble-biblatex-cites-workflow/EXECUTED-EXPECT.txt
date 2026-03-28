@@ -1,0 +1,3 @@
+main.tex::\input{refs.bbl}
+main.tex::See Section 1, Split Preamble Result, [see 1, chap.~2; cf. 2, pp.~1--2] and [1; 2].
+sections/intro.tex::Observation Lemma 1.1 (Split Preamble Result).

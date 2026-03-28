@@ -1,0 +1,7 @@
+Short Intro .... 1
+wrapperarticletwocolumnunicode
+Long Introduction
+Observation Lemma 1.1 (Stacked Option Result).
+See Stacked Option Result and Alpha (2025).
+References .... 1
+[1] Alpha revised entry.

@@ -1,0 +1,11 @@
+\tableofcontents
+\bibliographystyle
+\bibliography
+\newtheorem
+\citeauthor
+\citeyearpar
+\citep
+\section[
+\begin{thebibliography}
+\end{thebibliography}
+\input{refs-b.bbl}

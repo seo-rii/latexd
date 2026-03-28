@@ -1,0 +1,10 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimunicode{plain}
+\DeclareOption{unicode}{\def\shimunicode{unicode}}
+\ProcessOptions\relax
+\makeatletter
+\def\shimlist{}
+\@cons\shimlist{P}
+\@cons\shimlist{{KG}}
+\@removeelement{y}{x,y,z}\shimfiltered
+\makeatother

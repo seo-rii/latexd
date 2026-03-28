@@ -1,0 +1,10 @@
+\tableofcontents
+\bibliographystyle
+\bibliography
+\newtheorem
+\Citeauthor
+\Citeyear
+\Citetitle
+\section[
+\begin{thebibliography}
+\end{thebibliography}

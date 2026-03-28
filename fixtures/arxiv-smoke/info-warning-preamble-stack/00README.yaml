@@ -1,0 +1,2 @@
+name: info-warning-preamble-stack
+summary: Wrapper class/package preamble uses PackageInfoNoLine/ClassInfoNoLine and warning helpers without leaking into output.

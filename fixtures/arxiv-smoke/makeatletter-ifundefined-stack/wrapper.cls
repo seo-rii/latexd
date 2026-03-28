@@ -1,0 +1,9 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\PassOptionsToPackage{unicode}{shim}
+\makeatletter
+\@ifundefined{wrapperhook}{\def\wrapperguard{wrapper-missing}}{\def\wrapperguard{wrapper-defined}}
+\def\wrapperhook{hook}
+\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

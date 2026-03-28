@@ -1,0 +1,7 @@
+wrapperarticleonecolumnhyperrefhyperxmpshim-ready
+Short Intro .... 1
+Long Introduction
+Observation Lemma 1.1 (Split Workflow Result).
+See Split Workflow Result.
+See Section 1, see Alpha (2025, chap.~2), (Alpha, 2025), e.g. beta, beta, beta, and (compare beta with (2025)).
+[1] Alpha revised entry.

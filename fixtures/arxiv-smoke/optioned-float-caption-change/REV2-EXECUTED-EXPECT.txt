@@ -1,0 +1,2 @@
+sections/intro.tex::Figure 1: Long Figure Title Updated
+sections/intro.tex::See Long Figure Title Updated. Figure 1.

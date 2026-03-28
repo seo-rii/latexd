@@ -1,0 +1,9 @@
+\ProvidesPackage{shim}[2024/01/01 Shim package fixture]
+\def\shimstate{plain}
+\def\pkgwriteprefix{PACKAGE}
+\DeclareOption{unicode}{\def\shimstate{unicode}}
+\ProcessOptions\relax
+\newwrite\pkgstream
+\openout\pkgstream={\jobname.pkgaux}
+\write\pkgstream{\pkgwriteprefix-WRITE-\shimstate-\jobname}
+\closeout\pkgstream

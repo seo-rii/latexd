@@ -1,0 +1,9 @@
+compiler: pdf_latex
+sources:
+  - path: main.tex
+    usage: toplevel
+  - article.cls
+  - wrapper.sty
+  - hyperref.sty
+toplevel:
+  - main.tex

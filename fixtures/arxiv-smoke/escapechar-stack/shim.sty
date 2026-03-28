@@ -1,0 +1,5 @@
+\ProvidesPackage{shim}[2024/01/01]
+\escapechar=-1
+\edef\shimflag{[\string\shimplain][\detokenize{\shimplain}]}
+\DeclareOption{unicode}{\escapechar=`\?\edef\shimflag{[\string\shimunicode][\detokenize{\shimunicode}]}}
+\ProcessOptions\relax

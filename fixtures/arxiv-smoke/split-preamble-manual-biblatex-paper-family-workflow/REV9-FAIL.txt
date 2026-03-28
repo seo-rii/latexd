@@ -1,0 +1,2 @@
+failed to scan semantic aux inputs
+preamble/theorems.tex

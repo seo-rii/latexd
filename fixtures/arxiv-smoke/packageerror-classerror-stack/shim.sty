@@ -1,0 +1,4 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimready{shim-ready}
+\DeclareOption{brokenpkg}{\PackageError{shim}{package failure}{remove brokenpkg}}
+\ProcessOptions\relax

@@ -1,0 +1,30 @@
+main.tex::\input{sections/related}
+main.tex::\input{sections/appendix}
+main.tex::\input{refs-a.bbl}
+main.tex::\input{refs-b.bbl}
+main.tex::See Section 1 (Long Introduction), Observation Lemma 1.1 (Split Workflow Result), Detail, Split Workflow Consequence
+main.tex::section, Subsection, section; subsection, observation lemma
+main.tex::page 1, Page 1, page 1, section 1 on page 1
+main.tex::Observation lemma 1.1 on page 1
+main.tex::compare Alpha (2024) and (see Beta et al., 2023, pp.~1--2).
+sections/frontmatter.tex::Prelude
+sections/intro.tex::Observation Lemma 1.1 (Split Workflow Result).
+sections/intro.tex::Observation Corollary 1.2 (Split Workflow Consequence).
+sections/intro.tex::Figure 1: Workflow Figure
+sections/intro.tex::Figure 2: Captionof Figure
+sections/intro.tex::See Split Workflow Result, Split Workflow Consequence, Workflow Figure, and Captionof Figure.
+sections/intro.tex::Equations 1 to 3, 1, (1), and 1, 1
+sections/intro.tex::See Section 1 (Long Introduction), Observation Lemma 1.1 (Split Workflow Result), Detail, Split Workflow Consequence
+sections/intro.tex::section, Subsection, section; subsection, observation lemma
+sections/intro.tex::page 1, Page 1, page 1, section 1 on page 1
+sections/intro.tex::Observation lemma 1.1 on page 1
+sections/related.tex::Observation Lemma 2.1 (Related Claim).
+sections/related.tex::Observation Corollary 2.2 (Related Consequence).
+sections/related.tex::Figure 3: Related Figure
+sections/related.tex::See Section 2 (Related Work), Observation Lemma 2.1 (Related Claim), Range Window, Related Consequence
+sections/related.tex::Observation lemma 2.1 on page 1
+sections/related.tex::Observation Lemmas 1.1 to 2.1, Pages 1 to 1, Section 1 on page 1 to section 2 on page 1
+sections/related.tex::and 1, 1.
+sections/appendix.tex::Observation Lemma A.1 (Appendix Result).
+sections/appendix.tex::Observation Corollary A.2 (Appendix Consequence).
+sections/appendix.tex::See Figure 1, Figure 2, Figure 3, Observation Lemma A.1; Observation Corollary A.2, and Appendix Result.

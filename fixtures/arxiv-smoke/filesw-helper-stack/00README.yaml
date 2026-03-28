@@ -1,0 +1,2 @@
+name: filesw-helper-stack
+summary: Wrapper class/package preamble uses `\if@filesw` and `\nofiles` under an option-forwarding stack.

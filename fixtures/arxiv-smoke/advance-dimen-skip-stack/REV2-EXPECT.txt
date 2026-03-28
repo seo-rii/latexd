@@ -1,0 +1,1 @@
+wrapperarticleonecolumn[1pt][2.25pt]

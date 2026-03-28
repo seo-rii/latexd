@@ -1,0 +1,5 @@
+\ProvidesPackage{shim}[2024/01/01]
+\def\shimstate{plain}
+\DeclareOption{unicode}{\def\shimstate{unicode}}
+\ProcessOptions\relax
+\renewcommand{\guarded}{pkg-\shimstate}

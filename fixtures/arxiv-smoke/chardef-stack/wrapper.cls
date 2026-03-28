@@ -1,0 +1,14 @@
+\ProvidesClass{wrapper}[2024/01/01]
+\def\wrapperclass{wrapper}
+\def\layoutmode{onecolumn}
+\PassOptionsToPackage{unicode}{shim}
+\makeatletter
+\chardef\wrapperflag=`P
+\DeclareOption{twocolumn}{\def\layoutmode{twocolumn}\chardef\wrapperflag=`T}
+\ProcessOptions\relax
+\ifnum\wrapperflag=`T\def\wrappermark{wrapper-two}\else\def\wrappermark{wrapper-plain}\fi
+\edef\wrappercaptured{\wrapperflag}
+\edef\wrappercode{\number\wrapperflag}
+\makeatother
+\LoadClassWithOptions{article}
+\RequirePackageWithOptions{shim}

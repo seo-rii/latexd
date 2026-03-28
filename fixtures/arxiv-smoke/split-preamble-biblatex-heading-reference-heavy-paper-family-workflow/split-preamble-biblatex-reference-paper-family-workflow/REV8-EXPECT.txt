@@ -1,0 +1,37 @@
+wrapperarticleonecolumnhyperrefhyperxmpshim-ready
+Opening Notes .... 1
+Short Intro .... 1
+1.1 Detail .... 1
+2 Related Short .... 1
+2.1 Range Window .... 1
+A Proof Notes .... 1
+Works Cited .... 1
+1 Workflow Short .... 1
+2 Captionof Short .... 1
+3 Related Short .... 1
+Long Introduction
+Observation Lemma 1.1 (Split Workflow Result).
+Observation Corollary 1.2 (Split Workflow Consequence).
+Figure 1: Workflow Figure
+Figure 2: Captionof Figure
+See Split Workflow Result, Split Workflow Consequence, Workflow Figure, and Captionof Figure.
+See Section 1 (Long Introduction), Observation Lemma 1.1 (Split Workflow Result), Detail, Split Workflow Consequence
+section, Subsection, section; subsection, observation lemma
+page 1, Page 1, page 1, section 1 on page 1
+Observation lemma 1.1 on page 1
+Equations 1 to 3, 1, (1), and 1, 1
+Related Work
+Observation Lemma 2.1 (Related Claim).
+Observation Corollary 2.2 (Related Consequence).
+Figure 3: Related Figure
+See Section 2 (Related Work), Observation Lemma 2.1 (Related Claim), Range Window, Related Consequence
+Observation lemma 2.1 on page 1
+Observation Lemmas 1.1 to 2.1, Pages 1 to 1, Section 1 on page 1 to section 2 on page 1
+and 1, 1.
+Proofs and Details
+Observation Lemma A.1 (Appendix Result).
+Observation Corollary A.2 (Appendix Consequence).
+See Figure 1, Figure 2, Figure 3, Observation Lemma A.1; Observation Corollary A.2, and Appendix Result.
+compare Alpha (2025) and (see Beta et al., 2023, pp.~1--2).
+[1] Beta entry.
+[2] Alpha revised entry.
