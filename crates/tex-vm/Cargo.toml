@@ -1,0 +1,15 @@
+[package]
+name = "tex-vm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+camino.workspace = true
+serde.workspace = true
+tex-lexer = { path = "../tex-lexer" }
+tex-tokens = { path = "../tex-tokens" }
+tex-world = { path = "../tex-world" }
+
+[dev-dependencies]
+serde_json.workspace = true

@@ -1,0 +1,10537 @@
+use std::{
+    collections::{BTreeMap, HashMap, HashSet, VecDeque},
+    fs, mem,
+};
+
+use camino::{Utf8Path, Utf8PathBuf};
+use serde::{Deserialize, Serialize};
+use tex_lexer::lex_plain;
+use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
+use tex_world::normalize_relative_path;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmOutcome {
+    pub output: String,
+    pub registers: BTreeMap<u32, i32>,
+    pub transcript: Vec<String>,
+    pub diagnostics: Vec<VmDiagnostic>,
+    pub loaded_modules: Vec<Utf8PathBuf>,
+    pub module_traces: Vec<VmModuleTrace>,
+    pub module_checkpoints: Vec<VmModuleCheckpoint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmModuleTrace {
+    pub path: Utf8PathBuf,
+    pub source_start_utf8: u32,
+    pub source_end_utf8: u32,
+    pub output_start_utf8: u32,
+    pub output_end_utf8: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmReplayFrame {
+    pub path: Utf8PathBuf,
+    pub source_offset_utf8: u32,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VmModuleCheckpointKind {
+    #[default]
+    Enter,
+    Exit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmModuleCheckpoint {
+    pub kind: VmModuleCheckpointKind,
+    pub module_path: Utf8PathBuf,
+    pub resume_path: Option<Utf8PathBuf>,
+    pub source_offset_utf8: u32,
+    pub continuation_stack: Vec<VmReplayFrame>,
+    pub output_start_utf8: u32,
+    pub snapshot: VmSnapshot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VmDiagnostic {
+    pub kind: VmDiagnosticKind,
+    pub detail: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VmDiagnosticKind {
+    UndefinedControlSequence,
+    MissingFile,
+    ExplicitError,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Meaning {
+    Macro(MacroDefinition),
+    Primitive(Primitive),
+    Token(Token),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MacroDefinition {
+    parameter_count: u8,
+    optional_first_argument_default: Option<Vec<Token>>,
+    body: Vec<Token>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Primitive {
+    Relax,
+    Def,
+    GlobalDef,
+    ExpandedDef,
+    GlobalExpandedDef,
+    Let,
+    FutureLet,
+    String,
+    Immediate,
+    Protect,
+    NewRead,
+    OpenIn,
+    CloseIn,
+    Read,
+    ReadLine,
+    NewWrite,
+    OpenOut,
+    CloseOut,
+    Write,
+    ProtectedWrite,
+    IgnoreSpaces,
+    JobName,
+    CurrentModuleName,
+    CurrentModuleExt,
+    CurrentModulePath,
+    FilenameParse,
+    Meaning,
+    Detokenize,
+    StripPrefix,
+    Uppercase,
+    Lowercase,
+    ExpandAfter,
+    ExpandedTokens,
+    Unexpanded,
+    CsName,
+    EndCsName,
+    BeginGroupCommand,
+    EndGroupCommand,
+    AfterGroup,
+    AfterAssignment,
+    Long,
+    Protected,
+    Outer,
+    Global,
+    Unless,
+    MakeAtLetter,
+    MakeAtOther,
+    IfTrue,
+    IfFalse,
+    NewIf,
+    CharDef,
+    NeedsTeXFormat,
+    ProvidesFile,
+    ProvidesPackage,
+    ProvidesClass,
+    DocumentClass,
+    LoadClass,
+    LoadClassWithOptions,
+    RequirePackage,
+    UsePackage,
+    RequirePackageWithOptions,
+    PassOptionsToClass,
+    PassOptionsToPackage,
+    DeclareOption,
+    ExecuteOptions,
+    ProcessOptions,
+    AtBeginDocument,
+    AtEndDocument,
+    AtEndOfPackage,
+    AtEndOfClass,
+    Message,
+    Typeout,
+    WriteLog,
+    NewCount,
+    CountDef,
+    NewDimen,
+    DimenDef,
+    NewSkip,
+    SkipDef,
+    SetCounter,
+    AddToCounter,
+    StepCounter,
+    RefStepCounter,
+    AddToReset,
+    RemoveFromReset,
+    NewLength,
+    SetLength,
+    AddToLength,
+    NewToks,
+    ToksDef,
+    NewCommand,
+    DeclareRobustCommand,
+    RenewCommand,
+    ProvideCommand,
+    PackageInfo,
+    PackageInfoNoLine,
+    ClassInfo,
+    ClassInfoNoLine,
+    PackageWarning,
+    PackageWarningNoLine,
+    ClassWarning,
+    ClassWarningNoLine,
+    PackageError,
+    ClassError,
+    GenericInfo,
+    GenericWarning,
+    GenericError,
+    ErrMessage,
+    LatexInfo,
+    LatexWarning,
+    LatexWarningNoLine,
+    LatexError,
+    IfPackageLoadedTF,
+    IfClassLoadedTF,
+    IfPackageAtLeastTF,
+    IfClassAtLeastTF,
+    IfPackageLater,
+    IfClassLater,
+    IfPackageWith,
+    IfClassWith,
+    IfEof,
+    IfFileExists,
+    InputIfFileExists,
+    AtInput,
+    OnlyPreamble,
+    OneLevelSanitize,
+    BspHack,
+    Esphack,
+    InAt,
+    IfInAt,
+    TempSwaTrue,
+    TempSwaFalse,
+    IfTempSwa,
+    FileswTrue,
+    FileswFalse,
+    IfFilesw,
+    NoFiles,
+    Loop,
+    For,
+    WhileNum,
+    WhileSw,
+    IfCsName,
+    IfDefined,
+    IfUndefined,
+    IfDefinable,
+    IfNextChar,
+    IfStar,
+    IfEmpty,
+    IfNotEmpty,
+    IfMtArg,
+    IfNotMtArg,
+    TestOpt,
+    DblArg,
+    Car,
+    Cdr,
+    TFor,
+    Cons,
+    RemoveElement,
+    ThirdOfThree,
+    ExpandTwoArgs,
+    ZapSpace,
+    FirstOfOne,
+    Iden,
+    FirstOfTwo,
+    SecondOfTwo,
+    Gobble,
+    GobbleTwo,
+    GobbleThree,
+    GobbleFour,
+    GAddToMacro,
+    NameDef,
+    NameXDef,
+    NameUse,
+    Advance,
+    Multiply,
+    Divide,
+    IfChar,
+    IfOdd,
+    IfCat,
+    IfCase,
+    IfX,
+    IfNum,
+    IfDim,
+    Else,
+    Fi,
+    Count,
+    Dimen,
+    Skip,
+    Toks,
+    Value,
+    The,
+    Number,
+    RomanNumeral,
+    CounterArabic,
+    CounterRoman,
+    CounterRomanUpper,
+    CounterAlph,
+    CounterAlphUpper,
+    EndInput,
+    Input,
+    Include,
+    IncludeOnly,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct VmSnapshot {
+    pub scopes: Vec<HashMap<String, SnapshotMeaning>>,
+    pub registers: BTreeMap<u32, i32>,
+    #[serde(default)]
+    pub dimen_registers: BTreeMap<u32, i32>,
+    #[serde(default)]
+    pub skip_registers: BTreeMap<u32, i32>,
+    #[serde(default)]
+    pub token_registers: BTreeMap<u32, Vec<SnapshotToken>>,
+    #[serde(default = "default_next_count_register")]
+    pub next_count_register: u32,
+    #[serde(default = "default_next_dimen_register")]
+    pub next_dimen_register: u32,
+    #[serde(default = "default_next_skip_register")]
+    pub next_skip_register: u32,
+    #[serde(default = "default_next_toks_register")]
+    pub next_toks_register: u32,
+    #[serde(default = "default_next_read_stream")]
+    pub next_read_stream: u32,
+    #[serde(default = "default_next_write_stream")]
+    pub next_write_stream: u32,
+    pub loaded_modules: Vec<Utf8PathBuf>,
+    pub include_only: Option<Vec<Utf8PathBuf>>,
+    #[serde(default)]
+    pub aftergroup_tokens: Vec<Vec<SnapshotToken>>,
+    #[serde(default)]
+    pub after_assignment_token: Option<SnapshotToken>,
+    #[serde(default)]
+    pub at_end_document_hooks: Vec<Vec<SnapshotToken>>,
+    #[serde(default)]
+    pub tempswa: bool,
+    #[serde(default = "default_filesw")]
+    pub filesw: bool,
+    #[serde(default)]
+    pub in_at: bool,
+    #[serde(default)]
+    pub negate_next_conditional: bool,
+    #[serde(default)]
+    pub provided_files: BTreeMap<Utf8PathBuf, String>,
+    #[serde(default)]
+    pub provided_packages: BTreeMap<Utf8PathBuf, String>,
+    #[serde(default)]
+    pub provided_classes: BTreeMap<Utf8PathBuf, String>,
+    #[serde(default)]
+    pub loaded_package_options: BTreeMap<Utf8PathBuf, Vec<String>>,
+    #[serde(default)]
+    pub loaded_class_options: BTreeMap<Utf8PathBuf, Vec<String>>,
+    #[serde(default)]
+    pub pending_package_options: BTreeMap<Utf8PathBuf, Vec<String>>,
+    #[serde(default)]
+    pub pending_class_options: BTreeMap<Utf8PathBuf, Vec<String>>,
+    #[serde(default)]
+    pub counter_resets: BTreeMap<String, Vec<String>>,
+    #[serde(default)]
+    pub read_stream_lines: BTreeMap<u32, Vec<String>>,
+    #[serde(default)]
+    pub read_stream_eof: BTreeMap<u32, bool>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SnapshotMeaning {
+    Macro {
+        parameter_count: u8,
+        #[serde(default)]
+        optional_first_argument_default: Option<Vec<SnapshotToken>>,
+        body: Vec<SnapshotToken>,
+    },
+    Primitive {
+        name: String,
+    },
+    Token {
+        token: SnapshotToken,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SnapshotToken {
+    pub kind: SnapshotTokenKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SnapshotTokenKind {
+    ControlSequence { name: String },
+    Character { ch: char, catcode: CatCode },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ConditionalState {
+    ThenExecuted,
+    ElseExecuted,
+}
+
+#[derive(Debug, Clone)]
+enum QueueItem {
+    Token(Token),
+    ModuleEnd {
+        path: Utf8PathBuf,
+        source_start_utf8: u32,
+        source_end_utf8: u32,
+        output_start_utf8: u32,
+        checkpoint: Option<PendingModuleCheckpoint>,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct PendingModuleCheckpoint {
+    resume_path: Option<Utf8PathBuf>,
+    source_offset_utf8: u32,
+    continuation_stack: Vec<VmReplayFrame>,
+}
+
+#[derive(Debug, Clone)]
+struct ActiveSourceFrame {
+    path: Utf8PathBuf,
+    return_to_parent: Option<VmReplayFrame>,
+    global_definition_base_scope: Option<usize>,
+    module_kind: Option<ActiveModuleKind>,
+    end_hooks: Vec<Vec<Token>>,
+    module_options: Option<ActiveModuleOptions>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActiveModuleKind {
+    Package,
+    Class,
+}
+
+#[derive(Debug, Clone)]
+struct ActiveModuleOptions {
+    default_options: Vec<String>,
+    passed_options: Vec<String>,
+    forwarded_options: Vec<String>,
+    declared_options: HashMap<String, Vec<Token>>,
+    default_option_body: Option<Vec<Token>>,
+}
+
+fn default_next_count_register() -> u32 {
+    256
+}
+
+fn default_next_dimen_register() -> u32 {
+    256
+}
+
+fn default_next_skip_register() -> u32 {
+    256
+}
+
+fn default_next_toks_register() -> u32 {
+    0
+}
+
+fn default_next_read_stream() -> u32 {
+    0
+}
+
+fn default_next_write_stream() -> u32 {
+    16
+}
+
+fn default_filesw() -> bool {
+    true
+}
+
+#[derive(Debug)]
+pub struct Vm<'i> {
+    interner: &'i mut ControlSequenceInterner,
+    scopes: Vec<HashMap<String, Meaning>>,
+    registers: BTreeMap<u32, i32>,
+    dimen_registers: BTreeMap<u32, i32>,
+    skip_registers: BTreeMap<u32, i32>,
+    token_registers: BTreeMap<u32, Vec<Token>>,
+    conditionals: Vec<ConditionalState>,
+    file_root: Option<Utf8PathBuf>,
+    mounted_files: HashMap<Utf8PathBuf, String>,
+    loaded_modules: HashSet<Utf8PathBuf>,
+    include_only: Option<HashSet<Utf8PathBuf>>,
+    aftergroup_tokens: Vec<Vec<Token>>,
+    after_assignment_token: Option<Token>,
+    at_end_document_hooks: Vec<Vec<Token>>,
+    tempswa: bool,
+    filesw: bool,
+    in_at: bool,
+    negate_next_conditional: bool,
+    provided_files: BTreeMap<Utf8PathBuf, String>,
+    provided_packages: BTreeMap<Utf8PathBuf, String>,
+    provided_classes: BTreeMap<Utf8PathBuf, String>,
+    loaded_package_options: BTreeMap<Utf8PathBuf, Vec<String>>,
+    loaded_class_options: BTreeMap<Utf8PathBuf, Vec<String>>,
+    pending_package_options: BTreeMap<Utf8PathBuf, Vec<String>>,
+    pending_class_options: BTreeMap<Utf8PathBuf, Vec<String>>,
+    counter_resets: BTreeMap<String, Vec<String>>,
+    module_traces: Vec<VmModuleTrace>,
+    module_checkpoints: Vec<VmModuleCheckpoint>,
+    output: String,
+    transcript: Vec<String>,
+    diagnostics: Vec<VmDiagnostic>,
+    read_stream_lines: BTreeMap<u32, Vec<String>>,
+    read_stream_eof: BTreeMap<u32, bool>,
+    entry_source_path: Option<Utf8PathBuf>,
+    source_stack: Vec<ActiveSourceFrame>,
+    last_token_end_utf8: u32,
+    next_count_register: u32,
+    next_dimen_register: u32,
+    next_skip_register: u32,
+    next_toks_register: u32,
+    next_read_stream: u32,
+    next_write_stream: u32,
+    global_prefix: bool,
+}
+
+impl<'i> Vm<'i> {
+    pub fn new(interner: &'i mut ControlSequenceInterner) -> Self {
+        let mut vm = Self {
+            interner,
+            scopes: vec![HashMap::new()],
+            registers: BTreeMap::new(),
+            dimen_registers: BTreeMap::new(),
+            skip_registers: BTreeMap::new(),
+            token_registers: BTreeMap::new(),
+            conditionals: Vec::new(),
+            file_root: None,
+            mounted_files: HashMap::new(),
+            loaded_modules: HashSet::new(),
+            include_only: None,
+            aftergroup_tokens: vec![Vec::new()],
+            after_assignment_token: None,
+            at_end_document_hooks: Vec::new(),
+            tempswa: false,
+            filesw: true,
+            in_at: false,
+            negate_next_conditional: false,
+            provided_files: BTreeMap::new(),
+            provided_packages: BTreeMap::new(),
+            provided_classes: BTreeMap::new(),
+            loaded_package_options: BTreeMap::new(),
+            loaded_class_options: BTreeMap::new(),
+            pending_package_options: BTreeMap::new(),
+            pending_class_options: BTreeMap::new(),
+            counter_resets: BTreeMap::new(),
+            module_traces: Vec::new(),
+            module_checkpoints: Vec::new(),
+            output: String::new(),
+            transcript: Vec::new(),
+            diagnostics: Vec::new(),
+            read_stream_lines: BTreeMap::new(),
+            read_stream_eof: BTreeMap::new(),
+            entry_source_path: None,
+            source_stack: Vec::new(),
+            last_token_end_utf8: 0,
+            next_count_register: default_next_count_register(),
+            next_dimen_register: default_next_dimen_register(),
+            next_skip_register: default_next_skip_register(),
+            next_toks_register: default_next_toks_register(),
+            next_read_stream: default_next_read_stream(),
+            next_write_stream: default_next_write_stream(),
+            global_prefix: false,
+        };
+        vm.define(
+            "@empty".to_string(),
+            Meaning::Macro(MacroDefinition {
+                parameter_count: 0,
+                optional_first_argument_default: None,
+                body: Vec::new(),
+            }),
+            false,
+        );
+        vm.define(
+            "@nil".to_string(),
+            Meaning::Macro(MacroDefinition {
+                parameter_count: 0,
+                optional_first_argument_default: None,
+                body: Vec::new(),
+            }),
+            false,
+        );
+        let count_id = vm.interner.intern("count");
+        for (name, value) in [
+            ("z@", "0"),
+            ("@ne", "1"),
+            ("tw@", "2"),
+            ("thr@@", "3"),
+            ("m@ne", "-1"),
+        ] {
+            vm.define(
+                name.to_string(),
+                Meaning::Macro(MacroDefinition {
+                    parameter_count: 0,
+                    optional_first_argument_default: None,
+                    body: value
+                        .chars()
+                        .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                        .collect(),
+                }),
+                false,
+            );
+        }
+        for (name, register_index) in [
+            ("endlinechar", "250"),
+            ("globaldefs", "251"),
+            ("count@", "255"),
+            ("@tempcnta", "254"),
+            ("@tempcntb", "253"),
+            ("escapechar", "252"),
+        ] {
+            let mut body = vec![Token::control_sequence(count_id, 0, 0)];
+            body.extend(
+                register_index
+                    .chars()
+                    .map(|ch| Token::character(ch, CatCode::Other, 0, 0)),
+            );
+            vm.define(
+                name.to_string(),
+                Meaning::Macro(MacroDefinition {
+                    parameter_count: 0,
+                    optional_first_argument_default: None,
+                    body,
+                }),
+                false,
+            );
+        }
+        vm.registers.insert(251, 0);
+        vm.registers.insert(252, '\\' as i32);
+        let dimen_id = vm.interner.intern("dimen");
+        for (name, register_index) in [
+            ("dimen@", "255"),
+            ("@tempdima", "254"),
+            ("@tempdimb", "253"),
+        ] {
+            let mut body = vec![Token::control_sequence(dimen_id, 0, 0)];
+            body.extend(
+                register_index
+                    .chars()
+                    .map(|ch| Token::character(ch, CatCode::Other, 0, 0)),
+            );
+            vm.define(
+                name.to_string(),
+                Meaning::Macro(MacroDefinition {
+                    parameter_count: 0,
+                    optional_first_argument_default: None,
+                    body,
+                }),
+                false,
+            );
+        }
+        let skip_id = vm.interner.intern("skip");
+        for (name, register_index) in [
+            ("skip@", "255"),
+            ("@tempskipa", "254"),
+            ("@tempskipb", "253"),
+        ] {
+            let mut body = vec![Token::control_sequence(skip_id, 0, 0)];
+            body.extend(
+                register_index
+                    .chars()
+                    .map(|ch| Token::character(ch, CatCode::Other, 0, 0)),
+            );
+            vm.define(
+                name.to_string(),
+                Meaning::Macro(MacroDefinition {
+                    parameter_count: 0,
+                    optional_first_argument_default: None,
+                    body,
+                }),
+                false,
+            );
+        }
+        vm.define(
+            "p@".to_string(),
+            Meaning::Macro(MacroDefinition {
+                parameter_count: 0,
+                optional_first_argument_default: None,
+                body: "1pt"
+                    .chars()
+                    .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                    .collect(),
+            }),
+            false,
+        );
+        for (name, token) in [
+            ("space", Token::character(' ', CatCode::Space, 0, 0)),
+            (
+                "@backslashchar",
+                Token::character('\\', CatCode::Other, 0, 0),
+            ),
+            ("@percentchar", Token::character('%', CatCode::Other, 0, 0)),
+            ("@hashchar", Token::character('#', CatCode::Other, 0, 0)),
+        ] {
+            vm.define(
+                name.to_string(),
+                Meaning::Macro(MacroDefinition {
+                    parameter_count: 0,
+                    optional_first_argument_default: None,
+                    body: vec![token],
+                }),
+                false,
+            );
+        }
+        vm
+    }
+
+    pub fn set_file_root(&mut self, root: impl Into<Utf8PathBuf>) {
+        self.file_root = Some(root.into());
+    }
+
+    pub fn set_entry_source_path(&mut self, path: impl Into<Utf8PathBuf>) {
+        self.entry_source_path = Some(path.into());
+    }
+
+    pub fn mount_file(&mut self, path: impl Into<Utf8PathBuf>, source: impl Into<String>) {
+        self.mounted_files.insert(path.into(), source.into());
+    }
+
+    pub fn run_plain(&mut self, source: &str) -> VmOutcome {
+        let tokens = {
+            let interner = &mut *self.interner;
+            lex_plain(source, interner)
+        };
+        self.run(tokens)
+    }
+
+    pub fn run(&mut self, tokens: Vec<Token>) -> VmOutcome {
+        let mut queue = tokens
+            .into_iter()
+            .map(QueueItem::Token)
+            .collect::<VecDeque<_>>();
+        let pushed_root_source = self.entry_source_path.clone().map(|path| {
+            self.source_stack.push(ActiveSourceFrame {
+                path,
+                return_to_parent: None,
+                global_definition_base_scope: None,
+                module_kind: None,
+                end_hooks: Vec::new(),
+                module_options: None,
+            });
+        });
+        loop {
+            while let Some(token) = self.pop_next_token(&mut queue) {
+                self.execute_token(token, &mut queue);
+            }
+            if self.at_end_document_hooks.is_empty() {
+                break;
+            }
+            let end_hooks = mem::take(&mut self.at_end_document_hooks);
+            for body in end_hooks.into_iter().rev() {
+                for token in body.into_iter().rev() {
+                    self.push_token_front(&mut queue, token);
+                }
+            }
+        }
+        self.flush_module_end_markers(&mut queue);
+        if pushed_root_source.is_some() {
+            self.source_stack.pop();
+        }
+
+        VmOutcome {
+            output: mem::take(&mut self.output),
+            registers: self.registers.clone(),
+            transcript: mem::take(&mut self.transcript),
+            diagnostics: mem::take(&mut self.diagnostics),
+            loaded_modules: {
+                let mut loaded_modules = self.loaded_modules.iter().cloned().collect::<Vec<_>>();
+                loaded_modules.sort();
+                loaded_modules
+            },
+            module_traces: mem::take(&mut self.module_traces),
+            module_checkpoints: mem::take(&mut self.module_checkpoints),
+        }
+    }
+
+    pub fn snapshot(&self) -> VmSnapshot {
+        VmSnapshot {
+            scopes: self
+                .scopes
+                .iter()
+                .map(|scope| {
+                    scope
+                        .iter()
+                        .map(|(name, meaning)| (name.clone(), self.meaning_to_snapshot(meaning)))
+                        .collect()
+                })
+                .collect(),
+            registers: self.registers.clone(),
+            dimen_registers: self.dimen_registers.clone(),
+            skip_registers: self.skip_registers.clone(),
+            token_registers: self
+                .token_registers
+                .iter()
+                .map(|(index, tokens)| {
+                    (
+                        *index,
+                        tokens
+                            .iter()
+                            .map(|token| self.token_to_snapshot(token))
+                            .collect(),
+                    )
+                })
+                .collect(),
+            next_count_register: self.next_count_register,
+            next_dimen_register: self.next_dimen_register,
+            next_skip_register: self.next_skip_register,
+            next_toks_register: self.next_toks_register,
+            next_read_stream: self.next_read_stream,
+            next_write_stream: self.next_write_stream,
+            loaded_modules: self.loaded_modules.iter().cloned().collect(),
+            include_only: self.include_only.as_ref().map(|paths| {
+                let mut include_only = paths.iter().cloned().collect::<Vec<_>>();
+                include_only.sort();
+                include_only
+            }),
+            aftergroup_tokens: self
+                .aftergroup_tokens
+                .iter()
+                .map(|tokens| {
+                    tokens
+                        .iter()
+                        .map(|token| self.token_to_snapshot(token))
+                        .collect()
+                })
+                .collect(),
+            after_assignment_token: self
+                .after_assignment_token
+                .as_ref()
+                .map(|token| self.token_to_snapshot(token)),
+            at_end_document_hooks: self
+                .at_end_document_hooks
+                .iter()
+                .map(|tokens| {
+                    tokens
+                        .iter()
+                        .map(|token| self.token_to_snapshot(token))
+                        .collect()
+                })
+                .collect(),
+            tempswa: self.tempswa,
+            filesw: self.filesw,
+            in_at: self.in_at,
+            negate_next_conditional: self.negate_next_conditional,
+            provided_files: self.provided_files.clone(),
+            provided_packages: self.provided_packages.clone(),
+            provided_classes: self.provided_classes.clone(),
+            loaded_package_options: self.loaded_package_options.clone(),
+            loaded_class_options: self.loaded_class_options.clone(),
+            pending_package_options: self.pending_package_options.clone(),
+            pending_class_options: self.pending_class_options.clone(),
+            counter_resets: self.counter_resets.clone(),
+            read_stream_lines: self.read_stream_lines.clone(),
+            read_stream_eof: self.read_stream_eof.clone(),
+        }
+    }
+
+    pub fn restore(interner: &'i mut ControlSequenceInterner, snapshot: &VmSnapshot) -> Self {
+        let mut vm = Self::new(interner);
+        vm.scopes = snapshot
+            .scopes
+            .iter()
+            .map(|scope| {
+                scope
+                    .iter()
+                    .map(|(name, meaning)| (name.clone(), vm.snapshot_to_meaning(meaning)))
+                    .collect()
+            })
+            .collect();
+        vm.registers = snapshot.registers.clone();
+        vm.dimen_registers = snapshot.dimen_registers.clone();
+        vm.skip_registers = snapshot.skip_registers.clone();
+        vm.token_registers = snapshot
+            .token_registers
+            .iter()
+            .map(|(index, tokens)| {
+                (
+                    *index,
+                    tokens
+                        .iter()
+                        .map(|token| vm.snapshot_to_token(token))
+                        .collect(),
+                )
+            })
+            .collect();
+        vm.next_count_register = snapshot.next_count_register;
+        vm.next_dimen_register = snapshot.next_dimen_register;
+        vm.next_skip_register = snapshot.next_skip_register;
+        vm.next_toks_register = snapshot.next_toks_register;
+        vm.next_read_stream = snapshot.next_read_stream;
+        vm.next_write_stream = snapshot.next_write_stream;
+        vm.loaded_modules = snapshot.loaded_modules.iter().cloned().collect();
+        vm.include_only = snapshot
+            .include_only
+            .as_ref()
+            .map(|paths| paths.iter().cloned().collect());
+        vm.aftergroup_tokens = snapshot
+            .aftergroup_tokens
+            .iter()
+            .map(|tokens| {
+                tokens
+                    .iter()
+                    .map(|token| vm.snapshot_to_token(token))
+                    .collect()
+            })
+            .collect();
+        if vm.aftergroup_tokens.len() < vm.scopes.len() {
+            vm.aftergroup_tokens.resize(vm.scopes.len(), Vec::new());
+        } else if vm.aftergroup_tokens.len() > vm.scopes.len() {
+            vm.aftergroup_tokens.truncate(vm.scopes.len());
+        }
+        vm.after_assignment_token = snapshot
+            .after_assignment_token
+            .as_ref()
+            .map(|token| vm.snapshot_to_token(token));
+        vm.at_end_document_hooks = snapshot
+            .at_end_document_hooks
+            .iter()
+            .map(|tokens| {
+                tokens
+                    .iter()
+                    .map(|token| vm.snapshot_to_token(token))
+                    .collect()
+            })
+            .collect();
+        vm.tempswa = snapshot.tempswa;
+        vm.filesw = snapshot.filesw;
+        vm.in_at = snapshot.in_at;
+        vm.negate_next_conditional = snapshot.negate_next_conditional;
+        vm.provided_files = snapshot.provided_files.clone();
+        vm.provided_packages = snapshot.provided_packages.clone();
+        vm.provided_classes = snapshot.provided_classes.clone();
+        vm.loaded_package_options = snapshot.loaded_package_options.clone();
+        vm.loaded_class_options = snapshot.loaded_class_options.clone();
+        vm.pending_package_options = snapshot.pending_package_options.clone();
+        vm.pending_class_options = snapshot.pending_class_options.clone();
+        vm.counter_resets = snapshot.counter_resets.clone();
+        vm.read_stream_lines = snapshot.read_stream_lines.clone();
+        vm.read_stream_eof = snapshot.read_stream_eof.clone();
+        vm
+    }
+
+    fn execute_token(&mut self, token: Token, queue: &mut VecDeque<QueueItem>) {
+        match token.kind {
+            TokenKind::Character { ch, catcode } => match catcode {
+                CatCode::BeginGroup => {
+                    self.scopes.push(HashMap::new());
+                    self.aftergroup_tokens.push(Vec::new());
+                }
+                CatCode::EndGroup => {
+                    if self.scopes.len() > 1 {
+                        self.scopes.pop();
+                        if let Some(tokens) = self.aftergroup_tokens.pop() {
+                            for token in tokens.into_iter().rev() {
+                                self.push_token_front(queue, token);
+                            }
+                        }
+                    }
+                }
+                CatCode::Space | CatCode::Letter | CatCode::Other | CatCode::Active => {
+                    self.output.push(ch);
+                }
+                CatCode::MathShift
+                | CatCode::AlignmentTab
+                | CatCode::Parameter
+                | CatCode::Superscript
+                | CatCode::Subscript
+                | CatCode::Invalid => self.output.push(ch),
+                CatCode::Escape | CatCode::EndOfLine | CatCode::Ignored | CatCode::Comment => {}
+            },
+            TokenKind::ControlSequence { name } => {
+                let control_sequence = self.interner.resolve(name).unwrap_or("").to_string();
+                let meaning = self
+                    .lookup_meaning(&control_sequence)
+                    .or_else(|| builtin_primitive(&control_sequence).map(Meaning::Primitive));
+
+                match meaning {
+                    Some(Meaning::Macro(definition)) => {
+                        for token in self.expand_macro(definition, queue).into_iter().rev() {
+                            self.push_token_front(queue, token);
+                        }
+                    }
+                    Some(Meaning::Token(token)) => self.push_token_front(queue, token),
+                    Some(Meaning::Primitive(primitive)) => {
+                        self.execute_primitive(primitive, token.span.start, queue);
+                    }
+                    None => {
+                        self.diagnostics.push(VmDiagnostic {
+                            kind: VmDiagnosticKind::UndefinedControlSequence,
+                            detail: control_sequence.clone(),
+                        });
+                        self.output.push('\\');
+                        self.output.push_str(&control_sequence);
+                    }
+                }
+            }
+        }
+    }
+
+    fn execute_primitive(
+        &mut self,
+        primitive: Primitive,
+        source_offset_utf8: u32,
+        queue: &mut VecDeque<QueueItem>,
+    ) {
+        match primitive {
+            Primitive::Relax | Primitive::Immediate | Primitive::Protect => {}
+            Primitive::NewRead => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(name) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                let stream = self.next_read_stream;
+                self.next_read_stream += 1;
+                self.read_stream_eof.insert(stream, true);
+                self.define(
+                    name.clone(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body: stream
+                            .to_string()
+                            .chars()
+                            .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                            .collect(),
+                    }),
+                    force_global,
+                );
+                self.transcript.push(format!("newread \\{name}={stream}"));
+            }
+            Primitive::OpenIn => {
+                let Some(stream) = self.read_stream_register_index(queue) else {
+                    return;
+                };
+                let Some(path) = self
+                    .read_stream_filename_text(queue)
+                    .and_then(|path_text| normalize_relative_path(Utf8Path::new(&path_text)).ok())
+                else {
+                    self.read_stream_lines.remove(&stream);
+                    self.read_stream_eof.insert(stream, true);
+                    return;
+                };
+                let source = self.mounted_files.get(&path).cloned().or_else(|| {
+                    self.file_root
+                        .as_ref()
+                        .and_then(|root| fs::read_to_string(root.join(&path)).ok())
+                });
+                let Some(source) = source else {
+                    self.read_stream_lines.remove(&stream);
+                    self.read_stream_eof.insert(stream, true);
+                    return;
+                };
+                let lines = source.lines().map(ToOwned::to_owned).collect::<Vec<_>>();
+                self.read_stream_eof.insert(stream, lines.is_empty());
+                self.read_stream_lines.insert(stream, lines);
+            }
+            Primitive::CloseIn => {
+                let Some(stream) = self.read_stream_register_index(queue) else {
+                    return;
+                };
+                self.read_stream_lines.remove(&stream);
+                self.read_stream_eof.insert(stream, true);
+            }
+            Primitive::Read | Primitive::ReadLine => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(stream) = self.read_stream_register_index(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                let Some(to_token) = self.pop_next_token(queue) else {
+                    return;
+                };
+                let TokenKind::Character {
+                    ch: 't',
+                    catcode: CatCode::Letter,
+                } = to_token.kind
+                else {
+                    return;
+                };
+                let Some(o_token) = self.pop_next_token(queue) else {
+                    return;
+                };
+                let TokenKind::Character {
+                    ch: 'o',
+                    catcode: CatCode::Letter,
+                } = o_token.kind
+                else {
+                    return;
+                };
+                let Some(target) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                let next_line = if let Some(lines) = self.read_stream_lines.get_mut(&stream) {
+                    if lines.is_empty() {
+                        None
+                    } else {
+                        let line = lines.remove(0);
+                        Some((line, lines.is_empty()))
+                    }
+                } else {
+                    None
+                };
+                if let Some((line, at_eof)) = next_line {
+                    let body = {
+                        let mut line = line;
+                        if let Some(register_index) =
+                            self.resolve_count_register_name("endlinechar")
+                        {
+                            if let Some(value) = self.registers.get(&register_index).copied() {
+                                if (0..=255).contains(&value) {
+                                    if let Some(ch) = char::from_u32(value as u32) {
+                                        line.push(ch);
+                                    }
+                                }
+                            }
+                        }
+                        let interner = &mut *self.interner;
+                        lex_plain(&line, interner)
+                    };
+                    self.define(
+                        target,
+                        Meaning::Macro(MacroDefinition {
+                            parameter_count: 0,
+                            optional_first_argument_default: None,
+                            body,
+                        }),
+                        force_global,
+                    );
+                    self.read_stream_eof.insert(stream, at_eof);
+                } else {
+                    self.define(target, Meaning::Primitive(Primitive::Relax), force_global);
+                    self.read_stream_eof.insert(stream, true);
+                }
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::NewWrite => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(name) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                let stream = self.next_write_stream;
+                self.next_write_stream += 1;
+                self.define(
+                    name.clone(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body: stream
+                            .to_string()
+                            .chars()
+                            .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                            .collect(),
+                    }),
+                    force_global,
+                );
+                self.transcript.push(format!("newwrite \\{name}={stream}"));
+            }
+            Primitive::OpenOut => {
+                let Some(_) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                if matches!(
+                    self.peek_next_token(queue).map(|token| token.kind),
+                    Some(TokenKind::Character { ch: '=', .. })
+                ) {
+                    self.pop_next_token(queue);
+                }
+                self.skip_optional_spaces(queue);
+                if matches!(
+                    self.peek_next_token(queue).map(|token| token.kind),
+                    Some(TokenKind::Character {
+                        catcode: CatCode::BeginGroup,
+                        ..
+                    })
+                ) {
+                    let _ = self.read_balanced_group(queue);
+                    return;
+                }
+                while let Some(token) = self.peek_next_token(queue) {
+                    match token.kind {
+                        TokenKind::Character {
+                            catcode: CatCode::Space,
+                            ..
+                        } => break,
+                        TokenKind::ControlSequence { name }
+                            if self
+                                .interner
+                                .resolve(name)
+                                .is_some_and(|name| name == "par") =>
+                        {
+                            break;
+                        }
+                        _ => {
+                            self.pop_next_token(queue);
+                        }
+                    }
+                }
+            }
+            Primitive::CloseOut => {
+                let Some(_) = self.read_macro_argument(queue) else {
+                    return;
+                };
+            }
+            Primitive::Write => {
+                let Some(_) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let Some(body) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let _ = self.fully_expand_tokens(body);
+            }
+            Primitive::ProtectedWrite => {
+                let Some(_) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let Some(_) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let Some(body) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let _ = self.fully_expand_tokens(body);
+            }
+            Primitive::BeginGroupCommand => {
+                self.scopes.push(HashMap::new());
+                self.aftergroup_tokens.push(Vec::new());
+            }
+            Primitive::EndGroupCommand => {
+                if self.scopes.len() > 1 {
+                    self.scopes.pop();
+                    if let Some(tokens) = self.aftergroup_tokens.pop() {
+                        for token in tokens.into_iter().rev() {
+                            self.push_token_front(queue, token);
+                        }
+                    }
+                }
+            }
+            Primitive::AfterGroup => {
+                let Some(token) = self.pop_next_token(queue) else {
+                    return;
+                };
+                if self.scopes.len() > 1 {
+                    if let Some(tokens) = self.aftergroup_tokens.last_mut() {
+                        tokens.push(token);
+                    }
+                } else {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::AfterAssignment => {
+                let Some(token) = self.pop_next_token(queue) else {
+                    return;
+                };
+                self.after_assignment_token = Some(token);
+            }
+            Primitive::Long | Primitive::Protected | Primitive::Outer => {}
+            Primitive::Global => self.global_prefix = true,
+            Primitive::Unless => {
+                self.negate_next_conditional = !self.negate_next_conditional;
+            }
+            Primitive::Def
+            | Primitive::GlobalDef
+            | Primitive::ExpandedDef
+            | Primitive::GlobalExpandedDef => {
+                let force_global = if matches!(
+                    primitive,
+                    Primitive::GlobalDef | Primitive::GlobalExpandedDef
+                ) {
+                    self.global_prefix = false;
+                    true
+                } else {
+                    mem::take(&mut self.global_prefix)
+                };
+                let Some(target) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                let mut parameter_count = 0u8;
+                while let Some(token) = self.peek_next_token(queue) {
+                    let TokenKind::Character {
+                        catcode: CatCode::BeginGroup,
+                        ..
+                    } = token.kind
+                    else {
+                        let Some(marker) = self.pop_next_token(queue) else {
+                            return;
+                        };
+                        let TokenKind::Character {
+                            ch: '#',
+                            catcode: CatCode::Parameter,
+                        } = marker.kind
+                        else {
+                            return;
+                        };
+                        let Some(number) = self.pop_next_token(queue) else {
+                            return;
+                        };
+                        let TokenKind::Character { ch, .. } = number.kind else {
+                            return;
+                        };
+                        if let Some(value) = ch.to_digit(10) {
+                            parameter_count = parameter_count.max(value as u8);
+                            continue;
+                        }
+                        return;
+                    };
+                    break;
+                }
+                let Some(mut body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                if matches!(
+                    primitive,
+                    Primitive::ExpandedDef | Primitive::GlobalExpandedDef
+                ) {
+                    body = self.fully_expand_tokens(body);
+                }
+                let transcript_entry = format!("def \\{target} #{parameter_count}");
+                self.define(
+                    target,
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count,
+                        optional_first_argument_default: None,
+                        body,
+                    }),
+                    force_global,
+                );
+                self.transcript.push(transcript_entry);
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::Let => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(target) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                if let Some(Token {
+                    kind:
+                        TokenKind::Character {
+                            ch: '=',
+                            catcode: CatCode::Other,
+                        },
+                    ..
+                }) = self.peek_next_token(queue)
+                {
+                    self.pop_next_token(queue);
+                }
+                self.skip_optional_spaces(queue);
+                let Some(source) = self.pop_next_token(queue) else {
+                    return;
+                };
+                let meaning = match source.kind {
+                    TokenKind::ControlSequence { name } => {
+                        let name = self.interner.resolve(name).unwrap_or("").to_string();
+                        self.lookup_meaning(&name)
+                            .or_else(|| builtin_primitive(&name).map(Meaning::Primitive))
+                            .unwrap_or(Meaning::Token(source))
+                    }
+                    TokenKind::Character { .. } => Meaning::Token(source),
+                };
+                self.define(target, meaning, force_global);
+                self.transcript.push("let".to_string());
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::FutureLet => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(target) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                let Some(continuation) = self.pop_next_token(queue) else {
+                    return;
+                };
+                let looked_ahead = self.pop_next_token(queue);
+                let meaning = match looked_ahead.clone() {
+                    Some(
+                        token @ Token {
+                            kind: TokenKind::ControlSequence { name },
+                            ..
+                        },
+                    ) => {
+                        let name = self.interner.resolve(name).unwrap_or("").to_string();
+                        self.lookup_meaning(&name)
+                            .or_else(|| builtin_primitive(&name).map(Meaning::Primitive))
+                            .unwrap_or(Meaning::Token(token))
+                    }
+                    Some(token) => Meaning::Token(token),
+                    None => Meaning::Primitive(Primitive::Relax),
+                };
+                self.define(target, meaning, force_global);
+                if let Some(token) = looked_ahead {
+                    self.push_token_front(queue, token);
+                }
+                self.push_token_front(queue, continuation);
+            }
+            Primitive::String => {
+                let Some(token) = self.pop_next_token(queue) else {
+                    return;
+                };
+                for token in self.render_stringified_tokens(token, false) {
+                    if let TokenKind::Character { ch, .. } = token.kind {
+                        self.output.push(ch);
+                    }
+                }
+            }
+            Primitive::IgnoreSpaces => {
+                self.skip_optional_spaces(queue);
+            }
+            Primitive::JobName => {
+                for token in self.render_jobname_tokens().into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::CurrentModuleName => {
+                for token in self
+                    .render_current_module_component_tokens(true)
+                    .into_iter()
+                    .rev()
+                {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::CurrentModuleExt => {
+                for token in self
+                    .render_current_module_component_tokens(false)
+                    .into_iter()
+                    .rev()
+                {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::CurrentModulePath => {
+                for token in self.render_current_module_path_tokens().into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::FilenameParse => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let path = self
+                    .read_macro_argument(queue)
+                    .map(|tokens| self.tokens_to_text(tokens))
+                    .unwrap_or_default();
+                let (area, base, ext) = if let Some(index) = path.rfind('/') {
+                    let (area, file) = path.split_at(index + 1);
+                    if let Some(dot) = file.rfind('.') {
+                        (&area[..], &file[..dot], &file[dot + 1..])
+                    } else {
+                        (&area[..], file, "")
+                    }
+                } else if let Some(dot) = path.rfind('.') {
+                    ("", &path[..dot], &path[dot + 1..])
+                } else {
+                    ("", &path[..], "")
+                };
+                self.define(
+                    "filename@area".to_string(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body: area
+                            .chars()
+                            .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                            .collect(),
+                    }),
+                    force_global,
+                );
+                self.define(
+                    "filename@base".to_string(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body: base
+                            .chars()
+                            .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                            .collect(),
+                    }),
+                    force_global,
+                );
+                self.define(
+                    "filename@ext".to_string(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body: ext
+                            .chars()
+                            .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                            .collect(),
+                    }),
+                    force_global,
+                );
+            }
+            Primitive::Meaning => {
+                let Some(token) = self.pop_next_token(queue) else {
+                    return;
+                };
+                for token in self.render_meaning_tokens(token).into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::Detokenize => {
+                let tokens = self.read_balanced_group(queue).unwrap_or_default();
+                for token in self.render_detokenized_tokens(tokens).into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::StripPrefix => {
+                self.discard_tokens_through_strip_prefix_delimiter(queue);
+            }
+            Primitive::Uppercase => {
+                let tokens = self.read_balanced_group(queue).unwrap_or_default();
+                for token in self
+                    .render_case_transformed_tokens(tokens, true)
+                    .into_iter()
+                    .rev()
+                {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::Lowercase => {
+                let tokens = self.read_balanced_group(queue).unwrap_or_default();
+                for token in self
+                    .render_case_transformed_tokens(tokens, false)
+                    .into_iter()
+                    .rev()
+                {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::ExpandAfter => {
+                let Some(first) = self.pop_next_token(queue) else {
+                    return;
+                };
+                let Some(second) = self.pop_next_token(queue) else {
+                    self.push_token_front(queue, first);
+                    return;
+                };
+                let expanded = self.expand_once(second, queue);
+                for token in expanded.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+                self.push_token_front(queue, first);
+            }
+            Primitive::ExpandedTokens => {
+                let Some(tokens) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                for token in self.fully_expand_tokens(tokens).into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::Unexpanded => {
+                let Some(tokens) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                for token in tokens.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::CsName => {
+                let expanded = self.expand_csname(queue);
+                for token in expanded.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::EndCsName => {}
+            Primitive::MakeAtLetter | Primitive::MakeAtOther => {}
+            Primitive::IfTrue => {
+                self.skip_optional_spaces(queue);
+                self.start_conditional(true, queue);
+            }
+            Primitive::IfFalse => {
+                self.skip_optional_spaces(queue);
+                self.start_conditional(false, queue);
+            }
+            Primitive::NewIf => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(target) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                let Some(stem) = target.strip_prefix("if") else {
+                    return;
+                };
+                self.define(
+                    target.clone(),
+                    Meaning::Primitive(Primitive::IfFalse),
+                    force_global,
+                );
+                let let_id = self.interner.intern("let");
+                let target_id = self.interner.intern(&target);
+                let iftrue_id = self.interner.intern("iftrue");
+                let iffalse_id = self.interner.intern("iffalse");
+                self.define(
+                    format!("{stem}true"),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body: vec![
+                            Token::control_sequence(let_id, 0, 0),
+                            Token::control_sequence(target_id, 0, 0),
+                            Token::control_sequence(iftrue_id, 0, 0),
+                        ],
+                    }),
+                    force_global,
+                );
+                self.define(
+                    format!("{stem}false"),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body: vec![
+                            Token::control_sequence(let_id, 0, 0),
+                            Token::control_sequence(target_id, 0, 0),
+                            Token::control_sequence(iffalse_id, 0, 0),
+                        ],
+                    }),
+                    force_global,
+                );
+            }
+            Primitive::CharDef => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(name) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                if !matches!(
+                    self.peek_next_token(queue),
+                    Some(Token {
+                        kind: TokenKind::Character {
+                            ch: '=',
+                            catcode: CatCode::Other,
+                        },
+                        ..
+                    })
+                ) {
+                    return;
+                }
+                self.pop_next_token(queue);
+                let Some(value) = self.read_number_expression(queue) else {
+                    return;
+                };
+                let Some(code) = u8::try_from(value).ok() else {
+                    return;
+                };
+                let ch = char::from(code);
+                let catcode = match ch {
+                    ' ' => CatCode::Space,
+                    _ if ch.is_ascii_alphabetic() => CatCode::Letter,
+                    _ => CatCode::Other,
+                };
+                self.define(
+                    name.clone(),
+                    Meaning::Token(Token::character(ch, catcode, 0, 0)),
+                    force_global,
+                );
+                self.transcript.push(format!("chardef \\{name}={value}"));
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::NeedsTeXFormat => {
+                let _ = self.read_argument_text(queue);
+            }
+            Primitive::ProvidesFile | Primitive::ProvidesPackage | Primitive::ProvidesClass => {
+                let Some(module_name) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let version = self.read_optional_bracket_text(queue).unwrap_or_default();
+                let version_trimmed = version.trim();
+                let mut version_parts = version_trimmed.split_whitespace();
+                let filedate = version_parts.next().unwrap_or_default().to_string();
+                let second_part = version_parts.next();
+                let (fileversion, fileinfo) = if let Some(second_part) = second_part {
+                    let remaining_parts = version_parts.collect::<Vec<_>>();
+                    if second_part.starts_with('v') {
+                        (second_part.to_string(), remaining_parts.join(" "))
+                    } else {
+                        let mut info_parts = Vec::with_capacity(remaining_parts.len() + 1);
+                        info_parts.push(second_part);
+                        info_parts.extend(remaining_parts);
+                        (String::new(), info_parts.join(" "))
+                    }
+                } else {
+                    (String::new(), String::new())
+                };
+                self.define(
+                    "filedate".to_string(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body: filedate
+                            .chars()
+                            .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                            .collect(),
+                    }),
+                    false,
+                );
+                self.define(
+                    "fileversion".to_string(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body: fileversion
+                            .chars()
+                            .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                            .collect(),
+                    }),
+                    false,
+                );
+                self.define(
+                    "fileinfo".to_string(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body: fileinfo
+                            .chars()
+                            .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                            .collect(),
+                    }),
+                    false,
+                );
+                let module_path = normalize_relative_path(Utf8Path::new(&module_name))
+                    .ok()
+                    .map(|path| match primitive {
+                        Primitive::ProvidesFile => path,
+                        Primitive::ProvidesPackage => {
+                            if path.extension().is_none() {
+                                path.with_extension("sty")
+                            } else {
+                                path
+                            }
+                        }
+                        Primitive::ProvidesClass => {
+                            if path.extension().is_none() {
+                                path.with_extension("cls")
+                            } else {
+                                path
+                            }
+                        }
+                        _ => unreachable!(),
+                    });
+                if let Some(module_path) = module_path {
+                    self.define(
+                        format!("ver@{module_path}"),
+                        Meaning::Macro(MacroDefinition {
+                            parameter_count: 0,
+                            optional_first_argument_default: None,
+                            body: version
+                                .chars()
+                                .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                                .collect(),
+                        }),
+                        false,
+                    );
+                    match primitive {
+                        Primitive::ProvidesFile => {
+                            self.provided_files.insert(module_path, version);
+                        }
+                        Primitive::ProvidesPackage => {
+                            self.provided_packages.insert(module_path, version);
+                        }
+                        Primitive::ProvidesClass => {
+                            self.provided_classes.insert(module_path, version);
+                        }
+                        _ => unreachable!(),
+                    }
+                }
+            }
+            Primitive::DocumentClass | Primitive::LoadClass | Primitive::LoadClassWithOptions => {
+                let explicit_options = self
+                    .read_optional_bracket_text(queue)
+                    .map(|text| {
+                        text.split(',')
+                            .map(str::trim)
+                            .filter(|option| !option.is_empty())
+                            .map(ToOwned::to_owned)
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                let Some(name) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let mut path = normalize_relative_path(Utf8Path::new(&name)).ok();
+                if let Some(module) = path.take() {
+                    let class_path = if module.extension().is_none() {
+                        module.with_extension("cls")
+                    } else {
+                        module
+                    };
+                    let mut options = Vec::new();
+                    if primitive == Primitive::LoadClassWithOptions {
+                        if let Some(frame) = self.source_stack.last() {
+                            if let Some(module_options) = &frame.module_options {
+                                for option in &module_options.forwarded_options {
+                                    if !options.contains(option) {
+                                        options.push(option.clone());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    for option in explicit_options {
+                        if !options.contains(&option) {
+                            options.push(option);
+                        }
+                    }
+                    if let Some(pending_options) = self.pending_class_options.remove(&class_path) {
+                        for option in pending_options {
+                            if !options.contains(&option) {
+                                options.push(option);
+                            }
+                        }
+                    }
+                    self.load_module(
+                        &class_path,
+                        "class",
+                        true,
+                        None,
+                        0,
+                        Vec::new(),
+                        options,
+                        queue,
+                    );
+                }
+            }
+            Primitive::RequirePackage
+            | Primitive::UsePackage
+            | Primitive::RequirePackageWithOptions => {
+                let explicit_options = self
+                    .read_optional_bracket_text(queue)
+                    .map(|text| {
+                        text.split(',')
+                            .map(str::trim)
+                            .filter(|option| !option.is_empty())
+                            .map(ToOwned::to_owned)
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+                let Some(argument) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let packages = argument
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|package| !package.is_empty())
+                    .collect::<Vec<_>>();
+                let mut transcript_seen = self.loaded_modules.clone();
+                let mut resolved = Vec::new();
+                for package in packages {
+                    let mut path = normalize_relative_path(Utf8Path::new(package)).ok();
+                    if let Some(module) = path.take() {
+                        let package_path = if module.extension().is_none() {
+                            module.with_extension("sty")
+                        } else {
+                            module
+                        };
+                        if !transcript_seen.contains(&package_path) {
+                            self.transcript.push(format!("package {}", package_path));
+                            transcript_seen.insert(package_path.clone());
+                        }
+                        let mut options = Vec::new();
+                        if primitive == Primitive::RequirePackageWithOptions {
+                            if let Some(frame) = self.source_stack.last() {
+                                if let Some(module_options) = &frame.module_options {
+                                    for option in &module_options.forwarded_options {
+                                        if !options.contains(option) {
+                                            options.push(option.clone());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        for option in &explicit_options {
+                            if !options.contains(option) {
+                                options.push(option.clone());
+                            }
+                        }
+                        if let Some(pending_options) =
+                            self.pending_package_options.remove(&package_path)
+                        {
+                            for option in pending_options {
+                                if !options.contains(&option) {
+                                    options.push(option);
+                                }
+                            }
+                        }
+                        resolved.push((package_path, options));
+                    }
+                }
+                for (package_path, options) in resolved.into_iter().rev() {
+                    self.load_module(
+                        &package_path,
+                        "package",
+                        false,
+                        None,
+                        0,
+                        Vec::new(),
+                        options,
+                        queue,
+                    );
+                }
+            }
+            Primitive::PassOptionsToClass | Primitive::PassOptionsToPackage => {
+                let Some(options_text) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let Some(targets_text) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let options = options_text
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|option| !option.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>();
+                for target in targets_text
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|target| !target.is_empty())
+                {
+                    let mut path = normalize_relative_path(Utf8Path::new(target)).ok();
+                    if let Some(module) = path.take() {
+                        let module_path = if primitive == Primitive::PassOptionsToClass {
+                            if module.extension().is_none() {
+                                module.with_extension("cls")
+                            } else {
+                                module
+                            }
+                        } else if module.extension().is_none() {
+                            module.with_extension("sty")
+                        } else {
+                            module
+                        };
+                        let pending_options = if primitive == Primitive::PassOptionsToClass {
+                            self.pending_class_options.entry(module_path).or_default()
+                        } else {
+                            self.pending_package_options.entry(module_path).or_default()
+                        };
+                        for option in &options {
+                            if !pending_options.contains(option) {
+                                pending_options.push(option.clone());
+                            }
+                        }
+                    }
+                }
+            }
+            Primitive::DeclareOption => {
+                self.skip_optional_spaces(queue);
+                if matches!(
+                    self.peek_next_token(queue).map(|token| token.kind),
+                    Some(TokenKind::Character { ch: '*', .. })
+                ) {
+                    self.pop_next_token(queue);
+                    let Some(body) = self.read_balanced_group(queue) else {
+                        return;
+                    };
+                    if let Some(frame) = self.source_stack.last_mut() {
+                        if let Some(module_options) = &mut frame.module_options {
+                            module_options.default_option_body = Some(body);
+                        }
+                    }
+                    return;
+                }
+                let Some(option) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let Some(body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                if let Some(frame) = self.source_stack.last_mut() {
+                    if let Some(module_options) = &mut frame.module_options {
+                        module_options.declared_options.insert(option, body);
+                    }
+                }
+            }
+            Primitive::ExecuteOptions => {
+                let Some(options_text) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let options = options_text
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|option| !option.is_empty())
+                    .map(ToOwned::to_owned)
+                    .collect::<Vec<_>>();
+                if let Some(frame) = self.source_stack.last_mut() {
+                    if let Some(module_options) = &mut frame.module_options {
+                        for option in options {
+                            if !module_options.default_options.contains(&option) {
+                                module_options.default_options.push(option);
+                            }
+                        }
+                    }
+                }
+            }
+            Primitive::ProcessOptions => {
+                self.skip_optional_spaces(queue);
+                if matches!(
+                    self.peek_next_token(queue).map(|token| token.kind),
+                    Some(TokenKind::Character { ch: '*', .. })
+                ) {
+                    self.pop_next_token(queue);
+                }
+                self.skip_optional_spaces(queue);
+                if matches!(
+                    self.peek_next_token(queue).map(|token| token.kind),
+                    Some(TokenKind::ControlSequence { .. })
+                ) {
+                    let Some(token) = self.pop_next_token(queue) else {
+                        return;
+                    };
+                    let TokenKind::ControlSequence { name } = token.kind else {
+                        return;
+                    };
+                    if self.interner.resolve(name).unwrap_or("") != "relax" {
+                        self.push_token_front(queue, token);
+                    }
+                }
+                if let Some(frame) = self.source_stack.last_mut() {
+                    if let Some(module_options) = &mut frame.module_options {
+                        let mut options = mem::take(&mut module_options.default_options);
+                        options.extend(mem::take(&mut module_options.passed_options));
+                        let mut unique_options = Vec::new();
+                        for option in options {
+                            if !unique_options.contains(&option) {
+                                unique_options.push(option);
+                            }
+                        }
+                        let mut bodies = Vec::new();
+                        let render_option_body = |body: Vec<Token>, option: &str| {
+                            let mut rendered = Vec::new();
+                            for token in body {
+                                match token.kind {
+                                    TokenKind::ControlSequence { name }
+                                        if self.interner.resolve(name).unwrap_or("")
+                                            == "CurrentOption" =>
+                                    {
+                                        for (index, ch) in option.chars().enumerate() {
+                                            let catcode = if ch.is_ascii_alphabetic() {
+                                                CatCode::Letter
+                                            } else {
+                                                CatCode::Other
+                                            };
+                                            rendered
+                                                .push(Token::character(ch, catcode, index, index));
+                                        }
+                                    }
+                                    _ => rendered.push(token),
+                                }
+                            }
+                            rendered
+                        };
+                        for option in unique_options {
+                            if let Some(body) =
+                                module_options.declared_options.get(&option).cloned()
+                            {
+                                bodies.push(render_option_body(body, &option));
+                            } else if let Some(default_body) =
+                                module_options.default_option_body.clone()
+                            {
+                                bodies.push(render_option_body(default_body, &option));
+                            }
+                        }
+                        for body in bodies.into_iter().rev() {
+                            for token in body.into_iter().rev() {
+                                self.push_token_front(queue, token);
+                            }
+                        }
+                    }
+                }
+            }
+            Primitive::AtBeginDocument => {
+                let Some(body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                for token in body.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::AtEndDocument => {
+                let Some(body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                self.at_end_document_hooks.push(body);
+            }
+            Primitive::AtEndOfPackage | Primitive::AtEndOfClass => {
+                let Some(body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let expected_kind = if primitive == Primitive::AtEndOfPackage {
+                    ActiveModuleKind::Package
+                } else {
+                    ActiveModuleKind::Class
+                };
+                if let Some(frame) = self.source_stack.last_mut() {
+                    if frame.module_kind == Some(expected_kind) {
+                        frame.end_hooks.push(body);
+                    }
+                }
+            }
+            Primitive::Message | Primitive::Typeout | Primitive::WriteLog => {
+                let Some(message) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let label = match primitive {
+                    Primitive::Message => "message",
+                    Primitive::Typeout => "typeout",
+                    Primitive::WriteLog => "wlog",
+                    _ => unreachable!(),
+                };
+                self.transcript.push(format!("{label}: {message}"));
+            }
+            Primitive::NewCount => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(name) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                while self.registers.contains_key(&self.next_count_register) {
+                    self.next_count_register += 1;
+                }
+                let register_index = self.next_count_register;
+                self.next_count_register += 1;
+                self.registers.entry(register_index).or_insert(0);
+                let count_id = self.interner.intern("count");
+                let mut body = vec![Token::control_sequence(count_id, 0, 0)];
+                body.extend(
+                    register_index
+                        .to_string()
+                        .chars()
+                        .map(|ch| Token::character(ch, CatCode::Other, 0, 0)),
+                );
+                self.define(
+                    name.clone(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body,
+                    }),
+                    force_global,
+                );
+                self.transcript
+                    .push(format!("newcount \\{name}={register_index}"));
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::NewDimen => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(name) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                while self.dimen_registers.contains_key(&self.next_dimen_register) {
+                    self.next_dimen_register += 1;
+                }
+                let register_index = self.next_dimen_register;
+                self.next_dimen_register += 1;
+                self.dimen_registers.entry(register_index).or_insert(0);
+                let dimen_id = self.interner.intern("dimen");
+                let mut body = vec![Token::control_sequence(dimen_id, 0, 0)];
+                body.extend(
+                    register_index
+                        .to_string()
+                        .chars()
+                        .map(|ch| Token::character(ch, CatCode::Other, 0, 0)),
+                );
+                self.define(
+                    name.clone(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body,
+                    }),
+                    force_global,
+                );
+                self.transcript
+                    .push(format!("newdimen \\{name}={register_index}"));
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::NewSkip => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(name) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                while self.skip_registers.contains_key(&self.next_skip_register) {
+                    self.next_skip_register += 1;
+                }
+                let register_index = self.next_skip_register;
+                self.next_skip_register += 1;
+                self.skip_registers.entry(register_index).or_insert(0);
+                let skip_id = self.interner.intern("skip");
+                let mut body = vec![Token::control_sequence(skip_id, 0, 0)];
+                body.extend(
+                    register_index
+                        .to_string()
+                        .chars()
+                        .map(|ch| Token::character(ch, CatCode::Other, 0, 0)),
+                );
+                self.define(
+                    name.clone(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body,
+                    }),
+                    force_global,
+                );
+                self.transcript
+                    .push(format!("newskip \\{name}={register_index}"));
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::CountDef => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(name) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                if !matches!(
+                    self.peek_next_token(queue),
+                    Some(Token {
+                        kind: TokenKind::Character {
+                            ch: '=',
+                            catcode: CatCode::Other,
+                        },
+                        ..
+                    })
+                ) {
+                    return;
+                }
+                self.pop_next_token(queue);
+                let Some(register_index) = self.read_integer(queue).map(|value| value as u32)
+                else {
+                    return;
+                };
+                self.registers.entry(register_index).or_insert(0);
+                let count_id = self.interner.intern("count");
+                let mut body = vec![Token::control_sequence(count_id, 0, 0)];
+                body.extend(
+                    register_index
+                        .to_string()
+                        .chars()
+                        .map(|ch| Token::character(ch, CatCode::Other, 0, 0)),
+                );
+                self.define(
+                    name.clone(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body,
+                    }),
+                    force_global,
+                );
+                self.transcript
+                    .push(format!("countdef \\{name}={register_index}"));
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::DimenDef => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(name) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                if !matches!(
+                    self.peek_next_token(queue),
+                    Some(Token {
+                        kind: TokenKind::Character {
+                            ch: '=',
+                            catcode: CatCode::Other,
+                        },
+                        ..
+                    })
+                ) {
+                    return;
+                }
+                self.pop_next_token(queue);
+                let Some(register_index) = self.read_integer(queue).map(|value| value as u32)
+                else {
+                    return;
+                };
+                self.dimen_registers.entry(register_index).or_insert(0);
+                let dimen_id = self.interner.intern("dimen");
+                let mut body = vec![Token::control_sequence(dimen_id, 0, 0)];
+                body.extend(
+                    register_index
+                        .to_string()
+                        .chars()
+                        .map(|ch| Token::character(ch, CatCode::Other, 0, 0)),
+                );
+                self.define(
+                    name.clone(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body,
+                    }),
+                    force_global,
+                );
+                self.transcript
+                    .push(format!("dimendef \\{name}={register_index}"));
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::SkipDef => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(name) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                if !matches!(
+                    self.peek_next_token(queue),
+                    Some(Token {
+                        kind: TokenKind::Character {
+                            ch: '=',
+                            catcode: CatCode::Other,
+                        },
+                        ..
+                    })
+                ) {
+                    return;
+                }
+                self.pop_next_token(queue);
+                let Some(register_index) = self.read_integer(queue).map(|value| value as u32)
+                else {
+                    return;
+                };
+                self.skip_registers.entry(register_index).or_insert(0);
+                let skip_id = self.interner.intern("skip");
+                let mut body = vec![Token::control_sequence(skip_id, 0, 0)];
+                body.extend(
+                    register_index
+                        .to_string()
+                        .chars()
+                        .map(|ch| Token::character(ch, CatCode::Other, 0, 0)),
+                );
+                self.define(
+                    name.clone(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body,
+                    }),
+                    force_global,
+                );
+                self.transcript
+                    .push(format!("skipdef \\{name}={register_index}"));
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::SetCounter
+            | Primitive::AddToCounter
+            | Primitive::StepCounter
+            | Primitive::RefStepCounter => {
+                let Some(counter_name_tokens) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let bare_counter_name = self.tokens_to_text(counter_name_tokens);
+                let counter_name = format!("c@{bare_counter_name}");
+                let Some(register_index) = self.resolve_count_register_name(&counter_name) else {
+                    return;
+                };
+                let delta = match primitive {
+                    Primitive::SetCounter | Primitive::AddToCounter => {
+                        let Some(value) = self.read_number_expression(queue) else {
+                            return;
+                        };
+                        value
+                    }
+                    Primitive::StepCounter | Primitive::RefStepCounter => 1,
+                    _ => unreachable!(),
+                };
+                let register = self.registers.entry(register_index).or_insert(0);
+                if matches!(primitive, Primitive::SetCounter) {
+                    *register = delta;
+                } else {
+                    *register += delta;
+                }
+                if matches!(
+                    primitive,
+                    Primitive::StepCounter | Primitive::RefStepCounter
+                ) && let Some(children) = self.counter_resets.get(&bare_counter_name).cloned()
+                {
+                    for child in children {
+                        let child_counter_name = format!("c@{child}");
+                        if let Some(child_register_index) =
+                            self.resolve_count_register_name(&child_counter_name)
+                        {
+                            self.registers.insert(child_register_index, 0);
+                        }
+                    }
+                }
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::AddToReset => {
+                let Some(child_counter_name) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let Some(parent_counter_name) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let children = self.counter_resets.entry(parent_counter_name).or_default();
+                if !children.contains(&child_counter_name) {
+                    children.push(child_counter_name);
+                }
+            }
+            Primitive::RemoveFromReset => {
+                let Some(child_counter_name) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let Some(parent_counter_name) = self.read_argument_text(queue) else {
+                    return;
+                };
+                if let Some(children) = self.counter_resets.get_mut(&parent_counter_name) {
+                    children.retain(|child| child != &child_counter_name);
+                    if children.is_empty() {
+                        self.counter_resets.remove(&parent_counter_name);
+                    }
+                }
+            }
+            Primitive::NewLength => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(name) = self.read_macro_target(queue) else {
+                    return;
+                };
+                while self.dimen_registers.contains_key(&self.next_dimen_register) {
+                    self.next_dimen_register += 1;
+                }
+                let register_index = self.next_dimen_register;
+                self.next_dimen_register += 1;
+                self.dimen_registers.entry(register_index).or_insert(0);
+                let dimen_id = self.interner.intern("dimen");
+                let mut body = vec![Token::control_sequence(dimen_id, 0, 0)];
+                body.extend(
+                    register_index
+                        .to_string()
+                        .chars()
+                        .map(|ch| Token::character(ch, CatCode::Other, 0, 0)),
+                );
+                self.define(
+                    name.clone(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body,
+                    }),
+                    force_global,
+                );
+                self.transcript
+                    .push(format!("newlength \\{name}={register_index}"));
+            }
+            Primitive::SetLength | Primitive::AddToLength => {
+                let Some(name) = self.read_macro_target(queue) else {
+                    return;
+                };
+                let Some(register_index) = self.resolve_dimen_register_name(&name) else {
+                    return;
+                };
+                let Some(argument) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let Some(value) = self.read_dimension_expression_from_tokens(argument) else {
+                    return;
+                };
+                let register = self.dimen_registers.entry(register_index).or_insert(0);
+                if primitive == Primitive::SetLength {
+                    *register = value;
+                } else {
+                    *register += value;
+                }
+            }
+            Primitive::NewToks => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(name) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                while self.token_registers.contains_key(&self.next_toks_register) {
+                    self.next_toks_register += 1;
+                }
+                let register_index = self.next_toks_register;
+                self.next_toks_register += 1;
+                self.token_registers.entry(register_index).or_default();
+                let toks_id = self.interner.intern("toks");
+                let mut body = vec![Token::control_sequence(toks_id, 0, 0)];
+                body.extend(
+                    register_index
+                        .to_string()
+                        .chars()
+                        .map(|ch| Token::character(ch, CatCode::Other, 0, 0)),
+                );
+                self.define(
+                    name.clone(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body,
+                    }),
+                    force_global,
+                );
+                self.transcript
+                    .push(format!("newtoks \\{name}={register_index}"));
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::ToksDef => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(name) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                if !matches!(
+                    self.peek_next_token(queue),
+                    Some(Token {
+                        kind: TokenKind::Character {
+                            ch: '=',
+                            catcode: CatCode::Other,
+                        },
+                        ..
+                    })
+                ) {
+                    return;
+                }
+                self.pop_next_token(queue);
+                let Some(register_index) = self.read_integer(queue).map(|value| value as u32)
+                else {
+                    return;
+                };
+                self.token_registers.entry(register_index).or_default();
+                let toks_id = self.interner.intern("toks");
+                let mut body = vec![Token::control_sequence(toks_id, 0, 0)];
+                body.extend(
+                    register_index
+                        .to_string()
+                        .chars()
+                        .map(|ch| Token::character(ch, CatCode::Other, 0, 0)),
+                );
+                self.define(
+                    name.clone(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body,
+                    }),
+                    force_global,
+                );
+                self.transcript
+                    .push(format!("toksdef \\{name}={register_index}"));
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::NewCommand
+            | Primitive::DeclareRobustCommand
+            | Primitive::RenewCommand
+            | Primitive::ProvideCommand => {
+                let force_global = mem::take(&mut self.global_prefix);
+                self.skip_optional_spaces(queue);
+                if matches!(
+                    self.peek_next_token(queue).map(|token| token.kind),
+                    Some(TokenKind::Character { ch: '*', .. })
+                ) {
+                    self.pop_next_token(queue);
+                }
+                let Some(target) = self.read_macro_target(queue) else {
+                    return;
+                };
+                let parameter_count = self
+                    .read_optional_bracket_text(queue)
+                    .and_then(|text| text.parse::<u8>().ok())
+                    .unwrap_or(0);
+                let optional_first_argument_default = if parameter_count > 0 {
+                    self.read_optional_bracket_tokens(queue)
+                } else {
+                    None
+                };
+                let Some(body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let exists =
+                    self.lookup_meaning(&target).is_some() || builtin_primitive(&target).is_some();
+                if matches!(
+                    primitive,
+                    Primitive::NewCommand | Primitive::DeclareRobustCommand
+                ) && exists
+                {
+                    self.diagnostics.push(VmDiagnostic {
+                        kind: VmDiagnosticKind::ExplicitError,
+                        detail: format!("{} \\{target} already defined", primitive_name(primitive)),
+                    });
+                    return;
+                }
+                if primitive == Primitive::RenewCommand && !exists {
+                    self.diagnostics.push(VmDiagnostic {
+                        kind: VmDiagnosticKind::ExplicitError,
+                        detail: format!("{} \\{target} undefined", primitive_name(primitive)),
+                    });
+                    return;
+                }
+                if primitive == Primitive::ProvideCommand && exists {
+                    return;
+                }
+                self.define(
+                    target.clone(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count,
+                        optional_first_argument_default,
+                        body,
+                    }),
+                    force_global,
+                );
+                self.transcript
+                    .push(format!("newcommand \\{target} #{parameter_count}"));
+            }
+            Primitive::PackageInfo
+            | Primitive::PackageInfoNoLine
+            | Primitive::ClassInfo
+            | Primitive::ClassInfoNoLine
+            | Primitive::PackageWarning
+            | Primitive::PackageWarningNoLine
+            | Primitive::ClassWarning
+            | Primitive::ClassWarningNoLine
+            | Primitive::GenericInfo
+            | Primitive::GenericWarning
+            | Primitive::LatexInfo
+            | Primitive::LatexWarning
+            | Primitive::LatexWarningNoLine => {
+                let Some(module_name) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let latex_message = matches!(
+                    primitive,
+                    Primitive::LatexInfo | Primitive::LatexWarning | Primitive::LatexWarningNoLine
+                );
+                let message = if latex_message {
+                    module_name.clone()
+                } else {
+                    let Some(message) = self.read_argument_text(queue) else {
+                        return;
+                    };
+                    message
+                };
+                let label = match primitive {
+                    Primitive::PackageInfo => "package info",
+                    Primitive::PackageInfoNoLine => "package info noline",
+                    Primitive::ClassInfo => "class info",
+                    Primitive::ClassInfoNoLine => "class info noline",
+                    Primitive::PackageWarning => "package warning",
+                    Primitive::PackageWarningNoLine => "package warning noline",
+                    Primitive::ClassWarning => "class warning",
+                    Primitive::ClassWarningNoLine => "class warning noline",
+                    Primitive::GenericInfo => "generic info",
+                    Primitive::GenericWarning => "generic warning",
+                    Primitive::LatexInfo => "latex info",
+                    Primitive::LatexWarning => "latex warning",
+                    Primitive::LatexWarningNoLine => "latex warning noline",
+                    _ => unreachable!(),
+                };
+                if latex_message {
+                    self.transcript.push(format!("{label}: {message}"));
+                    return;
+                }
+                self.transcript
+                    .push(format!("{label} {module_name}: {message}"));
+            }
+            Primitive::PackageError
+            | Primitive::ClassError
+            | Primitive::GenericError
+            | Primitive::ErrMessage
+            | Primitive::LatexError => {
+                let errmessage = primitive == Primitive::ErrMessage;
+                let Some(module_name) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let latex_error = primitive == Primitive::LatexError;
+                let message = if latex_error || errmessage {
+                    module_name.clone()
+                } else {
+                    let Some(message) = self.read_argument_text(queue) else {
+                        return;
+                    };
+                    message
+                };
+                if latex_error || errmessage {
+                    if latex_error {
+                        let _ = self.read_argument_text(queue);
+                    }
+                } else if matches!(primitive, Primitive::GenericError) {
+                    let _ = self.read_argument_text(queue);
+                    let _ = self.read_argument_text(queue);
+                    let _ = self.read_argument_text(queue);
+                } else {
+                    let _ = self.read_argument_text(queue);
+                }
+                let detail = match primitive {
+                    Primitive::PackageError => format!("package {module_name}: {message}"),
+                    Primitive::ClassError => format!("class {module_name}: {message}"),
+                    Primitive::GenericError => format!("generic {module_name}: {message}"),
+                    Primitive::ErrMessage => format!("errmessage: {message}"),
+                    Primitive::LatexError => format!("latex: {message}"),
+                    _ => unreachable!(),
+                };
+                self.diagnostics.push(VmDiagnostic {
+                    kind: VmDiagnosticKind::ExplicitError,
+                    detail,
+                });
+            }
+            Primitive::IfPackageLoadedTF | Primitive::IfClassLoadedTF => {
+                let Some(module_name) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let Some(then_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let Some(else_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let exists = normalize_relative_path(Utf8Path::new(&module_name))
+                    .ok()
+                    .map(|path| match primitive {
+                        Primitive::IfPackageLoadedTF => {
+                            if path.extension().is_none() {
+                                path.with_extension("sty")
+                            } else {
+                                path
+                            }
+                        }
+                        Primitive::IfClassLoadedTF => {
+                            if path.extension().is_none() {
+                                path.with_extension("cls")
+                            } else {
+                                path
+                            }
+                        }
+                        _ => unreachable!(),
+                    })
+                    .is_some_and(|path| self.loaded_modules.contains(&path));
+                for token in if exists { then_body } else { else_body }.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::IfPackageAtLeastTF
+            | Primitive::IfClassAtLeastTF
+            | Primitive::IfPackageLater
+            | Primitive::IfClassLater
+            | Primitive::IfPackageWith
+            | Primitive::IfClassWith => {
+                let Some(module_name) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let Some(version) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let Some(then_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let Some(else_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let exists = normalize_relative_path(Utf8Path::new(&module_name))
+                    .ok()
+                    .is_some_and(|path| match primitive {
+                        Primitive::IfPackageAtLeastTF => {
+                            let path = if path.extension().is_none() {
+                                path.with_extension("sty")
+                            } else {
+                                path
+                            };
+                            self.provided_packages
+                                .get(&path)
+                                .is_some_and(|provided| provided.as_str() >= version.as_str())
+                        }
+                        Primitive::IfClassAtLeastTF => {
+                            let path = if path.extension().is_none() {
+                                path.with_extension("cls")
+                            } else {
+                                path
+                            };
+                            self.provided_classes
+                                .get(&path)
+                                .is_some_and(|provided| provided.as_str() >= version.as_str())
+                        }
+                        Primitive::IfPackageLater => {
+                            let path = if path.extension().is_none() {
+                                path.with_extension("sty")
+                            } else {
+                                path
+                            };
+                            self.provided_packages
+                                .get(&path)
+                                .is_some_and(|provided| provided.as_str() > version.as_str())
+                        }
+                        Primitive::IfClassLater => {
+                            let path = if path.extension().is_none() {
+                                path.with_extension("cls")
+                            } else {
+                                path
+                            };
+                            self.provided_classes
+                                .get(&path)
+                                .is_some_and(|provided| provided.as_str() > version.as_str())
+                        }
+                        Primitive::IfPackageWith => {
+                            let path = if path.extension().is_none() {
+                                path.with_extension("sty")
+                            } else {
+                                path
+                            };
+                            self.loaded_package_options
+                                .get(&path)
+                                .is_some_and(|options| options.contains(&version))
+                        }
+                        Primitive::IfClassWith => {
+                            let path = if path.extension().is_none() {
+                                path.with_extension("cls")
+                            } else {
+                                path
+                            };
+                            self.loaded_class_options
+                                .get(&path)
+                                .is_some_and(|options| options.contains(&version))
+                        }
+                        _ => unreachable!(),
+                    });
+                for token in if exists { then_body } else { else_body }.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::IfEof => {
+                let Some(stream) = self.read_stream_register_index(queue) else {
+                    return;
+                };
+                let at_eof = self.read_stream_eof.get(&stream).copied().unwrap_or(true);
+                self.start_conditional(at_eof, queue);
+            }
+            Primitive::IfFileExists => {
+                let Some(path_text) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let Some(then_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let Some(else_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let path = normalize_relative_path(Utf8Path::new(&path_text)).ok();
+                let exists = path.as_ref().is_some_and(|path| self.path_exists(path));
+                self.define(
+                    "@filef@und".to_string(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body: path
+                            .filter(|_| exists)
+                            .map(|path| {
+                                path.as_str()
+                                    .chars()
+                                    .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                    }),
+                    false,
+                );
+                for token in if exists { then_body } else { else_body }.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::InputIfFileExists => {
+                let Some(path_text) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let Some(then_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let Some(else_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let path = normalize_relative_path(Utf8Path::new(&path_text)).ok();
+                let exists = path.as_ref().is_some_and(|path| self.path_exists(path));
+                self.define(
+                    "@filef@und".to_string(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body: path
+                            .clone()
+                            .filter(|_| exists)
+                            .map(|path| {
+                                path.as_str()
+                                    .chars()
+                                    .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
+                    }),
+                    false,
+                );
+                if let Some(path) = path.filter(|_| exists) {
+                    for token in then_body.into_iter().rev() {
+                        self.push_token_front(queue, token);
+                    }
+                    let checkpoint_snapshot = self.snapshot();
+                    let output_start_utf8 = self.output.len() as u32;
+                    let resume_path = self.source_stack.last().map(|frame| frame.path.clone());
+                    let continuation_stack = self.current_continuation_stack();
+                    self.module_checkpoints.push(VmModuleCheckpoint {
+                        kind: VmModuleCheckpointKind::Enter,
+                        module_path: path.clone(),
+                        resume_path: resume_path.clone(),
+                        source_offset_utf8,
+                        continuation_stack: continuation_stack.clone(),
+                        output_start_utf8,
+                        snapshot: checkpoint_snapshot,
+                    });
+                    self.load_module(
+                        &path,
+                        "input",
+                        true,
+                        resume_path,
+                        self.last_token_end_utf8,
+                        continuation_stack,
+                        Vec::new(),
+                        queue,
+                    );
+                } else {
+                    for token in else_body.into_iter().rev() {
+                        self.push_token_front(queue, token);
+                    }
+                }
+            }
+            Primitive::AtInput => {
+                let checkpoint_snapshot = self.snapshot();
+                let output_start_utf8 = self.output.len() as u32;
+                let resume_path = self.source_stack.last().map(|frame| frame.path.clone());
+                let continuation_stack = self.current_continuation_stack();
+                let Some(path) = self.read_input_path(queue) else {
+                    return;
+                };
+                let exists = self.mounted_files.contains_key(&path)
+                    || self
+                        .file_root
+                        .as_ref()
+                        .is_some_and(|root| root.join(&path).exists());
+                if !exists {
+                    return;
+                }
+                self.module_checkpoints.push(VmModuleCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: path.clone(),
+                    resume_path: resume_path.clone(),
+                    source_offset_utf8,
+                    continuation_stack: continuation_stack.clone(),
+                    output_start_utf8,
+                    snapshot: checkpoint_snapshot,
+                });
+                self.load_module(
+                    &path,
+                    "input",
+                    true,
+                    resume_path,
+                    self.last_token_end_utf8,
+                    continuation_stack,
+                    Vec::new(),
+                    queue,
+                );
+            }
+            Primitive::OnlyPreamble => {
+                let _ = self.read_control_sequence_name(queue);
+            }
+            Primitive::OneLevelSanitize => {
+                let _ = self.read_control_sequence_name(queue);
+            }
+            Primitive::BspHack | Primitive::Esphack => {}
+            Primitive::InAt => {
+                let Some(needle) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let Some(haystack) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                self.in_at = needle.is_empty()
+                    || haystack.windows(needle.len()).any(|window| {
+                        needle
+                            .iter()
+                            .zip(window.iter())
+                            .all(|(left, right)| self.ifx_tokens_equal(left, right))
+                    });
+            }
+            Primitive::IfInAt => {
+                self.skip_optional_spaces(queue);
+                self.start_conditional(self.in_at, queue);
+            }
+            Primitive::TempSwaTrue => {
+                self.tempswa = true;
+            }
+            Primitive::TempSwaFalse => {
+                self.tempswa = false;
+            }
+            Primitive::IfTempSwa => {
+                self.skip_optional_spaces(queue);
+                self.start_conditional(self.tempswa, queue);
+            }
+            Primitive::FileswTrue => {
+                self.filesw = true;
+            }
+            Primitive::FileswFalse | Primitive::NoFiles => {
+                self.filesw = false;
+            }
+            Primitive::IfFilesw => {
+                self.skip_optional_spaces(queue);
+                self.start_conditional(self.filesw, queue);
+            }
+            Primitive::Loop => {
+                let Some(body) = self.read_loop_body(queue) else {
+                    return;
+                };
+                let iterate_name = format!(
+                    "__latexd_loop_iter:{}:{}",
+                    self.source_stack
+                        .last()
+                        .map(|frame| frame.path.as_str())
+                        .unwrap_or("main"),
+                    source_offset_utf8
+                );
+                let iterate_id = self.interner.intern(&iterate_name);
+                let let_id = self.interner.intern("let");
+                let next_id = self.interner.intern("next");
+                let else_id = self.interner.intern("else");
+                let fi_id = self.interner.intern("fi");
+                let relax_id = self.interner.intern("relax");
+                let mut iterate_body = body.clone();
+                iterate_body.push(Token::control_sequence(let_id, 0, 0));
+                iterate_body.push(Token::control_sequence(next_id, 0, 0));
+                iterate_body.push(Token::control_sequence(iterate_id, 0, 0));
+                iterate_body.push(Token::control_sequence(else_id, 0, 0));
+                iterate_body.push(Token::control_sequence(let_id, 0, 0));
+                iterate_body.push(Token::control_sequence(next_id, 0, 0));
+                iterate_body.push(Token::control_sequence(relax_id, 0, 0));
+                iterate_body.push(Token::control_sequence(fi_id, 0, 0));
+                iterate_body.push(Token::control_sequence(next_id, 0, 0));
+                self.define(
+                    iterate_name,
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body: iterate_body,
+                    }),
+                    false,
+                );
+                self.push_token_front(queue, Token::control_sequence(iterate_id, 0, 0));
+            }
+            Primitive::For => {
+                let Some(target) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                if !matches!(
+                    self.pop_next_token(queue).map(|token| token.kind),
+                    Some(TokenKind::Character { ch: ':', .. })
+                ) {
+                    return;
+                }
+                if !matches!(
+                    self.pop_next_token(queue).map(|token| token.kind),
+                    Some(TokenKind::Character { ch: '=', .. })
+                ) {
+                    return;
+                }
+                let mut list_tokens = Vec::new();
+                let mut depth = 0;
+                while let Some(token) = self.pop_next_token(queue) {
+                    match token.kind {
+                        TokenKind::Character {
+                            catcode: CatCode::BeginGroup,
+                            ..
+                        } => {
+                            depth += 1;
+                            list_tokens.push(token);
+                        }
+                        TokenKind::Character {
+                            catcode: CatCode::EndGroup,
+                            ..
+                        } => {
+                            depth -= 1;
+                            list_tokens.push(token);
+                        }
+                        TokenKind::ControlSequence { name }
+                            if depth == 0
+                                && self.interner.resolve(name).is_some_and(|name| name == "do") =>
+                        {
+                            break;
+                        }
+                        _ => list_tokens.push(token),
+                    }
+                }
+                let Some(body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let mut items = Vec::new();
+                let mut current = Vec::new();
+                let mut depth = 0;
+                for token in list_tokens {
+                    match token.kind {
+                        TokenKind::Character {
+                            catcode: CatCode::BeginGroup,
+                            ..
+                        } => {
+                            depth += 1;
+                            current.push(token);
+                        }
+                        TokenKind::Character {
+                            catcode: CatCode::EndGroup,
+                            ..
+                        } => {
+                            depth -= 1;
+                            current.push(token);
+                        }
+                        TokenKind::Character { ch: ',', .. } if depth == 0 => {
+                            while matches!(
+                                current.first().map(|token| &token.kind),
+                                Some(TokenKind::Character {
+                                    catcode: CatCode::Space,
+                                    ..
+                                })
+                            ) {
+                                current.remove(0);
+                            }
+                            while matches!(
+                                current.last().map(|token| &token.kind),
+                                Some(TokenKind::Character {
+                                    catcode: CatCode::Space,
+                                    ..
+                                })
+                            ) {
+                                current.pop();
+                            }
+                            if !current.is_empty() {
+                                items.push(current);
+                            }
+                            current = Vec::new();
+                        }
+                        _ => current.push(token),
+                    }
+                }
+                while matches!(
+                    current.first().map(|token| &token.kind),
+                    Some(TokenKind::Character {
+                        catcode: CatCode::Space,
+                        ..
+                    })
+                ) {
+                    current.remove(0);
+                }
+                while matches!(
+                    current.last().map(|token| &token.kind),
+                    Some(TokenKind::Character {
+                        catcode: CatCode::Space,
+                        ..
+                    })
+                ) {
+                    current.pop();
+                }
+                if !current.is_empty() {
+                    items.push(current);
+                }
+                let def_id = self.interner.intern("def");
+                let target_id = self.interner.intern(&target);
+                for item in items.into_iter().rev() {
+                    let mut expansion = Vec::with_capacity(item.len() + body.len() + 5);
+                    expansion.push(Token::control_sequence(def_id, 0, 0));
+                    expansion.push(Token::control_sequence(target_id, 0, 0));
+                    expansion.push(Token::character('{', CatCode::BeginGroup, 0, 0));
+                    expansion.extend(item);
+                    expansion.push(Token::character('}', CatCode::EndGroup, 0, 0));
+                    expansion.extend(body.clone());
+                    for token in expansion.into_iter().rev() {
+                        self.push_token_front(queue, token);
+                    }
+                }
+            }
+            Primitive::WhileNum => {
+                let mut condition_tokens = Vec::new();
+                let mut depth = 0;
+                while let Some(token) = self.pop_next_token(queue) {
+                    match token.kind {
+                        TokenKind::Character {
+                            catcode: CatCode::BeginGroup,
+                            ..
+                        } => {
+                            depth += 1;
+                            condition_tokens.push(token);
+                        }
+                        TokenKind::Character {
+                            catcode: CatCode::EndGroup,
+                            ..
+                        } => {
+                            depth -= 1;
+                            condition_tokens.push(token);
+                        }
+                        TokenKind::ControlSequence { name }
+                            if depth == 0
+                                && self.interner.resolve(name).is_some_and(|name| name == "do") =>
+                        {
+                            break;
+                        }
+                        _ => condition_tokens.push(token),
+                    }
+                }
+                let Some(body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let mut local_queue = VecDeque::new();
+                for token in condition_tokens.clone().into_iter().rev() {
+                    local_queue.push_front(QueueItem::Token(token));
+                }
+                let Some(left) = self.read_number_expression(&mut local_queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(&mut local_queue);
+                let Some(relation) = self.pop_next_token(&mut local_queue) else {
+                    return;
+                };
+                let TokenKind::Character { ch: relation, .. } = relation.kind else {
+                    return;
+                };
+                let Some(right) = self.read_number_expression(&mut local_queue) else {
+                    return;
+                };
+                let result = match relation {
+                    '<' => left < right,
+                    '>' => left > right,
+                    '=' => left == right,
+                    _ => return,
+                };
+                if result {
+                    let while_id = self.interner.intern("@whilenum");
+                    let do_id = self.interner.intern("do");
+                    let mut expansion = Vec::new();
+                    expansion.extend(body.clone());
+                    expansion.push(Token::control_sequence(while_id, 0, 0));
+                    expansion.extend(condition_tokens);
+                    expansion.push(Token::control_sequence(do_id, 0, 0));
+                    expansion.push(Token::character('{', CatCode::BeginGroup, 0, 0));
+                    expansion.extend(body);
+                    expansion.push(Token::character('}', CatCode::EndGroup, 0, 0));
+                    for token in expansion.into_iter().rev() {
+                        self.push_token_front(queue, token);
+                    }
+                }
+            }
+            Primitive::WhileSw => {
+                let mut condition_tokens = Vec::new();
+                let mut depth = 0;
+                while let Some(token) = self.pop_next_token(queue) {
+                    match token.kind {
+                        TokenKind::ControlSequence { name } => {
+                            let name = self.interner.resolve(name).unwrap_or("");
+                            if self.is_conditional_name(name) {
+                                depth += 1;
+                                condition_tokens.push(token);
+                            } else if name == "fi" {
+                                if depth <= 1 {
+                                    break;
+                                }
+                                depth -= 1;
+                                condition_tokens.push(token);
+                            } else {
+                                condition_tokens.push(token);
+                            }
+                        }
+                        _ => condition_tokens.push(token),
+                    }
+                }
+                let Some(body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let mut local_queue = VecDeque::new();
+                for token in condition_tokens.clone().into_iter().rev() {
+                    local_queue.push_front(QueueItem::Token(token));
+                }
+                self.skip_optional_spaces(&mut local_queue);
+                let Some(condition) = self.pop_next_token(&mut local_queue) else {
+                    return;
+                };
+                let TokenKind::ControlSequence { name } = condition.kind else {
+                    return;
+                };
+                let name = self.interner.resolve(name).unwrap_or("").to_string();
+                let Some(Meaning::Primitive(condition_primitive)) = self
+                    .lookup_meaning(&name)
+                    .or_else(|| builtin_primitive(&name).map(Meaning::Primitive))
+                else {
+                    return;
+                };
+                let result = match condition_primitive {
+                    Primitive::IfTrue => true,
+                    Primitive::IfFalse => false,
+                    Primitive::IfInAt => self.in_at,
+                    Primitive::IfTempSwa => self.tempswa,
+                    Primitive::IfX => {
+                        self.skip_optional_spaces(&mut local_queue);
+                        let Some(left) = self.pop_next_token(&mut local_queue) else {
+                            return;
+                        };
+                        self.skip_optional_spaces(&mut local_queue);
+                        let Some(right) = self.pop_next_token(&mut local_queue) else {
+                            return;
+                        };
+                        self.ifx_tokens_equal(&left, &right)
+                    }
+                    Primitive::IfNum => {
+                        let Some(left) = self.read_number_expression(&mut local_queue) else {
+                            return;
+                        };
+                        self.skip_optional_spaces(&mut local_queue);
+                        let Some(relation) = self.pop_next_token(&mut local_queue) else {
+                            return;
+                        };
+                        let TokenKind::Character { ch: relation, .. } = relation.kind else {
+                            return;
+                        };
+                        let Some(right) = self.read_number_expression(&mut local_queue) else {
+                            return;
+                        };
+                        match relation {
+                            '<' => left < right,
+                            '>' => left > right,
+                            '=' => left == right,
+                            _ => return,
+                        }
+                    }
+                    _ => return,
+                };
+                if result {
+                    let while_id = self.interner.intern("@whilesw");
+                    let fi_id = self.interner.intern("fi");
+                    let mut expansion = Vec::new();
+                    expansion.extend(body.clone());
+                    expansion.push(Token::control_sequence(while_id, 0, 0));
+                    expansion.extend(condition_tokens);
+                    expansion.push(Token::control_sequence(fi_id, 0, 0));
+                    expansion.push(Token::character('{', CatCode::BeginGroup, 0, 0));
+                    expansion.extend(body);
+                    expansion.push(Token::character('}', CatCode::EndGroup, 0, 0));
+                    for token in expansion.into_iter().rev() {
+                        self.push_token_front(queue, token);
+                    }
+                }
+            }
+            Primitive::Cons => {
+                let Some(target) = self.read_macro_target(queue) else {
+                    return;
+                };
+                let Some(item) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let mut body = match self.lookup_meaning(&target) {
+                    Some(Meaning::Macro(definition)) => definition.body,
+                    Some(Meaning::Token(token)) => vec![token],
+                    Some(Meaning::Primitive(_)) | None => Vec::new(),
+                };
+                body.push(Token::control_sequence(self.interner.intern("@elt"), 0, 0));
+                body.push(Token::character('{', CatCode::BeginGroup, 0, 0));
+                body.extend(item);
+                body.push(Token::character('}', CatCode::EndGroup, 0, 0));
+                if let Some(scope) = self.scopes.first_mut() {
+                    scope.insert(
+                        target,
+                        Meaning::Macro(MacroDefinition {
+                            parameter_count: 0,
+                            optional_first_argument_default: None,
+                            body,
+                        }),
+                    );
+                }
+            }
+            Primitive::RemoveElement => {
+                let Some(needle) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let Some(list) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let Some(target) = self.read_macro_target(queue) else {
+                    return;
+                };
+                let trim_spaces = |tokens: Vec<Token>| -> Vec<Token> {
+                    let start = tokens
+                        .iter()
+                        .position(|token| {
+                            !matches!(
+                                token.kind,
+                                TokenKind::Character {
+                                    catcode: CatCode::Space,
+                                    ..
+                                }
+                            )
+                        })
+                        .unwrap_or(tokens.len());
+                    let end = tokens
+                        .iter()
+                        .rposition(|token| {
+                            !matches!(
+                                token.kind,
+                                TokenKind::Character {
+                                    catcode: CatCode::Space,
+                                    ..
+                                }
+                            )
+                        })
+                        .map(|index| index + 1)
+                        .unwrap_or(start);
+                    tokens[start..end].to_vec()
+                };
+                let needle = trim_spaces(needle);
+                let mut items = Vec::new();
+                let mut current = Vec::new();
+                let mut depth = 0;
+                for token in list {
+                    match token.kind {
+                        TokenKind::Character {
+                            catcode: CatCode::BeginGroup,
+                            ..
+                        } => {
+                            depth += 1;
+                            current.push(token);
+                        }
+                        TokenKind::Character {
+                            catcode: CatCode::EndGroup,
+                            ..
+                        } => {
+                            depth -= 1;
+                            current.push(token);
+                        }
+                        TokenKind::Character { ch: ',', .. } if depth == 0 => {
+                            items.push(trim_spaces(std::mem::take(&mut current)));
+                        }
+                        _ => current.push(token),
+                    }
+                }
+                items.push(trim_spaces(current));
+                let mut body = Vec::new();
+                for item in items.into_iter().filter(|item| {
+                    !item.is_empty()
+                        && !(item.len() == needle.len()
+                            && item
+                                .iter()
+                                .zip(needle.iter())
+                                .all(|(left, right)| self.ifx_tokens_equal(left, right)))
+                }) {
+                    if !body.is_empty() {
+                        body.push(Token::character(',', CatCode::Other, 0, 0));
+                    }
+                    body.extend(item);
+                }
+                self.define(
+                    target,
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body,
+                    }),
+                    false,
+                );
+            }
+            Primitive::ThirdOfThree => {
+                let Some(_) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let Some(_) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let Some(third) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                for token in third.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::ExpandTwoArgs => {
+                let Some(target) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let Some(first) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let Some(second) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let mut expand_argument = |tokens: Vec<Token>| {
+                    let mut local_queue = VecDeque::new();
+                    for token in tokens.into_iter().rev() {
+                        local_queue.push_front(QueueItem::Token(token));
+                    }
+                    let mut expanded = Vec::new();
+                    let mut steps = 0usize;
+                    while let Some(token) = self.pop_next_token(&mut local_queue) {
+                        if steps >= 4096 {
+                            expanded.push(token);
+                            while let Some(rest) = self.pop_next_token(&mut local_queue) {
+                                expanded.push(rest);
+                            }
+                            break;
+                        }
+                        steps += 1;
+                        match token.kind {
+                            TokenKind::ControlSequence { .. } => {
+                                let next = self.expand_once(token.clone(), &mut local_queue);
+                                if next.len() == 1 && next[0] == token {
+                                    expanded.push(token);
+                                } else {
+                                    for token in next.into_iter().rev() {
+                                        self.push_token_front(&mut local_queue, token);
+                                    }
+                                }
+                            }
+                            TokenKind::Character { .. } => expanded.push(token),
+                        }
+                    }
+                    expanded
+                };
+                let first = expand_argument(first);
+                let second = expand_argument(second);
+                let mut expansion = Vec::new();
+                expansion.extend(target);
+                expansion.push(Token::character('{', CatCode::BeginGroup, 0, 0));
+                expansion.extend(first);
+                expansion.push(Token::character('}', CatCode::EndGroup, 0, 0));
+                expansion.push(Token::character('{', CatCode::BeginGroup, 0, 0));
+                expansion.extend(second);
+                expansion.push(Token::character('}', CatCode::EndGroup, 0, 0));
+                for token in expansion.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::IfCsName => {
+                let name = self.read_csname_name(queue);
+                let is_defined =
+                    self.lookup_meaning(&name).is_some() || builtin_primitive(&name).is_some();
+                self.skip_optional_spaces(queue);
+                self.start_conditional(is_defined, queue);
+            }
+            Primitive::IfOdd => {
+                let Some(value) = self.read_number_expression(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                self.start_conditional(value % 2 != 0, queue);
+            }
+            Primitive::IfChar => {
+                self.skip_optional_spaces(queue);
+                let Some(left) = self.pop_next_token(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                let Some(right) = self.pop_next_token(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                let mut resolve_char = |mut token: Token, queue: &mut VecDeque<QueueItem>| {
+                    for _ in 0..256 {
+                        match token.kind.clone() {
+                            TokenKind::Character { ch, .. } => return Some(ch),
+                            TokenKind::ControlSequence { .. } => {
+                                let expanded = self.expand_once(token.clone(), queue);
+                                if expanded.len() != 1 {
+                                    return None;
+                                }
+                                token = expanded.into_iter().next().unwrap();
+                            }
+                        }
+                    }
+                    None
+                };
+                let matches = match (resolve_char(left, queue), resolve_char(right, queue)) {
+                    (Some(left), Some(right)) => left == right,
+                    _ => false,
+                };
+                self.start_conditional(matches, queue);
+            }
+            Primitive::IfCat => {
+                self.skip_optional_spaces(queue);
+                let Some(left) = self.pop_next_token(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                let Some(right) = self.pop_next_token(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                let same_category = match (left.kind, right.kind) {
+                    (TokenKind::ControlSequence { .. }, TokenKind::ControlSequence { .. }) => true,
+                    (
+                        TokenKind::Character { catcode: left, .. },
+                        TokenKind::Character { catcode: right, .. },
+                    ) => left == right,
+                    _ => false,
+                };
+                self.start_conditional(same_category, queue);
+            }
+            Primitive::IfCase => {
+                let Some(case_index) = self.read_number_expression(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                let mut depth = 0;
+                let mut branches = Vec::new();
+                let mut current = Vec::new();
+                let mut else_branch = None;
+                let mut in_else = false;
+                while let Some(token) = self.pop_next_token(queue) {
+                    let control_name = match token.kind.clone() {
+                        TokenKind::ControlSequence { name } => {
+                            Some(self.interner.resolve(name).unwrap_or("").to_string())
+                        }
+                        TokenKind::Character { .. } => None,
+                    };
+                    match control_name.as_deref() {
+                        Some(name) if self.is_conditional_name(name) => {
+                            depth += 1;
+                            current.push(token);
+                        }
+                        Some("fi") if depth == 0 => {
+                            if in_else {
+                                else_branch = Some(current);
+                            } else {
+                                branches.push(current);
+                            }
+                            break;
+                        }
+                        Some("fi") => {
+                            depth -= 1;
+                            current.push(token);
+                        }
+                        Some("or") if depth == 0 && !in_else => {
+                            branches.push(current);
+                            current = Vec::new();
+                        }
+                        Some("else") if depth == 0 && !in_else => {
+                            branches.push(current);
+                            current = Vec::new();
+                            in_else = true;
+                        }
+                        _ => current.push(token),
+                    }
+                }
+                let selected = if case_index >= 0 && (case_index as usize) < branches.len() {
+                    branches.swap_remove(case_index as usize)
+                } else {
+                    else_branch.unwrap_or_default()
+                };
+                for token in selected.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::IfDefined => {
+                self.skip_optional_spaces(queue);
+                let is_defined = self
+                    .pop_next_token(queue)
+                    .is_some_and(|token| match token.kind {
+                        TokenKind::ControlSequence { name } => {
+                            let name = self.interner.resolve(name).unwrap_or("").to_string();
+                            self.lookup_meaning(&name).is_some()
+                                || builtin_primitive(&name).is_some()
+                        }
+                        TokenKind::Character { .. } => false,
+                    });
+                self.skip_optional_spaces(queue);
+                self.start_conditional(is_defined, queue);
+            }
+            Primitive::IfUndefined => {
+                let Some(name) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let Some(then_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let Some(else_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let name = name.strip_prefix('\\').unwrap_or(&name);
+                let is_defined =
+                    self.lookup_meaning(name).is_some() || builtin_primitive(name).is_some();
+                for token in if is_defined { else_body } else { then_body }
+                    .into_iter()
+                    .rev()
+                {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::IfDefinable => {
+                let Some(target) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                let Some(body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                if self.lookup_meaning(&target).is_none() && builtin_primitive(&target).is_none() {
+                    for token in body.into_iter().rev() {
+                        self.push_token_front(queue, token);
+                    }
+                }
+            }
+            Primitive::IfNextChar => {
+                self.skip_optional_spaces(queue);
+                let Some(expected) = self.pop_next_token(queue) else {
+                    return;
+                };
+                let Some(then_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let Some(else_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                let matches = self
+                    .peek_next_token(queue)
+                    .is_some_and(|next| self.ifx_tokens_equal(&expected, &next));
+                for token in if matches { then_body } else { else_body }
+                    .into_iter()
+                    .rev()
+                {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::IfStar => {
+                let Some(then_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let Some(else_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                let matches = matches!(
+                    self.peek_next_token(queue).map(|token| token.kind),
+                    Some(TokenKind::Character { ch: '*', .. })
+                );
+                for token in if matches { then_body } else { else_body }
+                    .into_iter()
+                    .rev()
+                {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::IfEmpty => {
+                let Some(argument) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let Some(then_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let Some(else_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let is_empty = argument.iter().all(|token| {
+                    matches!(
+                        token.kind,
+                        TokenKind::Character {
+                            catcode: CatCode::Space,
+                            ..
+                        }
+                    )
+                });
+                for token in if is_empty { then_body } else { else_body }
+                    .into_iter()
+                    .rev()
+                {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::IfNotEmpty => {
+                let Some(argument) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let Some(then_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let Some(else_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let is_empty = argument.iter().all(|token| {
+                    matches!(
+                        token.kind,
+                        TokenKind::Character {
+                            catcode: CatCode::Space,
+                            ..
+                        }
+                    )
+                });
+                for token in if is_empty { else_body } else { then_body }
+                    .into_iter()
+                    .rev()
+                {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::IfMtArg => {
+                let Some(argument) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let Some(then_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let Some(else_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let is_empty = argument.iter().all(|token| {
+                    matches!(
+                        token.kind,
+                        TokenKind::Character {
+                            catcode: CatCode::Space,
+                            ..
+                        }
+                    )
+                });
+                for token in if is_empty { then_body } else { else_body }
+                    .into_iter()
+                    .rev()
+                {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::IfNotMtArg => {
+                let Some(argument) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let Some(then_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let Some(else_body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let is_empty = argument.iter().all(|token| {
+                    matches!(
+                        token.kind,
+                        TokenKind::Character {
+                            catcode: CatCode::Space,
+                            ..
+                        }
+                    )
+                });
+                for token in if is_empty { else_body } else { then_body }
+                    .into_iter()
+                    .rev()
+                {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::TestOpt => {
+                let Some(target) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                let Some(default) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                let target_id = self.interner.intern(&target);
+                if matches!(
+                    self.peek_next_token(queue).map(|token| token.kind),
+                    Some(TokenKind::Character { ch: '[', .. })
+                ) {
+                    self.push_token_front(queue, Token::control_sequence(target_id, 0, 0));
+                } else {
+                    let mut expansion = Vec::with_capacity(default.len() + 3);
+                    expansion.push(Token::control_sequence(target_id, 0, 0));
+                    expansion.push(Token::character('[', CatCode::Other, 0, 0));
+                    expansion.extend(default);
+                    expansion.push(Token::character(']', CatCode::Other, 0, 0));
+                    for token in expansion.into_iter().rev() {
+                        self.push_token_front(queue, token);
+                    }
+                }
+            }
+            Primitive::DblArg => {
+                let Some(target) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                let target_id = self.interner.intern(&target);
+                if matches!(
+                    self.peek_next_token(queue).map(|token| token.kind),
+                    Some(TokenKind::Character { ch: '[', .. })
+                ) {
+                    self.push_token_front(queue, Token::control_sequence(target_id, 0, 0));
+                } else {
+                    let Some(argument) = self.read_macro_argument(queue) else {
+                        return;
+                    };
+                    let mut expansion = Vec::with_capacity(argument.len() * 2 + 5);
+                    expansion.push(Token::control_sequence(target_id, 0, 0));
+                    expansion.push(Token::character('[', CatCode::Other, 0, 0));
+                    expansion.extend(argument.clone());
+                    expansion.push(Token::character(']', CatCode::Other, 0, 0));
+                    expansion.push(Token::character('{', CatCode::BeginGroup, 0, 0));
+                    expansion.extend(argument);
+                    expansion.push(Token::character('}', CatCode::EndGroup, 0, 0));
+                    for token in expansion.into_iter().rev() {
+                        self.push_token_front(queue, token);
+                    }
+                }
+            }
+            Primitive::Car => {
+                let sentinel_id = self.interner.intern("@nil");
+                let mut tokens = Vec::new();
+                while let Some(token) = self.pop_next_token(queue) {
+                    if matches!(
+                        token.kind,
+                        TokenKind::ControlSequence { name } if name == sentinel_id
+                    ) {
+                        break;
+                    }
+                    tokens.push(token);
+                }
+                if let Some(first) = tokens.into_iter().next() {
+                    self.push_token_front(queue, first);
+                }
+            }
+            Primitive::Cdr => {
+                let sentinel_id = self.interner.intern("@nil");
+                let mut tokens = Vec::new();
+                while let Some(token) = self.pop_next_token(queue) {
+                    if matches!(
+                        token.kind,
+                        TokenKind::ControlSequence { name } if name == sentinel_id
+                    ) {
+                        break;
+                    }
+                    tokens.push(token);
+                }
+                for token in tokens.into_iter().skip(1).rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::TFor => {
+                let Some(target) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                match self.pop_next_token(queue).map(|token| token.kind) {
+                    Some(TokenKind::Character { ch: ':', .. }) => {}
+                    _ => return,
+                }
+                match self.pop_next_token(queue).map(|token| token.kind) {
+                    Some(TokenKind::Character { ch: '=', .. }) => {}
+                    _ => return,
+                }
+                let mut list_tokens = Vec::new();
+                let mut depth = 0;
+                while let Some(token) = self.pop_next_token(queue) {
+                    match token.kind {
+                        TokenKind::Character {
+                            catcode: CatCode::BeginGroup,
+                            ..
+                        } => {
+                            depth += 1;
+                            list_tokens.push(token);
+                        }
+                        TokenKind::Character {
+                            catcode: CatCode::EndGroup,
+                            ..
+                        } => {
+                            depth -= 1;
+                            list_tokens.push(token);
+                        }
+                        TokenKind::ControlSequence { name }
+                            if depth == 0
+                                && self.interner.resolve(name).is_some_and(|name| name == "do") =>
+                        {
+                            break;
+                        }
+                        _ => list_tokens.push(token),
+                    }
+                }
+                let Some(body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let mut items = Vec::new();
+                let mut pending = VecDeque::from(list_tokens);
+                while let Some(token) = pending.pop_front() {
+                    if matches!(
+                        token.kind,
+                        TokenKind::Character {
+                            catcode: CatCode::Space,
+                            ..
+                        }
+                    ) {
+                        continue;
+                    }
+                    let mut item = vec![token];
+                    if matches!(
+                        item.first().map(|token| &token.kind),
+                        Some(TokenKind::Character {
+                            catcode: CatCode::BeginGroup,
+                            ..
+                        })
+                    ) {
+                        let mut depth = 1;
+                        while depth > 0 {
+                            let Some(token) = pending.pop_front() else {
+                                return;
+                            };
+                            match token.kind {
+                                TokenKind::Character {
+                                    catcode: CatCode::BeginGroup,
+                                    ..
+                                } => depth += 1,
+                                TokenKind::Character {
+                                    catcode: CatCode::EndGroup,
+                                    ..
+                                } => depth -= 1,
+                                _ => {}
+                            }
+                            item.push(token);
+                        }
+                    }
+                    items.push(item);
+                }
+                let def_id = self.interner.intern("def");
+                let target_id = self.interner.intern(&target);
+                for item in items.into_iter().rev() {
+                    let mut expansion = Vec::with_capacity(item.len() + body.len() + 5);
+                    expansion.push(Token::control_sequence(def_id, 0, 0));
+                    expansion.push(Token::control_sequence(target_id, 0, 0));
+                    expansion.push(Token::character('{', CatCode::BeginGroup, 0, 0));
+                    expansion.extend(item);
+                    expansion.push(Token::character('}', CatCode::EndGroup, 0, 0));
+                    expansion.extend(body.clone());
+                    for token in expansion.into_iter().rev() {
+                        self.push_token_front(queue, token);
+                    }
+                }
+            }
+            Primitive::ZapSpace => {
+                let sentinel_id = self.interner.intern("@empty");
+                let mut tokens = Vec::new();
+                while let Some(token) = self.pop_next_token(queue) {
+                    if matches!(
+                        token.kind,
+                        TokenKind::ControlSequence { name } if name == sentinel_id
+                    ) {
+                        break;
+                    }
+                    if matches!(
+                        token.kind,
+                        TokenKind::Character {
+                            catcode: CatCode::Space,
+                            ..
+                        }
+                    ) {
+                        continue;
+                    }
+                    tokens.push(token);
+                }
+                for token in tokens.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::FirstOfOne => {
+                let Some(first) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                for token in first.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::Iden => {
+                let Some(first) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                for token in first.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::FirstOfTwo => {
+                let Some(first) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let Some(second) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let _ = second;
+                for token in first.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::SecondOfTwo => {
+                let Some(first) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let Some(second) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let _ = first;
+                for token in second.into_iter().rev() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::Gobble => {
+                let _ = self.read_macro_argument(queue);
+            }
+            Primitive::GobbleTwo => {
+                let _ = self.read_macro_argument(queue);
+                let _ = self.read_macro_argument(queue);
+            }
+            Primitive::GobbleThree => {
+                let _ = self.read_macro_argument(queue);
+                let _ = self.read_macro_argument(queue);
+                let _ = self.read_macro_argument(queue);
+            }
+            Primitive::GobbleFour => {
+                let _ = self.read_macro_argument(queue);
+                let _ = self.read_macro_argument(queue);
+                let _ = self.read_macro_argument(queue);
+                let _ = self.read_macro_argument(queue);
+            }
+            Primitive::GAddToMacro => {
+                let Some(target) = self.read_control_sequence_name(queue) else {
+                    return;
+                };
+                let Some(argument) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let meaning = match self.lookup_meaning(&target) {
+                    Some(Meaning::Macro(mut definition)) => {
+                        definition.body.extend(argument);
+                        Meaning::Macro(definition)
+                    }
+                    Some(Meaning::Token(token)) => Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body: std::iter::once(token).chain(argument).collect(),
+                    }),
+                    Some(Meaning::Primitive(_)) | None => Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body: argument,
+                    }),
+                };
+                if let Some(scope) = self.scopes.first_mut() {
+                    scope.insert(target, meaning);
+                }
+            }
+            Primitive::NameDef => {
+                let force_global = mem::take(&mut self.global_prefix);
+                let Some(name) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let Some(body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                self.define(
+                    name.clone(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body,
+                    }),
+                    force_global,
+                );
+                self.transcript.push(format!("@namedef \\{name}"));
+            }
+            Primitive::NameXDef => {
+                self.global_prefix = false;
+                let Some(name) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let Some(body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                let body = self.fully_expand_tokens(body);
+                self.define(
+                    name.clone(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body,
+                    }),
+                    true,
+                );
+                self.transcript.push(format!("@namexdef \\{name}"));
+            }
+            Primitive::NameUse => {
+                let Some(name) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let name_id = self.interner.intern(&name);
+                self.push_token_front(queue, Token::control_sequence(name_id, 0, 0));
+            }
+            Primitive::Advance => {
+                self.skip_optional_spaces(queue);
+                let mut local_queue = queue.clone();
+                if let Some(index) = self.read_count_register_index(&mut local_queue) {
+                    *queue = local_queue;
+                    self.skip_optional_spaces(queue);
+                    if matches!(
+                        self.peek_next_token(queue),
+                        Some(Token {
+                            kind: TokenKind::Character {
+                                ch: 'b',
+                                catcode: CatCode::Letter,
+                                ..
+                            },
+                            ..
+                        })
+                    ) {
+                        let mut keyword = String::new();
+                        while let Some(Token {
+                            kind:
+                                TokenKind::Character {
+                                    ch,
+                                    catcode: CatCode::Letter,
+                                    ..
+                                },
+                            ..
+                        }) = self.peek_next_token(queue)
+                        {
+                            keyword.push(ch);
+                            self.pop_next_token(queue);
+                            if keyword.len() == 2 {
+                                break;
+                            }
+                        }
+                        if keyword != "by" {
+                            return;
+                        }
+                    }
+                    let Some(delta) = self.read_number_expression(queue) else {
+                        return;
+                    };
+                    let next = self.registers.get(&index).copied().unwrap_or(0) + delta;
+                    self.registers.insert(index, next);
+                    self.transcript.push(format!("count{index}+={delta}"));
+                    if let Some(token) = self.after_assignment_token.take() {
+                        self.push_token_front(queue, token);
+                    }
+                    return;
+                }
+
+                let mut local_queue = queue.clone();
+                if let Some(index) = self.read_dimen_register_index(&mut local_queue) {
+                    *queue = local_queue;
+                    self.skip_optional_spaces(queue);
+                    if matches!(
+                        self.peek_next_token(queue),
+                        Some(Token {
+                            kind: TokenKind::Character {
+                                ch: 'b',
+                                catcode: CatCode::Letter,
+                                ..
+                            },
+                            ..
+                        })
+                    ) {
+                        let mut keyword = String::new();
+                        while let Some(Token {
+                            kind:
+                                TokenKind::Character {
+                                    ch,
+                                    catcode: CatCode::Letter,
+                                    ..
+                                },
+                            ..
+                        }) = self.peek_next_token(queue)
+                        {
+                            keyword.push(ch);
+                            self.pop_next_token(queue);
+                            if keyword.len() == 2 {
+                                break;
+                            }
+                        }
+                        if keyword != "by" {
+                            return;
+                        }
+                    }
+                    let Some(delta) = self.read_dimension_expression(queue) else {
+                        return;
+                    };
+                    let next = self.dimen_registers.get(&index).copied().unwrap_or(0) + delta;
+                    self.dimen_registers.insert(index, next);
+                    self.transcript
+                        .push(format!("dimen{index}+={}", format_dimension_value(delta)));
+                    if let Some(token) = self.after_assignment_token.take() {
+                        self.push_token_front(queue, token);
+                    }
+                    return;
+                }
+
+                let mut local_queue = queue.clone();
+                if let Some(index) = self.read_skip_register_index(&mut local_queue) {
+                    *queue = local_queue;
+                    self.skip_optional_spaces(queue);
+                    if matches!(
+                        self.peek_next_token(queue),
+                        Some(Token {
+                            kind: TokenKind::Character {
+                                ch: 'b',
+                                catcode: CatCode::Letter,
+                                ..
+                            },
+                            ..
+                        })
+                    ) {
+                        let mut keyword = String::new();
+                        while let Some(Token {
+                            kind:
+                                TokenKind::Character {
+                                    ch,
+                                    catcode: CatCode::Letter,
+                                    ..
+                                },
+                            ..
+                        }) = self.peek_next_token(queue)
+                        {
+                            keyword.push(ch);
+                            self.pop_next_token(queue);
+                            if keyword.len() == 2 {
+                                break;
+                            }
+                        }
+                        if keyword != "by" {
+                            return;
+                        }
+                    }
+                    let Some(delta) = self.read_glue_expression(queue) else {
+                        return;
+                    };
+                    let next = self.skip_registers.get(&index).copied().unwrap_or(0) + delta;
+                    self.skip_registers.insert(index, next);
+                    self.transcript
+                        .push(format!("skip{index}+={}", format_dimension_value(delta)));
+                    if let Some(token) = self.after_assignment_token.take() {
+                        self.push_token_front(queue, token);
+                    }
+                }
+            }
+            Primitive::Multiply | Primitive::Divide => {
+                self.skip_optional_spaces(queue);
+                let mut local_queue = queue.clone();
+                if let Some(index) = self.read_count_register_index(&mut local_queue) {
+                    *queue = local_queue;
+                    self.skip_optional_spaces(queue);
+                    if matches!(
+                        self.peek_next_token(queue),
+                        Some(Token {
+                            kind: TokenKind::Character {
+                                ch: 'b',
+                                catcode: CatCode::Letter,
+                                ..
+                            },
+                            ..
+                        })
+                    ) {
+                        let mut keyword = String::new();
+                        while let Some(Token {
+                            kind:
+                                TokenKind::Character {
+                                    ch,
+                                    catcode: CatCode::Letter,
+                                    ..
+                                },
+                            ..
+                        }) = self.peek_next_token(queue)
+                        {
+                            keyword.push(ch);
+                            self.pop_next_token(queue);
+                            if keyword.len() == 2 {
+                                break;
+                            }
+                        }
+                        if keyword != "by" {
+                            return;
+                        }
+                    }
+                    let Some(factor) = self.read_number_expression(queue) else {
+                        return;
+                    };
+                    let current = self.registers.get(&index).copied().unwrap_or(0);
+                    let next = match primitive {
+                        Primitive::Multiply => current.saturating_mul(factor),
+                        Primitive::Divide => {
+                            if factor == 0 {
+                                return;
+                            }
+                            current / factor
+                        }
+                        _ => unreachable!(),
+                    };
+                    self.registers.insert(index, next);
+                    self.transcript.push(match primitive {
+                        Primitive::Multiply => format!("count{index}*={factor}"),
+                        Primitive::Divide => format!("count{index}/={factor}"),
+                        _ => unreachable!(),
+                    });
+                    if let Some(token) = self.after_assignment_token.take() {
+                        self.push_token_front(queue, token);
+                    }
+                    return;
+                }
+
+                let mut local_queue = queue.clone();
+                if let Some(index) = self.read_dimen_register_index(&mut local_queue) {
+                    *queue = local_queue;
+                    self.skip_optional_spaces(queue);
+                    if matches!(
+                        self.peek_next_token(queue),
+                        Some(Token {
+                            kind: TokenKind::Character {
+                                ch: 'b',
+                                catcode: CatCode::Letter,
+                                ..
+                            },
+                            ..
+                        })
+                    ) {
+                        let mut keyword = String::new();
+                        while let Some(Token {
+                            kind:
+                                TokenKind::Character {
+                                    ch,
+                                    catcode: CatCode::Letter,
+                                    ..
+                                },
+                            ..
+                        }) = self.peek_next_token(queue)
+                        {
+                            keyword.push(ch);
+                            self.pop_next_token(queue);
+                            if keyword.len() == 2 {
+                                break;
+                            }
+                        }
+                        if keyword != "by" {
+                            return;
+                        }
+                    }
+                    let Some(factor) = self.read_number_expression(queue) else {
+                        return;
+                    };
+                    let current = self.dimen_registers.get(&index).copied().unwrap_or(0);
+                    let next = match primitive {
+                        Primitive::Multiply => current.saturating_mul(factor),
+                        Primitive::Divide => {
+                            if factor == 0 {
+                                return;
+                            }
+                            current / factor
+                        }
+                        _ => unreachable!(),
+                    };
+                    self.dimen_registers.insert(index, next);
+                    self.transcript.push(match primitive {
+                        Primitive::Multiply => format!("dimen{index}*={factor}"),
+                        Primitive::Divide => format!("dimen{index}/={factor}"),
+                        _ => unreachable!(),
+                    });
+                    if let Some(token) = self.after_assignment_token.take() {
+                        self.push_token_front(queue, token);
+                    }
+                    return;
+                }
+
+                let mut local_queue = queue.clone();
+                if let Some(index) = self.read_skip_register_index(&mut local_queue) {
+                    *queue = local_queue;
+                    self.skip_optional_spaces(queue);
+                    if matches!(
+                        self.peek_next_token(queue),
+                        Some(Token {
+                            kind: TokenKind::Character {
+                                ch: 'b',
+                                catcode: CatCode::Letter,
+                                ..
+                            },
+                            ..
+                        })
+                    ) {
+                        let mut keyword = String::new();
+                        while let Some(Token {
+                            kind:
+                                TokenKind::Character {
+                                    ch,
+                                    catcode: CatCode::Letter,
+                                    ..
+                                },
+                            ..
+                        }) = self.peek_next_token(queue)
+                        {
+                            keyword.push(ch);
+                            self.pop_next_token(queue);
+                            if keyword.len() == 2 {
+                                break;
+                            }
+                        }
+                        if keyword != "by" {
+                            return;
+                        }
+                    }
+                    let Some(factor) = self.read_number_expression(queue) else {
+                        return;
+                    };
+                    let current = self.skip_registers.get(&index).copied().unwrap_or(0);
+                    let next = match primitive {
+                        Primitive::Multiply => current.saturating_mul(factor),
+                        Primitive::Divide => {
+                            if factor == 0 {
+                                return;
+                            }
+                            current / factor
+                        }
+                        _ => unreachable!(),
+                    };
+                    self.skip_registers.insert(index, next);
+                    self.transcript.push(match primitive {
+                        Primitive::Multiply => format!("skip{index}*={factor}"),
+                        Primitive::Divide => format!("skip{index}/={factor}"),
+                        _ => unreachable!(),
+                    });
+                    if let Some(token) = self.after_assignment_token.take() {
+                        self.push_token_front(queue, token);
+                    }
+                }
+            }
+            Primitive::IfX => {
+                self.skip_optional_spaces(queue);
+                let Some(left) = self.pop_next_token(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                let Some(right) = self.pop_next_token(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                self.start_conditional(self.ifx_tokens_equal(&left, &right), queue);
+            }
+            Primitive::IfNum => {
+                let Some(left) = self.read_number_expression(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                let Some(relation) = self.pop_next_token(queue) else {
+                    return;
+                };
+                let TokenKind::Character { ch: relation, .. } = relation.kind else {
+                    return;
+                };
+                let Some(right) = self.read_number_expression(queue) else {
+                    return;
+                };
+                let result = match relation {
+                    '<' => left < right,
+                    '>' => left > right,
+                    '=' => left == right,
+                    _ => return,
+                };
+                self.skip_optional_spaces(queue);
+                self.start_conditional(result, queue);
+            }
+            Primitive::IfDim => {
+                let Some(left) = self.read_dimension_expression(queue) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                let Some(relation) = self.pop_next_token(queue) else {
+                    return;
+                };
+                let TokenKind::Character { ch: relation, .. } = relation.kind else {
+                    return;
+                };
+                let Some(right) = self.read_dimension_expression(queue) else {
+                    return;
+                };
+                let result = match relation {
+                    '<' => left < right,
+                    '>' => left > right,
+                    '=' => left == right,
+                    _ => return,
+                };
+                self.skip_optional_spaces(queue);
+                self.start_conditional(result, queue);
+            }
+            Primitive::Else => {
+                if self.conditionals.pop() == Some(ConditionalState::ThenExecuted) {
+                    self.skip_to_fi(queue);
+                }
+            }
+            Primitive::Fi => {
+                self.conditionals.pop();
+            }
+            Primitive::Count => {
+                let Some(index) = self.read_integer(queue).map(|value| value as u32) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                if let Some(Token {
+                    kind:
+                        TokenKind::Character {
+                            ch: '=',
+                            catcode: CatCode::Other,
+                        },
+                    ..
+                }) = self.peek_next_token(queue)
+                {
+                    self.pop_next_token(queue);
+                    if let Some(value) = self.read_number_expression(queue) {
+                        self.registers.insert(index, value);
+                        self.transcript.push(format!("count{index}={value}"));
+                        if let Some(token) = self.after_assignment_token.take() {
+                            self.push_token_front(queue, token);
+                        }
+                    }
+                }
+            }
+            Primitive::Dimen => {
+                let Some(index) = self.read_integer(queue).map(|value| value as u32) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                if let Some(Token {
+                    kind:
+                        TokenKind::Character {
+                            ch: '=',
+                            catcode: CatCode::Other,
+                        },
+                    ..
+                }) = self.peek_next_token(queue)
+                {
+                    self.pop_next_token(queue);
+                    if let Some(value) = self.read_dimension_expression(queue) {
+                        self.dimen_registers.insert(index, value);
+                        self.transcript
+                            .push(format!("dimen{index}={}", format_dimension_value(value)));
+                        if let Some(token) = self.after_assignment_token.take() {
+                            self.push_token_front(queue, token);
+                        }
+                    }
+                }
+            }
+            Primitive::Skip => {
+                let Some(index) = self.read_integer(queue).map(|value| value as u32) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                if let Some(Token {
+                    kind:
+                        TokenKind::Character {
+                            ch: '=',
+                            catcode: CatCode::Other,
+                        },
+                    ..
+                }) = self.peek_next_token(queue)
+                {
+                    self.pop_next_token(queue);
+                    if let Some(value) = self.read_glue_expression(queue) {
+                        self.skip_registers.insert(index, value);
+                        self.transcript
+                            .push(format!("skip{index}={}", format_dimension_value(value)));
+                        if let Some(token) = self.after_assignment_token.take() {
+                            self.push_token_front(queue, token);
+                        }
+                    }
+                }
+            }
+            Primitive::Toks => {
+                let Some(index) = self.read_integer(queue).map(|value| value as u32) else {
+                    return;
+                };
+                self.skip_optional_spaces(queue);
+                if let Some(Token {
+                    kind:
+                        TokenKind::Character {
+                            ch: '=',
+                            catcode: CatCode::Other,
+                        },
+                    ..
+                }) = self.peek_next_token(queue)
+                {
+                    self.pop_next_token(queue);
+                }
+                self.skip_optional_spaces(queue);
+                let value = if matches!(
+                    self.peek_next_token(queue).map(|token| token.kind),
+                    Some(TokenKind::Character {
+                        catcode: CatCode::BeginGroup,
+                        ..
+                    })
+                ) {
+                    self.read_balanced_group(queue).unwrap_or_default()
+                } else if let Some(token) = self.pop_next_token(queue) {
+                    vec![token]
+                } else {
+                    Vec::new()
+                };
+                self.token_registers.insert(index, value);
+                self.transcript.push(format!("toks{index}=..."));
+                if let Some(token) = self.after_assignment_token.take() {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::Value => {
+                let Some(counter_name) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let counter_name = format!("c@{}", self.tokens_to_text(counter_name));
+                let Some(register_index) = self.resolve_count_register_name(&counter_name) else {
+                    return;
+                };
+                let value = self
+                    .registers
+                    .get(&register_index)
+                    .copied()
+                    .unwrap_or_default();
+                for ch in value.to_string().chars().rev() {
+                    self.push_token_front(queue, Token::character(ch, CatCode::Other, 0, 0));
+                }
+            }
+            Primitive::The => {
+                let mut local_queue = queue.clone();
+                if let Some(index) = self.read_toks_register_index(&mut local_queue) {
+                    *queue = local_queue;
+                    if let Some(tokens) = self.token_registers.get(&index) {
+                        for token in tokens.iter().cloned().rev() {
+                            self.push_token_front(queue, token);
+                        }
+                    }
+                    return;
+                }
+                let mut local_queue = queue.clone();
+                if let Some(index) = self.read_skip_register_index(&mut local_queue) {
+                    *queue = local_queue;
+                    let value = *self.skip_registers.get(&index).unwrap_or(&0);
+                    for token in render_dimension_tokens(value).into_iter().rev() {
+                        self.push_token_front(queue, token);
+                    }
+                    return;
+                }
+                let mut local_queue = queue.clone();
+                if let Some(value) = self.read_dimension_expression(&mut local_queue) {
+                    *queue = local_queue;
+                    for token in render_dimension_tokens(value).into_iter().rev() {
+                        self.push_token_front(queue, token);
+                    }
+                    return;
+                }
+                if let Some(value) = self.read_number_expression(queue) {
+                    for ch in value.to_string().chars().rev() {
+                        self.push_token_front(queue, Token::character(ch, CatCode::Other, 0, 0));
+                    }
+                }
+            }
+            Primitive::Number => {
+                if let Some(value) = self.read_number_expression(queue) {
+                    for ch in value.to_string().chars().rev() {
+                        self.push_token_front(queue, Token::character(ch, CatCode::Other, 0, 0));
+                    }
+                }
+            }
+            Primitive::RomanNumeral => {
+                if let Some(value) = self.read_number_expression(queue) {
+                    for ch in render_roman_numeral(value).chars().rev() {
+                        self.push_token_front(queue, Token::character(ch, CatCode::Other, 0, 0));
+                    }
+                }
+            }
+            Primitive::CounterArabic
+            | Primitive::CounterRoman
+            | Primitive::CounterRomanUpper
+            | Primitive::CounterAlph
+            | Primitive::CounterAlphUpper => {
+                let Some(argument) = self.read_macro_argument(queue) else {
+                    return;
+                };
+                let Some(value) = self.read_counter_format_value_from_tokens(argument) else {
+                    return;
+                };
+                for token in self
+                    .render_counter_format_tokens(value, primitive)
+                    .into_iter()
+                    .rev()
+                {
+                    self.push_token_front(queue, token);
+                }
+            }
+            Primitive::EndInput => {
+                let Some(current_path) = self.source_stack.last().map(|frame| frame.path.clone())
+                else {
+                    return;
+                };
+                while let Some(item) = queue.pop_front() {
+                    match item {
+                        QueueItem::ModuleEnd {
+                            path,
+                            source_start_utf8,
+                            source_end_utf8,
+                            output_start_utf8,
+                            checkpoint,
+                        } if path == current_path => {
+                            queue.push_front(QueueItem::ModuleEnd {
+                                path,
+                                source_start_utf8,
+                                source_end_utf8,
+                                output_start_utf8,
+                                checkpoint,
+                            });
+                            break;
+                        }
+                        QueueItem::ModuleEnd {
+                            path,
+                            source_start_utf8,
+                            source_end_utf8,
+                            output_start_utf8,
+                            checkpoint,
+                        } => {
+                            queue.push_front(QueueItem::ModuleEnd {
+                                path,
+                                source_start_utf8,
+                                source_end_utf8,
+                                output_start_utf8,
+                                checkpoint,
+                            });
+                            break;
+                        }
+                        QueueItem::Token(_) => {}
+                    }
+                }
+            }
+            Primitive::Input => {
+                let checkpoint_snapshot = self.snapshot();
+                let output_start_utf8 = self.output.len() as u32;
+                let resume_path = self.source_stack.last().map(|frame| frame.path.clone());
+                let continuation_stack = self.current_continuation_stack();
+                let Some(path) = self.read_input_path(queue) else {
+                    return;
+                };
+                self.module_checkpoints.push(VmModuleCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: path.clone(),
+                    resume_path: resume_path.clone(),
+                    source_offset_utf8,
+                    continuation_stack: continuation_stack.clone(),
+                    output_start_utf8,
+                    snapshot: checkpoint_snapshot,
+                });
+                self.load_module(
+                    &path,
+                    "input",
+                    true,
+                    resume_path,
+                    self.last_token_end_utf8,
+                    continuation_stack,
+                    Vec::new(),
+                    queue,
+                );
+            }
+            Primitive::Include => {
+                let checkpoint_snapshot = self.snapshot();
+                let output_start_utf8 = self.output.len() as u32;
+                let resume_path = self.source_stack.last().map(|frame| frame.path.clone());
+                let continuation_stack = self.current_continuation_stack();
+                let Some(path) = self.read_input_path(queue) else {
+                    return;
+                };
+                if self
+                    .include_only
+                    .as_ref()
+                    .is_some_and(|paths| !paths.contains(&path))
+                {
+                    self.transcript.push(format!("include skipped {}", path));
+                    return;
+                }
+                self.module_checkpoints.push(VmModuleCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: path.clone(),
+                    resume_path: resume_path.clone(),
+                    source_offset_utf8,
+                    continuation_stack: continuation_stack.clone(),
+                    output_start_utf8,
+                    snapshot: checkpoint_snapshot,
+                });
+                self.load_module(
+                    &path,
+                    "input",
+                    true,
+                    resume_path,
+                    self.last_token_end_utf8,
+                    continuation_stack,
+                    Vec::new(),
+                    queue,
+                );
+            }
+            Primitive::IncludeOnly => {
+                let Some(raw) = self.read_argument_text(queue) else {
+                    return;
+                };
+                let include_only = raw
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|path| !path.is_empty())
+                    .filter_map(|path| normalize_relative_path(Utf8Path::new(path)).ok())
+                    .map(|mut path| {
+                        if path.extension().is_none() {
+                            path = path.with_extension("tex");
+                        }
+                        path
+                    })
+                    .collect::<HashSet<_>>();
+                self.include_only = Some(include_only.clone());
+                let mut include_only = include_only.into_iter().collect::<Vec<_>>();
+                include_only.sort();
+                self.transcript.push(format!(
+                    "includeonly {}",
+                    include_only
+                        .iter()
+                        .map(|path| path.as_str())
+                        .collect::<Vec<_>>()
+                        .join(",")
+                ));
+            }
+        }
+    }
+
+    fn flush_module_end_markers(&mut self, queue: &mut VecDeque<QueueItem>) {
+        while let Some(QueueItem::ModuleEnd {
+            path,
+            source_start_utf8,
+            source_end_utf8,
+            output_start_utf8,
+            checkpoint,
+        }) = queue.front()
+        {
+            let path = path.clone();
+            let source_start_utf8 = *source_start_utf8;
+            let source_end_utf8 = *source_end_utf8;
+            let output_start_utf8 = *output_start_utf8;
+            let checkpoint = checkpoint.clone();
+            let pending_end_hooks = self
+                .source_stack
+                .last()
+                .filter(|frame| frame.path == path)
+                .map(|frame| !frame.end_hooks.is_empty())
+                .unwrap_or(false);
+            if pending_end_hooks {
+                let end_hooks = self
+                    .source_stack
+                    .last_mut()
+                    .map(|frame| mem::take(&mut frame.end_hooks))
+                    .unwrap_or_default();
+                queue.pop_front();
+                queue.push_front(QueueItem::ModuleEnd {
+                    path,
+                    source_start_utf8,
+                    source_end_utf8,
+                    output_start_utf8,
+                    checkpoint,
+                });
+                for body in end_hooks.into_iter().rev() {
+                    for token in body.into_iter().rev() {
+                        self.push_token_front(queue, token);
+                    }
+                }
+                continue;
+            }
+            queue.pop_front();
+            if self
+                .source_stack
+                .last()
+                .is_some_and(|frame| frame.path == path)
+            {
+                self.source_stack.pop();
+            }
+            self.module_traces.push(VmModuleTrace {
+                path: path.clone(),
+                source_start_utf8,
+                source_end_utf8,
+                output_start_utf8,
+                output_end_utf8: self.output.len() as u32,
+            });
+            if let Some(checkpoint) = checkpoint {
+                self.module_checkpoints.push(VmModuleCheckpoint {
+                    kind: VmModuleCheckpointKind::Exit,
+                    module_path: path,
+                    resume_path: checkpoint.resume_path,
+                    source_offset_utf8: checkpoint.source_offset_utf8,
+                    continuation_stack: checkpoint.continuation_stack,
+                    output_start_utf8: self.output.len() as u32,
+                    snapshot: self.snapshot(),
+                });
+            }
+        }
+    }
+
+    fn pop_next_token(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<Token> {
+        self.flush_module_end_markers(queue);
+        match queue.pop_front()? {
+            QueueItem::Token(token) => {
+                self.last_token_end_utf8 = token.span.end;
+                Some(token)
+            }
+            QueueItem::ModuleEnd { .. } => unreachable!("module end markers are flushed first"),
+        }
+    }
+
+    fn peek_next_token(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<Token> {
+        self.flush_module_end_markers(queue);
+        match queue.front()? {
+            QueueItem::Token(token) => Some(token.clone()),
+            QueueItem::ModuleEnd { .. } => unreachable!("module end markers are flushed first"),
+        }
+    }
+
+    fn push_token_front(&self, queue: &mut VecDeque<QueueItem>, token: Token) {
+        queue.push_front(QueueItem::Token(token));
+    }
+
+    fn current_continuation_stack(&self) -> Vec<VmReplayFrame> {
+        let mut continuation_stack = Vec::new();
+        for frame in self.source_stack.iter().rev() {
+            if let Some(return_to_parent) = &frame.return_to_parent {
+                continuation_stack.push(return_to_parent.clone());
+            }
+        }
+        continuation_stack
+    }
+
+    fn expand_once(&mut self, token: Token, queue: &mut VecDeque<QueueItem>) -> Vec<Token> {
+        match token.kind {
+            TokenKind::ControlSequence { name } => {
+                let name = self.interner.resolve(name).unwrap_or("").to_string();
+                match self
+                    .lookup_meaning(&name)
+                    .or_else(|| builtin_primitive(&name).map(Meaning::Primitive))
+                {
+                    Some(Meaning::Macro(definition)) => self.expand_macro(definition, queue),
+                    Some(Meaning::Token(token)) => vec![token],
+                    Some(Meaning::Primitive(Primitive::CsName)) => self.expand_csname(queue),
+                    Some(Meaning::Primitive(Primitive::String)) => self
+                        .pop_next_token(queue)
+                        .map(|token| self.render_stringified_tokens(token, false))
+                        .unwrap_or_default(),
+                    Some(Meaning::Primitive(Primitive::Meaning)) => self
+                        .pop_next_token(queue)
+                        .map(|token| self.render_meaning_tokens(token))
+                        .unwrap_or_default(),
+                    Some(Meaning::Primitive(Primitive::Detokenize)) => {
+                        let tokens = self.read_balanced_group(queue).unwrap_or_default();
+                        self.render_detokenized_tokens(tokens)
+                    }
+                    Some(Meaning::Primitive(Primitive::JobName)) => self.render_jobname_tokens(),
+                    Some(Meaning::Primitive(Primitive::CurrentModuleName)) => {
+                        self.render_current_module_component_tokens(true)
+                    }
+                    Some(Meaning::Primitive(Primitive::CurrentModuleExt)) => {
+                        self.render_current_module_component_tokens(false)
+                    }
+                    Some(Meaning::Primitive(Primitive::CurrentModulePath)) => {
+                        self.render_current_module_path_tokens()
+                    }
+                    Some(Meaning::Primitive(Primitive::StripPrefix)) => {
+                        self.discard_tokens_through_strip_prefix_delimiter(queue);
+                        Vec::new()
+                    }
+                    Some(Meaning::Primitive(Primitive::Uppercase)) => {
+                        let tokens = self.read_balanced_group(queue).unwrap_or_default();
+                        self.render_case_transformed_tokens(tokens, true)
+                    }
+                    Some(Meaning::Primitive(Primitive::Lowercase)) => {
+                        let tokens = self.read_balanced_group(queue).unwrap_or_default();
+                        self.render_case_transformed_tokens(tokens, false)
+                    }
+                    Some(Meaning::Primitive(Primitive::ExpandedTokens)) => {
+                        let tokens = self.read_balanced_group(queue).unwrap_or_default();
+                        self.fully_expand_tokens(tokens)
+                    }
+                    Some(Meaning::Primitive(Primitive::Unexpanded)) => {
+                        self.read_balanced_group(queue).unwrap_or_default()
+                    }
+                    Some(Meaning::Primitive(Primitive::The)) => {
+                        let mut local_queue = queue.clone();
+                        if let Some(index) = self.read_toks_register_index(&mut local_queue) {
+                            *queue = local_queue;
+                            self.token_registers
+                                .get(&index)
+                                .cloned()
+                                .unwrap_or_default()
+                        } else {
+                            let mut local_queue = queue.clone();
+                            if let Some(index) = self.read_skip_register_index(&mut local_queue) {
+                                *queue = local_queue;
+                                render_dimension_tokens(
+                                    *self.skip_registers.get(&index).unwrap_or(&0),
+                                )
+                            } else {
+                                let mut local_queue = queue.clone();
+                                if let Some(value) =
+                                    self.read_dimension_expression(&mut local_queue)
+                                {
+                                    *queue = local_queue;
+                                    render_dimension_tokens(value)
+                                } else {
+                                    self.read_number_expression(queue)
+                                        .unwrap_or_default()
+                                        .to_string()
+                                        .chars()
+                                        .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                                        .collect()
+                                }
+                            }
+                        }
+                    }
+                    Some(Meaning::Primitive(Primitive::Value)) => {
+                        let counter_name = self
+                            .read_macro_argument(queue)
+                            .map(|tokens| format!("c@{}", self.tokens_to_text(tokens)))
+                            .unwrap_or_default();
+                        self.resolve_count_register_name(&counter_name)
+                            .and_then(|register_index| self.registers.get(&register_index).copied())
+                            .unwrap_or_default()
+                            .to_string()
+                            .chars()
+                            .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                            .collect()
+                    }
+                    Some(Meaning::Primitive(Primitive::Number)) => self
+                        .read_number_expression(queue)
+                        .unwrap_or_default()
+                        .to_string()
+                        .chars()
+                        .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                        .collect(),
+                    Some(Meaning::Primitive(Primitive::RomanNumeral)) => {
+                        render_roman_numeral(self.read_number_expression(queue).unwrap_or_default())
+                            .chars()
+                            .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+                            .collect()
+                    }
+                    Some(Meaning::Primitive(
+                        primitive @ (Primitive::CounterArabic
+                        | Primitive::CounterRoman
+                        | Primitive::CounterRomanUpper
+                        | Primitive::CounterAlph
+                        | Primitive::CounterAlphUpper),
+                    )) => {
+                        let argument = self.read_macro_argument(queue).unwrap_or_default();
+                        self.read_counter_format_value_from_tokens(argument)
+                            .map(|value| self.render_counter_format_tokens(value, primitive))
+                            .unwrap_or_default()
+                    }
+                    Some(Meaning::Primitive(_)) | None => vec![token],
+                }
+            }
+            TokenKind::Character { .. } => vec![token],
+        }
+    }
+
+    fn expand_csname(&mut self, queue: &mut VecDeque<QueueItem>) -> Vec<Token> {
+        let name = self.read_csname_name(queue);
+        let token = Token::control_sequence(self.interner.intern(&name), 0, 0);
+        vec![token]
+    }
+
+    fn render_meaning_tokens(&self, token: Token) -> Vec<Token> {
+        let text = match token.kind {
+            TokenKind::ControlSequence { name } => {
+                let name = self.interner.resolve(name).unwrap_or("").to_string();
+                match self
+                    .lookup_meaning(&name)
+                    .or_else(|| builtin_primitive(&name).map(Meaning::Primitive))
+                {
+                    Some(Meaning::Primitive(primitive)) => {
+                        self.render_control_sequence_text(primitive_name(primitive), false)
+                    }
+                    Some(Meaning::Token(token)) => match token.kind {
+                        TokenKind::ControlSequence { name } => self.render_control_sequence_text(
+                            self.interner.resolve(name).unwrap_or(""),
+                            false,
+                        ),
+                        TokenKind::Character { ch, .. } => ch.to_string(),
+                    },
+                    Some(Meaning::Macro(definition)) => {
+                        let mut text = String::from("macro:->");
+                        for token in definition.body {
+                            match token.kind {
+                                TokenKind::ControlSequence { name } => {
+                                    text.push('\\');
+                                    text.push_str(self.interner.resolve(name).unwrap_or(""));
+                                }
+                                TokenKind::Character { ch, .. } => text.push(ch),
+                            }
+                        }
+                        text
+                    }
+                    None => String::from("undefined"),
+                }
+            }
+            TokenKind::Character { ch, .. } => ch.to_string(),
+        };
+        text.chars()
+            .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+            .collect()
+    }
+
+    fn render_detokenized_tokens(&self, tokens: Vec<Token>) -> Vec<Token> {
+        let mut text = String::new();
+        for token in tokens {
+            match token.kind {
+                TokenKind::ControlSequence { name } => {
+                    text.push_str(&self.render_control_sequence_text(
+                        self.interner.resolve(name).unwrap_or(""),
+                        true,
+                    ));
+                }
+                TokenKind::Character { ch, .. } => text.push(ch),
+            }
+        }
+        text.chars()
+            .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+            .collect()
+    }
+
+    fn render_stringified_tokens(&self, token: Token, trailing_space: bool) -> Vec<Token> {
+        let text = match token.kind {
+            TokenKind::ControlSequence { name } => self.render_control_sequence_text(
+                self.interner.resolve(name).unwrap_or(""),
+                trailing_space,
+            ),
+            TokenKind::Character { ch, .. } => ch.to_string(),
+        };
+        text.chars()
+            .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+            .collect()
+    }
+
+    fn render_control_sequence_text(&self, name: &str, trailing_space: bool) -> String {
+        let mut text = String::new();
+        if let Some(ch) = self.current_escape_character() {
+            text.push(ch);
+        }
+        text.push_str(name);
+        if trailing_space && name.chars().all(|ch| ch.is_ascii_alphabetic() || ch == '@') {
+            text.push(' ');
+        }
+        text
+    }
+
+    fn current_escape_character(&self) -> Option<char> {
+        let register_index = self.resolve_count_register_name("escapechar")?;
+        let value = *self.registers.get(&register_index)?;
+        if !(0..=255).contains(&value) {
+            return None;
+        }
+        char::from_u32(value as u32)
+    }
+
+    fn current_globaldefs_value(&self) -> i32 {
+        self.resolve_count_register_name("globaldefs")
+            .and_then(|register_index| self.registers.get(&register_index).copied())
+            .unwrap_or_default()
+    }
+
+    fn render_jobname_tokens(&self) -> Vec<Token> {
+        self.entry_source_path
+            .as_ref()
+            .or_else(|| self.source_stack.first().map(|frame| &frame.path))
+            .and_then(|path| path.file_stem())
+            .filter(|stem| !stem.is_empty())
+            .unwrap_or("texput")
+            .chars()
+            .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+            .collect()
+    }
+
+    fn render_current_module_component_tokens(&self, stem: bool) -> Vec<Token> {
+        let text = self
+            .source_stack
+            .last()
+            .map(|frame| frame.path.as_path())
+            .and_then(|path| {
+                if stem {
+                    path.file_stem()
+                } else {
+                    path.extension()
+                }
+            })
+            .unwrap_or("");
+        text.chars()
+            .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+            .collect()
+    }
+
+    fn render_current_module_path_tokens(&self) -> Vec<Token> {
+        let text = self
+            .source_stack
+            .last()
+            .map(|frame| frame.path.as_path())
+            .and_then(|path| path.parent())
+            .map(|path| path.as_str())
+            .filter(|path| !path.is_empty() && *path != ".")
+            .map(|path| format!("{path}/"))
+            .unwrap_or_default();
+        text.chars()
+            .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+            .collect()
+    }
+
+    fn discard_tokens_through_strip_prefix_delimiter(&mut self, queue: &mut VecDeque<QueueItem>) {
+        while let Some(token) = self.pop_next_token(queue) {
+            if matches!(token.kind, TokenKind::Character { ch: '>', .. }) {
+                break;
+            }
+        }
+    }
+
+    fn read_number_expression_from_tokens(&mut self, tokens: Vec<Token>) -> Option<i32> {
+        let mut queue = VecDeque::new();
+        for token in tokens {
+            queue.push_back(QueueItem::Token(token));
+        }
+        self.read_number_expression(&mut queue)
+    }
+
+    fn read_dimension_expression_from_tokens(&mut self, tokens: Vec<Token>) -> Option<i32> {
+        let mut queue = VecDeque::new();
+        for token in tokens {
+            queue.push_back(QueueItem::Token(token));
+        }
+        self.read_dimension_expression(&mut queue)
+    }
+
+    fn read_glue_expression_from_tokens(&mut self, tokens: Vec<Token>) -> Option<i32> {
+        let mut queue = VecDeque::new();
+        for token in tokens {
+            queue.push_back(QueueItem::Token(token));
+        }
+        self.read_glue_expression(&mut queue)
+    }
+
+    fn read_counter_format_value_from_tokens(&mut self, tokens: Vec<Token>) -> Option<i32> {
+        if let Some(value) = self.read_number_expression_from_tokens(tokens.clone()) {
+            return Some(value);
+        }
+        let counter_name = format!("c@{}", self.tokens_to_text(tokens));
+        let register_index = self.resolve_count_register_name(&counter_name)?;
+        Some(*self.registers.get(&register_index).unwrap_or(&0))
+    }
+
+    fn render_counter_format_tokens(&self, value: i32, primitive: Primitive) -> Vec<Token> {
+        let text = match primitive {
+            Primitive::CounterArabic => value.to_string(),
+            Primitive::CounterRoman => render_roman_numeral(value),
+            Primitive::CounterRomanUpper => render_roman_numeral(value).to_ascii_uppercase(),
+            Primitive::CounterAlph => {
+                if (1..=26).contains(&value) {
+                    ((b'a' + (value as u8 - 1)) as char).to_string()
+                } else {
+                    String::from("?")
+                }
+            }
+            Primitive::CounterAlphUpper => {
+                if (1..=26).contains(&value) {
+                    ((b'A' + (value as u8 - 1)) as char).to_string()
+                } else {
+                    String::from("?")
+                }
+            }
+            _ => unreachable!(),
+        };
+        text.chars()
+            .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+            .collect()
+    }
+
+    fn render_case_transformed_tokens(&self, tokens: Vec<Token>, uppercase: bool) -> Vec<Token> {
+        tokens
+            .into_iter()
+            .map(|token| match token.kind {
+                TokenKind::Character { ch, catcode } => {
+                    let ch = if uppercase {
+                        ch.to_ascii_uppercase()
+                    } else {
+                        ch.to_ascii_lowercase()
+                    };
+                    Token::character(ch, catcode, 0, 0)
+                }
+                TokenKind::ControlSequence { .. } => token,
+            })
+            .collect()
+    }
+
+    fn fully_expand_tokens(&mut self, tokens: Vec<Token>) -> Vec<Token> {
+        let mut queue = VecDeque::new();
+        for token in tokens {
+            queue.push_back(QueueItem::Token(token));
+        }
+        let mut expanded_tokens = Vec::new();
+        while let Some(token) = self.pop_next_token(&mut queue) {
+            if let TokenKind::ControlSequence { name } = token.kind.clone() {
+                match self.interner.resolve(name).unwrap_or("") {
+                    "expandafter" | "@xa" => {
+                        let Some(first) = self.pop_next_token(&mut queue) else {
+                            continue;
+                        };
+                        let Some(second) = self.pop_next_token(&mut queue) else {
+                            expanded_tokens.push(first);
+                            continue;
+                        };
+                        let expanded = self.expand_once(second, &mut queue);
+                        for token in expanded.into_iter().rev() {
+                            self.push_token_front(&mut queue, token);
+                        }
+                        self.push_token_front(&mut queue, first);
+                        continue;
+                    }
+                    "noexpand"
+                    | "@nx"
+                    | "protect"
+                    | "@typeset@protect"
+                    | "@unexpandable@protect" => {
+                        if let Some(next) = self.pop_next_token(&mut queue) {
+                            expanded_tokens.push(next);
+                        }
+                        continue;
+                    }
+                    "unexpanded" => {
+                        if let Some(group) = self.read_balanced_group(&mut queue) {
+                            expanded_tokens.extend(group);
+                        }
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+            let expanded = self.expand_once(token.clone(), &mut queue);
+            if expanded.len() == 1 && expanded[0] == token {
+                expanded_tokens.push(token);
+                continue;
+            }
+            for token in expanded.into_iter().rev() {
+                self.push_token_front(&mut queue, token);
+            }
+        }
+        expanded_tokens
+    }
+
+    fn read_csname_name(&mut self, queue: &mut VecDeque<QueueItem>) -> String {
+        let mut name = String::new();
+        while let Some(token) = self.pop_next_token(queue) {
+            match token.kind {
+                TokenKind::ControlSequence { name: id } => {
+                    let control_sequence = self.interner.resolve(id).unwrap_or("").to_string();
+                    if control_sequence == "endcsname" {
+                        break;
+                    }
+                    name.push_str(&control_sequence);
+                }
+                TokenKind::Character { ch, .. } => name.push(ch),
+            }
+        }
+        name
+    }
+
+    fn expand_macro(
+        &mut self,
+        definition: MacroDefinition,
+        queue: &mut VecDeque<QueueItem>,
+    ) -> Vec<Token> {
+        if definition.parameter_count == 0 {
+            return definition.body;
+        }
+
+        let mut arguments = Vec::new();
+        if let Some(default) = definition.optional_first_argument_default.clone() {
+            self.skip_optional_spaces(queue);
+            if let Some(argument) = self.read_optional_bracket_tokens(queue) {
+                arguments.push(argument);
+            } else {
+                arguments.push(default);
+            }
+        }
+        for _ in arguments.len()..definition.parameter_count as usize {
+            let Some(argument) = self.read_macro_argument(queue) else {
+                return definition.body;
+            };
+            arguments.push(argument);
+        }
+
+        let mut expanded = Vec::new();
+        let mut index = 0;
+        while index < definition.body.len() {
+            let token = definition.body[index].clone();
+            if let TokenKind::Character {
+                ch: '#',
+                catcode: CatCode::Parameter,
+            } = token.kind
+            {
+                if let Some(next) = definition.body.get(index + 1) {
+                    match next.kind {
+                        TokenKind::Character {
+                            ch: '#',
+                            catcode: CatCode::Parameter,
+                        } => {
+                            expanded.push(Token::character('#', CatCode::Other, 0, 0));
+                            index += 2;
+                            continue;
+                        }
+                        TokenKind::Character { ch, .. } if ch.is_ascii_digit() => {
+                            let argument_index = ch.to_digit(10).unwrap_or(0) as usize;
+                            if argument_index >= 1 && argument_index <= arguments.len() {
+                                expanded.extend(arguments[argument_index - 1].clone());
+                                index += 2;
+                                continue;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            expanded.push(token);
+            index += 1;
+        }
+
+        expanded
+    }
+
+    fn meaning_to_snapshot(&self, meaning: &Meaning) -> SnapshotMeaning {
+        match meaning {
+            Meaning::Macro(definition) => SnapshotMeaning::Macro {
+                parameter_count: definition.parameter_count,
+                optional_first_argument_default: definition
+                    .optional_first_argument_default
+                    .as_ref()
+                    .map(|tokens| {
+                        tokens
+                            .iter()
+                            .map(|token| self.token_to_snapshot(token))
+                            .collect()
+                    }),
+                body: definition
+                    .body
+                    .iter()
+                    .map(|token| self.token_to_snapshot(token))
+                    .collect(),
+            },
+            Meaning::Primitive(primitive) => SnapshotMeaning::Primitive {
+                name: primitive_name(*primitive).to_string(),
+            },
+            Meaning::Token(token) => SnapshotMeaning::Token {
+                token: self.token_to_snapshot(token),
+            },
+        }
+    }
+
+    fn snapshot_to_meaning(&mut self, meaning: &SnapshotMeaning) -> Meaning {
+        match meaning {
+            SnapshotMeaning::Macro {
+                parameter_count,
+                optional_first_argument_default,
+                body,
+            } => Meaning::Macro(MacroDefinition {
+                parameter_count: *parameter_count,
+                optional_first_argument_default: optional_first_argument_default.as_ref().map(
+                    |tokens| {
+                        tokens
+                            .iter()
+                            .map(|token| self.snapshot_to_token(token))
+                            .collect()
+                    },
+                ),
+                body: body
+                    .iter()
+                    .map(|token| self.snapshot_to_token(token))
+                    .collect(),
+            }),
+            SnapshotMeaning::Primitive { name } => {
+                Meaning::Primitive(builtin_primitive(name).expect("snapshot primitive must exist"))
+            }
+            SnapshotMeaning::Token { token } => Meaning::Token(self.snapshot_to_token(token)),
+        }
+    }
+
+    fn token_to_snapshot(&self, token: &Token) -> SnapshotToken {
+        SnapshotToken {
+            kind: match &token.kind {
+                TokenKind::ControlSequence { name } => SnapshotTokenKind::ControlSequence {
+                    name: self.interner.resolve(*name).unwrap_or("").to_string(),
+                },
+                TokenKind::Character { ch, catcode } => SnapshotTokenKind::Character {
+                    ch: *ch,
+                    catcode: *catcode,
+                },
+            },
+        }
+    }
+
+    fn snapshot_to_token(&mut self, token: &SnapshotToken) -> Token {
+        match &token.kind {
+            SnapshotTokenKind::ControlSequence { name } => {
+                Token::control_sequence(self.interner.intern(name), 0, 0)
+            }
+            SnapshotTokenKind::Character { ch, catcode } => Token::character(*ch, *catcode, 0, 0),
+        }
+    }
+
+    fn read_control_sequence_name(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<String> {
+        self.skip_optional_spaces(queue);
+        let token = self.pop_next_token(queue)?;
+        match token.kind {
+            TokenKind::ControlSequence { name } => {
+                Some(self.interner.resolve(name).unwrap_or("").to_string())
+            }
+            TokenKind::Character { .. } => None,
+        }
+    }
+
+    fn read_balanced_group(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<Vec<Token>> {
+        self.skip_optional_spaces(queue);
+        let open = self.pop_next_token(queue)?;
+        let TokenKind::Character {
+            catcode: CatCode::BeginGroup,
+            ..
+        } = open.kind
+        else {
+            return None;
+        };
+
+        let mut depth = 1;
+        let mut body = Vec::new();
+        while let Some(token) = self.pop_next_token(queue) {
+            match token.kind {
+                TokenKind::Character {
+                    catcode: CatCode::BeginGroup,
+                    ..
+                } => {
+                    depth += 1;
+                    body.push(token);
+                }
+                TokenKind::Character {
+                    catcode: CatCode::EndGroup,
+                    ..
+                } => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(body);
+                    }
+                    body.push(token);
+                }
+                _ => body.push(token),
+            }
+        }
+
+        None
+    }
+
+    fn read_macro_argument(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<Vec<Token>> {
+        self.skip_optional_spaces(queue);
+        let token = self.pop_next_token(queue)?;
+        if matches!(
+            token.kind,
+            TokenKind::Character {
+                catcode: CatCode::BeginGroup,
+                ..
+            }
+        ) {
+            self.push_token_front(queue, token);
+            return self.read_balanced_group(queue);
+        }
+
+        Some(vec![token])
+    }
+
+    fn read_loop_body(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<Vec<Token>> {
+        let mut depth = 0;
+        let mut body = Vec::new();
+        while let Some(token) = self.pop_next_token(queue) {
+            match token.kind {
+                TokenKind::ControlSequence { name } => {
+                    match self.interner.resolve(name).unwrap_or("") {
+                        "loop" => {
+                            depth += 1;
+                            body.push(token);
+                        }
+                        "repeat" if depth == 0 => return Some(body),
+                        "repeat" => {
+                            depth -= 1;
+                            body.push(token);
+                        }
+                        _ => body.push(token),
+                    }
+                }
+                _ => body.push(token),
+            }
+        }
+
+        None
+    }
+
+    fn read_number_expression(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<i32> {
+        self.skip_optional_spaces(queue);
+        let next = self.pop_next_token(queue)?;
+        match next.kind {
+            TokenKind::ControlSequence { name } => {
+                let name = self.interner.resolve(name).unwrap_or("").to_string();
+                if name == "count" {
+                    let index = self.read_integer(queue)? as u32;
+                    return Some(*self.registers.get(&index).unwrap_or(&0));
+                }
+                if let Some(index) = self.resolve_count_register_name(&name) {
+                    return Some(*self.registers.get(&index).unwrap_or(&0));
+                }
+                if let Some(value) = match name.as_str() {
+                    "z@" => Some(0),
+                    "@ne" => Some(1),
+                    "tw@" => Some(2),
+                    "thr@@" => Some(3),
+                    "m@ne" => Some(-1),
+                    _ => None,
+                } {
+                    return Some(value);
+                }
+                match self
+                    .lookup_meaning(&name)
+                    .or_else(|| builtin_primitive(&name).map(Meaning::Primitive))
+                {
+                    Some(Meaning::Token(Token {
+                        kind: TokenKind::Character { ch, .. },
+                        ..
+                    })) => Some(ch as i32),
+                    Some(Meaning::Primitive(Primitive::Value)) => {
+                        let counter_name = self
+                            .read_macro_argument(queue)
+                            .map(|tokens| format!("c@{}", self.tokens_to_text(tokens)))?;
+                        let register_index = self.resolve_count_register_name(&counter_name)?;
+                        Some(*self.registers.get(&register_index).unwrap_or(&0))
+                    }
+                    Some(Meaning::Primitive(Primitive::Number)) => {
+                        self.read_number_expression(queue)
+                    }
+                    _ => None,
+                }
+            }
+            TokenKind::Character {
+                catcode: CatCode::BeginGroup,
+                ..
+            } => {
+                self.push_token_front(queue, next);
+                self.read_balanced_group(queue)
+                    .and_then(|tokens| self.read_number_expression_from_tokens(tokens))
+            }
+            TokenKind::Character { .. } => {
+                self.push_token_front(queue, next);
+                self.read_integer(queue)
+            }
+        }
+    }
+
+    fn read_dimension_expression(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<i32> {
+        self.skip_optional_spaces(queue);
+        let next = self.pop_next_token(queue)?;
+        match next.kind {
+            TokenKind::ControlSequence { name } => {
+                let name = self.interner.resolve(name).unwrap_or("").to_string();
+                if name == "dimen" {
+                    let index = self.read_integer(queue)? as u32;
+                    return Some(*self.dimen_registers.get(&index).unwrap_or(&0));
+                }
+                if name == "skip" {
+                    let index = self.read_integer(queue)? as u32;
+                    return Some(*self.skip_registers.get(&index).unwrap_or(&0));
+                }
+                if let Some(index) = self.resolve_dimen_register_name(&name) {
+                    return Some(*self.dimen_registers.get(&index).unwrap_or(&0));
+                }
+                if let Some(index) = self.resolve_skip_register_name(&name) {
+                    return Some(*self.skip_registers.get(&index).unwrap_or(&0));
+                }
+                match self.lookup_meaning(&name) {
+                    Some(Meaning::Macro(definition))
+                        if definition.parameter_count == 0
+                            && definition.optional_first_argument_default.is_none() =>
+                    {
+                        self.read_dimension_expression_from_tokens(definition.body.clone())
+                    }
+                    _ => None,
+                }
+            }
+            TokenKind::Character {
+                catcode: CatCode::BeginGroup,
+                ..
+            } => {
+                self.push_token_front(queue, next);
+                self.read_balanced_group(queue)
+                    .and_then(|tokens| self.read_dimension_expression_from_tokens(tokens))
+            }
+            TokenKind::Character { .. } => {
+                self.push_token_front(queue, next);
+                self.read_dimension_literal(queue)
+            }
+        }
+    }
+
+    fn read_glue_expression(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<i32> {
+        self.skip_optional_spaces(queue);
+        let next = self.pop_next_token(queue)?;
+        match next.kind {
+            TokenKind::ControlSequence { name } => {
+                let name = self.interner.resolve(name).unwrap_or("").to_string();
+                if name == "skip" {
+                    let index = self.read_integer(queue)? as u32;
+                    return Some(*self.skip_registers.get(&index).unwrap_or(&0));
+                }
+                if let Some(index) = self.resolve_skip_register_name(&name) {
+                    return Some(*self.skip_registers.get(&index).unwrap_or(&0));
+                }
+                match self.lookup_meaning(&name) {
+                    Some(Meaning::Macro(definition))
+                        if definition.parameter_count == 0
+                            && definition.optional_first_argument_default.is_none() =>
+                    {
+                        self.read_glue_expression_from_tokens(definition.body.clone())
+                    }
+                    _ => None,
+                }
+            }
+            TokenKind::Character {
+                catcode: CatCode::BeginGroup,
+                ..
+            } => {
+                self.push_token_front(queue, next);
+                self.read_balanced_group(queue)
+                    .and_then(|tokens| self.read_glue_expression_from_tokens(tokens))
+            }
+            TokenKind::Character { .. } => {
+                self.push_token_front(queue, next);
+                self.read_glue_literal(queue)
+            }
+        }
+    }
+
+    fn read_glue_literal(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<i32> {
+        let value = self.read_dimension_literal(queue)?;
+        loop {
+            let mut local_queue = queue.clone();
+            self.skip_optional_spaces(&mut local_queue);
+            let saw_keyword = self.consume_text_keyword(&mut local_queue, "plus")
+                || self.consume_text_keyword(&mut local_queue, "minus");
+            if !saw_keyword {
+                break;
+            }
+            if self.read_dimension_expression(&mut local_queue).is_none() {
+                break;
+            }
+            *queue = local_queue;
+        }
+        Some(value)
+    }
+
+    fn read_dimension_literal(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<i32> {
+        self.skip_optional_spaces(queue);
+        let mut number = String::new();
+        let mut seen_digit = false;
+        let mut seen_dot = false;
+        if let Some(Token {
+            kind:
+                TokenKind::Character {
+                    ch: '+' | '-',
+                    catcode: CatCode::Other,
+                },
+            ..
+        }) = self.peek_next_token(queue)
+        {
+            if let Some(Token {
+                kind: TokenKind::Character { ch, .. },
+                ..
+            }) = self.pop_next_token(queue)
+            {
+                number.push(ch);
+            }
+        }
+        while let Some(Token {
+            kind:
+                TokenKind::Character {
+                    ch,
+                    catcode: CatCode::Other | CatCode::Letter,
+                },
+            ..
+        }) = self.peek_next_token(queue)
+        {
+            if ch.is_ascii_digit() {
+                seen_digit = true;
+                number.push(ch);
+                self.pop_next_token(queue);
+                continue;
+            }
+            if ch == '.' && !seen_dot {
+                seen_dot = true;
+                number.push(ch);
+                self.pop_next_token(queue);
+                continue;
+            }
+            break;
+        }
+        if !seen_digit {
+            return None;
+        }
+        self.skip_optional_spaces(queue);
+        let mut unit = String::new();
+        let mut local_queue = queue.clone();
+        let mut letters = Vec::new();
+        while let Some(Token {
+            kind:
+                TokenKind::Character {
+                    ch,
+                    catcode: CatCode::Other | CatCode::Letter,
+                },
+            ..
+        }) = self.peek_next_token(&mut local_queue)
+        {
+            if !ch.is_ascii_alphabetic() || letters.len() == 2 {
+                break;
+            }
+            letters.push(ch.to_ascii_lowercase());
+            self.pop_next_token(&mut local_queue);
+        }
+        match letters.as_slice() {
+            ['p', 't'] | ['s', 'p'] => {
+                unit.extend(letters);
+                *queue = local_queue;
+            }
+            [] => {}
+            _ => return None,
+        }
+        let numeric = number.parse::<f64>().ok()?;
+        match unit.as_str() {
+            "" | "pt" => Some((numeric * 65536.0).round() as i32),
+            "sp" => Some(numeric.round() as i32),
+            _ => None,
+        }
+    }
+
+    fn consume_text_keyword(&mut self, queue: &mut VecDeque<QueueItem>, keyword: &str) -> bool {
+        let mut local_queue = queue.clone();
+        for expected in keyword.chars() {
+            let Some(token) = local_queue.pop_front().and_then(|item| match item {
+                QueueItem::Token(token) => Some(token),
+                QueueItem::ModuleEnd { .. } => None,
+            }) else {
+                return false;
+            };
+            let TokenKind::Character {
+                ch,
+                catcode: CatCode::Letter | CatCode::Other,
+            } = token.kind
+            else {
+                return false;
+            };
+            if ch != expected {
+                return false;
+            }
+        }
+        *queue = local_queue;
+        true
+    }
+
+    fn read_integer(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<i32> {
+        self.skip_optional_spaces(queue);
+        let mut sign = 1;
+        if let Some(Token {
+            kind:
+                TokenKind::Character {
+                    ch: '-',
+                    catcode: CatCode::Other,
+                },
+            ..
+        }) = self.peek_next_token(queue)
+        {
+            sign = -1;
+            self.pop_next_token(queue);
+        } else if let Some(Token {
+            kind:
+                TokenKind::Character {
+                    ch: '+',
+                    catcode: CatCode::Other,
+                },
+            ..
+        }) = self.peek_next_token(queue)
+        {
+            self.pop_next_token(queue);
+        }
+
+        if let Some(Token {
+            kind:
+                TokenKind::Character {
+                    ch: '`',
+                    catcode: CatCode::Other,
+                },
+            ..
+        }) = self.peek_next_token(queue)
+        {
+            self.pop_next_token(queue);
+            let token = self.pop_next_token(queue)?;
+            let value = match token.kind {
+                TokenKind::Character { ch, .. } => ch as i32,
+                TokenKind::ControlSequence { name } => {
+                    let name = self.interner.resolve(name).unwrap_or("");
+                    let mut chars = name.chars();
+                    match (chars.next(), chars.next()) {
+                        (Some(ch), None) => ch as i32,
+                        _ => return None,
+                    }
+                }
+            };
+            return Some(sign * value);
+        }
+
+        let mut value = String::new();
+        if sign < 0 {
+            value.push('-');
+        }
+        while let Some(Token {
+            kind:
+                TokenKind::Character {
+                    ch,
+                    catcode: CatCode::Other | CatCode::Letter,
+                },
+            ..
+        }) = self.peek_next_token(queue)
+        {
+            if !ch.is_ascii_digit() {
+                break;
+            }
+            value.push(ch);
+            self.pop_next_token(queue);
+        }
+
+        if value.is_empty() || value == "-" {
+            return None;
+        }
+
+        value.parse().ok()
+    }
+
+    fn read_count_register_index(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<u32> {
+        self.skip_optional_spaces(queue);
+        let token = self.pop_next_token(queue)?;
+        let TokenKind::ControlSequence { name } = token.kind else {
+            return None;
+        };
+        let name = self.interner.resolve(name).unwrap_or("").to_string();
+        if name == "count" {
+            return self.read_integer(queue).map(|value| value as u32);
+        }
+        self.resolve_count_register_name(&name)
+    }
+
+    fn read_dimen_register_index(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<u32> {
+        self.skip_optional_spaces(queue);
+        let token = self.pop_next_token(queue)?;
+        let TokenKind::ControlSequence { name } = token.kind else {
+            return None;
+        };
+        let name = self.interner.resolve(name).unwrap_or("").to_string();
+        if name == "dimen" {
+            return self.read_integer(queue).map(|value| value as u32);
+        }
+        self.resolve_dimen_register_name(&name)
+    }
+
+    fn read_toks_register_index(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<u32> {
+        self.skip_optional_spaces(queue);
+        let token = self.pop_next_token(queue)?;
+        let TokenKind::ControlSequence { name } = token.kind else {
+            return None;
+        };
+        let name = self.interner.resolve(name).unwrap_or("").to_string();
+        if name == "toks" {
+            return self.read_integer(queue).map(|value| value as u32);
+        }
+        self.resolve_toks_register_name(&name)
+    }
+
+    fn read_skip_register_index(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<u32> {
+        self.skip_optional_spaces(queue);
+        let token = self.pop_next_token(queue)?;
+        let TokenKind::ControlSequence { name } = token.kind else {
+            return None;
+        };
+        let name = self.interner.resolve(name).unwrap_or("").to_string();
+        if name == "skip" {
+            return self.read_integer(queue).map(|value| value as u32);
+        }
+        self.resolve_skip_register_name(&name)
+    }
+
+    fn read_stream_register_index(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<u32> {
+        self.skip_optional_spaces(queue);
+        let token = self.pop_next_token(queue)?;
+        match token.kind {
+            TokenKind::ControlSequence { name } => {
+                let name = self.interner.resolve(name).unwrap_or("").to_string();
+                self.resolve_stream_register_name(&name)
+            }
+            TokenKind::Character { .. } => {
+                self.push_token_front(queue, token);
+                self.read_integer(queue).map(|value| value as u32)
+            }
+        }
+    }
+
+    fn resolve_count_register_name(&self, name: &str) -> Option<u32> {
+        if let Some(index) = match name {
+            "count@" => Some(255),
+            "@tempcnta" => Some(254),
+            "@tempcntb" => Some(253),
+            _ => None,
+        } {
+            return Some(index);
+        }
+        let Some(Meaning::Macro(definition)) = self.lookup_meaning(name) else {
+            return None;
+        };
+        if definition.parameter_count != 0 || definition.optional_first_argument_default.is_some() {
+            return None;
+        }
+        let mut tokens = definition.body.iter();
+        let Some(Token {
+            kind: TokenKind::ControlSequence { name: count_name },
+            ..
+        }) = tokens.next()
+        else {
+            return None;
+        };
+        if self.interner.resolve(*count_name).unwrap_or("") != "count" {
+            return None;
+        }
+        let mut digits = String::new();
+        for token in tokens {
+            let TokenKind::Character { ch, .. } = token.kind else {
+                return None;
+            };
+            if !ch.is_ascii_digit() {
+                return None;
+            }
+            digits.push(ch);
+        }
+        if digits.is_empty() {
+            return None;
+        }
+        digits.parse().ok()
+    }
+
+    fn resolve_dimen_register_name(&self, name: &str) -> Option<u32> {
+        if let Some(index) = match name {
+            "dimen@" => Some(255),
+            "@tempdima" => Some(254),
+            "@tempdimb" => Some(253),
+            _ => None,
+        } {
+            return Some(index);
+        }
+        let Some(Meaning::Macro(definition)) = self.lookup_meaning(name) else {
+            return None;
+        };
+        if definition.parameter_count != 0 || definition.optional_first_argument_default.is_some() {
+            return None;
+        }
+        let mut tokens = definition.body.iter();
+        let Some(Token {
+            kind: TokenKind::ControlSequence { name: dimen_name },
+            ..
+        }) = tokens.next()
+        else {
+            return None;
+        };
+        if self.interner.resolve(*dimen_name).unwrap_or("") != "dimen" {
+            return None;
+        }
+        let mut digits = String::new();
+        for token in tokens {
+            let TokenKind::Character { ch, .. } = token.kind else {
+                return None;
+            };
+            if !ch.is_ascii_digit() {
+                return None;
+            }
+            digits.push(ch);
+        }
+        if digits.is_empty() {
+            return None;
+        }
+        digits.parse().ok()
+    }
+
+    fn resolve_skip_register_name(&self, name: &str) -> Option<u32> {
+        if let Some(index) = match name {
+            "skip@" => Some(255),
+            "@tempskipa" => Some(254),
+            "@tempskipb" => Some(253),
+            _ => None,
+        } {
+            return Some(index);
+        }
+        let Some(Meaning::Macro(definition)) = self.lookup_meaning(name) else {
+            return None;
+        };
+        if definition.parameter_count != 0 || definition.optional_first_argument_default.is_some() {
+            return None;
+        }
+        let mut tokens = definition.body.iter();
+        let Some(Token {
+            kind: TokenKind::ControlSequence { name: skip_name },
+            ..
+        }) = tokens.next()
+        else {
+            return None;
+        };
+        if self.interner.resolve(*skip_name).unwrap_or("") != "skip" {
+            return None;
+        }
+        let mut digits = String::new();
+        for token in tokens {
+            let TokenKind::Character { ch, .. } = token.kind else {
+                return None;
+            };
+            if !ch.is_ascii_digit() {
+                return None;
+            }
+            digits.push(ch);
+        }
+        if digits.is_empty() {
+            return None;
+        }
+        digits.parse().ok()
+    }
+
+    fn resolve_toks_register_name(&self, name: &str) -> Option<u32> {
+        let Some(Meaning::Macro(definition)) = self.lookup_meaning(name) else {
+            return None;
+        };
+        if definition.parameter_count != 0 || definition.optional_first_argument_default.is_some() {
+            return None;
+        }
+        let mut tokens = definition.body.iter();
+        let Some(Token {
+            kind: TokenKind::ControlSequence { name: toks_name },
+            ..
+        }) = tokens.next()
+        else {
+            return None;
+        };
+        if self.interner.resolve(*toks_name).unwrap_or("") != "toks" {
+            return None;
+        }
+        let mut digits = String::new();
+        for token in tokens {
+            let TokenKind::Character { ch, .. } = token.kind else {
+                return None;
+            };
+            if !ch.is_ascii_digit() {
+                return None;
+            }
+            digits.push(ch);
+        }
+        if digits.is_empty() {
+            return None;
+        }
+        digits.parse().ok()
+    }
+
+    fn read_input_path(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<Utf8PathBuf> {
+        let raw = self.read_argument_text(queue)?;
+
+        if raw.is_empty() {
+            return None;
+        }
+
+        let mut path = normalize_relative_path(Utf8Path::new(&raw)).ok()?;
+        if path.extension().is_none() {
+            path = path.with_extension("tex");
+        }
+        Some(path)
+    }
+
+    fn read_macro_target(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<String> {
+        self.skip_optional_spaces(queue);
+        if matches!(
+            self.peek_next_token(queue).map(|token| token.kind),
+            Some(TokenKind::Character {
+                catcode: CatCode::BeginGroup,
+                ..
+            })
+        ) {
+            let tokens = self.read_balanced_group(queue)?;
+            for token in tokens {
+                if let TokenKind::ControlSequence { name } = token.kind {
+                    return Some(self.interner.resolve(name).unwrap_or("").to_string());
+                }
+            }
+            return None;
+        }
+
+        self.read_control_sequence_name(queue)
+    }
+
+    fn read_argument_text(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<String> {
+        self.skip_optional_spaces(queue);
+        if matches!(
+            self.peek_next_token(queue).map(|token| token.kind),
+            Some(TokenKind::Character {
+                catcode: CatCode::BeginGroup,
+                ..
+            })
+        ) {
+            let tokens = self.read_balanced_group(queue)?;
+            return Some(self.tokens_to_text(tokens));
+        }
+
+        let mut value = String::new();
+        while let Some(token) = self.peek_next_token(queue) {
+            match token.kind {
+                TokenKind::Character {
+                    ch,
+                    catcode: CatCode::Letter | CatCode::Other,
+                } => {
+                    value.push(ch);
+                    self.pop_next_token(queue);
+                }
+                _ => break,
+            }
+        }
+        if value.is_empty() { None } else { Some(value) }
+    }
+
+    fn skip_optional_spaces(&mut self, queue: &mut VecDeque<QueueItem>) {
+        while let Some(Token {
+            kind:
+                TokenKind::Character {
+                    catcode: CatCode::Space,
+                    ..
+                },
+            ..
+        }) = self.peek_next_token(queue)
+        {
+            self.pop_next_token(queue);
+        }
+    }
+
+    fn resolve_stream_register_name(&self, name: &str) -> Option<u32> {
+        let Meaning::Macro(definition) = self.lookup_meaning(name)? else {
+            return None;
+        };
+        if definition.parameter_count != 0 || definition.optional_first_argument_default.is_some() {
+            return None;
+        }
+        let mut value = String::new();
+        for token in definition.body {
+            let TokenKind::Character { ch, .. } = token.kind else {
+                return None;
+            };
+            if !ch.is_ascii_digit() {
+                return None;
+            }
+            value.push(ch);
+        }
+        if value.is_empty() {
+            return None;
+        }
+        value.parse().ok()
+    }
+
+    fn read_stream_filename_text(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<String> {
+        self.skip_optional_spaces(queue);
+        if matches!(
+            self.peek_next_token(queue).map(|token| token.kind),
+            Some(TokenKind::Character { ch: '=', .. })
+        ) {
+            self.pop_next_token(queue);
+        }
+        self.skip_optional_spaces(queue);
+        if matches!(
+            self.peek_next_token(queue).map(|token| token.kind),
+            Some(TokenKind::Character {
+                catcode: CatCode::BeginGroup,
+                ..
+            })
+        ) {
+            return self
+                .read_balanced_group(queue)
+                .map(|tokens| self.tokens_to_text(tokens));
+        }
+        let mut tokens = Vec::new();
+        while let Some(token) = self.peek_next_token(queue) {
+            match token.kind {
+                TokenKind::Character {
+                    catcode: CatCode::Space,
+                    ..
+                } => break,
+                TokenKind::ControlSequence { name }
+                    if self
+                        .interner
+                        .resolve(name)
+                        .is_some_and(|name| name == "par") =>
+                {
+                    break;
+                }
+                _ => tokens.push(self.pop_next_token(queue)?),
+            }
+        }
+        Some(self.tokens_to_text(tokens))
+    }
+
+    fn path_exists(&self, path: &Utf8Path) -> bool {
+        self.mounted_files.contains_key(path)
+            || self
+                .file_root
+                .as_ref()
+                .is_some_and(|root| root.join(path).exists())
+    }
+
+    fn read_optional_bracket_text(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<String> {
+        let tokens = self.read_optional_bracket_tokens(queue)?;
+        let mut content = String::new();
+        for token in tokens {
+            match token.kind {
+                TokenKind::Character { ch, .. } => content.push(ch),
+                TokenKind::ControlSequence { name } => {
+                    content.push_str(self.interner.resolve(name).unwrap_or(""));
+                }
+            }
+        }
+        Some(content)
+    }
+
+    fn read_optional_bracket_tokens(
+        &mut self,
+        queue: &mut VecDeque<QueueItem>,
+    ) -> Option<Vec<Token>> {
+        self.skip_optional_spaces(queue);
+        if !matches!(
+            self.peek_next_token(queue).map(|token| token.kind),
+            Some(TokenKind::Character { ch: '[', .. })
+        ) {
+            return None;
+        }
+
+        let mut depth = 0;
+        let mut content = Vec::new();
+        while let Some(token) = self.pop_next_token(queue) {
+            match token.kind {
+                TokenKind::Character { ch: '[', .. } => {
+                    depth += 1;
+                    if depth > 1 {
+                        content.push(token);
+                    }
+                }
+                TokenKind::Character { ch: ']', .. } => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(content);
+                    }
+                    content.push(token);
+                }
+                _ => {
+                    if depth >= 1 {
+                        content.push(token);
+                    }
+                }
+            }
+        }
+
+        Some(content)
+    }
+
+    fn tokens_to_text(&self, tokens: Vec<Token>) -> String {
+        tokens
+            .into_iter()
+            .filter_map(|token| match token.kind {
+                TokenKind::Character { ch, .. } => Some(ch),
+                TokenKind::ControlSequence { name } => self
+                    .interner
+                    .resolve(name)
+                    .and_then(|value| value.chars().next()),
+            })
+            .collect()
+    }
+
+    fn load_module(
+        &mut self,
+        path: &Utf8Path,
+        label: &str,
+        record_transcript: bool,
+        resume_path: Option<Utf8PathBuf>,
+        resume_source_offset_utf8: u32,
+        continuation_stack: Vec<VmReplayFrame>,
+        module_options: Vec<String>,
+        queue: &mut VecDeque<QueueItem>,
+    ) {
+        if label != "input" && self.loaded_modules.contains(path) {
+            return;
+        }
+
+        let source = self.mounted_files.get(path).cloned().or_else(|| {
+            self.file_root
+                .as_ref()
+                .and_then(|root| fs::read_to_string(root.join(path)).ok())
+        });
+        let Some(source) = source else {
+            self.diagnostics.push(VmDiagnostic {
+                kind: VmDiagnosticKind::MissingFile,
+                detail: format!("{label} {}", path),
+            });
+            return;
+        };
+
+        let output_start_utf8 = self.output.len() as u32;
+        if label == "package" {
+            self.loaded_package_options
+                .insert(path.to_path_buf(), module_options.clone());
+        } else if label == "class" {
+            self.loaded_class_options
+                .insert(path.to_path_buf(), module_options.clone());
+        }
+        self.loaded_modules.insert(path.to_path_buf());
+        if record_transcript {
+            self.transcript.push(format!("{label} {}", path));
+        }
+        let tokens = {
+            let interner = &mut *self.interner;
+            lex_plain(&source, interner)
+        };
+        self.source_stack.push(ActiveSourceFrame {
+            path: path.to_path_buf(),
+            return_to_parent: resume_path.as_ref().map(|path| VmReplayFrame {
+                path: path.clone(),
+                source_offset_utf8: resume_source_offset_utf8,
+            }),
+            global_definition_base_scope: if label == "input" {
+                self.source_stack
+                    .last()
+                    .and_then(|frame| frame.global_definition_base_scope)
+            } else {
+                Some(self.scopes.len())
+            },
+            module_kind: match label {
+                "package" => Some(ActiveModuleKind::Package),
+                "class" => Some(ActiveModuleKind::Class),
+                _ => None,
+            },
+            end_hooks: Vec::new(),
+            module_options: (label == "package" || label == "class").then(|| ActiveModuleOptions {
+                default_options: Vec::new(),
+                passed_options: module_options.clone(),
+                forwarded_options: module_options,
+                declared_options: HashMap::new(),
+                default_option_body: None,
+            }),
+        });
+        queue.push_front(QueueItem::ModuleEnd {
+            path: path.to_path_buf(),
+            source_start_utf8: 0,
+            source_end_utf8: source.len() as u32,
+            output_start_utf8,
+            checkpoint: (label == "input").then_some(PendingModuleCheckpoint {
+                resume_path,
+                source_offset_utf8: resume_source_offset_utf8,
+                continuation_stack,
+            }),
+        });
+        for token in tokens.into_iter().rev() {
+            self.push_token_front(queue, token);
+        }
+    }
+
+    fn ifx_tokens_equal(&self, left: &Token, right: &Token) -> bool {
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        enum IfxMeaning {
+            Undefined,
+            Primitive(Primitive),
+            Token(TokenKind),
+            Macro {
+                parameter_count: u8,
+                optional_first_argument_default: Option<Vec<TokenKind>>,
+                body: Vec<TokenKind>,
+            },
+        }
+
+        let token_meaning = |token: &Token| match token.kind.clone() {
+            TokenKind::ControlSequence { name } => {
+                let name = self.interner.resolve(name).unwrap_or("").to_string();
+                match self
+                    .lookup_meaning(&name)
+                    .or_else(|| builtin_primitive(&name).map(Meaning::Primitive))
+                {
+                    Some(Meaning::Primitive(primitive)) => IfxMeaning::Primitive(primitive),
+                    Some(Meaning::Token(token)) => IfxMeaning::Token(token.kind),
+                    Some(Meaning::Macro(definition)) => IfxMeaning::Macro {
+                        parameter_count: definition.parameter_count,
+                        optional_first_argument_default: definition
+                            .optional_first_argument_default
+                            .map(|tokens| tokens.into_iter().map(|token| token.kind).collect()),
+                        body: definition
+                            .body
+                            .into_iter()
+                            .map(|token| token.kind)
+                            .collect(),
+                    },
+                    None => IfxMeaning::Undefined,
+                }
+            }
+            kind => IfxMeaning::Token(kind),
+        };
+        token_meaning(left) == token_meaning(right)
+    }
+
+    fn start_conditional(&mut self, condition: bool, queue: &mut VecDeque<QueueItem>) {
+        let condition = if mem::take(&mut self.negate_next_conditional) {
+            !condition
+        } else {
+            condition
+        };
+        if condition {
+            self.conditionals.push(ConditionalState::ThenExecuted);
+        } else if self.skip_to_else_or_fi(queue) {
+            self.conditionals.push(ConditionalState::ElseExecuted);
+        }
+    }
+
+    fn is_conditional_name(&self, name: &str) -> bool {
+        matches!(
+            self.lookup_meaning(name)
+                .or_else(|| builtin_primitive(name).map(Meaning::Primitive)),
+            Some(Meaning::Primitive(
+                Primitive::IfTrue
+                    | Primitive::IfFalse
+                    | Primitive::IfPackageLoadedTF
+                    | Primitive::IfClassLoadedTF
+                    | Primitive::IfPackageAtLeastTF
+                    | Primitive::IfClassAtLeastTF
+                    | Primitive::IfPackageLater
+                    | Primitive::IfClassLater
+                    | Primitive::IfPackageWith
+                    | Primitive::IfClassWith
+                    | Primitive::IfEof
+                    | Primitive::IfFileExists
+                    | Primitive::IfInAt
+                    | Primitive::IfTempSwa
+                    | Primitive::IfFilesw
+                    | Primitive::IfCsName
+                    | Primitive::IfChar
+                    | Primitive::IfOdd
+                    | Primitive::IfCat
+                    | Primitive::IfCase
+                    | Primitive::IfDefined
+                    | Primitive::IfUndefined
+                    | Primitive::IfDefinable
+                    | Primitive::IfNextChar
+                    | Primitive::IfStar
+                    | Primitive::IfEmpty
+                    | Primitive::IfNotEmpty
+                    | Primitive::IfMtArg
+                    | Primitive::IfNotMtArg
+                    | Primitive::IfX
+                    | Primitive::IfNum
+                    | Primitive::IfDim
+            ))
+        )
+    }
+
+    fn skip_to_else_or_fi(&mut self, queue: &mut VecDeque<QueueItem>) -> bool {
+        let mut depth = 0;
+        while let Some(token) = self.pop_next_token(queue) {
+            let TokenKind::ControlSequence { name } = token.kind else {
+                continue;
+            };
+            match self.interner.resolve(name).unwrap_or("") {
+                name if self.is_conditional_name(name) => depth += 1,
+                "fi" if depth == 0 => return false,
+                "fi" => depth -= 1,
+                "else" if depth == 0 => return true,
+                _ => {}
+            }
+        }
+
+        false
+    }
+
+    fn skip_to_fi(&mut self, queue: &mut VecDeque<QueueItem>) {
+        let mut depth = 0;
+        while let Some(token) = self.pop_next_token(queue) {
+            let TokenKind::ControlSequence { name } = token.kind else {
+                continue;
+            };
+            match self.interner.resolve(name).unwrap_or("") {
+                name if self.is_conditional_name(name) => depth += 1,
+                "fi" if depth == 0 => break,
+                "fi" => depth -= 1,
+                _ => {}
+            }
+        }
+    }
+
+    fn define(&mut self, name: String, meaning: Meaning, force_global: bool) {
+        match self.current_globaldefs_value().cmp(&0) {
+            std::cmp::Ordering::Greater => {
+                if let Some(scope) = self.scopes.first_mut() {
+                    scope.insert(name, meaning);
+                }
+                return;
+            }
+            std::cmp::Ordering::Less => {
+                if let Some(scope) = self.scopes.last_mut() {
+                    scope.insert(name, meaning);
+                }
+                return;
+            }
+            std::cmp::Ordering::Equal => {}
+        }
+        if force_global
+            || self
+                .source_stack
+                .last()
+                .and_then(|frame| frame.global_definition_base_scope)
+                .is_some_and(|depth| self.scopes.len() == depth)
+        {
+            if let Some(scope) = self.scopes.first_mut() {
+                scope.insert(name, meaning);
+                return;
+            }
+        }
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.insert(name, meaning);
+        }
+    }
+
+    fn lookup_meaning(&self, name: &str) -> Option<Meaning> {
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name))
+            .cloned()
+    }
+}
+
+fn builtin_primitive(name: &str) -> Option<Primitive> {
+    match name {
+        "relax" => Some(Primitive::Relax),
+        "def" => Some(Primitive::Def),
+        "gdef" => Some(Primitive::GlobalDef),
+        "edef" => Some(Primitive::ExpandedDef),
+        "xdef" => Some(Primitive::GlobalExpandedDef),
+        "protected@edef" => Some(Primitive::ExpandedDef),
+        "protected@xdef" => Some(Primitive::GlobalExpandedDef),
+        "let" => Some(Primitive::Let),
+        "futurelet" => Some(Primitive::FutureLet),
+        "string" => Some(Primitive::String),
+        "immediate" => Some(Primitive::Immediate),
+        "protect" => Some(Primitive::Protect),
+        "newread" => Some(Primitive::NewRead),
+        "openin" => Some(Primitive::OpenIn),
+        "closein" => Some(Primitive::CloseIn),
+        "read" => Some(Primitive::Read),
+        "readline" => Some(Primitive::ReadLine),
+        "newwrite" => Some(Primitive::NewWrite),
+        "openout" => Some(Primitive::OpenOut),
+        "closeout" => Some(Primitive::CloseOut),
+        "write" => Some(Primitive::Write),
+        "protected@write" => Some(Primitive::ProtectedWrite),
+        "@typeset@protect" => Some(Primitive::Protect),
+        "@unexpandable@protect" => Some(Primitive::Protect),
+        "ignorespaces" => Some(Primitive::IgnoreSpaces),
+        "jobname" => Some(Primitive::JobName),
+        "@currname" => Some(Primitive::CurrentModuleName),
+        "@currext" => Some(Primitive::CurrentModuleExt),
+        "@currpath" => Some(Primitive::CurrentModulePath),
+        "filename@parse" => Some(Primitive::FilenameParse),
+        "meaning" => Some(Primitive::Meaning),
+        "detokenize" => Some(Primitive::Detokenize),
+        "strip@prefix" => Some(Primitive::StripPrefix),
+        "uppercase" => Some(Primitive::Uppercase),
+        "lowercase" => Some(Primitive::Lowercase),
+        "long" => Some(Primitive::Long),
+        "protected" => Some(Primitive::Protected),
+        "outer" => Some(Primitive::Outer),
+        "global" => Some(Primitive::Global),
+        "expandafter" => Some(Primitive::ExpandAfter),
+        "expanded" => Some(Primitive::ExpandedTokens),
+        "unexpanded" => Some(Primitive::Unexpanded),
+        "csname" => Some(Primitive::CsName),
+        "endcsname" => Some(Primitive::EndCsName),
+        "begingroup" => Some(Primitive::BeginGroupCommand),
+        "bgroup" => Some(Primitive::BeginGroupCommand),
+        "endgroup" => Some(Primitive::EndGroupCommand),
+        "egroup" => Some(Primitive::EndGroupCommand),
+        "aftergroup" => Some(Primitive::AfterGroup),
+        "afterassignment" => Some(Primitive::AfterAssignment),
+        "unless" => Some(Primitive::Unless),
+        "makeatletter" => Some(Primitive::MakeAtLetter),
+        "makeatother" => Some(Primitive::MakeAtOther),
+        "iftrue" => Some(Primitive::IfTrue),
+        "iffalse" => Some(Primitive::IfFalse),
+        "newif" => Some(Primitive::NewIf),
+        "chardef" => Some(Primitive::CharDef),
+        "NeedsTeXFormat" => Some(Primitive::NeedsTeXFormat),
+        "ProvidesFile" => Some(Primitive::ProvidesFile),
+        "ProvidesPackage" => Some(Primitive::ProvidesPackage),
+        "ProvidesClass" => Some(Primitive::ProvidesClass),
+        "documentclass" => Some(Primitive::DocumentClass),
+        "LoadClass" => Some(Primitive::LoadClass),
+        "LoadClassWithOptions" => Some(Primitive::LoadClassWithOptions),
+        "RequirePackage" => Some(Primitive::RequirePackage),
+        "usepackage" => Some(Primitive::UsePackage),
+        "RequirePackageWithOptions" => Some(Primitive::RequirePackageWithOptions),
+        "PassOptionsToClass" => Some(Primitive::PassOptionsToClass),
+        "PassOptionsToPackage" => Some(Primitive::PassOptionsToPackage),
+        "DeclareOption" => Some(Primitive::DeclareOption),
+        "ExecuteOptions" => Some(Primitive::ExecuteOptions),
+        "ProcessOptions" => Some(Primitive::ProcessOptions),
+        "AtBeginDocument" => Some(Primitive::AtBeginDocument),
+        "AtEndDocument" => Some(Primitive::AtEndDocument),
+        "AtEndOfPackage" => Some(Primitive::AtEndOfPackage),
+        "AtEndOfClass" => Some(Primitive::AtEndOfClass),
+        "message" => Some(Primitive::Message),
+        "typeout" => Some(Primitive::Typeout),
+        "wlog" => Some(Primitive::WriteLog),
+        "newcount" => Some(Primitive::NewCount),
+        "countdef" => Some(Primitive::CountDef),
+        "newdimen" => Some(Primitive::NewDimen),
+        "dimendef" => Some(Primitive::DimenDef),
+        "newskip" => Some(Primitive::NewSkip),
+        "skipdef" => Some(Primitive::SkipDef),
+        "setcounter" => Some(Primitive::SetCounter),
+        "addtocounter" => Some(Primitive::AddToCounter),
+        "stepcounter" => Some(Primitive::StepCounter),
+        "refstepcounter" => Some(Primitive::RefStepCounter),
+        "@addtoreset" => Some(Primitive::AddToReset),
+        "@removefromreset" => Some(Primitive::RemoveFromReset),
+        "newlength" => Some(Primitive::NewLength),
+        "setlength" => Some(Primitive::SetLength),
+        "addtolength" => Some(Primitive::AddToLength),
+        "newtoks" => Some(Primitive::NewToks),
+        "toksdef" => Some(Primitive::ToksDef),
+        "newcommand" => Some(Primitive::NewCommand),
+        "DeclareRobustCommand" => Some(Primitive::DeclareRobustCommand),
+        "renewcommand" => Some(Primitive::RenewCommand),
+        "providecommand" => Some(Primitive::ProvideCommand),
+        "PackageInfo" => Some(Primitive::PackageInfo),
+        "PackageInfoNoLine" => Some(Primitive::PackageInfoNoLine),
+        "ClassInfo" => Some(Primitive::ClassInfo),
+        "ClassInfoNoLine" => Some(Primitive::ClassInfoNoLine),
+        "PackageWarning" => Some(Primitive::PackageWarning),
+        "PackageWarningNoLine" => Some(Primitive::PackageWarningNoLine),
+        "ClassWarning" => Some(Primitive::ClassWarning),
+        "ClassWarningNoLine" => Some(Primitive::ClassWarningNoLine),
+        "PackageError" => Some(Primitive::PackageError),
+        "ClassError" => Some(Primitive::ClassError),
+        "GenericInfo" => Some(Primitive::GenericInfo),
+        "GenericWarning" => Some(Primitive::GenericWarning),
+        "GenericError" => Some(Primitive::GenericError),
+        "errmessage" => Some(Primitive::ErrMessage),
+        "@latex@info" => Some(Primitive::LatexInfo),
+        "@latex@warning" => Some(Primitive::LatexWarning),
+        "@latex@warning@no@line" => Some(Primitive::LatexWarningNoLine),
+        "@latex@error" => Some(Primitive::LatexError),
+        "@latexerr" => Some(Primitive::LatexError),
+        "@ifpackageloaded" => Some(Primitive::IfPackageLoadedTF),
+        "@ifclassloaded" => Some(Primitive::IfClassLoadedTF),
+        "IfPackageLoadedTF" => Some(Primitive::IfPackageLoadedTF),
+        "IfClassLoadedTF" => Some(Primitive::IfClassLoadedTF),
+        "IfPackageAtLeastTF" => Some(Primitive::IfPackageAtLeastTF),
+        "IfClassAtLeastTF" => Some(Primitive::IfClassAtLeastTF),
+        "@ifpackagelater" => Some(Primitive::IfPackageLater),
+        "@ifclasslater" => Some(Primitive::IfClassLater),
+        "@ifpackagewith" => Some(Primitive::IfPackageWith),
+        "@ifclasswith" => Some(Primitive::IfClassWith),
+        "ifeof" => Some(Primitive::IfEof),
+        "IfFileExists" => Some(Primitive::IfFileExists),
+        "InputIfFileExists" => Some(Primitive::InputIfFileExists),
+        "@input" => Some(Primitive::AtInput),
+        "@onlypreamble" => Some(Primitive::OnlyPreamble),
+        "@onelevel@sanitize" => Some(Primitive::OneLevelSanitize),
+        "@bsphack" => Some(Primitive::BspHack),
+        "@esphack" => Some(Primitive::Esphack),
+        "in@" => Some(Primitive::InAt),
+        "ifin@" => Some(Primitive::IfInAt),
+        "@tempswatrue" => Some(Primitive::TempSwaTrue),
+        "@tempswafalse" => Some(Primitive::TempSwaFalse),
+        "if@tempswa" => Some(Primitive::IfTempSwa),
+        "@fileswtrue" => Some(Primitive::FileswTrue),
+        "@fileswfalse" => Some(Primitive::FileswFalse),
+        "if@filesw" => Some(Primitive::IfFilesw),
+        "nofiles" => Some(Primitive::NoFiles),
+        "loop" => Some(Primitive::Loop),
+        "@for" => Some(Primitive::For),
+        "@whilenum" => Some(Primitive::WhileNum),
+        "@whilesw" => Some(Primitive::WhileSw),
+        "ifcsname" => Some(Primitive::IfCsName),
+        "ifdefined" => Some(Primitive::IfDefined),
+        "ifcat" => Some(Primitive::IfCat),
+        "ifcase" => Some(Primitive::IfCase),
+        "@ifundefined" => Some(Primitive::IfUndefined),
+        "@ifdefinable" => Some(Primitive::IfDefinable),
+        "@ifnextchar" => Some(Primitive::IfNextChar),
+        "kernel@ifnextchar" => Some(Primitive::IfNextChar),
+        "@ifstar" => Some(Primitive::IfStar),
+        "kernel@ifstar" => Some(Primitive::IfStar),
+        "@ifempty" => Some(Primitive::IfEmpty),
+        "@ifnotempty" => Some(Primitive::IfNotEmpty),
+        "@ifmtarg" => Some(Primitive::IfMtArg),
+        "@ifnotmtarg" => Some(Primitive::IfNotMtArg),
+        "@testopt" => Some(Primitive::TestOpt),
+        "@dblarg" => Some(Primitive::DblArg),
+        "@car" => Some(Primitive::Car),
+        "@cdr" => Some(Primitive::Cdr),
+        "@tfor" => Some(Primitive::TFor),
+        "@xp" => Some(Primitive::ExpandAfter),
+        "@xa" => Some(Primitive::ExpandAfter),
+        "@cons" => Some(Primitive::Cons),
+        "@removeelement" => Some(Primitive::RemoveElement),
+        "@thirdofthree" => Some(Primitive::ThirdOfThree),
+        "@expandtwoargs" => Some(Primitive::ExpandTwoArgs),
+        "zap@space" => Some(Primitive::ZapSpace),
+        "@firstofone" => Some(Primitive::FirstOfOne),
+        "@iden" => Some(Primitive::Iden),
+        "@firstoftwo" => Some(Primitive::FirstOfTwo),
+        "@secondoftwo" => Some(Primitive::SecondOfTwo),
+        "@gobble" => Some(Primitive::Gobble),
+        "@gobbletwo" => Some(Primitive::GobbleTwo),
+        "@gobblethree" => Some(Primitive::GobbleThree),
+        "@gobblefour" => Some(Primitive::GobbleFour),
+        "g@addto@macro" => Some(Primitive::GAddToMacro),
+        "@namedef" => Some(Primitive::NameDef),
+        "@namexdef" => Some(Primitive::NameXDef),
+        "@nameuse" => Some(Primitive::NameUse),
+        "advance" => Some(Primitive::Advance),
+        "multiply" => Some(Primitive::Multiply),
+        "divide" => Some(Primitive::Divide),
+        "if" => Some(Primitive::IfChar),
+        "ifodd" => Some(Primitive::IfOdd),
+        "ifx" => Some(Primitive::IfX),
+        "ifnum" => Some(Primitive::IfNum),
+        "ifdim" => Some(Primitive::IfDim),
+        "else" => Some(Primitive::Else),
+        "fi" => Some(Primitive::Fi),
+        "count" => Some(Primitive::Count),
+        "dimen" => Some(Primitive::Dimen),
+        "skip" => Some(Primitive::Skip),
+        "toks" => Some(Primitive::Toks),
+        "value" => Some(Primitive::Value),
+        "the" => Some(Primitive::The),
+        "number" => Some(Primitive::Number),
+        "romannumeral" => Some(Primitive::RomanNumeral),
+        "arabic" | "@arabic" => Some(Primitive::CounterArabic),
+        "roman" | "@roman" => Some(Primitive::CounterRoman),
+        "Roman" | "@Roman" => Some(Primitive::CounterRomanUpper),
+        "alph" | "@alph" => Some(Primitive::CounterAlph),
+        "Alph" | "@Alph" => Some(Primitive::CounterAlphUpper),
+        "endinput" => Some(Primitive::EndInput),
+        "input" => Some(Primitive::Input),
+        "include" => Some(Primitive::Include),
+        "includeonly" => Some(Primitive::IncludeOnly),
+        _ => None,
+    }
+}
+
+fn primitive_name(primitive: Primitive) -> &'static str {
+    match primitive {
+        Primitive::Relax => "relax",
+        Primitive::Def => "def",
+        Primitive::GlobalDef => "gdef",
+        Primitive::ExpandedDef => "edef",
+        Primitive::GlobalExpandedDef => "xdef",
+        Primitive::Let => "let",
+        Primitive::FutureLet => "futurelet",
+        Primitive::String => "string",
+        Primitive::Immediate => "immediate",
+        Primitive::Protect => "protect",
+        Primitive::NewRead => "newread",
+        Primitive::OpenIn => "openin",
+        Primitive::CloseIn => "closein",
+        Primitive::Read => "read",
+        Primitive::ReadLine => "readline",
+        Primitive::NewWrite => "newwrite",
+        Primitive::OpenOut => "openout",
+        Primitive::CloseOut => "closeout",
+        Primitive::Write => "write",
+        Primitive::ProtectedWrite => "protected@write",
+        Primitive::IgnoreSpaces => "ignorespaces",
+        Primitive::JobName => "jobname",
+        Primitive::CurrentModuleName => "@currname",
+        Primitive::CurrentModuleExt => "@currext",
+        Primitive::CurrentModulePath => "@currpath",
+        Primitive::FilenameParse => "filename@parse",
+        Primitive::Meaning => "meaning",
+        Primitive::Detokenize => "detokenize",
+        Primitive::StripPrefix => "strip@prefix",
+        Primitive::Uppercase => "uppercase",
+        Primitive::Lowercase => "lowercase",
+        Primitive::Long => "long",
+        Primitive::Protected => "protected",
+        Primitive::Outer => "outer",
+        Primitive::Global => "global",
+        Primitive::ExpandAfter => "expandafter",
+        Primitive::ExpandedTokens => "expanded",
+        Primitive::Unexpanded => "unexpanded",
+        Primitive::CsName => "csname",
+        Primitive::EndCsName => "endcsname",
+        Primitive::BeginGroupCommand => "begingroup",
+        Primitive::EndGroupCommand => "endgroup",
+        Primitive::AfterGroup => "aftergroup",
+        Primitive::AfterAssignment => "afterassignment",
+        Primitive::MakeAtLetter => "makeatletter",
+        Primitive::MakeAtOther => "makeatother",
+        Primitive::Unless => "unless",
+        Primitive::IfTrue => "iftrue",
+        Primitive::IfFalse => "iffalse",
+        Primitive::NewIf => "newif",
+        Primitive::CharDef => "chardef",
+        Primitive::NeedsTeXFormat => "NeedsTeXFormat",
+        Primitive::ProvidesFile => "ProvidesFile",
+        Primitive::ProvidesPackage => "ProvidesPackage",
+        Primitive::ProvidesClass => "ProvidesClass",
+        Primitive::DocumentClass => "documentclass",
+        Primitive::LoadClass => "LoadClass",
+        Primitive::LoadClassWithOptions => "LoadClassWithOptions",
+        Primitive::RequirePackage => "RequirePackage",
+        Primitive::UsePackage => "usepackage",
+        Primitive::RequirePackageWithOptions => "RequirePackageWithOptions",
+        Primitive::PassOptionsToClass => "PassOptionsToClass",
+        Primitive::PassOptionsToPackage => "PassOptionsToPackage",
+        Primitive::DeclareOption => "DeclareOption",
+        Primitive::ExecuteOptions => "ExecuteOptions",
+        Primitive::ProcessOptions => "ProcessOptions",
+        Primitive::AtBeginDocument => "AtBeginDocument",
+        Primitive::AtEndDocument => "AtEndDocument",
+        Primitive::AtEndOfPackage => "AtEndOfPackage",
+        Primitive::AtEndOfClass => "AtEndOfClass",
+        Primitive::Message => "message",
+        Primitive::Typeout => "typeout",
+        Primitive::WriteLog => "wlog",
+        Primitive::NewCount => "newcount",
+        Primitive::CountDef => "countdef",
+        Primitive::NewDimen => "newdimen",
+        Primitive::DimenDef => "dimendef",
+        Primitive::NewSkip => "newskip",
+        Primitive::SkipDef => "skipdef",
+        Primitive::SetCounter => "setcounter",
+        Primitive::AddToCounter => "addtocounter",
+        Primitive::StepCounter => "stepcounter",
+        Primitive::RefStepCounter => "refstepcounter",
+        Primitive::AddToReset => "@addtoreset",
+        Primitive::RemoveFromReset => "@removefromreset",
+        Primitive::NewLength => "newlength",
+        Primitive::SetLength => "setlength",
+        Primitive::AddToLength => "addtolength",
+        Primitive::NewToks => "newtoks",
+        Primitive::ToksDef => "toksdef",
+        Primitive::NewCommand => "newcommand",
+        Primitive::DeclareRobustCommand => "DeclareRobustCommand",
+        Primitive::RenewCommand => "renewcommand",
+        Primitive::ProvideCommand => "providecommand",
+        Primitive::PackageInfo => "PackageInfo",
+        Primitive::PackageInfoNoLine => "PackageInfoNoLine",
+        Primitive::ClassInfo => "ClassInfo",
+        Primitive::ClassInfoNoLine => "ClassInfoNoLine",
+        Primitive::PackageWarning => "PackageWarning",
+        Primitive::PackageWarningNoLine => "PackageWarningNoLine",
+        Primitive::ClassWarning => "ClassWarning",
+        Primitive::ClassWarningNoLine => "ClassWarningNoLine",
+        Primitive::PackageError => "PackageError",
+        Primitive::ClassError => "ClassError",
+        Primitive::GenericInfo => "GenericInfo",
+        Primitive::GenericWarning => "GenericWarning",
+        Primitive::GenericError => "GenericError",
+        Primitive::ErrMessage => "errmessage",
+        Primitive::LatexInfo => "@latex@info",
+        Primitive::LatexWarning => "@latex@warning",
+        Primitive::LatexWarningNoLine => "@latex@warning@no@line",
+        Primitive::LatexError => "@latex@error",
+        Primitive::IfPackageLoadedTF => "IfPackageLoadedTF",
+        Primitive::IfClassLoadedTF => "IfClassLoadedTF",
+        Primitive::IfPackageAtLeastTF => "IfPackageAtLeastTF",
+        Primitive::IfClassAtLeastTF => "IfClassAtLeastTF",
+        Primitive::IfPackageLater => "@ifpackagelater",
+        Primitive::IfClassLater => "@ifclasslater",
+        Primitive::IfPackageWith => "@ifpackagewith",
+        Primitive::IfClassWith => "@ifclasswith",
+        Primitive::IfEof => "ifeof",
+        Primitive::IfFileExists => "IfFileExists",
+        Primitive::InputIfFileExists => "InputIfFileExists",
+        Primitive::AtInput => "@input",
+        Primitive::OnlyPreamble => "@onlypreamble",
+        Primitive::OneLevelSanitize => "@onelevel@sanitize",
+        Primitive::BspHack => "@bsphack",
+        Primitive::Esphack => "@esphack",
+        Primitive::InAt => "in@",
+        Primitive::IfInAt => "ifin@",
+        Primitive::TempSwaTrue => "@tempswatrue",
+        Primitive::TempSwaFalse => "@tempswafalse",
+        Primitive::IfTempSwa => "if@tempswa",
+        Primitive::FileswTrue => "@fileswtrue",
+        Primitive::FileswFalse => "@fileswfalse",
+        Primitive::IfFilesw => "if@filesw",
+        Primitive::NoFiles => "nofiles",
+        Primitive::Loop => "loop",
+        Primitive::For => "@for",
+        Primitive::WhileNum => "@whilenum",
+        Primitive::WhileSw => "@whilesw",
+        Primitive::IfCsName => "ifcsname",
+        Primitive::IfDefined => "ifdefined",
+        Primitive::IfCase => "ifcase",
+        Primitive::IfUndefined => "@ifundefined",
+        Primitive::IfDefinable => "@ifdefinable",
+        Primitive::IfNextChar => "@ifnextchar",
+        Primitive::IfStar => "@ifstar",
+        Primitive::IfEmpty => "@ifempty",
+        Primitive::IfNotEmpty => "@ifnotempty",
+        Primitive::IfMtArg => "@ifmtarg",
+        Primitive::IfNotMtArg => "@ifnotmtarg",
+        Primitive::TestOpt => "@testopt",
+        Primitive::DblArg => "@dblarg",
+        Primitive::Car => "@car",
+        Primitive::Cdr => "@cdr",
+        Primitive::TFor => "@tfor",
+        Primitive::Cons => "@cons",
+        Primitive::RemoveElement => "@removeelement",
+        Primitive::ThirdOfThree => "@thirdofthree",
+        Primitive::ExpandTwoArgs => "@expandtwoargs",
+        Primitive::ZapSpace => "zap@space",
+        Primitive::FirstOfOne => "@firstofone",
+        Primitive::Iden => "@iden",
+        Primitive::FirstOfTwo => "@firstoftwo",
+        Primitive::SecondOfTwo => "@secondoftwo",
+        Primitive::Gobble => "@gobble",
+        Primitive::GobbleTwo => "@gobbletwo",
+        Primitive::GobbleThree => "@gobblethree",
+        Primitive::GobbleFour => "@gobblefour",
+        Primitive::GAddToMacro => "g@addto@macro",
+        Primitive::NameDef => "@namedef",
+        Primitive::NameXDef => "@namexdef",
+        Primitive::NameUse => "@nameuse",
+        Primitive::Advance => "advance",
+        Primitive::Multiply => "multiply",
+        Primitive::Divide => "divide",
+        Primitive::IfChar => "if",
+        Primitive::IfOdd => "ifodd",
+        Primitive::IfCat => "ifcat",
+        Primitive::IfX => "ifx",
+        Primitive::IfNum => "ifnum",
+        Primitive::IfDim => "ifdim",
+        Primitive::Else => "else",
+        Primitive::Fi => "fi",
+        Primitive::Count => "count",
+        Primitive::Dimen => "dimen",
+        Primitive::Skip => "skip",
+        Primitive::Toks => "toks",
+        Primitive::Value => "value",
+        Primitive::The => "the",
+        Primitive::Number => "number",
+        Primitive::RomanNumeral => "romannumeral",
+        Primitive::CounterArabic => "@arabic",
+        Primitive::CounterRoman => "@roman",
+        Primitive::CounterRomanUpper => "@Roman",
+        Primitive::CounterAlph => "@alph",
+        Primitive::CounterAlphUpper => "@Alph",
+        Primitive::EndInput => "endinput",
+        Primitive::Input => "input",
+        Primitive::Include => "include",
+        Primitive::IncludeOnly => "includeonly",
+    }
+}
+
+fn render_roman_numeral(value: i32) -> String {
+    if value <= 0 {
+        return String::new();
+    }
+    let mut remaining = value;
+    let mut output = String::new();
+    for (amount, glyph) in [
+        (1000, "m"),
+        (900, "cm"),
+        (500, "d"),
+        (400, "cd"),
+        (100, "c"),
+        (90, "xc"),
+        (50, "l"),
+        (40, "xl"),
+        (10, "x"),
+        (9, "ix"),
+        (5, "v"),
+        (4, "iv"),
+        (1, "i"),
+    ] {
+        while remaining >= amount {
+            output.push_str(glyph);
+            remaining -= amount;
+        }
+    }
+    output
+}
+
+fn format_dimension_value(value: i32) -> String {
+    let sign = if value < 0 { "-" } else { "" };
+    let abs = i64::from(value).unsigned_abs();
+    let mut whole = abs / 65_536;
+    let frac = abs % 65_536;
+    if frac == 0 {
+        return format!("{sign}{whole}pt");
+    }
+    let mut frac_scaled = ((frac * 100_000) + 32_768) / 65_536;
+    if frac_scaled == 100_000 {
+        whole += 1;
+        frac_scaled = 0;
+    }
+    let mut frac_text = format!("{frac_scaled:05}");
+    while frac_text.ends_with('0') {
+        frac_text.pop();
+    }
+    format!("{sign}{whole}.{frac_text}pt")
+}
+
+fn render_dimension_tokens(value: i32) -> Vec<Token> {
+    format_dimension_value(value)
+        .chars()
+        .map(|ch| Token::character(ch, CatCode::Other, 0, 0))
+        .collect()
+}
+
+pub fn compile_format_snapshot(interner: &mut ControlSequenceInterner, source: &str) -> VmSnapshot {
+    let mut vm = Vm::new(interner);
+    vm.run_plain(source);
+    vm.snapshot()
+}
+
+#[cfg(test)]
+mod tests {
+    use camino::{Utf8Path, Utf8PathBuf};
+    use serde_json::json;
+    use tex_tokens::ControlSequenceInterner;
+
+    use super::{
+        Vm, VmDiagnosticKind, VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot,
+    };
+
+    #[test]
+    fn expands_simple_macros() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\foo{ab}\foo");
+
+        assert_eq!(outcome.output, "ab");
+    }
+
+    #[test]
+    fn grouping_restores_outer_definitions() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\foo{a}{\def\foo{b}\foo}\foo");
+
+        assert_eq!(outcome.output, "ba");
+    }
+
+    #[test]
+    fn let_copies_current_meaning() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\foo{a}\let\bar=\foo\def\foo{b}\bar\foo");
+
+        assert_eq!(outcome.output, "ab");
+    }
+
+    #[test]
+    fn expandafter_and_csname_work_together() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\expandafter\def\csname foo\endcsname{z}\foo");
+
+        assert_eq!(outcome.output, "z");
+    }
+
+    #[test]
+    fn supports_count_registers_and_number() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\count0=42\number\count0");
+
+        assert_eq!(outcome.output, "42");
+        assert_eq!(outcome.registers.get(&0), Some(&42));
+    }
+
+    #[test]
+    fn the_reads_count_registers_and_can_be_captured_inside_edef() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome =
+            vm.run_plain(r"\newcount\foo\foo=42\edef\captured{\the\foo}[\the\foo][\captured]");
+
+        assert_eq!(outcome.output, "[42][42]");
+        assert_eq!(outcome.registers.get(&256), Some(&42));
+    }
+
+    #[test]
+    fn newtoks_and_toksdef_define_token_register_aliases_that_the_expands() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\newtoks\foo\toksdef\bar=19\foo={AB}\bar={CD}[\the\foo][\the\bar][\the\toks19]",
+        );
+
+        assert_eq!(outcome.output, "[AB][CD][CD]");
+        assert_eq!(
+            vm.token_registers
+                .get(&0)
+                .map(|tokens| vm.tokens_to_text(tokens.clone()))
+                .as_deref(),
+            Some("AB")
+        );
+    }
+
+    #[test]
+    fn counter_commands_update_c_at_registers_and_value_expands_in_edef() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\newcount\c@demo\setcounter{demo}{2}\addtocounter{demo}{3}\stepcounter{demo}\edef\captured{\value{demo}}[\value{demo}][\captured][\number\value{demo}]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[6][6][6]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn refstepcounter_updates_c_at_registers_and_value_expands_in_edef() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\newcount\c@demo\setcounter{demo}{1}\refstepcounter{demo}\edef\captured{\value{demo}}[\value{demo}][\captured][\number\value{demo}]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[2][2][2]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_addtoreset_resets_child_counters_on_stepcounter_and_refstepcounter() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\newcount\c@section\newcount\c@equation\@addtoreset{equation}{section}\setcounter{section}{1}\setcounter{equation}{5}\stepcounter{section}[\value{section}][\value{equation}]\setcounter{equation}{7}\refstepcounter{section}[\value{section}][\value{equation}]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[2][0][3][0]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshot_restore_preserves_addtoreset_state() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.run_plain(
+            r"\makeatletter\newcount\c@section\newcount\c@equation\@addtoreset{equation}{section}\setcounter{equation}{4}\makeatother",
+        );
+        let snapshot = vm.snapshot();
+        let mut restored = Vm::restore(&mut interner, &snapshot);
+
+        let outcome =
+            restored.run_plain(r"\makeatletter\stepcounter{section}[\value{equation}]\makeatother");
+
+        assert_eq!(outcome.output, "[0]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_removefromreset_stops_child_resets_on_stepcounter() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\newcount\c@section\newcount\c@equation\@addtoreset{equation}{section}\setcounter{section}{1}\setcounter{equation}{5}\@removefromreset{equation}{section}\stepcounter{section}[\value{section}][\value{equation}]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[2][5]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshot_restore_preserves_removefromreset_state() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.run_plain(
+            r"\makeatletter\newcount\c@section\newcount\c@equation\@addtoreset{equation}{section}\@removefromreset{equation}{section}\setcounter{equation}{4}\makeatother",
+        );
+        let snapshot = vm.snapshot();
+        let mut restored = Vm::restore(&mut interner, &snapshot);
+
+        let outcome =
+            restored.run_plain(r"\makeatletter\stepcounter{section}[\value{equation}]\makeatother");
+
+        assert_eq!(outcome.output, "[4]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn newdimen_dimendef_and_the_render_pt_dimensions() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\newdimen\foo\foo=1.5pt\dimendef\bar=252\bar=2pt\dimen@=3pt\edef\captured{\the\foo|\the\bar|\the\dimen@|\the\p@}[\captured]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[1.5pt|2pt|3pt|1pt]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn newlength_setlength_and_addtolength_update_dimen_registers() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\newlength{\foo}\setlength{\foo}{2pt}\addtolength{\foo}{1.25pt}\edef\captured{\the\foo}\setlength{\foo}{5pt}[\captured][\the\foo]",
+        );
+
+        assert_eq!(outcome.output, "[3.25pt][5pt]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshot_restore_preserves_dimen_register_allocator_and_values() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.run_plain(r"\newdimen\foo\foo=2.5pt");
+        let snapshot = vm.snapshot();
+
+        let mut restored = Vm::restore(&mut interner, &snapshot);
+        let outcome = restored.run_plain(r"\newdimen\bar\bar=4pt[\the\foo][\the\bar]");
+
+        assert_eq!(outcome.output, "[2.5pt][4pt]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn newskip_skipdef_and_the_render_base_pt_glue_dimensions() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\newskip\foo\foo=1.5pt plus 2pt minus 0.5pt\skipdef\bar=252\bar=2pt plus 1pt\skip@=4pt minus 1pt\edef\captured{\the\foo|\the\bar|\the\skip@|\the\p@}[\captured]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[1.5pt|2pt|4pt|1pt]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshot_restore_preserves_skip_register_allocator_and_values() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.run_plain(r"\newskip\foo\foo=2.5pt plus 1pt");
+        let snapshot = vm.snapshot();
+
+        let mut restored = Vm::restore(&mut interner, &snapshot);
+        let outcome = restored.run_plain(r"\newskip\bar\bar=4pt minus 1pt[\the\foo][\the\bar]");
+
+        assert_eq!(outcome.output, "[2.5pt][4pt]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn the_reads_token_registers_and_can_be_captured_inside_edef() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\newtoks\foo\foo={AB}\edef\captured{\the\foo}\foo={CD}[\the\foo][\captured]",
+        );
+
+        assert_eq!(outcome.output, "[CD][AB]");
+    }
+
+    #[test]
+    fn snapshot_restore_preserves_token_register_allocator_and_values() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.run_plain(r"\newtoks\foo\foo={AB}");
+        let snapshot = vm.snapshot();
+
+        let mut restored = Vm::restore(&mut interner, &snapshot);
+        let outcome = restored.run_plain(r"\newtoks\bar\bar={CD}[\the\foo][\the\bar]");
+
+        assert_eq!(outcome.output, "[AB][CD]");
+    }
+
+    #[test]
+    fn snapshot_restore_preserves_filesw_state() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.run_plain(r"\nofiles");
+        let snapshot = vm.snapshot();
+
+        let mut restored = Vm::restore(&mut interner, &snapshot);
+        let outcome = restored.run_plain(r"\makeatletter\if@filesw T\else F\fi\makeatother");
+
+        assert_eq!(outcome.output, "F");
+    }
+
+    #[test]
+    fn makeatletter_counter_format_helpers_render_common_counter_styles() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\newcount\c@demo\c@demo=3\edef\captured{\@arabic\c@demo/\@roman\c@demo/\@Roman\c@demo/\@alph\c@demo/\@Alph\c@demo}[\captured]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[3/iii/III/c/C]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn public_counter_format_helpers_render_common_counter_styles() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\newcount\c@demo\c@demo=4\makeatother\edef\captured{\arabic{demo}/\roman{demo}/\Roman{demo}/\alph{demo}/\Alph{demo}}[\captured]",
+        );
+
+        assert_eq!(outcome.output, "[4/iv/IV/d/D]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn protected_edef_and_xdef_follow_the_same_narrow_definition_paths() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\def\foo{A}\protected@edef\captured{\foo}{\protected@xdef\globalcaptured{\foo}}\def\foo{B}[\captured][\globalcaptured]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[A][A]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ifdefined_selects_the_correct_branch() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome =
+            vm.run_plain(r"\def\foo{x}\ifdefined\foo A\else B\fi\ifdefined\bar C\else D\fi");
+
+        assert_eq!(outcome.output, "AD");
+    }
+
+    #[test]
+    fn expands_parameterized_macros() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\pair#1#2{[#1,#2]}\pair{a}{bc}");
+
+        assert_eq!(outcome.output, "[a,bc]");
+    }
+
+    #[test]
+    fn doubles_hash_in_macro_body() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\hash#1{##1=#1}\hash{z}");
+
+        assert_eq!(outcome.output, "#1=z");
+    }
+
+    #[test]
+    fn ifx_compares_meanings() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\def\foo{a}\let\bar=\foo\ifx\foo\bar T\else F\fi\def\bar{b}\ifx\foo\bar X\else Y\fi",
+        );
+
+        assert_eq!(outcome.output, "TY");
+    }
+
+    #[test]
+    fn ifnum_compares_register_values() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome =
+            vm.run_plain(r"\count0=7\ifnum\count0>4 T\else F\fi\ifnum\count0=8 X\else Y\fi");
+
+        assert_eq!(outcome.output, "TY");
+    }
+
+    #[test]
+    fn loop_repeat_reinjects_body_until_trailing_ifnum_fails() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\newcount\i\def\trace{}\i=0\loop\advance\i by 1\edef\trace{\trace\number\i}\ifnum\i<3\repeat[\trace]",
+        );
+
+        assert_eq!(outcome.output, "[123]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn loop_repeat_handles_nested_loop_repeat_delimiters() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\newcount\outer\newcount\inner\def\trace{}\outer=0\loop\advance\outer by 1\inner=0\loop\advance\inner by 1\edef\trace{\trace\number\outer\number\inner}\ifnum\inner<2\repeat\ifnum\outer<2\repeat[\trace]",
+        );
+
+        assert_eq!(outcome.output, "[11122122]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ifdim_compares_dimen_and_skip_values() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\newdimen\foo\foo=1.5pt\newskip\bar\bar=2pt plus 1pt\ifdim\foo<\bar A\else X\fi\ifdim\bar>\p@ B\else X\fi\ifdim\skip@=\z@ C\else D\fi\makeatother",
+        );
+
+        assert_eq!(outcome.output, "ABC");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ifdim_inside_edef_stops_dimension_units_before_following_text() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\newskip\bar\bar=2pt plus 1pt\edef\captured{\ifdim\bar>\p@ GT\else LE\fi}[\captured]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[GT]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn input_reads_mounted_files() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("defs.tex", "from-input");
+
+        let outcome = vm.run_plain(r"\input{defs}");
+
+        assert_eq!(outcome.output, "from-input");
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(outcome.loaded_modules, vec![Utf8PathBuf::from("defs.tex")]);
+        assert_eq!(outcome.module_traces.len(), 1);
+        assert_eq!(outcome.module_traces[0].path, Utf8PathBuf::from("defs.tex"));
+        assert_eq!(outcome.module_traces[0].source_start_utf8, 0);
+        assert_eq!(
+            outcome.module_traces[0].source_end_utf8,
+            "from-input".len() as u32
+        );
+        assert_eq!(outcome.module_traces[0].output_start_utf8, 0);
+        assert_eq!(
+            outcome.module_traces[0].output_end_utf8,
+            "from-input".len() as u32
+        );
+    }
+
+    #[test]
+    fn makeatletter_input_reads_existing_files_and_ignores_missing_ones() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("defs.tex", "from-input");
+
+        let outcome = vm.run_plain(r"\makeatletter A\@input{defs}\@input{missing}Z\makeatother");
+
+        assert_eq!(outcome.output, "Afrom-inputZ");
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(outcome.loaded_modules, vec![Utf8PathBuf::from("defs.tex")]);
+    }
+
+    #[test]
+    fn nested_inputs_capture_enter_and_exit_checkpoints_with_continuations() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("parent.tex", "B\\input{child}C");
+        vm.mount_file("child.tex", "D");
+
+        let outcome = vm.run_plain("A\\input{parent}Z");
+
+        assert_eq!(outcome.output, "ABDCZ");
+        assert_eq!(
+            outcome
+                .module_checkpoints
+                .iter()
+                .map(|checkpoint| (checkpoint.kind, checkpoint.module_path.clone()))
+                .collect::<Vec<_>>(),
+            vec![
+                (
+                    VmModuleCheckpointKind::Enter,
+                    Utf8PathBuf::from("parent.tex")
+                ),
+                (
+                    VmModuleCheckpointKind::Enter,
+                    Utf8PathBuf::from("child.tex")
+                ),
+                (VmModuleCheckpointKind::Exit, Utf8PathBuf::from("child.tex")),
+                (
+                    VmModuleCheckpointKind::Exit,
+                    Utf8PathBuf::from("parent.tex")
+                ),
+            ]
+        );
+        let child_enter = outcome
+            .module_checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.kind == VmModuleCheckpointKind::Enter
+                    && checkpoint.module_path == Utf8PathBuf::from("child.tex")
+            })
+            .expect("child enter checkpoint");
+        assert_eq!(
+            child_enter.resume_path.as_ref(),
+            Some(&Utf8PathBuf::from("parent.tex"))
+        );
+        assert_eq!(
+            child_enter.continuation_stack,
+            vec![VmReplayFrame {
+                path: Utf8PathBuf::from("main.tex"),
+                source_offset_utf8: 15,
+            }]
+        );
+        let child_exit = outcome
+            .module_checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.kind == VmModuleCheckpointKind::Exit
+                    && checkpoint.module_path == Utf8PathBuf::from("child.tex")
+            })
+            .expect("child exit checkpoint");
+        assert_eq!(
+            child_exit.resume_path.as_ref(),
+            Some(&Utf8PathBuf::from("parent.tex"))
+        );
+        assert_eq!(
+            child_exit.continuation_stack,
+            child_enter.continuation_stack
+        );
+        assert!(child_enter.source_offset_utf8 < child_exit.source_offset_utf8);
+        assert!(child_enter.output_start_utf8 < child_exit.output_start_utf8);
+    }
+
+    #[test]
+    fn newcommand_defines_latex_style_macros() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\newcommand{\foo}[1]{<#1>}\foo{z}");
+
+        assert_eq!(outcome.output, "<z>");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn reports_undefined_control_sequences() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\missing");
+
+        assert_eq!(outcome.output, r"\missing");
+        assert_eq!(outcome.diagnostics.len(), 1);
+        assert_eq!(
+            outcome.diagnostics[0].kind,
+            VmDiagnosticKind::UndefinedControlSequence
+        );
+        assert_eq!(outcome.diagnostics[0].detail, "missing");
+    }
+
+    #[test]
+    fn reports_missing_input_files() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\input{ghost}");
+
+        assert_eq!(outcome.diagnostics.len(), 1);
+        assert_eq!(outcome.diagnostics[0].kind, VmDiagnosticKind::MissingFile);
+        assert_eq!(outcome.diagnostics[0].detail, "input ghost.tex");
+    }
+
+    #[test]
+    fn includeonly_skips_non_selected_include_files() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("first.tex", "FIRST");
+        vm.mount_file("second.tex", "SECOND");
+
+        let outcome = vm.run_plain(r"\includeonly{first}\include{first}\include{second}");
+
+        assert_eq!(outcome.output, "FIRST");
+        assert!(
+            outcome
+                .transcript
+                .contains(&"includeonly first.tex".to_string())
+        );
+        assert!(
+            outcome
+                .transcript
+                .contains(&"include skipped second.tex".to_string())
+        );
+    }
+
+    #[test]
+    fn snapshot_restore_preserves_includeonly_state() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\includeonly{first}");
+
+        let mut restored_interner = ControlSequenceInterner::new();
+        let mut vm = Vm::restore(&mut restored_interner, &snapshot);
+        vm.mount_file("first.tex", "FIRST");
+        vm.mount_file("second.tex", "SECOND");
+
+        let outcome = vm.run_plain(r"\include{first}\include{second}");
+
+        assert_eq!(outcome.output, "FIRST");
+        assert!(
+            outcome
+                .transcript
+                .contains(&"include skipped second.tex".to_string())
+        );
+    }
+
+    #[test]
+    fn documentclass_loads_local_class_file() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("article.cls", r"\def\classloaded{article}");
+
+        let outcome = vm.run_plain(r"\documentclass{article}\classloaded");
+
+        assert_eq!(outcome.output, "article");
+    }
+
+    #[test]
+    fn usepackage_loads_local_packages_in_order() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("first.sty", r"\def\pkgorder{first}");
+        vm.mount_file("second.sty", r"\def\pkgorder{second}");
+
+        let outcome = vm.run_plain(r"\usepackage{first,second}\pkgorder");
+
+        assert_eq!(outcome.output, "second");
+    }
+
+    #[test]
+    fn usepackage_inside_group_keeps_package_definitions_global() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("setspace.sty", r"\input{setspace-defs}");
+        vm.mount_file("setspace-defs.tex", r"\def\singlespacing{single spacing}");
+
+        let outcome = vm.run_plain(r"{\usepackage{setspace}}\singlespacing");
+
+        assert_eq!(outcome.output, "single spacing");
+    }
+
+    #[test]
+    fn requirepackage_supports_hyperxmp_style_package_preambles() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "hyperref.sty",
+            r"\NeedsTeXFormat{LaTeX2e}\ProvidesPackage{hyperref}[2024/01/01]\DeclareOption{unicode}{\def\hyperunicode{unicode}}\ProcessOptions\relax\def\hypersetup#1{}\def\hyperdriver{hyperref}",
+        );
+        vm.mount_file(
+            "hyperxmp.sty",
+            r"\NeedsTeXFormat{LaTeX2e}\ProvidesPackage{hyperxmp}[2024/01/01]\PassOptionsToPackage{unicode}{hyperref}\RequirePackage{hyperref}\def\hyperxmploaded{hyperxmp}\hypersetup{pdfauthor=Author}",
+        );
+
+        let outcome = vm.run_plain(r"\usepackage{hyperxmp}\hyperdriver\hyperxmploaded");
+
+        assert_eq!(outcome.output, "hyperrefhyperxmp");
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(
+            outcome.loaded_modules,
+            vec![
+                Utf8PathBuf::from("hyperref.sty"),
+                Utf8PathBuf::from("hyperxmp.sty")
+            ]
+        );
+    }
+
+    #[test]
+    fn requirepackagewithoptions_forwards_wrapper_options_to_nested_package() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "hyperref.sty",
+            r"\ProvidesPackage{hyperref}[2024/01/01]\def\hypermode{plain}\DeclareOption{unicode}{\def\hypermode{unicode}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.sty",
+            r"\ProvidesPackage{wrapper}[2024/01/01]\def\wrappermode{plain}\DeclareOption{unicode}{\def\wrappermode{wrapper}}\ProcessOptions\relax\RequirePackageWithOptions{hyperref}",
+        );
+
+        let default_outcome = vm.run_plain(r"\usepackage{wrapper}\wrappermode\hypermode");
+        assert_eq!(default_outcome.output, "plainplain");
+        assert!(default_outcome.diagnostics.is_empty());
+
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "hyperref.sty",
+            r"\ProvidesPackage{hyperref}[2024/01/01]\def\hypermode{plain}\DeclareOption{unicode}{\def\hypermode{unicode}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.sty",
+            r"\ProvidesPackage{wrapper}[2024/01/01]\def\wrappermode{plain}\DeclareOption{unicode}{\def\wrappermode{wrapper}}\ProcessOptions\relax\RequirePackageWithOptions{hyperref}",
+        );
+
+        let explicit_outcome = vm.run_plain(r"\usepackage[unicode]{wrapper}\wrappermode\hypermode");
+        assert_eq!(explicit_outcome.output, "wrapperunicode");
+        assert!(explicit_outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn loadclasswithoptions_forwards_wrapper_options_after_processoptions() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\layoutmode{plain}\DeclareOption{twocolumn}{\def\layoutmode{twocolumn}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\def\wrappermode{plain}\DeclareOption{twocolumn}{\def\wrappermode{wrapper}}\ProcessOptions\relax\LoadClassWithOptions{article}",
+        );
+
+        let default_outcome = vm.run_plain(r"\documentclass{wrapper}\wrappermode\layoutmode");
+        assert_eq!(default_outcome.output, "plainplain");
+        assert!(default_outcome.diagnostics.is_empty());
+
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\layoutmode{plain}\DeclareOption{twocolumn}{\def\layoutmode{twocolumn}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\def\wrappermode{plain}\DeclareOption{twocolumn}{\def\wrappermode{wrapper}}\ProcessOptions\relax\LoadClassWithOptions{article}",
+        );
+
+        let explicit_outcome =
+            vm.run_plain(r"\documentclass[twocolumn]{wrapper}\wrappermode\layoutmode");
+        assert_eq!(explicit_outcome.output, "wrappertwocolumn");
+        assert!(explicit_outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn class_can_forward_documentclass_options_to_nested_class_and_package() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\layoutmode{plain}\DeclareOption{twocolumn}{\def\layoutmode{twocolumn}}\DeclareOption*{}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "hyperref.sty",
+            r"\ProvidesPackage{hyperref}[2024/01/01]\def\hypermode{plain}\DeclareOption{unicode}{\def\hypermode{unicode}}\DeclareOption*{}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\def\wrappermode{plain}\DeclareOption{twocolumn}{\def\wrappermode{wrapper}}\DeclareOption*{}\ProcessOptions\relax\LoadClassWithOptions{article}\RequirePackageWithOptions{hyperref}",
+        );
+
+        let default_outcome =
+            vm.run_plain(r"\documentclass{wrapper}\wrappermode\layoutmode\hypermode");
+        assert_eq!(default_outcome.output, "plainplainplain");
+        assert!(default_outcome.diagnostics.is_empty());
+
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\layoutmode{plain}\DeclareOption{twocolumn}{\def\layoutmode{twocolumn}}\DeclareOption*{}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "hyperref.sty",
+            r"\ProvidesPackage{hyperref}[2024/01/01]\def\hypermode{plain}\DeclareOption{unicode}{\def\hypermode{unicode}}\DeclareOption*{}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\def\wrappermode{plain}\DeclareOption{twocolumn}{\def\wrappermode{wrapper}}\DeclareOption*{}\ProcessOptions\relax\LoadClassWithOptions{article}\RequirePackageWithOptions{hyperref}",
+        );
+
+        let explicit_outcome = vm.run_plain(
+            r"\documentclass[twocolumn,unicode]{wrapper}\wrappermode\layoutmode\hypermode",
+        );
+        assert_eq!(explicit_outcome.output, "wrappertwocolumnunicode");
+        assert!(explicit_outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn declareoption_star_in_class_can_forward_currentoption_to_class_and_package() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\layoutmode{plain}\DeclareOption{twocolumn}{\def\layoutmode{twocolumn}}\DeclareOption*{}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "hyperref.sty",
+            r"\ProvidesPackage{hyperref}[2024/01/01]\def\hypermode{plain}\DeclareOption{unicode}{\def\hypermode{unicode}}\DeclareOption*{}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\def\wrappermode{plain}\DeclareOption{twocolumn}{\def\wrappermode{wrapper}\PassOptionsToClass{\CurrentOption}{article}}\DeclareOption*{\PassOptionsToPackage{\CurrentOption}{hyperref}}\ProcessOptions\relax\LoadClass{article}\RequirePackage{hyperref}",
+        );
+
+        let default_outcome =
+            vm.run_plain(r"\documentclass{wrapper}\wrappermode\layoutmode\hypermode");
+        assert_eq!(default_outcome.output, "plainplainplain");
+        assert!(default_outcome.diagnostics.is_empty());
+
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\layoutmode{plain}\DeclareOption{twocolumn}{\def\layoutmode{twocolumn}}\DeclareOption*{}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "hyperref.sty",
+            r"\ProvidesPackage{hyperref}[2024/01/01]\def\hypermode{plain}\DeclareOption{unicode}{\def\hypermode{unicode}}\DeclareOption*{}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\def\wrappermode{plain}\DeclareOption{twocolumn}{\def\wrappermode{wrapper}\PassOptionsToClass{\CurrentOption}{article}}\DeclareOption*{\PassOptionsToPackage{\CurrentOption}{hyperref}}\ProcessOptions\relax\LoadClass{article}\RequirePackage{hyperref}",
+        );
+
+        let explicit_outcome = vm.run_plain(
+            r"\documentclass[twocolumn,unicode]{wrapper}\wrappermode\layoutmode\hypermode",
+        );
+        assert_eq!(explicit_outcome.output, "wrappertwocolumnunicode");
+        assert!(explicit_outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn passoptionstopackage_applies_declared_package_options() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/01/01]\def\modevalue{unset}\DeclareOption{draft}{\def\modevalue{draft}}\DeclareOption{final}{\def\modevalue{final}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "driver.sty",
+            r"\ProvidesPackage{driver}[2024/01/01]\RequirePackage{shim}\def\driverloaded{driver}",
+        );
+
+        let outcome = vm.run_plain(
+            r"\PassOptionsToPackage{draft}{shim}\usepackage{driver}\modevalue\driverloaded",
+        );
+
+        assert_eq!(outcome.output, "draftdriver");
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(
+            outcome.loaded_modules,
+            vec![
+                Utf8PathBuf::from("driver.sty"),
+                Utf8PathBuf::from("shim.sty")
+            ]
+        );
+    }
+
+    #[test]
+    fn declareoption_star_forwards_currentoption_to_nested_package() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "hyperref.sty",
+            r"\ProvidesPackage{hyperref}[2024/01/01]\def\hyperunicode{unset}\DeclareOption{unicode}{\def\hyperunicode{unicode}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.sty",
+            r"\ProvidesPackage{wrapper}[2024/01/01]\DeclareOption*{\PassOptionsToPackage{\CurrentOption}{hyperref}}\ProcessOptions\relax\RequirePackage{hyperref}",
+        );
+
+        let outcome = vm
+            .run_plain(r"\PassOptionsToPackage{unicode}{wrapper}\usepackage{wrapper}\hyperunicode");
+
+        assert_eq!(outcome.output, "unicode");
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(
+            outcome.loaded_modules,
+            vec![
+                Utf8PathBuf::from("hyperref.sty"),
+                Utf8PathBuf::from("wrapper.sty")
+            ]
+        );
+    }
+
+    #[test]
+    fn declareoption_body_can_use_currentoption() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "hyperref.sty",
+            r"\ProvidesPackage{hyperref}[2024/01/01]\def\hyperunicode{unset}\DeclareOption{unicode}{\def\hyperunicode{unicode}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.sty",
+            r"\ProvidesPackage{wrapper}[2024/01/01]\DeclareOption{unicode}{\PassOptionsToPackage{\CurrentOption}{hyperref}}\ProcessOptions\relax\RequirePackage{hyperref}",
+        );
+
+        let outcome = vm.run_plain(r"\usepackage[unicode]{wrapper}\hyperunicode");
+
+        assert_eq!(outcome.output, "unicode");
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(
+            outcome.loaded_modules,
+            vec![
+                Utf8PathBuf::from("hyperref.sty"),
+                Utf8PathBuf::from("wrapper.sty")
+            ]
+        );
+    }
+
+    #[test]
+    fn declareoption_star_forwards_currentoption_to_nested_class() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\layoutmode{unset}\DeclareOption{twocolumn}{\def\layoutmode{twocolumn}}\DeclareOption{onecolumn}{\def\layoutmode{onecolumn}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\DeclareOption*{\PassOptionsToClass{\CurrentOption}{article}}\ProcessOptions\relax\LoadClass{article}",
+        );
+
+        let outcome = vm.run_plain(r"\documentclass[twocolumn]{wrapper}\layoutmode");
+
+        assert_eq!(outcome.output, "twocolumn");
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(
+            outcome.loaded_modules,
+            vec![
+                Utf8PathBuf::from("article.cls"),
+                Utf8PathBuf::from("wrapper.cls")
+            ]
+        );
+    }
+
+    #[test]
+    fn executeoptions_applies_default_option_before_explicit_override() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "hyperref.sty",
+            r"\ProvidesPackage{hyperref}[2024/01/01]\def\hyperunicode{unset}\DeclareOption{draft}{\def\hyperunicode{draft}}\DeclareOption{unicode}{\def\hyperunicode{unicode}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.sty",
+            r"\ProvidesPackage{wrapper}[2024/01/01]\DeclareOption*{\PassOptionsToPackage{\CurrentOption}{hyperref}}\ExecuteOptions{draft}\ProcessOptions\relax\RequirePackage{hyperref}",
+        );
+
+        let default_outcome = vm.run_plain(r"\usepackage{wrapper}\hyperunicode");
+        assert_eq!(default_outcome.output, "draft");
+        assert!(default_outcome.diagnostics.is_empty());
+
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "hyperref.sty",
+            r"\ProvidesPackage{hyperref}[2024/01/01]\def\hyperunicode{unset}\DeclareOption{draft}{\def\hyperunicode{draft}}\DeclareOption{unicode}{\def\hyperunicode{unicode}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.sty",
+            r"\ProvidesPackage{wrapper}[2024/01/01]\DeclareOption*{\PassOptionsToPackage{\CurrentOption}{hyperref}}\ExecuteOptions{draft}\ProcessOptions\relax\RequirePackage{hyperref}",
+        );
+
+        let explicit_outcome = vm.run_plain(r"\usepackage[unicode]{wrapper}\hyperunicode");
+        assert_eq!(explicit_outcome.output, "unicode");
+        assert!(explicit_outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn executeoptions_dedupes_option_repeated_by_explicit_usepackage() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "hyperref.sty",
+            r"\ProvidesPackage{hyperref}[2024/01/01]\def\trace{}\DeclareOption{draft}{\let\prevtrace\trace\def\trace{D\prevtrace}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.sty",
+            r"\ProvidesPackage{wrapper}[2024/01/01]\DeclareOption*{\PassOptionsToPackage{\CurrentOption}{hyperref}}\ExecuteOptions{draft}\ProcessOptions\relax\RequirePackage{hyperref}",
+        );
+
+        let outcome = vm.run_plain(r"\usepackage[draft]{wrapper}\trace");
+
+        assert_eq!(outcome.output, "D");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn processoptions_star_uses_same_narrow_option_path() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "hyperref.sty",
+            r"\ProvidesPackage{hyperref}[2024/01/01]\def\hyperunicode{unset}\DeclareOption{draft}{\def\hyperunicode{draft}}\DeclareOption{unicode}{\def\hyperunicode{unicode}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.sty",
+            r"\ProvidesPackage{wrapper}[2024/01/01]\DeclareOption*{\PassOptionsToPackage{\CurrentOption}{hyperref}}\ExecuteOptions{draft}\ProcessOptions*\relax\RequirePackage{hyperref}",
+        );
+
+        let outcome = vm.run_plain(r"\usepackage[unicode]{wrapper}\hyperunicode");
+
+        assert_eq!(outcome.output, "unicode");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn executeoptions_class_default_can_be_overridden_by_documentclass_option() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\layoutmode{unset}\DeclareOption{onecolumn}{\def\layoutmode{onecolumn}}\DeclareOption{twocolumn}{\def\layoutmode{twocolumn}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\DeclareOption*{\PassOptionsToClass{\CurrentOption}{article}}\ExecuteOptions{onecolumn}\ProcessOptions\relax\LoadClass{article}",
+        );
+
+        let default_outcome = vm.run_plain(r"\documentclass{wrapper}\layoutmode");
+        assert_eq!(default_outcome.output, "onecolumn");
+        assert!(default_outcome.diagnostics.is_empty());
+
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\layoutmode{unset}\DeclareOption{onecolumn}{\def\layoutmode{onecolumn}}\DeclareOption{twocolumn}{\def\layoutmode{twocolumn}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\DeclareOption*{\PassOptionsToClass{\CurrentOption}{article}}\ExecuteOptions{onecolumn}\ProcessOptions\relax\LoadClass{article}",
+        );
+
+        let explicit_outcome = vm.run_plain(r"\documentclass[twocolumn]{wrapper}\layoutmode");
+        assert_eq!(explicit_outcome.output, "twocolumn");
+        assert!(explicit_outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn executeoptions_dedupes_option_repeated_by_explicit_documentclass() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\layouttrace{}\DeclareOption{onecolumn}{\let\prevtrace\layouttrace\def\layouttrace{O\prevtrace}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\DeclareOption*{\PassOptionsToClass{\CurrentOption}{article}}\ExecuteOptions{onecolumn}\ProcessOptions\relax\LoadClass{article}",
+        );
+
+        let outcome = vm.run_plain(r"\documentclass[onecolumn]{wrapper}\layouttrace");
+
+        assert_eq!(outcome.output, "O");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn loadclasswithoptions_supports_revtex_style_class_chains() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\articleclass{article}",
+        );
+        vm.mount_file(
+            "array.sty",
+            r"\ProvidesPackage{array}[2024/01/01]\def\arrayloaded{array}",
+        );
+        vm.mount_file(
+            "revtex4-2.cls",
+            r"\NeedsTeXFormat{LaTeX2e}\ProvidesClass{revtex4-2}[2024/01/01]\LoadClassWithOptions{article}\RequirePackage{array}\def\revtexclass{revtex}",
+        );
+
+        let outcome =
+            vm.run_plain(r"\documentclass{revtex4-2}\articleclass\revtexclass\arrayloaded");
+
+        assert_eq!(outcome.output, "articlerevtexarray");
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(
+            outcome.loaded_modules,
+            vec![
+                Utf8PathBuf::from("array.sty"),
+                Utf8PathBuf::from("article.cls"),
+                Utf8PathBuf::from("revtex4-2.cls")
+            ]
+        );
+    }
+
+    #[test]
+    fn loadclasswithoptions_forwards_declared_class_options() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\layoutmode{unset}\DeclareOption{twocolumn}{\def\layoutmode{twocolumn}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\LoadClassWithOptions{article}",
+        );
+
+        let outcome = vm.run_plain(r"\documentclass[twocolumn]{wrapper}\layoutmode");
+
+        assert_eq!(outcome.output, "twocolumn");
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(
+            outcome.loaded_modules,
+            vec![
+                Utf8PathBuf::from("article.cls"),
+                Utf8PathBuf::from("wrapper.cls")
+            ]
+        );
+    }
+
+    #[test]
+    fn atbegindocument_and_declarerobustcommand_support_cleveref_style_hooks() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "hyperref.sty",
+            r"\ProvidesPackage{hyperref}[2024/01/01]\def\hyperdriver{hyperref}",
+        );
+        vm.mount_file(
+            "cleveref.sty",
+            r"\ProvidesPackage{cleveref}[2024/01/01]\RequirePackage{hyperref}\AtBeginDocument{\DeclareRobustCommand{\cref}[1]{CRef #1}\def\cleverefready{ready}}",
+        );
+
+        let outcome =
+            vm.run_plain(r"\usepackage{cleveref}\hyperdriver\cleverefready\cref{sec:intro}");
+
+        assert_eq!(outcome.output, "hyperrefreadyCRef sec:intro");
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(
+            outcome.loaded_modules,
+            vec![
+                Utf8PathBuf::from("cleveref.sty"),
+                Utf8PathBuf::from("hyperref.sty")
+            ]
+        );
+    }
+
+    #[test]
+    fn atendofpackage_and_atendofclass_run_hooks_before_module_end() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\layoutmode{article}",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\def\wrappermode{one}\PassOptionsToPackage{unicode}{shim}\DeclareOption{twocolumn}{\def\wrappermode{two}}\AtEndOfClass{\edef\wrappertail{class-\wrappermode}}\ProcessOptions\relax\LoadClassWithOptions{article}",
+        );
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/01/01]\def\shimmode{plain}\DeclareOption{unicode}{\def\shimmode{unicode}}\AtEndOfPackage{\edef\shimtail{package-\shimmode}}\ProcessOptions\relax",
+        );
+
+        let outcome = vm.run_plain(
+            r"\documentclass[twocolumn]{wrapper}\usepackage{shim}[\wrappertail][\shimtail]",
+        );
+
+        assert_eq!(outcome.output, "[class-two][package-unicode]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn atenddocument_runs_document_package_and_class_hooks_at_end_of_output() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\layoutmode{article}",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\def\wrappermode{one}\PassOptionsToPackage{unicode}{shim}\DeclareOption{twocolumn}{\def\wrappermode{two}}\AtEndDocument{[class-\wrappermode]}\ProcessOptions\relax\LoadClassWithOptions{article}",
+        );
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/01/01]\def\shimmode{plain}\DeclareOption{unicode}{\def\shimmode{unicode}}\AtEndDocument{[package-\shimmode]}\ProcessOptions\relax",
+        );
+
+        let outcome = vm.run_plain(
+            r"\documentclass[twocolumn]{wrapper}\usepackage{shim}BODY\AtEndDocument{[body-end]}",
+        );
+
+        assert_eq!(outcome.output, "BODY[class-two][package-unicode][body-end]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshot_preserves_atenddocument_hooks_until_the_next_run() {
+        let mut interner = ControlSequenceInterner::new();
+        let hook_tokens = tex_lexer::lex_plain("[tail]", &mut interner);
+        let snapshot = {
+            let mut vm = Vm::new(&mut interner);
+            vm.at_end_document_hooks.push(hook_tokens);
+            vm.snapshot()
+        };
+        let mut restored = Vm::restore(&mut interner, &snapshot);
+
+        let outcome = restored.run_plain("BODY");
+
+        assert_eq!(outcome.output, "BODY[tail]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn iffileexists_supports_minted_style_cache_lookup() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "minted.sty",
+            r"\ProvidesPackage{minted}[2024/01/01]\def\inputminted#1#2{\IfFileExists{_minted-main/code.pygtex}{\input{_minted-main/code.pygtex}}{cache-miss}}",
+        );
+        vm.mount_file("_minted-main/code.pygtex", "cached minted output");
+
+        let outcome = vm.run_plain(r"\usepackage{minted}\inputminted{python}{main.py}");
+
+        assert_eq!(outcome.output, "cached minted output");
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(
+            outcome.loaded_modules,
+            vec![
+                Utf8PathBuf::from("_minted-main/code.pygtex"),
+                Utf8PathBuf::from("minted.sty")
+            ]
+        );
+    }
+
+    #[test]
+    fn iffileexists_supports_fontspec_style_local_font_lookup() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "fontspec.sty",
+            r"\ProvidesPackage{fontspec}[2024/01/01]\def\setmainfont#1{\IfFileExists{#1}{\def\fontready{font-found}}{\def\fontready{font-missing}}}",
+        );
+        vm.mount_file("Example Font.otf", "fake font payload");
+
+        let outcome =
+            vm.run_plain(r"\usepackage{fontspec}\setmainfont{Example Font.otf}\fontready");
+
+        assert_eq!(outcome.output, "font-found");
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(
+            outcome.loaded_modules,
+            vec![Utf8PathBuf::from("fontspec.sty")]
+        );
+    }
+
+    #[test]
+    fn iffileexists_sets_filef_und_for_found_and_missing_files() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("shim.cfg", "cfg");
+
+        let outcome = vm.run_plain(
+            r"\makeatletter\IfFileExists{shim.cfg}{[\@filef@und]}{MISS}\IfFileExists{missing.cfg}{FOUND}{[\@filef@und]}\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[shim.cfg][]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn inputiffileexists_inputs_file_before_running_success_branch() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/01/01]\def\loadcfg{\InputIfFileExists{shim.cfg}{loaded}{missing}}",
+        );
+        vm.mount_file("shim.cfg", r"\ProvidesFile{shim.cfg}[2024/02/01]cfg");
+
+        let outcome = vm.run_plain(r"\usepackage{shim}\loadcfg");
+        let snapshot = vm.snapshot();
+
+        assert_eq!(outcome.output, "cfgloaded");
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(
+            outcome.loaded_modules,
+            vec![Utf8PathBuf::from("shim.cfg"), Utf8PathBuf::from("shim.sty")]
+        );
+        assert_eq!(
+            snapshot.provided_files.get(Utf8Path::new("shim.cfg")),
+            Some(&String::from("2024/02/01"))
+        );
+    }
+
+    #[test]
+    fn inputiffileexists_sets_filef_und_for_found_and_missing_files() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("shim.cfg", "cfg");
+
+        let outcome = vm.run_plain(
+            r"\makeatletter\InputIfFileExists{shim.cfg}{[\@filef@und]}{MISS}\InputIfFileExists{missing.cfg}{FOUND}{[\@filef@und]}\makeatother",
+        );
+
+        assert_eq!(outcome.output, "cfg[shim.cfg][]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn endinput_skips_remaining_tokens_in_input_files() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("child.tex", "AB\\endinput CD");
+
+        let outcome = vm.run_plain(r"X\input{child}Y");
+
+        assert_eq!(outcome.output, "XABY");
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(outcome.loaded_modules, vec![Utf8PathBuf::from("child.tex")]);
+    }
+
+    #[test]
+    fn endinput_skips_remaining_tokens_in_package_files() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/01/01]\def\shimflag{shim-ready}\endinput BROKEN",
+        );
+
+        let outcome = vm.run_plain(r"\usepackage{shim}\shimflag");
+
+        assert_eq!(outcome.output, "shim-ready");
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(outcome.loaded_modules, vec![Utf8PathBuf::from("shim.sty")]);
+    }
+
+    #[test]
+    fn makeatletter_onlypreamble_helper_is_non_visible() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\makeatletter\def\foo{A}\@onlypreamble\foo\makeatother\foo");
+
+        assert_eq!(outcome.output, "A");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_onelevelsanitize_helper_is_non_visible() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome =
+            vm.run_plain(r"\makeatletter\def\foo{A B}\@onelevel@sanitize\foo\makeatother\foo");
+
+        assert_eq!(outcome.output, "A B");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_bsphack_and_esphack_helpers_are_non_visible() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\makeatletter\@bsphack\def\foo{A}\@esphack\makeatother\foo");
+
+        assert_eq!(outcome.output, "A");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn explicit_grouping_commands_and_aliases_restore_outer_scope() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\def\foo{A}\begingroup\def\foo{B}\endgroup\foo\bgroup\def\foo{C}\egroup\foo",
+        );
+
+        assert_eq!(outcome.output, "AA");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn provides_commands_define_low_level_version_macros() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\articleclass{article}",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/02/01]\makeatletter\def\wrapperversion{\@nameuse{ver@wrapper.cls}}\makeatother\LoadClass{article}",
+        );
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/03/01]\makeatletter\def\packageversion{\@nameuse{ver@shim.sty}}\makeatother",
+        );
+        vm.mount_file(
+            "shim.cfg",
+            r"\ProvidesFile{shim.cfg}[2024/04/01]\makeatletter\def\fileversion{\@nameuse{ver@shim.cfg}}\makeatother",
+        );
+
+        let outcome = vm.run_plain(
+            r"\documentclass{wrapper}\usepackage{shim}\InputIfFileExists{shim.cfg}{}{}\wrapperversion\packageversion\fileversion",
+        );
+
+        assert_eq!(outcome.output, "2024/02/012024/03/012024/04/01");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn provides_commands_define_file_metadata_macros() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01 Local article fixture]\edef\articlemeta{[\filedate][\fileversion][\fileinfo]}",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/02/01 v2.3 Wrapper class fixture]\edef\wrappermeta{[\filedate][\fileversion][\fileinfo]}\LoadClass{article}",
+        );
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/03/01 v1.4 Shim package fixture]\edef\packagemeta{[\filedate][\fileversion][\fileinfo]}",
+        );
+        vm.mount_file(
+            "shim.cfg",
+            r"\ProvidesFile{shim.cfg}[2024/04/01 v0.7 Shim config fixture]\edef\filemeta{[\filedate][\fileversion][\fileinfo]}",
+        );
+
+        let outcome = vm.run_plain(
+            r"\documentclass{wrapper}\usepackage{shim}\InputIfFileExists{shim.cfg}{}{}\wrappermeta\articlemeta\packagemeta\filemeta",
+        );
+
+        assert_eq!(
+            outcome.output,
+            "[2024/02/01][v2.3][Wrapper class fixture][2024/01/01][][Local article fixture][2024/03/01][v1.4][Shim package fixture][2024/04/01][v0.7][Shim config fixture]"
+        );
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn provides_commands_treat_second_token_as_info_when_no_version_is_present() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\ProvidesPackage{shim}[2024/05/01 Shim package fixture][\filedate][\fileversion][\fileinfo]",
+        );
+
+        assert_eq!(outcome.output, "[2024/05/01][][Shim package fixture]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn package_and_class_info_warning_helpers_are_non_visible() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\articleclass{article}",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\ClassInfoNoLine{wrapper}{class info}\ClassWarningNoLine{wrapper}{class warning}\LoadClass{article}",
+        );
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/01/01]\PackageInfoNoLine{shim}{package info}\PackageWarningNoLine{shim}{package warning}\def\shimready{shim-ready}",
+        );
+
+        let outcome =
+            vm.run_plain(r"\documentclass{wrapper}\usepackage{shim}\articleclass\shimready");
+
+        assert_eq!(outcome.output, "articleshim-ready");
+        assert!(outcome.diagnostics.is_empty());
+        assert!(
+            outcome
+                .transcript
+                .iter()
+                .any(|line| line.contains("class info noline wrapper: class info"))
+        );
+        assert!(
+            outcome
+                .transcript
+                .iter()
+                .any(|line| line.contains("package info noline shim: package info"))
+        );
+        assert!(
+            outcome
+                .transcript
+                .iter()
+                .any(|line| line.contains("package warning noline shim: package warning"))
+        );
+    }
+
+    #[test]
+    fn generic_info_warning_helpers_are_non_visible() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\articleclass{article}",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\GenericInfo{wrapper}{class info}\GenericWarning{wrapper}{class warning}\LoadClass{article}",
+        );
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/01/01]\GenericInfo{shim}{package info}\GenericWarning{shim}{package warning}\def\shimready{shim-ready}",
+        );
+
+        let outcome =
+            vm.run_plain(r"\documentclass{wrapper}\usepackage{shim}\articleclass\shimready");
+
+        assert_eq!(outcome.output, "articleshim-ready");
+        assert!(outcome.diagnostics.is_empty());
+        assert!(
+            outcome
+                .transcript
+                .iter()
+                .any(|line| line.contains("generic info wrapper: class info"))
+        );
+        assert!(
+            outcome
+                .transcript
+                .iter()
+                .any(|line| line.contains("generic info shim: package info"))
+        );
+        assert!(
+            outcome
+                .transcript
+                .iter()
+                .any(|line| line.contains("generic warning shim: package warning"))
+        );
+    }
+
+    #[test]
+    fn makeatletter_latex_info_warning_helpers_are_non_visible() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\articleclass{article}",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\makeatletter\@latex@info{class info}\@latex@warning{class warning}\makeatother\LoadClass{article}",
+        );
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/01/01]\makeatletter\@latex@warning@no@line{package warning}\makeatother\def\shimready{shim-ready}",
+        );
+
+        let outcome =
+            vm.run_plain(r"\documentclass{wrapper}\usepackage{shim}\articleclass\shimready");
+
+        assert_eq!(outcome.output, "articleshim-ready");
+        assert!(outcome.diagnostics.is_empty());
+        assert!(
+            outcome
+                .transcript
+                .iter()
+                .any(|line| line.contains("latex info: class info"))
+        );
+        assert!(
+            outcome
+                .transcript
+                .iter()
+                .any(|line| line.contains("latex warning: class warning"))
+        );
+        assert!(
+            outcome
+                .transcript
+                .iter()
+                .any(|line| line.contains("latex warning noline: package warning"))
+        );
+    }
+
+    #[test]
+    fn package_and_class_error_helpers_emit_explicit_diagnostics() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\DeclareOption{broken}{\ClassError{article}{class failure}{remove broken}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/01/01]\DeclareOption{broken}{\PackageError{shim}{package failure}{remove broken}}\ProcessOptions\relax",
+        );
+
+        let outcome = vm.run_plain(r"\documentclass[broken]{article}\usepackage[broken]{shim}");
+
+        assert_eq!(outcome.output, "");
+        assert_eq!(outcome.diagnostics.len(), 2);
+        assert_eq!(outcome.diagnostics[0].kind, VmDiagnosticKind::ExplicitError);
+        assert_eq!(
+            outcome.diagnostics[0].detail,
+            "class article: class failure"
+        );
+        assert_eq!(outcome.diagnostics[1].kind, VmDiagnosticKind::ExplicitError);
+        assert_eq!(
+            outcome.diagnostics[1].detail,
+            "package shim: package failure"
+        );
+    }
+
+    #[test]
+    fn generic_error_helper_emits_explicit_diagnostic() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("article.cls", r"\ProvidesClass{article}[2024/01/01]");
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\DeclareOption{broken}{\GenericError{wrapper}{class failure}{remove broken}{continue}}\ProcessOptions\relax\LoadClass{article}",
+        );
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/01/01]\DeclareOption{broken}{\GenericError{shim}{package failure}{remove broken}{continue}}\ProcessOptions\relax",
+        );
+
+        let outcome = vm.run_plain(r"\documentclass[broken]{wrapper}\usepackage[broken]{shim}");
+
+        assert_eq!(outcome.output, "");
+        assert_eq!(outcome.diagnostics.len(), 2);
+        assert_eq!(outcome.diagnostics[0].kind, VmDiagnosticKind::ExplicitError);
+        assert_eq!(
+            outcome.diagnostics[0].detail,
+            "generic wrapper: class failure"
+        );
+        assert_eq!(outcome.diagnostics[1].kind, VmDiagnosticKind::ExplicitError);
+        assert_eq!(
+            outcome.diagnostics[1].detail,
+            "generic shim: package failure"
+        );
+    }
+
+    #[test]
+    fn errmessage_helper_emits_explicit_diagnostic() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\errmessage{plain failure}");
+
+        assert_eq!(outcome.output, "");
+        assert_eq!(outcome.diagnostics.len(), 1);
+        assert_eq!(outcome.diagnostics[0].kind, VmDiagnosticKind::ExplicitError);
+        assert_eq!(outcome.diagnostics[0].detail, "errmessage: plain failure");
+    }
+
+    #[test]
+    fn makeatletter_latex_error_helper_emits_explicit_diagnostic() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome =
+            vm.run_plain(r"\makeatletter\@latex@error{latex failure}{remove broken}\makeatother");
+
+        assert_eq!(outcome.output, "");
+        assert_eq!(outcome.diagnostics.len(), 1);
+        assert_eq!(outcome.diagnostics[0].kind, VmDiagnosticKind::ExplicitError);
+        assert_eq!(outcome.diagnostics[0].detail, "latex: latex failure");
+    }
+
+    #[test]
+    fn makeatletter_latexerr_helper_emits_explicit_diagnostic() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome =
+            vm.run_plain(r"\makeatletter\@latexerr{latex failure}{remove broken}\makeatother");
+
+        assert_eq!(outcome.output, "");
+        assert_eq!(outcome.diagnostics.len(), 1);
+        assert_eq!(outcome.diagnostics[0].kind, VmDiagnosticKind::ExplicitError);
+        assert_eq!(outcome.diagnostics[0].detail, "latex: latex failure");
+    }
+
+    #[test]
+    fn message_and_typeout_are_non_visible_but_recorded_in_transcript() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\typeout{class typeout}\def\articleclass{article}",
+        );
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/01/01]\message{package message}\def\shimready{shim-ready}",
+        );
+
+        let outcome =
+            vm.run_plain(r"\documentclass{article}\usepackage{shim}\articleclass\shimready");
+
+        assert_eq!(outcome.output, "articleshim-ready");
+        assert!(outcome.diagnostics.is_empty());
+        assert!(
+            outcome
+                .transcript
+                .iter()
+                .any(|line| line.contains("typeout: class typeout"))
+        );
+        assert!(
+            outcome
+                .transcript
+                .iter()
+                .any(|line| line.contains("message: package message"))
+        );
+    }
+
+    #[test]
+    fn wlog_is_non_visible_but_recorded_in_transcript() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\wlog{class write log}\def\articleclass{article}",
+        );
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/01/01]\wlog{package write log}\def\shimready{shim-ready}",
+        );
+
+        let outcome =
+            vm.run_plain(r"\documentclass{article}\usepackage{shim}\articleclass\shimready");
+
+        assert_eq!(outcome.output, "articleshim-ready");
+        assert!(outcome.diagnostics.is_empty());
+        assert!(
+            outcome
+                .transcript
+                .iter()
+                .any(|line| line.contains("wlog: class write log"))
+        );
+        assert!(
+            outcome
+                .transcript
+                .iter()
+                .any(|line| line.contains("wlog: package write log"))
+        );
+    }
+
+    #[test]
+    fn loaded_module_guards_detect_loaded_class_and_package() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\articleclass{article}",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\LoadClass{article}\IfClassLoadedTF{article}{\def\classguard{class-loaded}}{\def\classguard{class-missing}}",
+        );
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/01/01]\IfPackageLoadedTF{shim}{\def\packageguard{package-loaded}}{\def\packageguard{package-missing}}",
+        );
+
+        let outcome = vm.run_plain(
+            r"\documentclass{wrapper}\usepackage{shim}\classguard\packageguard\articleclass",
+        );
+
+        assert_eq!(outcome.output, "class-loadedpackage-loadedarticle");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_loaded_guards_detect_loaded_class_and_package() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\articleclass{article}",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\makeatletter\LoadClass{article}\@ifclassloaded{article}{\def\classguard{class-loaded}}{\def\classguard{class-missing}}\makeatother",
+        );
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/01/01]\makeatletter\@ifpackageloaded{shim}{\def\packageguard{package-loaded}}{\def\packageguard{package-missing}}\makeatother",
+        );
+
+        let outcome = vm.run_plain(
+            r"\documentclass{wrapper}\usepackage{shim}\classguard\packageguard\articleclass",
+        );
+
+        assert_eq!(outcome.output, "class-loadedpackage-loadedarticle");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_with_guards_detect_loaded_package_and_class_options_after_restore() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\layoutmode{onecolumn}\DeclareOption{twocolumn}{\def\layoutmode{twocolumn}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "hyperref.sty",
+            r"\ProvidesPackage{hyperref}[2024/01/01]\def\hypermode{plain}\DeclareOption{unicode}{\def\hypermode{unicode}}\ProcessOptions\relax",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\DeclareOption*{\PassOptionsToPackage{\CurrentOption}{hyperref}}\ProcessOptions\relax\LoadClassWithOptions{article}\RequirePackageWithOptions{hyperref}",
+        );
+
+        let initial_outcome = vm.run_plain(r"\documentclass[twocolumn,unicode]{wrapper}");
+        assert!(initial_outcome.diagnostics.is_empty());
+
+        let snapshot = vm.snapshot();
+        let mut restored_interner = ControlSequenceInterner::new();
+        let mut restored = Vm::restore(&mut restored_interner, &snapshot);
+        let restored_outcome = restored.run_plain(
+            r"\makeatletter\@ifclasswith{article}{twocolumn}{class-twocolumn}{class-onecolumn}\@ifpackagewith{hyperref}{unicode}{package-unicode}{package-plain}\makeatother",
+        );
+
+        assert_eq!(restored_outcome.output, "class-twocolumnpackage-unicode");
+        assert!(restored_outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn module_version_guards_detect_provided_package_and_class_dates() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\articleclass{article}",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/02/01]\LoadClass{article}\IfClassAtLeastTF{article}{2024/01/01}{\def\classversion{class-new}}{\def\classversion{class-old}}",
+        );
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/03/01]\IfPackageAtLeastTF{shim}{2024/02/01}{\def\packageversion{package-new}}{\def\packageversion{package-old}}",
+        );
+
+        let outcome = vm.run_plain(
+            r"\documentclass{wrapper}\usepackage{shim}\classversion\packageversion\articleclass",
+        );
+
+        assert_eq!(outcome.output, "class-newpackage-newarticle");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_version_guards_detect_later_package_and_class_dates() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\articleclass{article}",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/02/01]\makeatletter\LoadClass{article}\@ifclasslater{article}{2023/12/31}{\def\classversion{class-later}}{\def\classversion{class-not-later}}\makeatother",
+        );
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/03/01]\makeatletter\@ifpackagelater{shim}{2024/02/01}{\def\packageversion{package-later}}{\def\packageversion{package-not-later}}\makeatother",
+        );
+
+        let outcome = vm.run_plain(
+            r"\documentclass{wrapper}\usepackage{shim}\classversion\packageversion\articleclass",
+        );
+
+        assert_eq!(outcome.output, "class-laterpackage-laterarticle");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_ifundefined_detects_missing_and_defined_macros() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "article.cls",
+            r"\ProvidesClass{article}[2024/01/01]\def\articleclass{article}",
+        );
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}[2024/01/01]\makeatletter\@ifundefined{wrapperhook}{\def\wrapperguard{wrapper-missing}}{\def\wrapperguard{wrapper-defined}}\def\wrapperhook{hook}\LoadClass{article}\@ifundefined{articleclass}{\def\classguard{class-missing}}{\def\classguard{class-defined}}\makeatother",
+        );
+        vm.mount_file(
+            "shim.sty",
+            r"\ProvidesPackage{shim}[2024/01/01]\def\shimready{shim-ready}\makeatletter\@ifundefined{shimready}{\def\packageguard{package-missing}}{\def\packageguard{package-defined}}\makeatother",
+        );
+
+        let outcome = vm.run_plain(
+            r"\documentclass{wrapper}\usepackage{shim}\wrapperguard\classguard\packageguard\articleclass",
+        );
+
+        assert_eq!(
+            outcome.output,
+            "wrapper-missingclass-definedpackage-definedarticle"
+        );
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ifcsname_detects_defined_and_missing_control_sequence_names() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\def\present{P}\ifcsname present\endcsname Y\else N\fi\ifcsname missing\endcsname Y\else N\fi",
+        );
+
+        assert_eq!(outcome.output, "YN");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ifodd_detects_odd_and_even_number_expressions() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\count@=\tw@\ifodd\count@ O\else E\fi\advance\count@\@ne\ifodd\count@ O\else E\fi\ifodd\m@ne O\else E\fi\makeatother",
+        );
+
+        assert_eq!(outcome.output, "EOO");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn unless_inverts_common_conditionals_and_can_be_repeated() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\count@=\tw@\unless\ifodd\count@ E\else O\fi\advance\count@\@ne\unless\ifodd\count@ E\else O\fi\@namedef{foo}{X}\unless\ifcsname foo\endcsname N\else Y\fi\unless\ifcsname bar\endcsname N\else Y\fi\unless\unless\ifodd\count@ D\else S\fi\makeatother",
+        );
+
+        assert_eq!(outcome.output, "EOYND");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ifcase_selects_numbered_and_else_branches() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome =
+            vm.run_plain(r"\ifcase0 A\or B\else C\fi[\ifcase1 A\or B\else C\fi][\ifcase5 A\or B\else C\fi][\ifcase-1 A\or B\else C\fi]");
+
+        assert_eq!(outcome.output, "A[B][C][C]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ifcase_skips_over_nested_conditionals_before_selected_branch() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome =
+            vm.run_plain(r"\ifcase2 A\or \iftrue X\else Y\fi\or \ifnum1<2 C\else D\fi\else E\fi");
+
+        assert_eq!(outcome.output, "C");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_branch_helpers_select_and_discard_arguments() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\@firstoftwo{first}{second}\@secondoftwo{first}{second}\@gobble{drop}keep\@gobbletwo{dropa}{dropb}tail\makeatother",
+        );
+
+        assert_eq!(outcome.output, "firstsecondkeeptail");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_gobblethree_discards_three_arguments() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\makeatletter\@gobblethree{a}{b}{c}tail\makeatother");
+
+        assert_eq!(outcome.output, "tail");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_gobblefour_discards_four_arguments() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\makeatletter\@gobblefour{a}{b}{c}{d}tail\makeatother");
+
+        assert_eq!(outcome.output, "tail");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_name_helpers_define_and_use_named_macros() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\@namedef{wrapperhook}{wrapper-named}\@nameuse{wrapperhook}\makeatother",
+        );
+
+        assert_eq!(outcome.output, "wrapper-named");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_namexdef_helper_expands_and_persists_named_macros_globally() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\def\seed{A}{\def\seed{B}\@namexdef{wrapperhook}{\seed}}\def\seed{C}[\@nameuse{wrapperhook}]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[B]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_nextchar_and_star_helpers_choose_branches_without_consuming_tokens() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\def\foo{\@ifnextchar[{OPT}{PLAIN}}\def\bar{\@ifstar{STAR}{NOSTAR}}\makeatother\foo [x]\foo y\bar *\bar z",
+        );
+
+        assert_eq!(outcome.output, "OPT[x]PLAINySTAR*NOSTARz");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_kernel_nextchar_and_star_aliases_choose_same_branches() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\def\foo{\kernel@ifnextchar[{OPT}{PLAIN}}\def\bar{\kernel@ifstar{STAR}{NOSTAR}}\makeatother\foo [x]\foo y\bar *\bar z",
+        );
+
+        assert_eq!(outcome.output, "OPT[x]PLAINySTAR*NOSTARz");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_ifdefinable_helper_only_runs_body_for_undefined_targets() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\@ifdefinable\foo{\def\foo{A}}\@ifdefinable\foo{\def\foo{B}}\@ifdefinable\relax{\def\bar{BAD}}\makeatother\foo",
+        );
+
+        assert_eq!(outcome.output, "A");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_tempswa_helpers_toggle_boolean_conditionals() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\@tempswatrue\if@tempswa T\else F\fi\@tempswafalse\if@tempswa T\else F\fi\makeatother",
+        );
+
+        assert_eq!(outcome.output, "TF");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_filesw_helpers_and_nofiles_toggle_boolean_conditionals() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\if@filesw T\else F\fi\@fileswfalse\if@filesw T\else F\fi\@fileswtrue\if@filesw T\else F\fi\nofiles\if@filesw T\else F\fi\makeatother",
+        );
+
+        assert_eq!(outcome.output, "TFTF");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_testopt_helper_injects_default_optional_argument() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\def\foo{\@testopt\fooaux{fallback}}\def\fooaux{\@ifnextchar[{SEEN}{PLAIN}}\makeatother\foo[seen]\foo",
+        );
+
+        assert_eq!(outcome.output, "SEEN[seen]SEEN[fallback]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_dblarg_helper_injects_missing_optional_and_required_argument() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\def\bar{\@dblarg\baraux}\def\baraux{\@ifnextchar[{SEEN}{PLAIN}}\makeatother\bar[explicit]{value}\bar{fallback}",
+        );
+
+        assert_eq!(outcome.output, "SEEN[explicit]valueSEEN[fallback]fallback");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_car_and_cdr_helpers_split_tokens_until_nil() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\makeatletter[\@car abc\@nil][\@cdr abc\@nil]\makeatother");
+
+        assert_eq!(outcome.output, "[a][bc]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_tfor_helper_iterates_grouped_token_lists() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\makeatletter\@tfor\item:=a{bc}d\do{\item}\makeatother");
+
+        assert_eq!(outcome.output, "abcd");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_cons_and_removeelement_helpers_manage_token_lists() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\def\foo{}\@cons\foo{A}\@cons\foo{{BC}}\def\@elt#1{[#1]}\foo\@removeelement{drop}{keep,drop,stay}\bar[\bar]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[A][BC][keep,stay]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_thirdofthree_and_expandtwoargs_helpers_expand_arguments() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\def\leftvalue{\leftalias}\def\leftalias{LEFT}\def\rightvalue{\rightalias}\def\rightalias{RIGHT}\def\pair#1#2{<#1|#2>}\@expandtwoargs\pair{\leftvalue}{\rightvalue}[\@thirdofthree{A}{B}{C}]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "<LEFT|RIGHT>[C]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_in_helper_sets_membership_conditional() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\in@{foo}{xxfooyy}\ifin@ T\else F\fi\in@{bar}{xxfooyy}\ifin@ T\else F\fi\makeatother",
+        );
+
+        assert_eq!(outcome.output, "TF");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_in_helper_state_survives_snapshot_restore() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\makeatletter\in@{foo}{xxfooyy}");
+
+        let mut restored_interner = ControlSequenceInterner::new();
+        let mut vm = Vm::restore(&mut restored_interner, &snapshot);
+        let outcome = vm.run_plain(r"\makeatletter\ifin@ T\else F\fi");
+
+        assert_eq!(outcome.output, "T");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_gaddto_macro_appends_globally_across_groups() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome =
+            vm.run_plain(r"\makeatletter\def\foo{A}{\g@addto@macro\foo{B}}\foo\makeatother");
+
+        assert_eq!(outcome.output, "AB");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_gaddto_macro_creates_missing_macro() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\makeatletter\g@addto@macro\foo{AB}\foo\makeatother");
+
+        assert_eq!(outcome.output, "AB");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_zap_space_helper_strips_space_tokens_until_empty() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\makeatletter[\zap@space a b c \@empty]\makeatother");
+
+        assert_eq!(outcome.output, "[abc]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_ifempty_helper_selects_between_empty_and_nonempty_arguments() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter[\@ifempty{}{E}{N}][\@ifempty{ x }{E}{N}][\@ifempty{ }{E}{N}]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[E][N][E]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_ifnotempty_helper_selects_between_nonempty_and_empty_arguments() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter[\@ifnotempty{}{N}{E}][\@ifnotempty{ x }{N}{E}][\@ifnotempty{ }{N}{E}]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[E][N][E]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_ifmtarg_helper_selects_between_empty_and_nonempty_arguments() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter[\@ifmtarg{}{E}{N}][\@ifmtarg{ x }{E}{N}][\@ifmtarg{ }{E}{N}]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[E][N][E]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_ifnotmtarg_helper_selects_between_nonempty_and_empty_arguments() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter[\@ifnotmtarg{}{N}{E}][\@ifnotmtarg{ x }{N}{E}][\@ifnotmtarg{ }{N}{E}]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[E][N][E]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_for_helper_iterates_top_level_comma_lists() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\makeatletter\@for\item:=a,{bc},d\do{\item}\makeatother");
+
+        assert_eq!(outcome.output, "abcd");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_whilenum_helper_reinjects_body_until_relation_fails() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\count0=0\@whilenum\count0<3\do{\number\count0\ifnum\count0=0\count0=1\else\ifnum\count0=1\count0=2\else\count0=3\fi\fi}\makeatother",
+        );
+
+        assert_eq!(outcome.output, "012");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_whilesw_helper_reinjects_body_until_boolean_turns_false() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\count1=0\@tempswatrue\@whilesw\if@tempswa\fi{\number\count1\ifnum\count1=0\count1=1\else\@tempswafalse\fi}\makeatother",
+        );
+
+        assert_eq!(outcome.output, "01");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_firstofone_and_builtin_empty_nil_helpers_work_with_ifx() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\let\emptytoken\@empty\let\niltoken\@nil\ifx\emptytoken\@empty E\else X\fi\ifx\niltoken\@nil N\else X\fi\@firstofone{F}\makeatother",
+        );
+
+        assert_eq!(outcome.output, "ENF");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_iden_helper_passes_through_single_argument() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\makeatletter\@iden{I}\makeatother");
+
+        assert_eq!(outcome.output, "I");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn newif_defines_conditional_and_toggle_macros() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\newif\iffoo\iffoo T\else F\fi\footrue\iffoo T\else F\fi\foofalse\iffoo T\else F\fi",
+        );
+
+        assert_eq!(outcome.output, "FTF");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn newif_conditionals_nest_inside_skipped_branches() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\newif\iffoo\newif\ifbar\foofalse\bartrue\iffoo A\ifbar B\else C\fi\else D\fi",
+        );
+
+        assert_eq!(outcome.output, "D");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn chardef_defines_character_tokens_and_number_expression_aliases() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\chardef\foo=65\chardef\bang=`\![\foo][\bang][\ifnum\foo=65 T\else F\fi][\ifnum\bang=`\! T\else F\fi][\number\foo][\number\bang]\edef\captured{\foo\bang}[\captured]",
+        );
+
+        assert_eq!(outcome.output, "[A][!][T][T][65][33][A!]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn starred_command_declarations_follow_the_same_narrow_path() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\newcommand*{\foo}{A}\renewcommand*{\foo}{B}\providecommand*{\foo}{C}\DeclareRobustCommand*{\bar}{D}\providecommand*{\baz}{E}\foo\bar\baz",
+        );
+
+        assert_eq!(outcome.output, "BDE");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn command_declarations_support_optional_default_arguments() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\newcommand{\foo}[2][default]{<#1|#2>}\foo{A}\foo[seen]{B}\DeclareRobustCommand*{\bar}[1][robust]{[#1]}\bar\bar[explicit]",
+        );
+
+        assert_eq!(outcome.output, "<default|A><seen|B>[robust][explicit]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn global_prefix_makes_grouped_definitions_persist_and_prefixes_are_non_visible() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"{\global\long\def\foo#1{<#1>}\global\protected\def\bar{B}\global\outer\def\baz{C}\def\qux{D}}\ifdefined\foo T\else F\fi\ifdefined\qux T\else F\fi\foo{x}\bar\baz",
+        );
+
+        assert_eq!(outcome.output, "TF<x>BC");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn global_prefix_applies_to_grouped_let_newif_newcommand_and_newcount() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"{\global\def\seed{S}\global\let\foo\seed\global\newif\ifflag\global\flagtrue\global\newcommand{\bar}[1][B]{[#1]}\global\newcount\scratch\scratch=2}\ifdefined\foo T\else F\fi\ifflag Y\else N\fi\foo\bar[\number\scratch]",
+        );
+
+        assert_eq!(outcome.output, "TYS[2]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn globaldefs_positive_makes_grouped_definitions_persist_without_global_prefix() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"{\globaldefs=1\def\seed{S}\let\foo\seed\newif\ifflag\flagtrue\newcommand{\bar}[1][B]{[#1]}}\ifdefined\foo T\else F\fi\ifdefined\ifflag T\else F\fi\ifflag Y\else N\fi\foo\bar",
+        );
+
+        assert_eq!(outcome.output, "TTYS[B]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn globaldefs_negative_makes_explicit_global_definitions_stay_local() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"{\globaldefs=-1\global\def\foo{A}\global\let\bar\foo\global\newif\ifflag\global\flagtrue\global\newcommand{\baz}{B}}\ifdefined\foo T\else F\fi\ifdefined\bar T\else F\fi\ifdefined\ifflag T\else F\fi\ifdefined\baz T\else F\fi",
+        );
+
+        assert_eq!(outcome.output, "FFFF");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn aftergroup_reinjects_tokens_after_group_end_in_fifo_order() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome =
+            vm.run_plain(r"\def\first{A}\def\second{B}{\aftergroup\first\aftergroup\second}C");
+
+        assert_eq!(outcome.output, "ABC");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn aftergroup_can_trigger_grouped_assignments_before_following_tokens() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\def\state{pending}\def\install{\def\state{ready}}{\aftergroup\install}\state",
+        );
+
+        assert_eq!(outcome.output, "ready");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn afterassignment_reinjects_token_after_count_assignment_and_let() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\def\state{pending}\def\ready{\def\state{ready}}\afterassignment\ready\count0=1\state\def\seed{S}\afterassignment\seed\let\alias=\state X",
+        );
+
+        assert_eq!(outcome.output, "readySX");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn afterassignment_can_trigger_counter_updates_after_advance() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\newcount\scratch\scratch=1\def\mark{\advance\scratch by 2}\afterassignment\mark\advance\scratch by 4[\number\scratch]",
+        );
+
+        assert_eq!(outcome.output, "[7]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn futurelet_looks_ahead_without_consuming_the_next_token() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\def\probe{\futurelet\nexttoken\probeaux}\def\probeaux{\ifx\nexttoken[OPT\else PLAIN\fi}\probe[x]\probe{y}",
+        );
+
+        assert_eq!(outcome.output, "OPT[x]PLAINy");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn global_futurelet_definition_survives_group_boundaries() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome =
+            vm.run_plain(r"\def\consume#1{}{\global\futurelet\peeked\consume X}\ifdefined\peeked T\else F\fi\peeked");
+
+        assert_eq!(outcome.output, "TX");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn string_outputs_control_sequence_names_without_expanding_them() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\foo{A}\string\foo\foo");
+
+        assert_eq!(outcome.output, r"\fooA");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn string_outputs_character_tokens_verbatim() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"[\string*][\string[]");
+
+        assert_eq!(outcome.output, "[*][[]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn escapechar_controls_string_detokenize_and_meaning_prefixes() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\def\foo{A}\escapechar=`\![\string\foo][\detokenize{\foo}][\meaning\relax]\escapechar=-1[\string\foo][\detokenize{\foo}][\meaning\relax]",
+        );
+
+        assert_eq!(outcome.output, "[!foo][!foo ][!relax][foo][foo ][relax]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn string_expands_inside_edef_and_honors_escapechar() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome =
+            vm.run_plain(r"\escapechar=`\!\edef\captured{\string\foo}\escapechar=-1[\captured]");
+
+        assert_eq!(outcome.output, "[!foo]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignorespaces_discards_immediately_following_space_tokens() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\foo{Q}A\ignorespaces   B[\ignorespaces\foo]");
+
+        assert_eq!(outcome.output, "AB[Q]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ignorespaces_inside_macros_trims_source_spaces_before_following_tokens() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome =
+            vm.run_plain(r"\def\prefix{P\ignorespaces}\def\word{Q}\prefix   \word[\prefix   R]");
+
+        assert_eq!(outcome.output, "PQ[PR]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn jobname_uses_entry_source_stem_and_falls_back_to_texput() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("paper.tex");
+        let with_entry = vm.run_plain(r"[\jobname]");
+
+        assert_eq!(with_entry.output, "[paper]");
+        assert!(with_entry.diagnostics.is_empty());
+
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let fallback = vm.run_plain(r"[\jobname]");
+
+        assert_eq!(fallback.output, "[texput]");
+        assert!(fallback.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn jobname_stays_at_toplevel_stem_inside_nested_inputs_and_edef() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file(
+            "child.tex",
+            r"\edef\captured{\jobname}[\jobname][\captured]",
+        );
+
+        let outcome = vm.run_plain(r"A\input{child}Z");
+
+        assert_eq!(outcome.output, "A[main][main]Z");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn current_module_name_and_extension_follow_active_source_frame() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file(
+            "child.tex",
+            r"\makeatletter\edef\captured{\@currname.\@currext}[\@currname][\@currext][\captured]\makeatother",
+        );
+
+        let outcome =
+            vm.run_plain(r"\makeatletter[\@currname][\@currext]\makeatother A\input{child}Z");
+
+        assert_eq!(outcome.output, "[main][tex]A[child][tex][child.tex]Z");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn current_module_name_and_extension_are_empty_without_active_source() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\makeatletter[\@currname][\@currext]\makeatother");
+
+        assert_eq!(outcome.output, "[][]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn current_module_path_follows_active_source_frame() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file(
+            "tex/child.tex",
+            r"\makeatletter\edef\captured{\@currpath}[\@currpath][\captured]\makeatother",
+        );
+
+        let outcome = vm.run_plain(r"\makeatletter[\@currpath]\makeatother A\input{tex/child}Z");
+
+        assert_eq!(outcome.output, "[]A[tex/][tex/]Z");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn current_module_path_is_empty_without_active_source() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\makeatletter[\@currpath]\makeatother");
+
+        assert_eq!(outcome.output, "[]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn filename_parse_splits_area_base_and_extension() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\filename@parse{tex/wrapper.cls}[\filename@area][\filename@base][\filename@ext]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[tex/][wrapper][cls]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn filename_parse_handles_missing_extension_and_edef_capture() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\filename@parse{cfgs/shim}\edef\captured{\filename@area|\filename@base|\filename@ext}[\captured]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[cfgs/|shim|]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn builtin_text_char_helpers_expand_to_visible_text() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter[\@backslashchar][\@percentchar][\@hashchar][a\space b]\makeatother",
+        );
+
+        assert_eq!(outcome.output, r"[\][%][#][a b]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn meaning_reports_macro_primitive_and_character_meanings() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm
+            .run_plain(r"\def\foo{AB}[\meaning\foo][\meaning\relax][\meaning*][\meaning\missing]");
+
+        assert_eq!(outcome.output, "[macro:->AB][\\relax][*][undefined]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn meaning_can_be_captured_inside_edef() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome =
+            vm.run_plain(r"\def\foo{AB}\edef\captured{\meaning\foo}\def\foo{CD}[\captured]");
+
+        assert_eq!(outcome.output, "[macro:->AB]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn detokenize_keeps_control_sequences_literal_without_expanding_them() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\foo{AB}[\detokenize{\foo+*}][\foo]");
+
+        assert_eq!(outcome.output, r"[\foo +*][AB]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn detokenize_can_be_captured_inside_edef() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\def\foo{AB}\edef\captured{\detokenize{\foo}}\def\foo{CD}[\captured][\foo]",
+        );
+
+        assert_eq!(outcome.output, r"[\foo ][CD]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn strip_prefix_discards_the_meaning_prefix_before_the_first_gt() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\def\foo{AB}[\expandafter\strip@prefix\meaning\foo]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[AB]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn strip_prefix_can_be_captured_inside_edef() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\def\foo{AB}\edef\captured{\expandafter\strip@prefix\meaning\foo}\def\foo{CD}[\captured][\foo]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[AB][CD]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ifcat_compares_control_sequence_and_character_categories() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\def\foo{AB}[\ifcat\foo\relax same\else diff\fi][\ifcat absame\else diff\fi][\ifcat a\relax same\else diff\fi]",
+        );
+
+        assert_eq!(outcome.output, "[same][same][diff]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn if_compares_expanded_character_tokens() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\def\foo{A}\def\bar{B}[\if\foo Asame\else diff\fi][\if\foo\bar same\else diff\fi][\if **same\else diff\fi]",
+        );
+
+        assert_eq!(outcome.output, "[same][diff][same]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn uppercase_and_lowercase_transform_characters_without_expanding_control_sequences() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\foo{ab}[\uppercase{a\foo z}][\lowercase{A\foo Z}]");
+
+        assert_eq!(outcome.output, "[AabZ][aabz]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn uppercase_and_lowercase_can_be_captured_inside_edef() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\def\foo{ab}\edef\upper{\uppercase{a\foo z}}\edef\lower{\lowercase{A\foo Z}}\def\foo{cd}[\upper][\lower]",
+        );
+
+        assert_eq!(outcome.output, "[AabZ][aabz]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn edef_expands_body_while_def_leaves_later_macro_meaning_dynamic() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome =
+            vm.run_plain(r"\def\seed{A}\edef\expanded{\seed}\def\seed{B}\expanded[\seed]");
+
+        assert_eq!(outcome.output, "A[B]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn gdef_and_xdef_survive_groups_and_xdef_expands_before_scope_restores() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm
+            .run_plain(r"\def\seed{Z}{\def\seed{A}\gdef\g{\seed}\xdef\x{\seed}}\def\seed{B}\g[\x]");
+
+        assert_eq!(outcome.output, "B[A]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn edef_and_xdef_honor_noexpand_for_literal_control_sequences() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\def\seed{A}\edef\frozen{\seed}\edef\deferred{\noexpand\seed}{\def\seed{L}\xdef\xdeferred{\noexpand\seed}}\def\seed{C}\frozen[\deferred][\xdeferred]",
+        );
+
+        assert_eq!(outcome.output, "A[C][C]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn protect_is_a_runtime_noop_and_an_edef_noexpand_alias() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\def\seed{A}\edef\deferred{\protect\seed}{\def\seed{L}\xdef\xdeferred{\protect\seed}}\def\seed{C}[\protect\seed][\deferred][\xdeferred]",
+        );
+
+        assert_eq!(outcome.output, "[C][C][C]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_protect_aliases_follow_runtime_and_edef_paths() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\def\seed{A}\edef\deferred{\@unexpandable@protect\seed}{\def\seed{L}\xdef\xdeferred{\@unexpandable@protect\seed}}\def\seed{C}[\@typeset@protect\seed][\deferred][\xdeferred]\ifx\protect\@typeset@protect T\else F\fi\ifx\protect\@unexpandable@protect T\else F\fi\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[C][C][C]TT");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_protected_write_is_non_visible() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\def\seed{BAR}\makeatletter\protected@write\@auxout{}{\protect\seed,\jobname}\makeatother X",
+        );
+
+        assert_eq!(outcome.output, "X");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn immediate_and_write_are_non_visible() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\def\seed{BAR}\makeatletter\write\@auxout{\protect\seed,\jobname}\immediate\write\@auxout{\protect\seed,\jobname}\makeatother X",
+        );
+
+        assert_eq!(outcome.output, "X");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn newread_defines_distinct_stream_aliases() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\newread\foo\newread\bar\ifx\foo\bar same\else diff\fi");
+
+        assert_eq!(outcome.output, "diff");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn openin_and_closein_are_non_visible() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("present.cfg", "present");
+        let outcome =
+            vm.run_plain(r"\newread\auxstream\openin\auxstream={present.cfg}\closein\auxstream X");
+
+        assert_eq!(outcome.output, "X");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn read_reads_next_lines_into_control_sequences_and_updates_ifeof() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("present.cfg", "ALPHA\nBETA\n");
+        let outcome = vm.run_plain(
+            r"\newread\auxstream\openin\auxstream={present.cfg}\read\auxstream to\first[\first]\ifeof\auxstream T\else F\fi\read\auxstream to\second[\second]\ifeof\auxstream T\else F\fi",
+        );
+
+        assert_eq!(outcome.output, "[ALPHA]F[BETA]T");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn readline_reads_next_lines_into_control_sequences_and_updates_ifeof() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("present.cfg", "ALPHA\nBETA\n");
+        let outcome = vm.run_plain(
+            r"\newread\auxstream\openin\auxstream={present.cfg}\readline\auxstream to\first[\first]\ifeof\auxstream T\else F\fi\readline\auxstream to\second[\second]\ifeof\auxstream T\else F\fi",
+        );
+
+        assert_eq!(outcome.output, "[ALPHA]F[BETA]T");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn read_and_readline_append_visible_endlinechar_when_set() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("present.cfg", "ALPHA\nBETA\n");
+        let outcome = vm.run_plain(
+            r"\newread\auxstream\openin\auxstream={present.cfg}\endlinechar=`\!\read\auxstream to\first[\first]\ifeof\auxstream T\else F\fi\endlinechar=`\?\readline\auxstream to\second[\second]\ifeof\auxstream T\else F\fi",
+        );
+
+        assert_eq!(outcome.output, "[ALPHA!]F[BETA?]T");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn negative_endlinechar_suppresses_appended_line_tokens() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("present.cfg", "ALPHA\nBETA\n");
+        let outcome = vm.run_plain(
+            r"\newread\auxstream\openin\auxstream={present.cfg}\endlinechar=-1\read\auxstream to\first[\first]\endlinechar=-1\readline\auxstream to\second[\second]",
+        );
+
+        assert_eq!(outcome.output, "[ALPHA][BETA]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn read_sets_target_to_relax_at_eof() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("present.cfg", "ALPHA\n");
+        let outcome = vm.run_plain(
+            r"\newread\auxstream\openin\auxstream={present.cfg}\read\auxstream to\first\read\auxstream to\second[\ifx\second\relax T\else F\fi]",
+        );
+
+        assert_eq!(outcome.output, "[T]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn ifeof_tracks_unopened_missing_open_and_closed_streams() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("present.cfg", "present");
+        let outcome = vm.run_plain(
+            r"\newread\fresh\ifeof\fresh F\else N\fi\newread\present\openin\present={present.cfg}\ifeof\present M\else O\fi\closein\present\ifeof\present C\else S\fi\newread\missing\openin\missing={missing.cfg}\ifeof\missing M\else O\fi",
+        );
+
+        assert_eq!(outcome.output, "FOCM");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshot_restore_preserves_read_stream_remaining_lines() {
+        let mut base_interner = ControlSequenceInterner::new();
+        let snapshot = {
+            let mut vm = Vm::new(&mut base_interner);
+            vm.mount_file("present.cfg", "ALPHA\nBETA\n");
+            vm.run_plain(
+                r"\newread\auxstream\openin\auxstream={present.cfg}\read\auxstream to\first",
+            );
+            vm.snapshot()
+        };
+        let mut restored_interner = ControlSequenceInterner::new();
+        let mut vm = Vm::restore(&mut restored_interner, &snapshot);
+        let outcome =
+            vm.run_plain(r"\read\auxstream to\second[\second][\ifeof\auxstream T\else F\fi]");
+
+        assert_eq!(outcome.output, "[BETA][T]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn snapshot_restore_preserves_read_stream_allocator_and_eof_state() {
+        let mut base_interner = ControlSequenceInterner::new();
+        let snapshot = {
+            let mut vm = Vm::new(&mut base_interner);
+            vm.mount_file("present.cfg", "present");
+            vm.run_plain(r"\newread\foo\newread\bar\openin\foo={present.cfg}\closein\bar");
+            vm.snapshot()
+        };
+        let mut restored_interner = ControlSequenceInterner::new();
+        let mut vm = Vm::restore(&mut restored_interner, &snapshot);
+        vm.mount_file("present.cfg", "present");
+        let outcome =
+            vm.run_plain(r"\newread\baz\ifx\bar\baz same\else diff\fi[\ifeof\foo T\else F\fi][\ifeof\bar T\else F\fi][\ifeof\baz T\else F\fi]");
+
+        assert_eq!(outcome.output, "diff[F][T][T]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn newwrite_defines_distinct_stream_aliases() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\newwrite\foo\newwrite\bar\ifx\foo\bar same\else diff\fi");
+
+        assert_eq!(outcome.output, "diff");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn openout_and_closeout_are_non_visible() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\newwrite\auxstream\immediate\openout\auxstream={\jobname.aux}\write\auxstream{\jobname,BAR}\closeout\auxstream X",
+        );
+
+        assert_eq!(outcome.output, "X");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn edef_and_xdef_honor_unexpanded_for_balanced_groups() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\def\seed{A}\edef\frozen{\seed}\edef\deferred{\unexpanded{\seed+\seed}}{\def\seed{L}\xdef\xdeferred{\unexpanded{\seed+\seed}}}\def\seed{C}\frozen[\deferred][\xdeferred]",
+        );
+
+        assert_eq!(outcome.output, "A[C+C][C+C]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn expanded_fully_expands_balanced_groups_in_definition_and_execution_paths() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome =
+            vm.run_plain(r"\def\seed{A}\edef\frozen{\expanded{\seed+\seed}}\def\seed{B}\frozen[\expanded{\seed+\seed}]");
+
+        assert_eq!(outcome.output, "A+A[B+B]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn romannumeral_expands_in_execution_and_single_token_expansion_contexts() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome =
+            vm.run_plain(r"\def\fmt#1{[#1]}\romannumeral 14\expandafter\fmt\romannumeral 9");
+
+        assert_eq!(outcome.output, "xiv[i]x");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn romannumeral_suppresses_nonpositive_values() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"[\romannumeral 0][\romannumeral -3]");
+
+        assert_eq!(outcome.output, "[][]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_xp_and_xa_aliases_match_expandafter_behavior() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\@xp\def\csname foo\endcsname{X}\@xa\def\csname bar\endcsname{Y}\makeatother\foo\bar",
+        );
+
+        assert_eq!(outcome.output, "XY");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn makeatletter_nx_alias_matches_noexpand_in_expanded_definition_helpers() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\def\seed{A}\edef\deferred{\@nx\seed}{\def\seed{L}\xdef\xdeferred{\@nx\seed}}\def\seed{C}[\deferred][\xdeferred]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[C][C]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn count_aliases_and_advance_support_common_kernel_numeric_helpers() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\count@=\z@\advance\count@ by \@ne\@tempcnta=\tw@\advance\@tempcnta\m@ne\@tempcntb=\thr@@\advance\@tempcntb by \m@ne\ifnum\count@=\@ne A\else X\fi\ifnum\@tempcnta=\@ne B\else X\fi\ifnum\@tempcntb=\tw@ C\else X\fi[\number\count@][\number\@tempcnta][\number\@tempcntb]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "ABC[1][1][2]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn count_aliases_and_constants_survive_snapshot_restore() {
+        let mut base_interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(
+            &mut base_interner,
+            r"\makeatletter\count@=\z@\advance\count@ by \tw@\@tempcnta=\@ne\advance\@tempcnta\@ne\makeatother",
+        );
+
+        let mut restored_interner = ControlSequenceInterner::new();
+        let mut vm = Vm::restore(&mut restored_interner, &snapshot);
+        let outcome = vm.run_plain(r"\makeatletter[\number\count@][\number\@tempcnta]\makeatother");
+
+        assert_eq!(outcome.output, "[2][2]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn advance_updates_dimen_and_skip_registers() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\dimen@=\p@\advance\dimen@ by 0.5pt\newskip\foo\foo=1pt plus 1pt\advance\foo by \p@[\the\dimen@][\the\foo]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[1.5pt][2pt]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn multiply_and_divide_update_dimen_and_skip_registers() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\dimen@=\p@\multiply\dimen@ by \tw@\divide\dimen@ by \tw@\newskip\foo\foo=1pt plus 1pt\multiply\foo by \thr@@\divide\foo by \tw@[\the\dimen@][\the\foo]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[1pt][1.5pt]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn count_aliases_multiply_and_divide_support_common_kernel_numeric_helpers() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\count@=\tw@\multiply\count@ by \thr@@\divide\count@ by \tw@\@tempcnta=8\divide\@tempcnta by \tw@\@tempcntb=\@ne\multiply\@tempcntb by \thr@@\ifnum\count@=\thr@@ A\else X\fi\ifnum\@tempcnta=4 B\else X\fi\ifnum\@tempcntb=\thr@@ C\else X\fi[\number\count@][\number\@tempcnta][\number\@tempcntb]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "ABC[3][4][3]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn count_aliases_multiply_and_divide_survive_snapshot_restore() {
+        let mut base_interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(
+            &mut base_interner,
+            r"\makeatletter\count@=\tw@\multiply\count@ by \thr@@\@tempcnta=8\divide\@tempcnta by \tw@\makeatother",
+        );
+
+        let mut restored_interner = ControlSequenceInterner::new();
+        let mut vm = Vm::restore(&mut restored_interner, &snapshot);
+        let outcome = vm.run_plain(r"\makeatletter[\number\count@][\number\@tempcnta]\makeatother");
+
+        assert_eq!(outcome.output, "[6][4]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn newcount_and_countdef_define_count_register_aliases() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(
+            r"\makeatletter\newcount\foo\foo=\@ne\advance\foo by \tw@\countdef\bar=252\bar=\thr@@\multiply\bar by \tw@[\number\foo][\number\bar]\makeatother",
+        );
+
+        assert_eq!(outcome.output, "[3][6]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn newcount_snapshot_restore_preserves_allocator_progress() {
+        let mut base_interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut base_interner, r"\newcount\foo\foo=7");
+
+        let mut restored_interner = ControlSequenceInterner::new();
+        let mut vm = Vm::restore(&mut restored_interner, &snapshot);
+        let outcome = vm.run_plain(r"\newcount\bar\bar=2[\number\foo][\number\bar]");
+
+        assert_eq!(outcome.output, "[7][2]");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn providecommand_keeps_existing_definition() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\foo{old}\providecommand{\foo}[1]{new}\foo");
+
+        assert_eq!(outcome.output, "old");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn newcommand_reports_explicit_error_when_target_is_already_defined() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\foo{old}\newcommand{\foo}[1]{new}\foo");
+
+        assert_eq!(outcome.output, "old");
+        assert_eq!(outcome.diagnostics.len(), 1);
+        assert_eq!(outcome.diagnostics[0].kind, VmDiagnosticKind::ExplicitError);
+        assert_eq!(
+            outcome.diagnostics[0].detail,
+            r"newcommand \foo already defined"
+        );
+    }
+
+    #[test]
+    fn renewcommand_replaces_existing_definition() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\foo{old}\renewcommand{\foo}[1]{new}\foo");
+
+        assert_eq!(outcome.output, "new");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn renewcommand_reports_explicit_error_when_target_is_missing() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\renewcommand{\foo}[1]{new}\ifdefined\foo T\else F\fi");
+
+        assert_eq!(outcome.output, "F");
+        assert_eq!(outcome.diagnostics.len(), 1);
+        assert_eq!(outcome.diagnostics[0].kind, VmDiagnosticKind::ExplicitError);
+        assert_eq!(
+            outcome.diagnostics[0].detail,
+            r"renewcommand \foo undefined"
+        );
+    }
+
+    #[test]
+    fn documentclass_reports_missing_class_file() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\documentclass{ghost}");
+
+        assert_eq!(outcome.diagnostics.len(), 1);
+        assert_eq!(outcome.diagnostics[0].kind, VmDiagnosticKind::MissingFile);
+        assert_eq!(outcome.diagnostics[0].detail, "class ghost.cls");
+    }
+
+    #[test]
+    fn usepackage_reports_missing_package_file() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\usepackage{ghost}");
+
+        assert_eq!(outcome.diagnostics.len(), 1);
+        assert_eq!(outcome.diagnostics[0].kind, VmDiagnosticKind::MissingFile);
+        assert_eq!(outcome.diagnostics[0].detail, "package ghost.sty");
+    }
+
+    #[test]
+    fn snapshot_restore_preserves_macros_and_registers() {
+        let mut base_interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(
+            &mut base_interner,
+            r"\def\fmt#1{<#1>}\count0=9\let\maker=\def",
+        );
+
+        let mut restored_interner = ControlSequenceInterner::new();
+        let mut vm = Vm::restore(&mut restored_interner, &snapshot);
+        let outcome =
+            vm.run_plain(r"\expandafter\maker\csname hi\endcsname{Q}\fmt{x}\hi\number\count0");
+
+        assert_eq!(outcome.output, "<x>Q9");
+    }
+
+    #[test]
+    fn snapshot_is_json_serializable() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\fmt#1{[#1]}\count0=4");
+
+        let value = serde_json::to_value(&snapshot).expect("snapshot to json");
+        assert_eq!(value["registers"]["0"], json!(4));
+        assert_eq!(value["scopes"][0]["fmt"]["kind"], json!("macro"));
+    }
+
+    #[test]
+    fn transcript_records_structural_events() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("defs.tex", r"\def\foo{from-input}");
+
+        let outcome = vm.run_plain(r"\def\fmt#1{[#1]}\count0=3\input{defs}\fmt{z}");
+
+        assert_eq!(
+            outcome.transcript,
+            vec!["def \\fmt #1", "count0=3", "input defs.tex", "def \\foo #0"]
+        );
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn transcript_records_class_and_package_loads() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("article.cls", r"\def\classloaded{article}");
+        vm.mount_file("pkg.sty", r"\def\pkgloaded{pkg}");
+
+        let outcome =
+            vm.run_plain(r"\documentclass[11pt]{article}\usepackage{pkg}\classloaded\pkgloaded");
+
+        assert_eq!(
+            outcome.transcript,
+            vec![
+                "class article.cls",
+                "def \\classloaded #0",
+                "package pkg.sty",
+                "def \\pkgloaded #0"
+            ]
+        );
+    }
+}
