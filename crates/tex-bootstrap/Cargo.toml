@@ -1,0 +1,17 @@
+[package]
+name = "tex-bootstrap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+camino.workspace = true
+tex-layout = { path = "../tex-layout" }
+tex-pdf = { path = "../tex-pdf" }
+tex-tokens = { path = "../tex-tokens" }
+tex-vm = { path = "../tex-vm" }
+tex-world = { path = "../tex-world" }
+
+[dev-dependencies]
+tempfile.workspace = true

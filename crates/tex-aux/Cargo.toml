@@ -1,0 +1,13 @@
+[package]
+name = "tex-aux"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+camino.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tex-world = { path = "../tex-world" }
+tempfile.workspace = true
