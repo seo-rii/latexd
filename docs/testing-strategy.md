@@ -1,0 +1,206 @@
+# Testing Strategy
+
+This document describes the test layers, fixture corpus, and performance metrics that pin
+`latexd` behavior.
+
+## 테스트 전략
+
+### 테스트 레이어
+
+#### A. micro tests
+
+엔진 primitive 검증용.
+
+* tokenizer
+* macro expansion
+* grouping
+* registers
+* box/glue
+* page builder
+* aux IR
+
+#### B. compat fixtures
+
+손으로 관리하는 작은 실제 문서.
+
+* article
+* amsmath
+* bibliography
+* figures
+* local style
+* hyperref
+
+#### C. arXiv paired corpus
+
+실전 회귀용.
+
+arXiv는 metadata를 OAI-PMH/API로 제공하고, full-text PDF와 source files를 S3로 제공한다. full-text를 기반으로 도구를 만들 때는 다운로드 링크를 arXiv로 돌려야 하며, 대량 수집은 main site가 아니라 S3 / export 경로를 쓰는 것이 맞다. ([arXiv][13])
+
+권장 디렉터리:
+
+```text
+corpus/
+  micro/
+  compat/
+  arxiv-smoke/
+  arxiv-golden/
+  arxiv-nightly/
+  known-issues/
+  mutations/
+  perf/
+```
+
+### arXiv Corpus 구성
+
+#### `arxiv-smoke` (PR마다)
+
+* 200개 내외
+* single-file / multi-file / local style / bib / figures 분산
+* optional `revN/` overlays로 same-project multi-revision semantic stability/backdating/rebuild semantics도 함께 검증
+
+#### `arxiv-golden` (nightly)
+
+* 2,000개 내외
+* 연도 / 분야 / 크기 / compiler / package stratified sample
+
+#### `arxiv-nightly`
+
+* 10,000개 이상
+* 실패율과 성능 회귀 감시
+
+#### `known-issues`
+
+arXiv 문서에서 직접 뽑은 리스크 문서들. 위의 M12 목록 그대로.
+
+### Mutation Corpus
+
+문서를 하나 고른 뒤 자동 patch를 만든다.
+
+* 본문 단어 하나 수정
+* 수식 하나 수정
+* label 이름 변경
+* caption 수정
+* section 추가
+* 그림 교체(같은 bbox)
+* 그림 교체(다른 bbox)
+* `.bbl` 항목 수정
+* preamble package option 변경
+
+이 corpus의 목적은 **정답 PDF 비교**가 아니라 **무효화 범위와 HMR latency 측정**이다.
+
+### Oracle Layers
+
+오라클은 세 겹으로 둔다.
+
+1. **system `pdflatex` / TeX Live 2025**
+2. **TeX Live 2023**
+3. **Tectonic** (보조 오라클)
+
+arXiv 목표가 분명하므로 2025/2023 프로파일이 최우선이다. Tectonic은 2차 sanity check다. ([arXiv][1])
+
+### 비교 기준
+
+PDF 바이트 비교는 하지 않는다.
+
+1. compile success/fail
+2. page count exact
+3. page raster diff
+4. extracted text diff
+5. labels / toc / citations semantic diff
+6. logs / diagnostics category diff
+
+---
+
+## TDD 계획
+
+### 가장 먼저 TDD할 컴포넌트
+
+#### `hmr-protocol`
+
+* serde roundtrip
+* reducer state transitions
+* stale revision ignore
+
+#### `tex-world`
+
+* path normalization
+* `00README`
+* root compile semantics
+
+#### `tex-lexer`
+
+* golden token fixtures
+* property tests
+* fuzz
+
+#### `tex-vm`
+
+* transcript tests
+* scope tests
+* regression fixtures
+
+#### `tex-aux`
+
+* parse/write roundtrip
+* semantic equality
+* backdating
+
+#### `tex-checkpoint`
+
+* snapshot restore
+* delta apply
+* hash stability
+
+#### `page diff`
+
+* unchanged page id 유지
+* insert/delete/replace correctness
+
+### Contract/Smoke로 갈 컴포넌트
+
+#### `tex-render-gs`
+
+* `MockRenderer`로 contract 먼저
+* real GS integration은 optional CI job
+* golden pixel diff는 허용 오차 기반
+
+#### 전체 성능
+
+* criterion/bench harness
+* TDD보다 benchmark-first
+
+### 테스트 도구 추천
+
+* Rust unit tests
+* property tests
+* fuzzing
+* Playwright로 브라우저 E2E
+* golden PNG diff
+* reduced failure artifact 업로드
+
+---
+
+## 성능 지표
+
+매 빌드마다 이 숫자를 남긴다.
+
+* cold build time
+* warm no-op build time
+* edit build time
+* dirty files
+* start checkpoint index
+* rebuilt pages
+* reused pages
+* rerun count
+* rendered tiles count
+* preview first-paint latency
+* peak RSS
+* cache size
+
+가장 중요한 KPI는 세 개다.
+
+1. **warm no-op**
+2. **late-body edit**
+3. **tile patch latency**
+
+---
