@@ -1,0 +1,7 @@
+compiler: pdf_latex
+texlive_version: tl2025
+compile_from_root: true
+sources:
+  - path: main.tex
+    usage: toplevel
+

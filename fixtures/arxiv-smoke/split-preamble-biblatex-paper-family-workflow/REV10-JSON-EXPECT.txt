@@ -1,0 +1,6 @@
+build-meta.json::aux_sensitive=true
+build-meta.json::dirty_files.0="preamble/theorems.tex"
+build-meta.json::rebuilt_page_count=0
+build-meta.json::reused_page_count=1
+build-meta.json::semantic_pass_count=1
+build-meta.json::semantic_aux_backdated=true

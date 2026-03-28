@@ -1,0 +1,16 @@
+\tableofcontents
+\listoffigures
+\addbibresource
+\printbibliography
+\newtheorem
+\textcite
+\parencite
+\appendices
+\autoref
+\nameref
+\begin{figure}
+\end{figure}
+\section[
+\begin{thebibliography}
+\end{thebibliography}
+\input{refs-b.bbl}

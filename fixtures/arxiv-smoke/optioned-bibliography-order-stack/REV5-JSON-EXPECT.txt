@@ -1,0 +1,8 @@
+build-meta.json::aux_sensitive=true
+build-meta.json::dirty_files.0="refsb.bbl"
+build-meta.json::semantic_pass_count=2
+build-meta.json::semantic_rerun_count=1
+build-meta.json::semantic_fixpoint_reached=true
+build-meta.json::semantic_aux_backdated=false
+build-meta.json::rebuilt_page_count=1
+build-meta.json::reused_page_count=0
