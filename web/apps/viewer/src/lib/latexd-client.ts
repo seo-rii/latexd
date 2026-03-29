@@ -5,6 +5,47 @@ import type {
   ViewerTransport
 } from "@latexd/viewer-core";
 
+export interface PreviewStateResponse {
+  current_rev: number;
+  last_applied_rev: number;
+  pdf_url: string | null;
+  page_count: number;
+  page_ids: string[];
+  page_artifacts: Array<{
+    page_id: string;
+    pdf_url: string;
+    svg_url?: string | null;
+  }>;
+  diagnostics: unknown[];
+  changed_files: string[];
+  building: boolean;
+  last_build_succeeded: boolean | null;
+  editor_bridge_enabled: boolean;
+}
+
+export interface SourceFilesResponse {
+  rev: number;
+  files: string[];
+}
+
+export interface SourceFileResponse {
+  rev: number;
+  file: string;
+  content: string;
+  line_count: number;
+}
+
+export interface UpdateSourceFileRequest {
+  file: string;
+  content: string;
+}
+
+export interface UpdateSourceFileResponse {
+  file: string;
+  line_count: number;
+  byte_len: number;
+}
+
 export interface LatexdViewerTransportOptions {
   apiBase?: string;
   fetch?: typeof fetch;
@@ -13,29 +54,44 @@ export interface LatexdViewerTransportOptions {
   wsPath?: string;
 }
 
-export function createLatexdViewerTransport(
+export interface LatexdApiClient {
+  fetchState(): Promise<PreviewStateResponse>;
+  fetchTileManifest(args: {
+    height: number;
+    left: number;
+    pageId: string;
+    rev: number;
+    scale: number;
+    tileSize: number;
+    top: number;
+    width: number;
+  }): Promise<any>;
+  fetchSyncMap(args: {
+    pageId: string;
+    rev: number;
+  }): Promise<any>;
+  fetchSourceFile(args: {
+    file: string;
+    rev: number;
+  }): Promise<SourceFileResponse>;
+  fetchSourceFiles(args: {
+    rev: number;
+  }): Promise<SourceFilesResponse>;
+  jumpToSource(args: {
+    request: SourceJumpRequest;
+    rev: number;
+  }): Promise<any>;
+  openSource(args: {
+    request: OpenSourceRequest;
+    rev: number;
+  }): Promise<any>;
+  updateSourceFile(request: UpdateSourceFileRequest): Promise<UpdateSourceFileResponse>;
+}
+
+export function createLatexdApiClient(
   options: LatexdViewerTransportOptions = {}
-): ViewerTransport {
-  const viewerWindow = options.window ?? window;
-  const viewerFetch = options.fetch ?? fetch;
-  const ViewerWebSocket = options.WebSocket ?? WebSocket;
-  const apiBase = new URL(options.apiBase ?? "/", viewerWindow.location.origin);
-  const wsPath = options.wsPath ?? "/ws";
-
-  const resolveApiUrl = (path: string) => new URL(path, apiBase);
-  const resolveWebSocketUrl = () => {
-    const url = new URL(wsPath, apiBase);
-    url.protocol = viewerWindow.location.protocol === "https:" ? "wss:" : "ws:";
-    return url.toString();
-  };
-
-  const fetchJson = async (input: URL | string, init?: RequestInit) => {
-    const response = await viewerFetch(input, init);
-    if (!response.ok) {
-      throw new Error(`latexd request failed: ${response.status}`);
-    }
-    return response.json();
-  };
+): LatexdApiClient {
+  const { resolveApiUrl, fetchJson } = createLatexdApiContext(options);
 
   return {
     fetchState() {
@@ -59,6 +115,9 @@ export function createLatexdViewerTransport(
       url.searchParams.set("file", file);
       return fetchJson(url);
     },
+    fetchSourceFiles({ rev }) {
+      return fetchJson(resolveApiUrl(`/api/source-files/${rev}`));
+    },
     jumpToSource({ rev, request }) {
       return fetchJson(buildSourceJumpUrl(resolveApiUrl(`/api/source-jump/${rev}`), request));
     },
@@ -71,9 +130,62 @@ export function createLatexdViewerTransport(
         body: JSON.stringify(request)
       });
     },
+    updateSourceFile(request) {
+      return fetchJson(resolveApiUrl("/api/source-file"), {
+        method: "PUT",
+        headers: {
+          "content-type": "application/json"
+        },
+        body: JSON.stringify(request)
+      });
+    }
+  };
+}
+
+export function createLatexdViewerTransport(
+  options: LatexdViewerTransportOptions = {}
+): ViewerTransport {
+  const client = createLatexdApiClient(options);
+  const { resolveWebSocketUrl } = createLatexdApiContext(options);
+  const ViewerWebSocket = options.WebSocket ?? WebSocket;
+
+  return {
+    fetchState: client.fetchState,
+    fetchTileManifest: client.fetchTileManifest,
+    fetchSyncMap: client.fetchSyncMap,
+    fetchSourceFile: client.fetchSourceFile,
+    jumpToSource: client.jumpToSource,
+    openSource: client.openSource,
     openWebSocket() {
       return new ViewerWebSocket(resolveWebSocketUrl()) as ViewerSocket;
     }
+  };
+}
+
+function createLatexdApiContext(options: LatexdViewerTransportOptions) {
+  const viewerWindow = options.window ?? window;
+  const viewerFetch = options.fetch ?? fetch;
+  const apiBase = new URL(options.apiBase ?? "/", viewerWindow.location.origin);
+  const wsPath = options.wsPath ?? "/ws";
+
+  const resolveApiUrl = (path: string) => new URL(path, apiBase);
+  const resolveWebSocketUrl = () => {
+    const url = new URL(wsPath, apiBase);
+    url.protocol = viewerWindow.location.protocol === "https:" ? "wss:" : "ws:";
+    return url.toString();
+  };
+  const fetchJson = async (input: URL | string, init?: RequestInit) => {
+    const response = await viewerFetch(input, init);
+    if (!response.ok) {
+      throw new Error(`latexd request failed: ${response.status}`);
+    }
+    return response.json();
+  };
+
+  return {
+    resolveApiUrl,
+    resolveWebSocketUrl,
+    fetchJson
   };
 }
 

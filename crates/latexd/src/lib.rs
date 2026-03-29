@@ -17,7 +17,7 @@ use axum::{
     },
     http::{HeaderValue, StatusCode, header},
     response::{Html, IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use camino::{Utf8Path, Utf8PathBuf};
 use hmr_protocol::{ClientMsg, Diagnostic, DiagnosticLevel, PagePreviewArtifact, ServerMsg};
@@ -899,7 +899,9 @@ pub async fn serve(args: ServeArgs) -> Result<()> {
         .route("/api/state", get(snapshot))
         .route("/api/debug/renderer-session", get(renderer_session_metrics))
         .route("/api/syncmap/{rev}/{page_id}", get(page_syncmap))
+        .route("/api/source-files/{rev}", get(source_files))
         .route("/api/source-file/{rev}", get(source_file))
+        .route("/api/source-file", put(update_source_file))
         .route("/api/source-jump/{rev}", get(source_jump))
         .route("/api/open-source/{rev}", post(open_source))
         .route("/api/tiles/{rev}/{page_id}", get(required_tiles))
@@ -1611,11 +1613,30 @@ struct SourceFileQuery {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct SourceFilesResponse {
+    rev: u64,
+    files: Vec<Utf8PathBuf>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 struct SourceFileResponse {
     rev: u64,
     file: Utf8PathBuf,
     content: String,
     line_count: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct UpdateSourceFileRequest {
+    file: String,
+    content: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct UpdateSourceFileResponse {
+    file: Utf8PathBuf,
+    line_count: u32,
+    byte_len: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1849,22 +1870,81 @@ async fn source_file(
         return text_response(StatusCode::BAD_REQUEST, "invalid source file path");
     };
     let source_texts = load_revision_source_texts(&state.build_root, rev).await;
-    let Some(content) = source_texts.get(&file).cloned() else {
-        return text_response(
-            StatusCode::NOT_FOUND,
-            "requested source file was not found in the revision snapshot",
-        );
+    let content = if let Some(content) = source_texts.get(&file).cloned() {
+        content
+    } else {
+        match tokio::fs::read_to_string(state.root.join(&file).as_std_path()).await {
+            Ok(content) => content,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                return text_response(StatusCode::NOT_FOUND, "requested source file was not found");
+            }
+            Err(error) => {
+                return text_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("failed to read source file: {error}"),
+                );
+            }
+        }
     };
     axum::Json(SourceFileResponse {
         rev,
         file,
-        line_count: content
-            .as_bytes()
-            .iter()
-            .filter(|byte| **byte == b'\n')
-            .count() as u32
-            + 1,
+        line_count: source_line_count(&content),
         content,
+    })
+    .into_response()
+}
+
+async fn source_files(Path(rev): Path<u64>, State(state): State<Arc<AppState>>) -> Response {
+    let mut files = load_revision_source_texts(&state.build_root, rev)
+        .await
+        .into_keys()
+        .collect::<Vec<_>>();
+    if files.is_empty() {
+        files = state.world.manifest.toplevels.clone();
+    }
+    axum::Json(SourceFilesResponse { rev, files }).into_response()
+}
+
+async fn update_source_file(
+    State(state): State<Arc<AppState>>,
+    Json(request): Json<UpdateSourceFileRequest>,
+) -> Response {
+    let Ok(file) = normalize_relative_path(Utf8Path::new(&request.file)) else {
+        return text_response(StatusCode::BAD_REQUEST, "invalid source file path");
+    };
+    if file.as_str().is_empty() {
+        return text_response(StatusCode::BAD_REQUEST, "invalid source file path");
+    }
+    let absolute_file = state.root.join(&file);
+    match tokio::fs::metadata(absolute_file.as_std_path()).await {
+        Ok(metadata) if metadata.is_file() => {}
+        Ok(_) => {
+            return text_response(
+                StatusCode::BAD_REQUEST,
+                "requested source path does not point to a file",
+            );
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return text_response(StatusCode::NOT_FOUND, "requested source file was not found");
+        }
+        Err(error) => {
+            return text_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("failed to access source file: {error}"),
+            );
+        }
+    }
+    if let Err(error) = tokio::fs::write(absolute_file.as_std_path(), &request.content).await {
+        return text_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("failed to write source file: {error}"),
+        );
+    }
+    axum::Json(UpdateSourceFileResponse {
+        file,
+        line_count: source_line_count(&request.content),
+        byte_len: request.content.len() as u64,
     })
     .into_response()
 }
@@ -2282,6 +2362,10 @@ async fn load_revision_source_texts(
             .unwrap_or_default(),
         Err(_) => BTreeMap::new(),
     }
+}
+
+fn source_line_count(content: &str) -> u32 {
+    content.as_bytes().iter().filter(|byte| **byte == b'\n').count() as u32 + 1
 }
 
 async fn load_revision_syncmap_artifacts(
@@ -4408,7 +4492,8 @@ mod tests {
         render_session_handle, render_session_key, render_session_metrics_snapshot,
         render_sessions, renderer_session_metrics, required_tiles, revision_artifact,
         revision_page_png, revision_tile_png, source_editor_uri, source_file, source_file_uri,
-        source_jump,
+        source_files, source_jump, update_source_file, SourceFilesResponse,
+        UpdateSourceFileRequest, UpdateSourceFileResponse,
     };
     use crate::compiler::{
         ArtifactSourceSpan, ArtifactSyncSpan, CompilerDriver, PageArtifactMeta, PageSyncMapArtifact,
@@ -8027,6 +8112,232 @@ mod tests {
         assert_eq!(file.file, Utf8PathBuf::from("main.tex"));
         assert_eq!(file.content, "lead\nbody\ntail\n");
         assert_eq!(file.line_count, 4);
+    }
+
+    #[tokio::test]
+    async fn source_files_endpoint_returns_revision_source_file_list() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "hello").expect("main tex");
+        let build_root = root.join(".latexd/build");
+        fs::create_dir_all(build_root.join("rev-13")).expect("rev dir");
+        fs::write(
+            build_root.join("rev-13/sources.json"),
+            serde_json::json!({
+                "files": {
+                    "main.tex": "lead\nbody\ntail\n",
+                    "sections/intro.tex": "nested\n"
+                }
+            })
+            .to_string(),
+        )
+        .expect("write sources");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: build_root.clone(),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+
+        let response = source_files(Path(13), State(state)).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let payload: SourceFilesResponse = serde_json::from_slice(&body).expect("decode source files");
+        assert_eq!(payload.rev, 13);
+        assert_eq!(
+            payload.files,
+            vec![
+                Utf8PathBuf::from("main.tex"),
+                Utf8PathBuf::from("sections/intro.tex")
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn source_files_endpoint_falls_back_to_manifest_toplevels_before_first_revision() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n  - appendix.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "hello").expect("main tex");
+        fs::write(root.join("appendix.tex"), "appendix").expect("appendix tex");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+
+        let response = source_files(Path(0), State(state)).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let payload: SourceFilesResponse = serde_json::from_slice(&body).expect("decode source files");
+        assert_eq!(payload.rev, 0);
+        assert_eq!(
+            payload.files,
+            vec![Utf8PathBuf::from("main.tex"), Utf8PathBuf::from("appendix.tex")]
+        );
+    }
+
+    #[tokio::test]
+    async fn source_file_endpoint_falls_back_to_live_workspace_text_when_snapshot_is_missing() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "alpha\nbeta\n").expect("main tex");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+
+        let response = source_file(
+            Path(0),
+            Query(SourceFileQuery {
+                file: "main.tex".to_string(),
+            }),
+            State(state),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let file: SourceFileResponse = serde_json::from_slice(&body).expect("decode source file");
+        assert_eq!(file.rev, 0);
+        assert_eq!(file.file, Utf8PathBuf::from("main.tex"));
+        assert_eq!(file.content, "alpha\nbeta\n");
+        assert_eq!(file.line_count, 3);
+    }
+
+    #[tokio::test]
+    async fn update_source_file_endpoint_writes_workspace_source_text() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "alpha\nbeta\n").expect("main tex");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+
+        let response = update_source_file(
+            State(state),
+            Json(UpdateSourceFileRequest {
+                file: "main.tex".to_string(),
+                content: "alpha\nbeta\ngamma\n".to_string(),
+            }),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let payload: UpdateSourceFileResponse =
+            serde_json::from_slice(&body).expect("decode updated source response");
+        assert_eq!(payload.file, Utf8PathBuf::from("main.tex"));
+        assert_eq!(payload.line_count, 4);
+        assert_eq!(payload.byte_len, 17);
+        assert_eq!(
+            fs::read_to_string(root.join("main.tex")).expect("read updated source"),
+            "alpha\nbeta\ngamma\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn update_source_file_endpoint_rejects_invalid_paths() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "alpha\nbeta\n").expect("main tex");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+
+        let response = update_source_file(
+            State(state),
+            Json(UpdateSourceFileRequest {
+                file: "../escape.tex".to_string(),
+                content: "nope".to_string(),
+            }),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
