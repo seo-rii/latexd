@@ -894,7 +894,19 @@ pub async fn serve(args: ServeArgs) -> Result<()> {
         .send(state.world.manifest.toplevels.clone())
         .map_err(|error| anyhow!("failed to enqueue initial build: {error}"))?;
 
-    let router = Router::new()
+    let router = build_router(state);
+    let listener = tokio::net::TcpListener::bind(&args.bind)
+        .await
+        .with_context(|| format!("failed to bind {}", args.bind))?;
+
+    tracing::info!("latexd listening on http://{}", args.bind);
+    axum::serve(listener, router)
+        .await
+        .context("latexd server terminated unexpectedly")
+}
+
+fn build_router(state: Arc<AppState>) -> Router {
+    Router::new()
         .route("/", get(index))
         .route("/api/state", get(snapshot))
         .route("/api/debug/renderer-session", get(renderer_session_metrics))
@@ -906,27 +918,16 @@ pub async fn serve(args: ServeArgs) -> Result<()> {
         .route("/api/open-source/{rev}", post(open_source))
         .route("/api/tiles/{rev}/{page_id}", get(required_tiles))
         .route("/artifacts/latest.pdf", get(latest_pdf))
+        .route("/artifacts/rev/{rev}/pages/{page_png}", get(revision_page_png))
         .route(
-            "/artifacts/rev/{rev}/pages/{page_id}.png",
-            get(revision_page_png),
-        )
-        .route(
-            "/artifacts/rev/{rev}/tiles/{page_id}/{zoom_bucket}/{tile_x}/{tile_y}.png",
+            "/artifacts/rev/{rev}/tiles/{page_id}/{zoom_bucket}/{tile_x}/{tile_y_png}",
             get(revision_tile_png),
         )
         .route("/artifacts/rev/{rev}/{*path}", get(revision_artifact))
         .route("/ws", get(ws))
         .route("/{*path}", get(viewer_asset))
         .layer(TraceLayer::new_for_http())
-        .with_state(state);
-    let listener = tokio::net::TcpListener::bind(&args.bind)
-        .await
-        .with_context(|| format!("failed to bind {}", args.bind))?;
-
-    tracing::info!("latexd listening on http://{}", args.bind);
-    axum::serve(listener, router)
-        .await
-        .context("latexd server terminated unexpectedly")
+        .with_state(state)
 }
 
 impl AppState {
@@ -1694,10 +1695,13 @@ struct EditorBridgePreview {
 }
 
 async fn revision_page_png(
-    Path((rev, page_id)): Path<(u64, String)>,
+    Path((rev, page_png)): Path<(u64, String)>,
     Query(query): Query<RasterQuery>,
     State(state): State<Arc<AppState>>,
 ) -> Response {
+    let Some(page_id) = parse_png_path_suffix(&page_png) else {
+        return text_response(StatusCode::NOT_FOUND, "requested page id was not found");
+    };
     let page = match load_revision_page_input(&state, rev, &page_id).await {
         Ok(page) => page,
         Err(response) => return response,
@@ -2098,10 +2102,13 @@ async fn open_source(
 }
 
 async fn revision_tile_png(
-    Path((rev, page_id, zoom_bucket, tile_x, tile_y)): Path<(u64, String, u16, u32, u32)>,
+    Path((rev, page_id, zoom_bucket, tile_x, tile_y_png)): Path<(u64, String, u16, u32, String)>,
     Query(query): Query<RasterQuery>,
     State(state): State<Arc<AppState>>,
 ) -> Response {
+    let Some(tile_y) = parse_png_u32_path_suffix(&tile_y_png) else {
+        return text_response(StatusCode::NOT_FOUND, "requested tile was not found");
+    };
     let page = match load_revision_page_input(&state, rev, &page_id).await {
         Ok(page) => page,
         Err(response) => return response,
@@ -2226,6 +2233,14 @@ async fn revision_tile_png(
         }
     };
     png_response(rendered_tile.image)
+}
+
+fn parse_png_path_suffix(segment: &str) -> Option<String> {
+    segment.strip_suffix(".png").map(ToString::to_string)
+}
+
+fn parse_png_u32_path_suffix(segment: &str) -> Option<u32> {
+    parse_png_path_suffix(segment)?.parse().ok()
 }
 
 async fn required_tiles(
@@ -4493,7 +4508,8 @@ mod tests {
         render_sessions, renderer_session_metrics, required_tiles, revision_artifact,
         revision_page_png, revision_tile_png, source_editor_uri, source_file, source_file_uri,
         source_files, source_jump, update_source_file, SourceFilesResponse,
-        UpdateSourceFileRequest, UpdateSourceFileResponse,
+        UpdateSourceFileRequest, UpdateSourceFileResponse, build_router,
+        parse_png_path_suffix, parse_png_u32_path_suffix,
     };
     use crate::compiler::{
         ArtifactSourceSpan, ArtifactSyncSpan, CompilerDriver, PageArtifactMeta, PageSyncMapArtifact,
@@ -6660,6 +6676,45 @@ mod tests {
         assert_eq!(body.as_ref(), b"<svg>page-a</svg>");
     }
 
+    #[test]
+    fn png_route_suffix_helpers_accept_expected_segments() {
+        assert_eq!(
+            parse_png_path_suffix("page-a.png"),
+            Some("page-a".to_string())
+        );
+        assert_eq!(parse_png_path_suffix("page-a"), None);
+        assert_eq!(parse_png_u32_path_suffix("7.png"), Some(7));
+        assert_eq!(parse_png_u32_path_suffix("oops.png"), None);
+    }
+
+    #[tokio::test]
+    async fn build_router_accepts_artifact_png_routes_without_panicking() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "hello").expect("main tex");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+
+        let _router = build_router(state);
+    }
+
     #[tokio::test]
     async fn revision_artifact_rejects_invalid_paths() {
         let tempdir = tempdir().expect("tempdir");
@@ -6741,7 +6796,7 @@ mod tests {
         });
 
         let response = revision_page_png(
-            Path((7, "page-a".to_string())),
+            Path((7, "page-a.png".to_string())),
             Query(RasterQuery {
                 scale: Some(1.0),
                 tile_size: None,
@@ -6815,7 +6870,7 @@ mod tests {
         });
 
         let response = revision_tile_png(
-            Path((17, "page-a".to_string(), 100, 0, 0)),
+            Path((17, "page-a".to_string(), 100, 0, "0.png".to_string())),
             Query(RasterQuery {
                 scale: Some(1.0),
                 tile_size: Some(256),
@@ -6824,7 +6879,7 @@ mod tests {
         )
         .await;
         let second_response = revision_tile_png(
-            Path((17, "page-a".to_string(), 100, 0, 0)),
+            Path((17, "page-a".to_string(), 100, 0, "0.png".to_string())),
             Query(RasterQuery {
                 scale: Some(1.0),
                 tile_size: Some(256),
@@ -7279,7 +7334,7 @@ mod tests {
         });
 
         let response = revision_page_png(
-            Path((7, "page-a".to_string())),
+            Path((7, "page-a.png".to_string())),
             Query(RasterQuery {
                 scale: Some(1.0),
                 tile_size: None,
@@ -7390,7 +7445,7 @@ mod tests {
         });
 
         let response = revision_page_png(
-            Path((9, "page-a".to_string())),
+            Path((9, "page-a.png".to_string())),
             Query(RasterQuery {
                 scale: Some(1.0),
                 tile_size: None,
