@@ -264,6 +264,77 @@ toplevel:
 }
 
 #[tokio::test]
+async fn bundled_arxiv_basic_fixture_builds_with_internal_compiler() {
+    let fixture_root =
+        Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/arxiv-basic");
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().join("project")).expect("utf8 tempdir");
+    let mut copy_dirs = vec![(fixture_root.clone(), root.clone())];
+    while let Some((source_dir, target_dir)) = copy_dirs.pop() {
+        fs::create_dir_all(target_dir.as_std_path()).expect("create target dir");
+        for entry in fs::read_dir(source_dir.as_std_path())
+            .expect("read source dir")
+            .filter_map(|entry| entry.ok())
+        {
+            let source_path =
+                Utf8PathBuf::from_path_buf(entry.path()).expect("fixture path should be utf8");
+            let target_path = target_dir.join(entry.file_name().to_string_lossy().as_ref());
+            if entry.file_type().is_ok_and(|file_type| file_type.is_dir()) {
+                copy_dirs.push((source_path, target_path));
+            } else {
+                fs::copy(source_path.as_std_path(), target_path.as_std_path())
+                    .expect("copy fixture file");
+            }
+        }
+    }
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+    let outcome = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: root.join(".latexd/build"),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect("bundled arxiv-basic fixture should build with the internal compiler");
+
+    assert!(outcome.pdf_path.exists());
+    assert!(outcome.diagnostics.is_empty());
+    assert_eq!(outcome.page_metadata.len(), 1);
+    assert!(
+        outcome
+            .dep_trace
+            .inputs
+            .contains(&Utf8PathBuf::from("main.tex"))
+    );
+    assert!(
+        outcome
+            .dep_trace
+            .inputs
+            .contains(&Utf8PathBuf::from("article.cls"))
+    );
+    assert_eq!(
+        outcome.page_artifacts[0].pdf_url,
+        format!(
+            "/artifacts/rev/1/pages/{}.pdf",
+            outcome.page_metadata[0].page_id
+        )
+    );
+    let expected_svg_url = format!(
+        "/artifacts/rev/1/pages/{}.svg",
+        outcome.page_metadata[0].page_id
+    );
+    assert_eq!(
+        outcome.page_artifacts[0].svg_url.as_deref(),
+        Some(expected_svg_url.as_str())
+    );
+}
+
+#[tokio::test]
 async fn internal_compiler_keeps_grouped_usepackage_definitions_visible() {
     let tempdir = tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");

@@ -24,7 +24,7 @@ pnpm clean
 Start the Rust daemon separately, then run the frontend workspace in dev mode:
 
 ```sh
-cargo run -p latexd -- serve --root fixtures/arxiv-basic
+cargo run -p latexd -- serve --root fixtures/arxiv-basic --compiler-bin internal
 pnpm dev
 ```
 

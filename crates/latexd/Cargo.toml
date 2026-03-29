@@ -31,5 +31,6 @@ which.workspace = true
 [dev-dependencies]
 tempfile.workspace = true
 tokio.workspace = true
+tower = { version = "0.5", features = ["util"] }
 tex-layout = { path = "../tex-layout" }
 tex-tokens = { path = "../tex-tokens" }

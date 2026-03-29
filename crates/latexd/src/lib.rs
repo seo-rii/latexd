@@ -918,7 +918,10 @@ fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/open-source/{rev}", post(open_source))
         .route("/api/tiles/{rev}/{page_id}", get(required_tiles))
         .route("/artifacts/latest.pdf", get(latest_pdf))
-        .route("/artifacts/rev/{rev}/pages/{page_png}", get(revision_page_png))
+        .route(
+            "/artifacts/rev/{rev}/page-raster/{page_png}",
+            get(revision_page_png),
+        )
         .route(
             "/artifacts/rev/{rev}/tiles/{page_id}/{zoom_bucket}/{tile_x}/{tile_y_png}",
             get(revision_tile_png),
@@ -1362,7 +1365,9 @@ async fn serve_viewer_dist_file(path: &str) -> Response {
         {
             viewer_build_missing_response()
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND.into_response(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            StatusCode::NOT_FOUND.into_response()
+        }
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
 }
@@ -2380,7 +2385,12 @@ async fn load_revision_source_texts(
 }
 
 fn source_line_count(content: &str) -> u32 {
-    content.as_bytes().iter().filter(|byte| **byte == b'\n').count() as u32 + 1
+    content
+        .as_bytes()
+        .iter()
+        .filter(|byte| **byte == b'\n')
+        .count() as u32
+        + 1
 }
 
 async fn load_revision_syncmap_artifacts(
@@ -4474,9 +4484,9 @@ mod tests {
     };
 
     use axum::{
-        body::to_bytes,
+        body::{Body, to_bytes},
         extract::{Json, Path, Query, State},
-        http::StatusCode,
+        http::{Request, StatusCode},
     };
     use camino::Utf8PathBuf;
     use tempfile::tempdir;
@@ -4485,6 +4495,7 @@ mod tests {
         sync::{RwLock, broadcast, mpsc, oneshot},
         time::{Duration, sleep, timeout},
     };
+    use tower::util::ServiceExt;
 
     use hmr_protocol::{ClientMsg, Diagnostic, DiagnosticLevel, PagePreviewArtifact};
     use tex_world::ProjectWorld;
@@ -4499,17 +4510,16 @@ mod tests {
         RenderSessionAttachedRevisionSnapshot, RenderSessionEvent, RenderSessionEventKind,
         RenderSessionHandle, RenderSessionLatencySummary, RenderSessionMetrics,
         RenderSessionRequest, RenderSessionTileCacheSnapshot, RenderSessionWarmBucketSnapshot,
-        RequiredTilesQuery, SourceFileQuery, SourceFileResponse, SourceJumpQuery,
-        SourceJumpResponse, TileManifestResponse, TileRendererConfig, attach_render_revision,
+        RequiredTilesQuery, SourceFileQuery, SourceFileResponse, SourceFilesResponse,
+        SourceJumpQuery, SourceJumpResponse, TileManifestResponse, TileRendererConfig,
+        UpdateSourceFileRequest, UpdateSourceFileResponse, attach_render_revision, build_router,
         cache_raster_image, detach_render_revision, hash_input, load_revision_page_input,
         load_revision_page_metadata, load_revision_page_metadata_set, lookup_attached_page_input,
-        open_source, page_syncmap, prewarm_viewport_rasters, raster_cache_path,
-        render_session_handle, render_session_key, render_session_metrics_snapshot,
-        render_sessions, renderer_session_metrics, required_tiles, revision_artifact,
-        revision_page_png, revision_tile_png, source_editor_uri, source_file, source_file_uri,
-        source_files, source_jump, update_source_file, SourceFilesResponse,
-        UpdateSourceFileRequest, UpdateSourceFileResponse, build_router,
-        parse_png_path_suffix, parse_png_u32_path_suffix,
+        open_source, page_syncmap, parse_png_path_suffix, parse_png_u32_path_suffix,
+        prewarm_viewport_rasters, raster_cache_path, render_session_handle, render_session_key,
+        render_session_metrics_snapshot, render_sessions, renderer_session_metrics, required_tiles,
+        revision_artifact, revision_page_png, revision_tile_png, source_editor_uri, source_file,
+        source_file_uri, source_files, source_jump, update_source_file,
     };
     use crate::compiler::{
         ArtifactSourceSpan, ArtifactSyncSpan, CompilerDriver, PageArtifactMeta, PageSyncMapArtifact,
@@ -6716,6 +6726,72 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn build_router_preserves_page_pdf_and_svg_artifact_routes() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "hello").expect("main tex");
+        let build_root = root.join(".latexd/build");
+        fs::create_dir_all(build_root.join("rev-3/pages")).expect("rev dir");
+        fs::write(build_root.join("rev-3/pages/page-a.pdf"), b"%PDF-page-a").expect("rev pdf");
+        fs::write(
+            build_root.join("rev-3/pages/page-a.svg"),
+            b"<svg>page-a</svg>",
+        )
+        .expect("rev svg");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: build_root.clone(),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+        let router = build_router(state);
+
+        let svg_response = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/artifacts/rev/3/pages/page-a.svg")
+                    .body(Body::empty())
+                    .expect("svg request"),
+            )
+            .await
+            .expect("svg response");
+        assert_eq!(svg_response.status(), StatusCode::OK);
+        let svg_body = to_bytes(svg_response.into_body(), usize::MAX)
+            .await
+            .expect("svg body");
+        assert_eq!(svg_body.as_ref(), b"<svg>page-a</svg>");
+
+        let pdf_response = router
+            .oneshot(
+                Request::builder()
+                    .uri("/artifacts/rev/3/pages/page-a.pdf")
+                    .body(Body::empty())
+                    .expect("pdf request"),
+            )
+            .await
+            .expect("pdf response");
+        assert_eq!(pdf_response.status(), StatusCode::OK);
+        let pdf_body = to_bytes(pdf_response.into_body(), usize::MAX)
+            .await
+            .expect("pdf body");
+        assert_eq!(pdf_body.as_ref(), b"%PDF-page-a");
+    }
+
+    #[tokio::test]
     async fn revision_artifact_rejects_invalid_paths() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
@@ -8213,7 +8289,8 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX)
             .await
             .expect("body");
-        let payload: SourceFilesResponse = serde_json::from_slice(&body).expect("decode source files");
+        let payload: SourceFilesResponse =
+            serde_json::from_slice(&body).expect("decode source files");
         assert_eq!(payload.rev, 13);
         assert_eq!(
             payload.files,
@@ -8256,11 +8333,15 @@ mod tests {
         let body = to_bytes(response.into_body(), usize::MAX)
             .await
             .expect("body");
-        let payload: SourceFilesResponse = serde_json::from_slice(&body).expect("decode source files");
+        let payload: SourceFilesResponse =
+            serde_json::from_slice(&body).expect("decode source files");
         assert_eq!(payload.rev, 0);
         assert_eq!(
             payload.files,
-            vec![Utf8PathBuf::from("main.tex"), Utf8PathBuf::from("appendix.tex")]
+            vec![
+                Utf8PathBuf::from("main.tex"),
+                Utf8PathBuf::from("appendix.tex")
+            ]
         );
     }
 

@@ -53,7 +53,7 @@ pnpm -C web build
 Run the daemon against the bundled sample project:
 
 ```bash
-cargo run -p latexd -- serve --root fixtures/arxiv-basic
+cargo run -p latexd -- serve --root fixtures/arxiv-basic --compiler-bin internal
 ```
 
 Then open `http://127.0.0.1:4380/` in a browser.
