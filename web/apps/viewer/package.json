@@ -1,0 +1,29 @@
+{
+  "name": "@latexd/viewer-app",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite dev",
+    "build": "pnpm --filter @latexd/viewer-core build && vite build",
+    "preview": "vite preview",
+    "prepare": "svelte-kit sync || echo ''",
+    "check": "pnpm --filter @latexd/viewer-core build && svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "test": "pnpm check && pnpm test:runtime",
+    "test:runtime": "pnpm --filter @latexd/viewer-core build && tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@latexd/viewer-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-static": "^3.0.10",
+    "@sveltejs/kit": "^2.50.2",
+    "@sveltejs/vite-plugin-svelte": "^6.2.4",
+    "svelte": "^5.54.0",
+    "svelte-check": "^4.4.2",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.1"
+  }
+}
