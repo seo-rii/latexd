@@ -896,7 +896,6 @@ pub async fn serve(args: ServeArgs) -> Result<()> {
 
     let router = Router::new()
         .route("/", get(index))
-        .route("/app.mjs", get(app_js))
         .route("/api/state", get(snapshot))
         .route("/api/debug/renderer-session", get(renderer_session_metrics))
         .route("/api/syncmap/{rev}/{page_id}", get(page_syncmap))
@@ -915,6 +914,7 @@ pub async fn serve(args: ServeArgs) -> Result<()> {
         )
         .route("/artifacts/rev/{rev}/{*path}", get(revision_artifact))
         .route("/ws", get(ws))
+        .route("/{*path}", get(viewer_asset))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
     let listener = tokio::net::TcpListener::bind(&args.bind)
@@ -1293,18 +1293,86 @@ fn spawn_watcher(
     Ok(())
 }
 
-async fn index() -> Html<&'static str> {
-    Html(include_str!("../../../web/viewer/index.html"))
+fn viewer_dist_root() -> Utf8PathBuf {
+    std::env::var("LATEXD_VIEWER_DIST")
+        .ok()
+        .filter(|path| !path.is_empty())
+        .map(Utf8PathBuf::from)
+        .unwrap_or_else(|| {
+            Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../web/apps/viewer/build")
+        })
 }
 
-async fn app_js() -> impl IntoResponse {
-    (
-        [(
-            header::CONTENT_TYPE,
-            HeaderValue::from_static("text/javascript; charset=utf-8"),
-        )],
-        include_str!("../../../web/viewer/app.mjs"),
+fn viewer_dist_file(path: &str) -> Option<Utf8PathBuf> {
+    let mut relative = Utf8PathBuf::new();
+    for segment in path.split('/') {
+        if segment.is_empty() {
+            continue;
+        }
+        if segment == "." || segment == ".." {
+            return None;
+        }
+        relative.push(segment);
+    }
+    Some(viewer_dist_root().join(relative))
+}
+
+fn viewer_content_type(path: &Utf8Path) -> &'static str {
+    match path.extension() {
+        Some("html") => "text/html; charset=utf-8",
+        Some("js") => "text/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
+        Some("json") | Some("map") => "application/json",
+        Some("svg") => "image/svg+xml",
+        Some("png") => "image/png",
+        Some("ico") => "image/x-icon",
+        Some("txt") => "text/plain; charset=utf-8",
+        Some("woff2") => "font/woff2",
+        _ => "application/octet-stream",
+    }
+}
+
+fn viewer_build_missing_response() -> Response {
+    Html(
+        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>latexd viewer build missing</title></head><body><p>Viewer assets are missing. Run <code>pnpm -C web install</code> and <code>pnpm -C web build</code>.</p></body></html>"
+            .to_string(),
     )
+    .into_response()
+}
+
+async fn serve_viewer_dist_file(path: &str) -> Response {
+    let Some(path) = viewer_dist_file(path) else {
+        return StatusCode::BAD_REQUEST.into_response();
+    };
+    match tokio::fs::read(&path).await {
+        Ok(bytes) => (
+            [(
+                header::CONTENT_TYPE,
+                HeaderValue::from_static(viewer_content_type(&path)),
+            )],
+            bytes,
+        )
+            .into_response(),
+        Err(error)
+            if error.kind() == std::io::ErrorKind::NotFound
+                && path.file_name() == Some("index.html") =>
+        {
+            viewer_build_missing_response()
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND.into_response(),
+        Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
+    }
+}
+
+async fn index() -> Response {
+    serve_viewer_dist_file("index.html").await
+}
+
+async fn viewer_asset(Path(path): Path<String>) -> Response {
+    if path.is_empty() {
+        return index().await;
+    }
+    serve_viewer_dist_file(&path).await
 }
 
 async fn snapshot(State(state): State<Arc<AppState>>) -> axum::Json<PreviewSnapshot> {
