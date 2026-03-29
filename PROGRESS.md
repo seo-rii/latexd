@@ -7,6 +7,11 @@
 - Detailed `M12` checklist and definition of done: [`docs/m12-checklist.md`](/home/seorii/dev/hancomac/latexd/docs/m12-checklist.md).
 - Milestone split: `M11` is tracked as `M11.1`~`M11.4`, and `M12` is tracked as `M12.1`~`M12.6`.
 - Current phase: post-`M12` follow-on planning on top of completed `M11` and completed `M12`. The project now has an end-to-end daemon/web preview slice, a project model, dependency-aware rebuild skipping, a tokenizer/interner, a small TeX VM, format snapshots, local `.cls`/`.sty` loading, an internal text layout/PDF pipeline, checkpoint metadata, page-level artifact reuse, a viewport-tile preview path that can run against the mock rasterizer, `gs`, or `libgs`, a line-aware syncmap/click-selection preview path with page-local source/output windows and explicit open-source bridge surfaces, and a semantic aux subsystem that persists concrete artifacts, drives rerun-to-fixpoint, and participates in checkpoint/page reuse.
+- `2026-03-30` note: the recent web packaging pass split the frontend into a `pnpm` workspace, a vanilla-TS `web/packages/viewer-core` library, and a SvelteKit `web/apps/viewer` shell. That work was infrastructure follow-through, not a new milestone.
+- Because that packaging work preempted the lane that had already resumed after `M12`, the original post-`M12` follow-on items are still next up:
+  - viewer/editor hardening tail, especially stronger external editor integration and the remaining helper/runtime regression gaps around the open-source bridge surface
+  - remaining `viewer-core` vs `latexd` app-boundary cleanup that the packaging pass intentionally did not finish yet, especially latexd-specific transport, DTO decoding, hash/global bridge, and host event wiring that still partly live in the core package
+  - the broader post-`M12` backlog already called out elsewhere: wider engine-profile hardening, artifact-driven invalidation tightening, and richer renderer/display-list ownership
 
 ## Completed Milestones
 

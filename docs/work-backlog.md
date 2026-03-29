@@ -19,6 +19,22 @@
   - richer renderer/display-list ownership
   - stronger external editor integration
 
+### Deferred By The Packaging Pass
+
+- `2026-03-30` 기준으로 web frontend를 `pnpm` workspace + vanilla-TS `viewer-core` + SvelteKit app shell로 재구성하는 작업을 먼저 끝냈다.
+- 이 작업 때문에 원래 이미 다시 진행 중이던 post-`M12` follow-on이 잠시 멈췄고, 아래 항목들이 packaging 이후 즉시 재개할 큐로 남아 있다.
+- 먼저 다시 잡을 작업은:
+  - stronger external editor integration
+    - open-source bridge surface와 editor hand-off path를 지금보다 더 명시적으로 고정
+    - viewer/editor helper/runtime tail regressions를 계속 추가
+  - viewer-core/app boundary tightening after the split
+    - `viewer-core`에서 latexd-specific transport, DTO decoding, hash/global bridge, host custom-event wiring을 더 걷어내기
+    - pure core 테스트와 latexd host/runtime 테스트를 계속 분리해서 유지하기
+  - then resume the broader post-`M12` follow-on
+    - artifact-driven invalidation beyond the current narrow profile
+    - richer renderer/display-list ownership
+    - wider engine-profile hardening
+
 ## Milestone Split
 
 ### Completed
