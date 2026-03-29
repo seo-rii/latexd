@@ -482,7 +482,12 @@ latex-hmr/
     preview-server/
     corpus-harness/
   web/
-    viewer/
+    package.json
+    pnpm-workspace.yaml
+    apps/
+      viewer/
+    packages/
+      viewer-core/
   fixtures/
     micro/
     compat/

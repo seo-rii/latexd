@@ -17,7 +17,8 @@ prove.
 
 * `hmr-protocol`
 * `preview-server`
-* `web/viewer`
+* `web/packages/viewer-core`
+* `web/apps/viewer`
 * `latexd`
 * 외부 컴파일러 adapter (`tectonic` 또는 system `pdflatex`)
 

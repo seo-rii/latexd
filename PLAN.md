@@ -151,8 +151,10 @@
 병렬 가능: `limited`
 
 소유 파일:
-- [`web/viewer/app.mjs`](/home/seorii/dev/hancomac/latexd/web/viewer/app.mjs)
-- [`web/viewer/app.test.mjs`](/home/seorii/dev/hancomac/latexd/web/viewer/app.test.mjs)
+- [`web/packages/viewer-core/src/index.ts`](/home/seorii/dev/hancomac/latexd/web/packages/viewer-core/src/index.ts)
+- [`web/packages/viewer-core/test/app.test.ts`](/home/seorii/dev/hancomac/latexd/web/packages/viewer-core/test/app.test.ts)
+- [`web/apps/viewer/test/viewer-host.test.ts`](/home/seorii/dev/hancomac/latexd/web/apps/viewer/test/viewer-host.test.ts)
+- [`web/apps/viewer/src/routes/+page.svelte`](/home/seorii/dev/hancomac/latexd/web/apps/viewer/src/routes/+page.svelte)
 - [`crates/latexd/src/lib.rs`](/home/seorii/dev/hancomac/latexd/crates/latexd/src/lib.rs)
 
 적합한 작업:

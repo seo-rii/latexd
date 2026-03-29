@@ -12,7 +12,7 @@ This document keeps contributor-facing sequencing notes that are useful when ext
 
 ### PR 2
 
-`viewer-web`에 PDF.js bootstrap을 붙인다.
+`web/packages/viewer-core`와 `web/apps/viewer`에 preview bootstrap을 붙인다.
 가짜 서버 메시지로 페이지 교체 없이 full PDF reload만 지원.
 
 ### PR 3

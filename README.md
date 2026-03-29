@@ -28,17 +28,26 @@ here now lives under [`docs/`](./docs).
 
 - [`crates/`](./crates): Rust crates for protocol, VM, layout, PDF, checkpointing, renderer,
   semantic aux, and the `latexd` daemon itself.
-- [`web/viewer/`](./web/viewer): browser viewer runtime and viewer regression suite.
+- [`web/apps/viewer/`](./web/apps/viewer): SvelteKit frontend shell plus the `latexd` transport adapter.
+- [`web/packages/viewer-core/`](./web/packages/viewer-core): reusable vanilla TypeScript viewer runtime with injected transport.
+- [`web/`](./web): `pnpm` workspace root for the frontend packages.
 - [`fixtures/`](./fixtures): `arxiv-basic` and `arxiv-smoke` fixture corpora.
 - [`docs/`](./docs): architecture, roadmap, protocol, testing, backlog, and milestone detail.
 
 ## Requirements
 
 - Rust toolchain with Cargo.
-- Node.js for the browser viewer regression suite.
+- Node.js with `pnpm` for the frontend workspace.
 - Ghostscript only if you want the real tile renderer instead of the default mock path.
 
 ## Quick Start
+
+Prepare the frontend workspace:
+
+```bash
+pnpm -C web install
+pnpm -C web build
+```
 
 Run the daemon against the bundled sample project:
 
@@ -51,10 +60,14 @@ Then open `http://127.0.0.1:4380/` in a browser.
 Useful local commands:
 
 ```bash
+pnpm -C web dev
+pnpm -C web test
 cargo run -p latexd -- --help
 cargo test -q
-node web/viewer/app.test.mjs
 ```
+
+When developing the SvelteKit app directly, `pnpm -C web dev` proxies `/api`, `/artifacts`, and
+`/ws` to `http://127.0.0.1:4380` by default. Override that with `LATEXD_DEV_ORIGIN` if needed.
 
 ## Documentation
 
