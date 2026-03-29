@@ -31,6 +31,7 @@ export interface LatexdViewerHostOptions
     LatexdViewerTransportOptions {
   CustomEvent?: typeof CustomEvent;
   exposeGlobals?: boolean;
+  onEvent?: (event: ViewerEvent) => void;
 }
 
 export function mountLatexdViewerHost(
@@ -45,6 +46,7 @@ export function mountLatexdViewerHost(
     wsPath,
     CustomEvent: CustomEventCtor = CustomEvent,
     exposeGlobals = true,
+    onEvent: hostOnEvent,
     ...viewerOptions
   } = options;
   const viewerWindow = (window ?? globalThis.window) as ViewerWindow;
@@ -65,8 +67,10 @@ export function mountLatexdViewerHost(
       if (event.type === "state-changed") {
         state = event.state;
         flushPendingSourceHashRequest();
+        hostOnEvent?.(event);
         return;
       }
+      hostOnEvent?.(event);
       viewerWindow.dispatchEvent(new CustomEventCtor(HOST_EVENT_TYPES[event.type], {
         detail: event.detail
       }));

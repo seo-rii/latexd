@@ -365,7 +365,8 @@ async function withViewerBrowserHarness(optionsOrRun, maybeRun) {
       document: fakeDocument,
       fetch: fakeFetch,
       WebSocket: FakeWebSocket,
-      CustomEvent: FakeCustomEvent
+      CustomEvent: FakeCustomEvent,
+      ...(options.hostOptions ?? {})
     });
   };
 
@@ -419,6 +420,20 @@ test("viewer open-source without editor bridge still fetches resolved payload", 
     assert.equal(resolvedEvents.length, 1);
     assert.equal(resolvedEvents[0].launchRequested, true);
     assert.equal(resolvedEvents[0].launched, false);
+  });
+});
+
+test("viewer host forwards state changes through the app callback", async () => {
+  const seenEvents = [];
+  await withViewerBrowserHarness({
+    hostOptions: {
+      onEvent(event) {
+        seenEvents.push(event.type);
+      }
+    }
+  }, async ({ flush }) => {
+    await flush();
+    assert.deepEqual(seenEvents, ["state-changed"]);
   });
 });
 

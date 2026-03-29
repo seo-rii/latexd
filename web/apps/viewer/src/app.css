@@ -5,9 +5,6 @@ body {
 }
 
 body {
-  background: #f6f2eb;
-}
-
-body > div {
-  min-height: 100vh;
+  background: #111827;
+  font-family: "Avenir Next", "Segoe UI Variable", "Gill Sans", sans-serif;
 }
