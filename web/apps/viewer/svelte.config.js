@@ -20,6 +20,9 @@ const config = {
 		}),
 		prerender: {
 			entries: ['/']
+		},
+		paths: {
+			base: '/absproxy/5173'
 		}
 	}
 };

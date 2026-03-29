@@ -4,6 +4,7 @@
   "packageManager": "pnpm@10.30.0",
   "scripts": {
     "build": "pnpm --filter @latexd/viewer-app build",
+    "clean": "pnpm -r exec rm -rf build dist .svelte-kit node_modules/.vite-temp",
     "check": "pnpm --filter @latexd/viewer-app check",
     "dev": "pnpm --parallel --filter @latexd/viewer-core --filter @latexd/viewer-app dev",
     "test": "pnpm --filter @latexd/viewer-core test && pnpm --filter @latexd/viewer-app test"

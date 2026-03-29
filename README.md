@@ -33,6 +33,7 @@ here now lives under [`docs/`](./docs).
 - [`web/`](./web): `pnpm` workspace root for the frontend packages.
 - [`fixtures/`](./fixtures): `arxiv-basic` and `arxiv-smoke` fixture corpora.
 - [`docs/`](./docs): architecture, roadmap, protocol, testing, backlog, and milestone detail.
+- [`web/README.md`](./web/README.md): frontend workspace guide and commands.
 
 ## Requirements
 
@@ -75,6 +76,7 @@ When developing the SvelteKit app directly, `pnpm -C web dev` proxies `/api`, `/
 - Roadmap: [`docs/roadmap.md`](./docs/roadmap.md)
 - HMR protocol: [`docs/hmr-protocol.md`](./docs/hmr-protocol.md)
 - Testing strategy: [`docs/testing-strategy.md`](./docs/testing-strategy.md)
+- Frontend workspace guide: [`web/README.md`](./web/README.md)
 - Contributor notes: [`docs/contributor-notes.md`](./docs/contributor-notes.md)
 - Progress snapshot: [`PROGRESS.md`](./PROGRESS.md)
 - Work backlog: [`docs/work-backlog.md`](./docs/work-backlog.md)

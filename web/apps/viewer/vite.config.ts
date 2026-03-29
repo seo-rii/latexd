@@ -15,7 +15,8 @@ export default defineConfig(({ mode }) => {
 					target: latexdDevOrigin,
 					ws: true
 				}
-			}
+			},
+			allowedHosts: true
 		}
 	};
 });
