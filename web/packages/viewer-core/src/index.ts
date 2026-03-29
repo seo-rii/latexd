@@ -1,3 +1,97 @@
+import { VIEWER_STYLE, VIEWER_TEMPLATE } from "./template";
+
+export type SourceJumpRequest = {
+  file: string;
+  offset: number | null;
+  line: number | null;
+  column?: number;
+  source_hash?: string;
+  launch?: boolean;
+};
+
+export type OpenSourceRequest = Partial<SourceJumpRequest> & {
+  source_hash?: string;
+  launch?: boolean;
+};
+
+export type SourceSelection = {
+  file: string;
+  pageId?: string;
+  itemId?: string;
+  startUtf8?: number;
+  endUtf8?: number;
+  outputStartUtf8?: number;
+  outputEndUtf8?: number;
+  pageSourceStartUtf8?: number;
+  pageSourceEndUtf8?: number;
+  pageOutputStartUtf8?: number;
+  pageOutputEndUtf8?: number;
+  startLine?: number | null;
+  endLine?: number | null;
+  startColumn?: number;
+  leftPx?: number;
+  rightPx?: number;
+  topPx?: number;
+  bottomPx?: number;
+  sourceHash?: string;
+};
+
+export type ViewerEvent =
+  | { type: "state-changed"; state: any }
+  | { type: "source-hovered"; detail: { rev: number; source: SourceSelection | null } }
+  | { type: "source-selected"; detail: { rev: number; source: SourceSelection | null } }
+  | { type: "source-jump-resolved"; detail: any }
+  | { type: "source-jump-failed"; detail: any }
+  | { type: "source-hover-resolved"; detail: any }
+  | { type: "source-hover-failed"; detail: any }
+  | { type: "open-source"; detail: any }
+  | { type: "open-source-resolved"; detail: any }
+  | { type: "open-source-failed"; detail: any };
+
+export interface ViewerMountOptions {
+  window?: Window & typeof globalThis;
+  document?: Document;
+  onEvent?: (event: ViewerEvent) => void;
+  transport: ViewerTransport;
+}
+
+export interface ViewerSocket extends EventTarget {
+  readyState: number;
+  send(data: string): void;
+  close(): void;
+}
+
+export interface ViewerTransport {
+  fetchState(): Promise<any>;
+  fetchTileManifest(args: {
+    height: number;
+    left: number;
+    pageId: string;
+    rev: number;
+    scale: number;
+    tileSize: number;
+    top: number;
+    width: number;
+  }): Promise<any>;
+  fetchSyncMap(args: {
+    pageId: string;
+    rev: number;
+  }): Promise<any>;
+  fetchSourceFile(args: {
+    file: string;
+    rev: number;
+  }): Promise<any>;
+  jumpToSource(args: {
+    request: SourceJumpRequest;
+    rev: number;
+  }): Promise<any>;
+  openSource(args: {
+    request: OpenSourceRequest;
+    rev: number;
+  }): Promise<any>;
+  openWebSocket(): ViewerSocket;
+}
+
 export const initialState = {
   currentRev: 0,
   lastAppliedRev: 0,
@@ -67,7 +161,7 @@ export function selectNearestSyncItem(syncMap, pageY, pageX = null) {
   return closest;
 }
 
-export function normalizeSourceJumpRequest(fileOrRequest, offsetOrOptions) {
+export function normalizeSourceJumpRequest(fileOrRequest: any, offsetOrOptions?: any): SourceJumpRequest | null {
   if (typeof fileOrRequest === "string") {
     const parsedSourceHash = parseSourceHashRequest(fileOrRequest);
     if (parsedSourceHash) {
@@ -141,7 +235,7 @@ export function normalizeSourceJumpRequest(fileOrRequest, offsetOrOptions) {
   return null;
 }
 
-export function sourceRequestFromSelection(source) {
+export function sourceRequestFromSelection(source: SourceSelection | null): SourceJumpRequest | null {
   if (!source || typeof source.file !== "string" || source.file.length === 0) {
     return null;
   }
@@ -171,28 +265,31 @@ export function sourceRequestFromSelection(source) {
   return null;
 }
 
-export function formatSourceSelectionHash(source) {
+export function formatSourceSelectionHash(source: SourceSelection | null): string {
   if (typeof source?.sourceHash === "string" && source.sourceHash.length > 0) {
     return source.sourceHash;
   }
-  const request = sourceRequestFromSelection(source);
-  if (!request) {
+  return formatSourceRequestHash(sourceRequestFromSelection(source));
+}
+
+export function formatSourceRequestHash(request: Partial<SourceJumpRequest> | null): string {
+  if (!request || typeof request.file !== "string" || request.file.length === 0) {
     return "";
   }
   const params = new URLSearchParams();
   params.set("src", request.file);
-  if (request.line !== null) {
+  if (typeof request.line === "number" && Number.isFinite(request.line)) {
     params.set("line", String(request.line));
     if (typeof request.column === "number" && Number.isFinite(request.column) && request.column > 1) {
       params.set("column", String(request.column));
     }
-  } else if (request.offset !== null) {
+  } else if (typeof request.offset === "number" && Number.isFinite(request.offset)) {
     params.set("offset", String(request.offset));
   }
   return `#${params.toString()}`;
 }
 
-function sourceSelectionFromRequest(request) {
+function sourceSelectionFromRequest(request: SourceJumpRequest | null): SourceSelection | null {
   if (!request || typeof request.file !== "string" || request.file.length === 0) {
     return null;
   }
@@ -254,7 +351,7 @@ function sourceSelectionItemId(source) {
   ].join(":");
 }
 
-export function parseSourceHashRequest(hash) {
+export function parseSourceHashRequest(hash: string): SourceJumpRequest | null {
   if (typeof hash !== "string" || hash.length === 0) {
     return null;
   }
@@ -342,7 +439,7 @@ function syncSelectionFromItem(pageId, syncMap, item) {
   };
 }
 
-export function syncSelectionFromJumpContext(context) {
+export function syncSelectionFromJumpContext(context: any): SourceSelection | null {
   if (!context || typeof context.page_id !== "string" || !context.item) {
     return null;
   }
@@ -369,7 +466,12 @@ export function syncSelectionFromJumpContext(context) {
     : selection;
 }
 
-export function resolvedSourceRequestDetail(rev, request, response, source = null) {
+export function resolvedSourceRequestDetail(
+  rev: number,
+  request: (({ source_hash?: string; launch?: boolean }) & Partial<SourceJumpRequest>) | null,
+  response: any,
+  source: SourceSelection | null = null
+) {
   const item = syncSelectionFromJumpContext(response);
   const previewOnly = request?.launch === false;
   return {
@@ -738,28 +840,45 @@ function reconcilePagesAfterPatch(previousPages, nextPageArtifacts) {
   });
 }
 
-if (typeof window !== "undefined") {
+export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
+  const viewerWindow = (options.window ?? window) as (Window & typeof globalThis & Record<string, any>);
+  const viewerDocument = options.document ?? document;
+  const emitEvent = (event: ViewerEvent) => {
+    options.onEvent?.(event);
+  };
+  const transport = options.transport;
+  const shadowRoot = root.shadowRoot ?? root.attachShadow({ mode: "open" });
+
+  shadowRoot.innerHTML = `<style>${VIEWER_STYLE}</style>${VIEWER_TEMPLATE}`;
+
+  const getRequiredElement = <T extends Element>(selector: string) => {
+    const element = shadowRoot.querySelector(selector);
+    if (!element) {
+      throw new Error(`latexd viewer mount missing required element: ${selector}`);
+    }
+    return element as T;
+  };
   const elements = {
-    revision: document.getElementById("revision"),
-    buildStatus: document.getElementById("build-status"),
-    changedFiles: document.getElementById("changed-files"),
-    diagnostics: document.getElementById("diagnostics"),
-    sourceStatus: document.getElementById("source-status"),
-    sourceFile: document.getElementById("source-file"),
-    sourceSelection: document.getElementById("source-selection"),
-    sourceViewer: document.getElementById("source-viewer"),
-    sourceOpen: document.getElementById("source-open"),
-    sourceLink: document.getElementById("source-link"),
-    pageLabel: document.getElementById("page-label"),
-    zoomLabel: document.getElementById("zoom-label"),
-    frame: document.getElementById("frame"),
-    placeholder: document.getElementById("placeholder"),
-    preview: document.getElementById("preview"),
-    previewStack: document.getElementById("preview-stack"),
-    prevPage: document.getElementById("prev-page"),
-    nextPage: document.getElementById("next-page"),
-    zoomOut: document.getElementById("zoom-out"),
-    zoomIn: document.getElementById("zoom-in")
+    revision: getRequiredElement<HTMLElement>("#revision"),
+    buildStatus: getRequiredElement<HTMLElement>("#build-status"),
+    changedFiles: getRequiredElement<HTMLElement>("#changed-files"),
+    diagnostics: getRequiredElement<HTMLElement>("#diagnostics"),
+    sourceStatus: getRequiredElement<HTMLElement>("#source-status"),
+    sourceFile: getRequiredElement<HTMLElement>("#source-file"),
+    sourceSelection: getRequiredElement<HTMLElement>("#source-selection"),
+    sourceViewer: getRequiredElement<HTMLElement>("#source-viewer"),
+    sourceOpen: getRequiredElement<HTMLButtonElement>("#source-open"),
+    sourceLink: getRequiredElement<HTMLAnchorElement>("#source-link"),
+    pageLabel: getRequiredElement<HTMLElement>("#page-label"),
+    zoomLabel: getRequiredElement<HTMLElement>("#zoom-label"),
+    frame: getRequiredElement<HTMLElement>("#frame"),
+    placeholder: getRequiredElement<HTMLElement>("#placeholder"),
+    preview: getRequiredElement<HTMLIFrameElement>("#preview"),
+    previewStack: getRequiredElement<HTMLElement>("#preview-stack"),
+    prevPage: getRequiredElement<HTMLButtonElement>("#prev-page"),
+    nextPage: getRequiredElement<HTMLButtonElement>("#next-page"),
+    zoomOut: getRequiredElement<HTMLButtonElement>("#zoom-out"),
+    zoomIn: getRequiredElement<HTMLButtonElement>("#zoom-in")
   };
 
   let state = initialState;
@@ -774,15 +893,13 @@ if (typeof window !== "undefined") {
   const syncMapInflight = new Map();
   const sourceFileInflight = new Map();
   const syncInteractionSerials = new Map();
-  let pendingSourceHashRequest = parseSourceHashRequest(window.location.hash);
-  let flushPendingSourceHashRequest = () => {};
   let lastViewportPayload = null;
 
   const queueTileRefresh = () => {
     if (tileRefreshHandle !== 0) {
       return;
     }
-    tileRefreshHandle = window.requestAnimationFrame(() => {
+    tileRefreshHandle = viewerWindow.requestAnimationFrame(() => {
       tileRefreshHandle = 0;
       if (state.lastAppliedRev < 1) {
         return;
@@ -833,23 +950,16 @@ if (typeof window !== "undefined") {
         const requestPageId = page.pageId;
         const requestSerial = (tileRequestSerials.get(requestPageId) ?? 0) + 1;
         tileRequestSerials.set(requestPageId, requestSerial);
-        const url = new URL(
-          `/api/tiles/${requestRev}/${encodeURIComponent(requestPageId)}`,
-          window.location.origin
-        );
-        url.searchParams.set("scale", state.zoom.toFixed(2));
-        url.searchParams.set("left", String(startTileX * TILE_SIZE));
-        url.searchParams.set("top", String(startTileY * TILE_SIZE));
-        url.searchParams.set("width", String((endTileX - startTileX + 1) * TILE_SIZE));
-        url.searchParams.set("height", String((endTileY - startTileY + 1) * TILE_SIZE));
-        url.searchParams.set("tile_size", String(TILE_SIZE));
-        fetch(url)
-          .then((response) => {
-            if (!response.ok) {
-              throw new Error(`tile manifest request failed: ${response.status}`);
-            }
-            return response.json();
-          })
+        transport.fetchTileManifest({
+          rev: requestRev,
+          pageId: requestPageId,
+          scale: state.zoom,
+          left: startTileX * TILE_SIZE,
+          top: startTileY * TILE_SIZE,
+          width: (endTileX - startTileX + 1) * TILE_SIZE,
+          height: (endTileY - startTileY + 1) * TILE_SIZE,
+          tileSize: TILE_SIZE
+        })
           .then((manifest) => {
             if (tileRequestSerials.get(requestPageId) !== requestSerial) {
               return;
@@ -889,7 +999,7 @@ if (typeof window !== "undefined") {
         scroll_top: elements.frame.scrollTop,
         visible_pages: visiblePages
       });
-      if (socket.readyState === WebSocket.OPEN && payload !== lastViewportPayload) {
+      if (socket.readyState === 1 && payload !== lastViewportPayload) {
         lastViewportPayload = payload;
         socket.send(payload);
       }
@@ -941,13 +1051,13 @@ if (typeof window !== "undefined") {
     }
     if (!focusedSource) {
       elements.sourceViewer.replaceChildren();
-      const empty = document.createElement("div");
+      const empty = viewerDocument.createElement("div");
       empty.className = "source-line source-line--empty";
       empty.textContent = "Select a source span to inspect nearby source lines.";
       elements.sourceViewer.replaceChildren(empty);
     } else if (!focusedFileEntry) {
       elements.sourceViewer.replaceChildren();
-      const loading = document.createElement("div");
+      const loading = viewerDocument.createElement("div");
       loading.className = "source-line source-line--empty";
       loading.textContent = "Loading source…";
       elements.sourceViewer.replaceChildren(loading);
@@ -966,15 +1076,15 @@ if (typeof window !== "undefined") {
       const centerLine = activeRange?.startLine ?? 1;
       const windowStart = Math.max(1, centerLine - 8);
       const windowEnd = Math.min(lines.length, (activeRange?.endLine ?? centerLine) + 8);
-      const fragment = document.createDocumentFragment();
+      const fragment = viewerDocument.createDocumentFragment();
       if (windowStart > 1) {
-        const skipped = document.createElement("div");
+        const skipped = viewerDocument.createElement("div");
         skipped.className = "source-line source-line--empty";
         skipped.textContent = `… ${windowStart - 1} line(s) above`;
         fragment.append(skipped);
       }
       for (let lineNumber = windowStart; lineNumber <= windowEnd; lineNumber += 1) {
-        const line = document.createElement("button");
+        const line = viewerDocument.createElement("button") as HTMLButtonElement;
         line.type = "button";
         line.className = "source-line";
         line.dataset.selected = String(
@@ -991,7 +1101,10 @@ if (typeof window !== "undefined") {
           <span class="source-line__number">${lineNumber}</span>
           <span class="source-line__text"></span>
         `;
-        line.querySelector(".source-line__text").textContent = lines[lineNumber - 1] || " ";
+        const lineText = line.querySelector(".source-line__text") as HTMLElement | null;
+        if (lineText) {
+          lineText.textContent = lines[lineNumber - 1] || " ";
+        }
         line.addEventListener("click", () => {
           resolveSourceJump({ file: focusedSource.file, line: lineNumber });
         });
@@ -1001,7 +1114,7 @@ if (typeof window !== "undefined") {
         fragment.append(line);
       }
       if (windowEnd < lines.length) {
-        const skipped = document.createElement("div");
+        const skipped = viewerDocument.createElement("div");
         skipped.className = "source-line source-line--empty";
         skipped.textContent = `… ${lines.length - windowEnd} line(s) below`;
         fragment.append(skipped);
@@ -1011,7 +1124,7 @@ if (typeof window !== "undefined") {
 
     elements.diagnostics.textContent = "";
     for (const item of state.diagnostics) {
-      const block = document.createElement("div");
+      const block = viewerDocument.createElement("div");
       block.className = "diagnostic";
       const file = item.file ? `${item.file}${item.line ? `:${item.line}` : ""}` : "project";
       block.textContent = `[${item.level}] ${file} — ${item.message}`;
@@ -1036,13 +1149,13 @@ if (typeof window !== "undefined") {
       return;
     }
 
-    const fragment = document.createDocumentFragment();
+    const fragment = viewerDocument.createDocumentFragment();
     const activePageId = activePageForState(state)?.pageId ?? null;
     const zoomBucket = zoomBucketForZoom(state.zoom);
     for (const [index, page] of state.pages.entries()) {
       let node = pageNodes.get(page.pageId);
       if (!node) {
-        node = document.createElement("article");
+        node = viewerDocument.createElement("article");
         node.className = "page-card";
         node.innerHTML = `
           <div class="page-card__meta">
@@ -1145,9 +1258,9 @@ if (typeof window !== "undefined") {
         applyMarker(hoverMarker, state.hoveredSource);
         const tileLayer = state.tileLayers[page.pageId];
         if (tileLayer && tileLayer.zoomBucket === zoomBucket) {
-          const tileFragment = document.createDocumentFragment();
+          const tileFragment = viewerDocument.createDocumentFragment();
           for (const tile of tileLayer.items) {
-            const tileNode = document.createElement("img");
+            const tileNode = viewerDocument.createElement("img");
             tileNode.className = "page-tile";
             tileNode.alt = "";
             tileNode.src = tile.png_url;
@@ -1219,28 +1332,21 @@ if (typeof window !== "undefined") {
       ].join(":")
       : "";
     if (sourceKey(previousHovered) !== sourceKey(state.hoveredSource)) {
-      window.dispatchEvent(
-        new CustomEvent("latexd:source-hovered", {
-          detail: eventDetailForSource(state.hoveredSource)
-        })
-      );
+      emitEvent({
+        type: "source-hovered",
+        detail: eventDetailForSource(state.hoveredSource)
+      });
     }
     if (sourceKey(previousSelected) !== sourceKey(state.selectedSource)) {
-      window.dispatchEvent(
-        new CustomEvent("latexd:source-selected", {
-          detail: eventDetailForSource(state.selectedSource)
-        })
-      );
-      if (state.selectedSource) {
-        const nextHash = formatSourceSelectionHash(state.selectedSource);
-        if (nextHash && nextHash !== window.location.hash) {
-          const url = new URL(window.location.href);
-          url.hash = nextHash.slice(1);
-          window.history.replaceState({}, "", url);
-        }
-      }
+      emitEvent({
+        type: "source-selected",
+        detail: eventDetailForSource(state.selectedSource)
+      });
     }
-    flushPendingSourceHashRequest();
+    emitEvent({
+      type: "state-changed",
+      state
+    });
   };
 
   const ensureSyncMap = (pageId) => {
@@ -1256,13 +1362,10 @@ if (typeof window !== "undefined") {
       return syncMapInflight.get(requestKey);
     }
     const requestRev = state.lastAppliedRev;
-    const request = fetch(`/api/syncmap/${requestRev}/${encodeURIComponent(pageId)}`)
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`syncmap request failed: ${response.status}`);
-        }
-        return response.json();
-      })
+    const request = transport.fetchSyncMap({
+      rev: requestRev,
+      pageId
+    })
       .then((syncMap) => {
         if (state.lastAppliedRev !== requestRev) {
           return null;
@@ -1306,15 +1409,10 @@ if (typeof window !== "undefined") {
       return sourceFileInflight.get(requestKey);
     }
     const requestRev = state.lastAppliedRev;
-    const url = new URL(`/api/source-file/${requestRev}`, window.location.origin);
-    url.searchParams.set("file", file);
-    const request = fetch(url)
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`source file request failed: ${response.status}`);
-        }
-        return response.json();
-      })
+    const request = transport.fetchSourceFile({
+      rev: requestRev,
+      file
+    })
       .then((payload) => {
         if (state.lastAppliedRev !== requestRev) {
           return null;
@@ -1408,7 +1506,12 @@ if (typeof window !== "undefined") {
     });
   };
 
-  const runSourceJumpRequest = (requestInput, messageType, eventType, failureEventType) => {
+  const runSourceJumpRequest = (
+    requestInput,
+    messageType,
+    eventType: "source-jump-resolved" | "source-hover-resolved",
+    failureEventType: "source-jump-failed" | "source-hover-failed"
+  ) => {
     const request = normalizeSourceJumpRequest(requestInput);
     if (!request) {
       return Promise.resolve(null);
@@ -1425,26 +1528,10 @@ if (typeof window !== "undefined") {
       ...(source ? { source } : {}),
       sourceHash
     };
-    const url = new URL(`/api/source-jump/${requestRev}`, window.location.origin);
-    if (typeof request.source_hash === "string" && request.source_hash.length > 0) {
-      url.searchParams.set("source_hash", request.source_hash);
-    }
-    url.searchParams.set("file", request.file);
-    if (request.offset !== null) {
-      url.searchParams.set("offset", String(request.offset));
-    } else if (request.line !== null) {
-      url.searchParams.set("line", String(request.line));
-      if (typeof request.column === "number" && Number.isFinite(request.column)) {
-        url.searchParams.set("column", String(request.column));
-      }
-    }
-    return fetch(url)
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`source jump request failed: ${response.status}`);
-        }
-        return response.json();
-      })
+    return transport.jumpToSource({
+      rev: requestRev,
+      request
+    })
       .then((jump) => {
         if (state.lastAppliedRev !== requestRev) {
           return detail;
@@ -1456,10 +1543,10 @@ if (typeof window !== "undefined") {
           page_index: jump.page_index,
           item: resolvedDetail.item
         });
-        const resolvedEvent = new CustomEvent(eventType, {
+        emitEvent({
+          type: eventType,
           detail: resolvedDetail
         });
-        window.dispatchEvent(resolvedEvent);
         pageNodes.get(jump.page_id)?.scrollIntoView({ block: "center" });
         return resolvedDetail;
       })
@@ -1468,29 +1555,28 @@ if (typeof window !== "undefined") {
           ...detail,
           error: error instanceof Error ? error.message : String(error ?? "source jump request failed")
         };
-        window.dispatchEvent(
-          new CustomEvent(failureEventType, {
-            detail: failureDetail
-          })
-        );
+        emitEvent({
+          type: failureEventType,
+          detail: failureDetail
+        });
         return failureDetail;
       });
   };
 
-  const resolveSourceJump = (file, offset) =>
+  const resolveSourceJump = (file: any, offset?: any) =>
     runSourceJumpRequest(
       offset === undefined ? file : { file, ...(typeof offset === "number" ? { offset } : offset) },
       "ui_source_jump_resolved",
-      "latexd:source-jump-resolved",
-      "latexd:source-jump-failed"
+      "source-jump-resolved",
+      "source-jump-failed"
     );
 
-  const hoverSourceJump = (file, offset) =>
+  const hoverSourceJump = (file: any, offset?: any) =>
     runSourceJumpRequest(
       offset === undefined ? file : { file, ...(typeof offset === "number" ? { offset } : offset) },
       "ui_source_hover_resolved",
-      "latexd:source-hover-resolved",
-      "latexd:source-hover-failed"
+      "source-hover-resolved",
+      "source-hover-failed"
     );
 
   const openSourceRequest = (source, options = null) => {
@@ -1540,27 +1626,17 @@ if (typeof window !== "undefined") {
       launchRequested: !previewOnly,
       previewOnly
     };
-    window.dispatchEvent(
-      new CustomEvent("latexd:open-source", {
-        detail
-      })
-    );
+    emitEvent({
+      type: "open-source",
+      detail
+    });
     if (requestRev < 1) {
       return Promise.resolve(detail);
     }
-    return fetch(`/api/open-source/${requestRev}`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json"
-      },
-      body: JSON.stringify(request)
+    return transport.openSource({
+      rev: requestRev,
+      request
     })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`open source request failed: ${response.status}`);
-        }
-        return response.json();
-      })
       .then((response) => {
         if (state.lastAppliedRev !== requestRev) {
           return detail;
@@ -1574,10 +1650,10 @@ if (typeof window !== "undefined") {
             baseRequest ? source : directSource
           )
         };
-        const resolvedEvent = new CustomEvent("latexd:open-source-resolved", {
+        emitEvent({
+          type: "open-source-resolved",
           detail: resolvedDetail
         });
-        window.dispatchEvent(resolvedEvent);
         if (
           resolvedDetail.item
           && typeof response.page_id === "string"
@@ -1598,11 +1674,10 @@ if (typeof window !== "undefined") {
           ...detail,
           error: error instanceof Error ? error.message : String(error ?? "open source request failed")
         };
-        window.dispatchEvent(
-          new CustomEvent("latexd:open-source-failed", {
-            detail: failedDetail
-          })
-        );
+        emitEvent({
+          type: "open-source-failed",
+          detail: failedDetail
+        });
         return failedDetail;
       });
   };
@@ -1639,39 +1714,6 @@ if (typeof window !== "undefined") {
   const emitPreviewSourceRequest = (requestInput = null) =>
     emitOpenSourceRequest(requestInput, { launch: false });
 
-  flushPendingSourceHashRequest = () => {
-    if (!pendingSourceHashRequest || state.lastAppliedRev < 1) {
-      return;
-    }
-    const request = pendingSourceHashRequest;
-    const requestSourceHash = formatSourceSelectionHash(sourceSelectionFromRequest(request));
-    const selectedSourceHash = formatSourceSelectionHash(state.selectedSource);
-    pendingSourceHashRequest = null;
-    if (requestSourceHash && requestSourceHash === selectedSourceHash) {
-      return;
-    }
-    resolveSourceJump(request);
-  };
-
-  window.latexdJumpToSource = resolveSourceJump;
-  window.latexdSelectSource = resolveSourceJump;
-  window.latexdHoverSource = hoverSourceJump;
-  window.latexdOpenSelectedSource = emitOpenSourceRequest;
-  window.latexdPreviewSelectedSource = emitPreviewSourceRequest;
-  window.addEventListener("hashchange", () => {
-    pendingSourceHashRequest = parseSourceHashRequest(window.location.hash);
-    flushPendingSourceHashRequest();
-  });
-  window.addEventListener("latexd:jump-to-source", (event) => {
-    resolveSourceJump(event.detail ?? null);
-  });
-  window.addEventListener("latexd:select-source", (event) => {
-    resolveSourceJump(event.detail ?? null);
-  });
-  window.addEventListener("latexd:hover-source", (event) => {
-    hoverSourceJump(event.detail ?? null);
-  });
-
   elements.prevPage.addEventListener("click", () => dispatch({ type: "ui_page_changed", page: state.currentPage - 1 }));
   elements.nextPage.addEventListener("click", () => dispatch({ type: "ui_page_changed", page: state.currentPage + 1 }));
   elements.zoomOut.addEventListener("click", () => dispatch({ type: "ui_zoom_changed", zoom: state.zoom - 0.1 }));
@@ -1683,10 +1725,9 @@ if (typeof window !== "undefined") {
     state = reduce(state, { type: "ui_scroll_changed", scrollTop: elements.frame.scrollTop });
     queueTileRefresh();
   });
-  window.addEventListener("resize", queueTileRefresh);
+  viewerWindow.addEventListener("resize", queueTileRefresh);
 
-  fetch("/api/state")
-    .then((response) => response.json())
+  transport.fetchState()
     .then((snapshot) => {
       state = {
         ...state,
@@ -1709,19 +1750,25 @@ if (typeof window !== "undefined") {
         editorBridgeEnabled: snapshot.editor_bridge_enabled ?? false
       };
       render();
-      flushPendingSourceHashRequest();
+      emitEvent({
+        type: "state-changed",
+        state
+      });
     })
     .catch(() => {
       render();
+      emitEvent({
+        type: "state-changed",
+        state
+      });
     });
 
-  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const socket = new WebSocket(`${protocol}://${window.location.host}/ws`);
+  const socket = transport.openWebSocket();
   socket.addEventListener("open", () => {
     lastViewportPayload = null;
     queueTileRefresh();
   });
-  socket.addEventListener("message", (event) => {
+  socket.addEventListener("message", (event: any) => {
     dispatch(JSON.parse(event.data));
   });
   socket.addEventListener("close", () => {
@@ -1739,5 +1786,27 @@ if (typeof window !== "undefined") {
       ]
     });
     render();
+    emitEvent({
+      type: "state-changed",
+      state
+    });
   });
+
+
+  return {
+    destroy() {
+      if (typeof socket?.close === "function") {
+        socket.close();
+      }
+      shadowRoot.innerHTML = "";
+    },
+    openSelectedSource: emitOpenSourceRequest,
+    previewSelectedSource: emitPreviewSourceRequest,
+    jumpToSource: resolveSourceJump,
+    hoverSource: hoverSourceJump,
+    getState() {
+      return state;
+    },
+    shadowRoot
+  };
 }
