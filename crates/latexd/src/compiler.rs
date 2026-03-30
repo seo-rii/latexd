@@ -33,6 +33,8 @@ use tex_pdf::{
 use tex_vm::{VmModuleCheckpointKind, VmReplayFrame};
 use tex_world::{CompilerMode, ProjectManifest, normalize_relative_path};
 
+use crate::viewer_prefixed_path;
+
 #[derive(Debug, Clone)]
 pub struct CompilerDriver {
     compiler_bin: Option<String>,
@@ -849,14 +851,14 @@ impl CompilerDriver {
                     );
                     page_artifacts.push(PagePreviewArtifact {
                         page_id: page.page_id.clone(),
-                        pdf_url: format!(
+                        pdf_url: viewer_prefixed_path(&format!(
                             "/artifacts/rev/{previous_rev}/pages/{}.pdf",
                             page.page_id
-                        ),
-                        svg_url: Some(format!(
+                        )),
+                        svg_url: Some(viewer_prefixed_path(&format!(
                             "/artifacts/rev/{previous_rev}/pages/{}.svg",
                             page.page_id
-                        )),
+                        ))),
                     });
                     continue;
                 }
@@ -898,11 +900,14 @@ impl CompilerDriver {
                 );
                 page_artifacts.push(PagePreviewArtifact {
                     page_id: page.page_id.clone(),
-                    pdf_url: format!("/artifacts/rev/{}/pages/{}.pdf", request.rev, page.page_id),
-                    svg_url: Some(format!(
-                        "/artifacts/rev/{}/pages/{}.svg",
+                    pdf_url: viewer_prefixed_path(&format!(
+                        "/artifacts/rev/{}/pages/{}.pdf",
                         request.rev, page.page_id
                     )),
+                    svg_url: Some(viewer_prefixed_path(&format!(
+                        "/artifacts/rev/{}/pages/{}.svg",
+                        request.rev, page.page_id
+                    ))),
                 });
             }
             let shipout_checkpoints = if let Some(plan) = replay_plan.as_ref() {

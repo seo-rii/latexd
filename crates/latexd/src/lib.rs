@@ -16,7 +16,7 @@ use axum::{
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     http::{HeaderValue, StatusCode, header},
-    response::{Html, IntoResponse, Response},
+    response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post, put},
 };
 use camino::{Utf8Path, Utf8PathBuf};
@@ -906,8 +906,45 @@ pub async fn serve(args: ServeArgs) -> Result<()> {
 }
 
 fn build_router(state: Arc<AppState>) -> Router {
+    build_router_with_base(state, &viewer_base_path())
+}
+
+fn build_router_with_base(state: Arc<AppState>, base_path: &str) -> Router {
+    let api_router = build_api_router(state.clone());
+    if base_path.is_empty() {
+        return api_router
+            .merge(build_viewer_router(state))
+            .layer(TraceLayer::new_for_http());
+    }
+
+    let redirect_target = format!("{base_path}/");
+    let root_redirect_target = redirect_target.clone();
+    let base_redirect_target = redirect_target.clone();
+    let viewer_asset_route = format!("{base_path}/{{*path}}");
     Router::new()
-        .route("/", get(index))
+        .route(
+            "/",
+            get(move || {
+                let redirect_target = root_redirect_target.clone();
+                async move { Redirect::temporary(&redirect_target) }
+            }),
+        )
+        .route(
+            base_path,
+            get(move || {
+                let redirect_target = base_redirect_target.clone();
+                async move { Redirect::temporary(&redirect_target) }
+            }),
+        )
+        .route(&redirect_target, get(index))
+        .route(&viewer_asset_route, get(viewer_asset))
+        .merge(api_router)
+        .nest(base_path, build_api_router(state))
+        .layer(TraceLayer::new_for_http())
+}
+
+fn build_api_router(state: Arc<AppState>) -> Router {
+    Router::new()
         .route("/api/state", get(snapshot))
         .route("/api/debug/renderer-session", get(renderer_session_metrics))
         .route("/api/syncmap/{rev}/{page_id}", get(page_syncmap))
@@ -928,9 +965,54 @@ fn build_router(state: Arc<AppState>) -> Router {
         )
         .route("/artifacts/rev/{rev}/{*path}", get(revision_artifact))
         .route("/ws", get(ws))
-        .route("/{*path}", get(viewer_asset))
-        .layer(TraceLayer::new_for_http())
         .with_state(state)
+}
+
+fn build_viewer_router(state: Arc<AppState>) -> Router {
+    Router::new()
+        .route("/", get(index))
+        .route("/{*path}", get(viewer_asset))
+        .with_state(state)
+}
+
+pub(crate) fn normalize_viewer_base_path(value: Option<&str>) -> String {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return String::new();
+    };
+    if value == "/" {
+        return String::new();
+    }
+    let trimmed = value.trim_end_matches('/');
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if trimmed.starts_with('/') {
+        trimmed.to_string()
+    } else {
+        format!("/{trimmed}")
+    }
+}
+
+pub(crate) fn viewer_base_path() -> String {
+    normalize_viewer_base_path(std::env::var("LATEXD_VIEWER_BASE_PATH").ok().as_deref())
+}
+
+pub(crate) fn viewer_prefixed_path(path: &str) -> String {
+    viewer_prefixed_path_for(&viewer_base_path(), path)
+}
+
+pub(crate) fn viewer_prefixed_path_for(base_path: &str, path: &str) -> String {
+    if base_path.is_empty() || path.is_empty() {
+        return path.to_string();
+    }
+    if path.starts_with(base_path) {
+        return path.to_string();
+    }
+    if path.starts_with('/') {
+        format!("{base_path}{path}")
+    } else {
+        format!("{base_path}/{path}")
+    }
 }
 
 impl AppState {
@@ -2283,8 +2365,11 @@ async fn required_tiles(
                 tile_x: tile.key.tile_x,
                 tile_y: tile.key.tile_y,
                 png_url: format!(
-                    "/artifacts/rev/{rev}/tiles/{page_id}/{zoom_bucket}/{}/{}.png",
-                    tile.key.tile_x, tile.key.tile_y
+                    "{}",
+                    viewer_prefixed_path(&format!(
+                        "/artifacts/rev/{rev}/tiles/{page_id}/{zoom_bucket}/{}/{}.png",
+                        tile.key.tile_x, tile.key.tile_y
+                    ))
                 ),
             })
             .collect(),
@@ -4486,7 +4571,7 @@ mod tests {
     use axum::{
         body::{Body, to_bytes},
         extract::{Json, Path, Query, State},
-        http::{Request, StatusCode},
+        http::{Request, StatusCode, header},
     };
     use camino::Utf8PathBuf;
     use tempfile::tempdir;
@@ -4513,10 +4598,11 @@ mod tests {
         RequiredTilesQuery, SourceFileQuery, SourceFileResponse, SourceFilesResponse,
         SourceJumpQuery, SourceJumpResponse, TileManifestResponse, TileRendererConfig,
         UpdateSourceFileRequest, UpdateSourceFileResponse, attach_render_revision, build_router,
-        cache_raster_image, detach_render_revision, hash_input, load_revision_page_input,
-        load_revision_page_metadata, load_revision_page_metadata_set, lookup_attached_page_input,
-        open_source, page_syncmap, parse_png_path_suffix, parse_png_u32_path_suffix,
-        prewarm_viewport_rasters, raster_cache_path, render_session_handle, render_session_key,
+        build_router_with_base, cache_raster_image, detach_render_revision, hash_input,
+        load_revision_page_input, load_revision_page_metadata, load_revision_page_metadata_set,
+        lookup_attached_page_input, normalize_viewer_base_path, open_source, page_syncmap,
+        parse_png_path_suffix, parse_png_u32_path_suffix, prewarm_viewport_rasters,
+        raster_cache_path, render_session_handle, render_session_key,
         render_session_metrics_snapshot, render_sessions, renderer_session_metrics, required_tiles,
         revision_artifact, revision_page_png, revision_tile_png, source_editor_uri, source_file,
         source_file_uri, source_files, source_jump, update_source_file,
@@ -6697,6 +6783,24 @@ mod tests {
         assert_eq!(parse_png_u32_path_suffix("oops.png"), None);
     }
 
+    #[test]
+    fn viewer_base_path_helpers_normalize_and_prefix_paths() {
+        assert_eq!(normalize_viewer_base_path(None), "");
+        assert_eq!(normalize_viewer_base_path(Some("")), "");
+        assert_eq!(normalize_viewer_base_path(Some("/")), "");
+        assert_eq!(normalize_viewer_base_path(Some("viewer")), "/viewer");
+        assert_eq!(normalize_viewer_base_path(Some("/viewer/")), "/viewer");
+        assert_eq!(
+            viewer_prefixed_path_for("/viewer", "/api/state"),
+            "/viewer/api/state"
+        );
+        assert_eq!(
+            viewer_prefixed_path_for("/viewer", "api/state"),
+            "/viewer/api/state"
+        );
+        assert_eq!(viewer_prefixed_path_for("", "/api/state"), "/api/state");
+    }
+
     #[tokio::test]
     async fn build_router_accepts_artifact_png_routes_without_panicking() {
         let tempdir = tempdir().expect("tempdir");
@@ -6723,6 +6827,83 @@ mod tests {
         });
 
         let _router = build_router(state);
+    }
+
+    #[tokio::test]
+    async fn build_router_with_base_serves_nested_api_and_redirects_root() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "hello").expect("main tex");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+        let router = build_router_with_base(state, "/viewer");
+
+        let redirect = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/")
+                    .body(Body::empty())
+                    .expect("root request"),
+            )
+            .await
+            .expect("redirect response");
+        assert_eq!(redirect.status(), StatusCode::TEMPORARY_REDIRECT);
+        assert_eq!(
+            redirect
+                .headers()
+                .get(header::LOCATION)
+                .and_then(|value| value.to_str().ok()),
+            Some("/viewer/")
+        );
+
+        let nested_index = router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/viewer/")
+                    .body(Body::empty())
+                    .expect("nested index request"),
+            )
+            .await
+            .expect("nested index response");
+        assert_eq!(nested_index.status(), StatusCode::OK);
+        let nested_index_body = to_bytes(nested_index.into_body(), usize::MAX)
+            .await
+            .expect("nested index body");
+        assert!(
+            std::str::from_utf8(nested_index_body.as_ref())
+                .expect("nested index utf8")
+                .contains("latexd studio")
+        );
+
+        let nested_state = router
+            .oneshot(
+                Request::builder()
+                    .uri("/viewer/api/state")
+                    .body(Body::empty())
+                    .expect("nested state request"),
+            )
+            .await
+            .expect("nested state response");
+        assert_eq!(nested_state.status(), StatusCode::OK);
     }
 
     #[tokio::test]

@@ -1,5 +1,8 @@
 import adapter from '@sveltejs/adapter-static';
 import { relative, sep } from 'node:path';
+import { normalizeBasePath } from './base-path.mjs';
+
+const viewerBasePath = normalizeBasePath(process.env.LATEXD_VIEWER_BASE_PATH);
 
 /** @type {import('@sveltejs/kit').Config} */
 const config = {
@@ -22,7 +25,7 @@ const config = {
 			entries: ['/']
 		},
 		paths: {
-			base: '/absproxy/5173'
+			base: viewerBasePath
 		}
 	}
 };

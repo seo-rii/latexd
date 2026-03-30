@@ -95,10 +95,10 @@ export function createLatexdApiClient(
 
   return {
     fetchState() {
-      return fetchJson(resolveApiUrl("/api/state"));
+      return fetchJson(resolveApiUrl("api/state"));
     },
     fetchTileManifest({ rev, pageId, scale, left, top, width, height, tileSize }) {
-      const url = resolveApiUrl(`/api/tiles/${rev}/${encodeURIComponent(pageId)}`);
+      const url = resolveApiUrl(`api/tiles/${rev}/${encodeURIComponent(pageId)}`);
       url.searchParams.set("scale", scale.toFixed(2));
       url.searchParams.set("left", String(left));
       url.searchParams.set("top", String(top));
@@ -108,35 +108,37 @@ export function createLatexdApiClient(
       return fetchJson(url);
     },
     fetchSyncMap({ rev, pageId }) {
-      return fetchJson(resolveApiUrl(`/api/syncmap/${rev}/${encodeURIComponent(pageId)}`));
+      return fetchJson(resolveApiUrl(`api/syncmap/${rev}/${encodeURIComponent(pageId)}`));
     },
     fetchSourceFile({ rev, file }) {
-      const url = resolveApiUrl(`/api/source-file/${rev}`);
+      const url = resolveApiUrl(`api/source-file/${rev}`);
       url.searchParams.set("file", file);
       return fetchJson(url);
     },
     fetchSourceFiles({ rev }) {
-      return fetchJson(resolveApiUrl(`/api/source-files/${rev}`));
+      return fetchJson(resolveApiUrl(`api/source-files/${rev}`));
     },
     jumpToSource({ rev, request }) {
-      return fetchJson(buildSourceJumpUrl(resolveApiUrl(`/api/source-jump/${rev}`), request));
+      return fetchJson(buildSourceJumpUrl(resolveApiUrl(`api/source-jump/${rev}`), request));
     },
     openSource({ rev, request }) {
-      return fetchJson(resolveApiUrl(`/api/open-source/${rev}`), {
+      return fetchJson(resolveApiUrl(`api/open-source/${rev}`), {
         method: "POST",
         headers: {
           "content-type": "application/json"
         },
-        body: JSON.stringify(request)
+        body: JSON.stringify(request),
+        credentials: "include"
       });
     },
     updateSourceFile(request) {
-      return fetchJson(resolveApiUrl("/api/source-file"), {
+      return fetchJson(resolveApiUrl("api/source-file"), {
         method: "PUT",
         headers: {
           "content-type": "application/json"
         },
-        body: JSON.stringify(request)
+        body: JSON.stringify(request),
+        credentials: "include"
       });
     }
   };
@@ -165,8 +167,8 @@ export function createLatexdViewerTransport(
 function createLatexdApiContext(options: LatexdViewerTransportOptions) {
   const viewerWindow = options.window ?? window;
   const viewerFetch = options.fetch ?? fetch;
-  const apiBase = new URL(options.apiBase ?? "/", viewerWindow.location.origin);
-  const wsPath = options.wsPath ?? "/ws";
+  const apiBase = new URL(options.apiBase ?? "./", viewerWindow.location.href);
+  const wsPath = options.wsPath ?? "ws";
 
   const resolveApiUrl = (path: string) => new URL(path, apiBase);
   const resolveWebSocketUrl = () => {
@@ -174,7 +176,7 @@ function createLatexdApiContext(options: LatexdViewerTransportOptions) {
     url.protocol = viewerWindow.location.protocol === "https:" ? "wss:" : "ws:";
     return url.toString();
   };
-  const fetchJson = async (input: URL | string, init?: RequestInit) => {
+  const fetchJson = async (input: URL | string, init: RequestInit = {credentials: 'include'}) => {
     const response = await viewerFetch(input, init);
     if (!response.ok) {
       throw new Error(`latexd request failed: ${response.status}`);

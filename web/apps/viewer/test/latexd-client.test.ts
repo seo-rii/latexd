@@ -61,3 +61,33 @@ test("latexd api client fetches source file lists and writes source text", async
     })
   );
 });
+
+test("latexd api client resolves endpoints relative to the current base path", async () => {
+  const calls: string[] = [];
+  const client = createLatexdApiClient({
+    window: {
+      location: new URL("http://example.test/viewer/")
+    } as Window & typeof globalThis,
+    fetch: async (input) => {
+      calls.push(String(input));
+      return {
+        ok: true,
+        status: 200,
+        async json() {
+          return {
+            rev: 3,
+            files: ["main.tex"]
+          };
+        }
+      } as Response;
+    }
+  });
+
+  await client.fetchState();
+  await client.fetchSourceFiles({ rev: 3 });
+
+  assert.deepEqual(calls, [
+    "http://example.test/viewer/api/state",
+    "http://example.test/viewer/api/source-files/3"
+  ]);
+});
