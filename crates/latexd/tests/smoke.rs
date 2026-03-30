@@ -304,7 +304,7 @@ async fn bundled_arxiv_basic_fixture_builds_with_internal_compiler() {
 
     assert!(outcome.pdf_path.exists());
     assert!(outcome.diagnostics.is_empty());
-    assert_eq!(outcome.page_metadata.len(), 1);
+    assert_eq!(outcome.page_metadata.len(), 3);
     assert!(
         outcome
             .dep_trace
