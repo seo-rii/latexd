@@ -27,6 +27,13 @@ pub struct PagePreviewArtifact {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SourceSnapshotFile {
+    pub file: String,
+    pub content: String,
+    pub line_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum PagePatchOp {
     ReplacePage {
@@ -69,6 +76,10 @@ pub enum ServerMsg {
         rev: RevId,
         ops: Vec<PagePatchOp>,
     },
+    SourceSnapshot {
+        rev: RevId,
+        files: Vec<SourceSnapshotFile>,
+    },
     BuildFinished {
         rev: RevId,
         success: bool,
@@ -94,6 +105,7 @@ pub enum ClientMsg {
 mod tests {
     use super::{
         ClientMsg, Diagnostic, DiagnosticLevel, PagePatchOp, PagePreviewArtifact, ServerMsg,
+        SourceSnapshotFile,
     };
 
     #[test]
@@ -166,6 +178,24 @@ mod tests {
         let serialized = serde_json::to_string(&original).expect("serialize full pdf msg");
         let restored =
             serde_json::from_str::<ServerMsg>(&serialized).expect("deserialize full pdf msg");
+
+        assert_eq!(restored, original);
+    }
+
+    #[test]
+    fn roundtrips_source_snapshot_messages() {
+        let original = ServerMsg::SourceSnapshot {
+            rev: 10,
+            files: vec![SourceSnapshotFile {
+                file: "main.tex".to_string(),
+                content: "\\section{Hello}\n".to_string(),
+                line_count: 2,
+            }],
+        };
+
+        let serialized = serde_json::to_string(&original).expect("serialize source snapshot");
+        let restored =
+            serde_json::from_str::<ServerMsg>(&serialized).expect("deserialize source snapshot");
 
         assert_eq!(restored, original);
     }

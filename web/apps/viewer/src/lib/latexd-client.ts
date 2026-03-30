@@ -16,6 +16,11 @@ export interface PreviewStateResponse {
     pdf_url: string;
     svg_url?: string | null;
   }>;
+  source_snapshot?: Array<{
+    file: string;
+    content: string;
+    line_count: number;
+  }>;
   diagnostics: unknown[];
   changed_files: string[];
   building: boolean;

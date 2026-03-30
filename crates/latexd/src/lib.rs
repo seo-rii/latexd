@@ -20,7 +20,9 @@ use axum::{
     routing::{get, post, put},
 };
 use camino::{Utf8Path, Utf8PathBuf};
-use hmr_protocol::{ClientMsg, Diagnostic, DiagnosticLevel, PagePreviewArtifact, ServerMsg};
+use hmr_protocol::{
+    ClientMsg, Diagnostic, DiagnosticLevel, PagePreviewArtifact, ServerMsg, SourceSnapshotFile,
+};
 use notify::{RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use tex_render_gs::{
@@ -267,6 +269,8 @@ pub struct PreviewSnapshot {
     pub page_count: usize,
     pub page_ids: Vec<String>,
     pub page_artifacts: Vec<PagePreviewArtifact>,
+    #[serde(default)]
+    pub source_snapshot: Vec<SourceSnapshotFile>,
     pub diagnostics: Vec<Diagnostic>,
     pub changed_files: Vec<String>,
     pub building: bool,
@@ -1185,7 +1189,8 @@ impl AppState {
                         .file_name()
                         .unwrap_or("main.pdf")
                         .to_string();
-                    let pdf_url = format!("/artifacts/rev/{rev}/{pdf_file}");
+                    let pdf_url = viewer_prefixed_path(&format!("/artifacts/rev/{rev}/{pdf_file}"));
+                    let source_snapshot = build_source_snapshot(self.as_ref(), rev).await;
                     {
                         let mut live = self.live.write().await;
                         live.latest_pdf_path = Some(latest_pdf_path);
@@ -1202,6 +1207,7 @@ impl AppState {
                                 .collect(),
                             outcome.page_artifacts.clone(),
                         );
+                        live.snapshot.source_snapshot = source_snapshot.clone();
                     }
                     {
                         let mut build_cache = self.build_cache.write().await;
@@ -1243,6 +1249,10 @@ impl AppState {
                             .map(|page| page.page_id.clone())
                             .collect(),
                         page_artifacts: outcome.page_artifacts.clone(),
+                    });
+                    let _ = self.events.send(ServerMsg::SourceSnapshot {
+                        rev,
+                        files: source_snapshot,
                     });
                     let _ = self
                         .events
@@ -1466,7 +1476,11 @@ async fn viewer_asset(Path(path): Path<String>) -> Response {
 }
 
 async fn snapshot(State(state): State<Arc<AppState>>) -> axum::Json<PreviewSnapshot> {
-    axum::Json(state.live.read().await.snapshot.clone())
+    let mut snapshot = state.live.read().await.snapshot.clone();
+    if snapshot.source_snapshot.is_empty() {
+        snapshot.source_snapshot = build_source_snapshot(&state, snapshot.last_applied_rev).await;
+    }
+    axum::Json(snapshot)
 }
 
 async fn renderer_session_metrics(
@@ -1987,9 +2001,10 @@ async fn source_file(
 }
 
 async fn source_files(Path(rev): Path<u64>, State(state): State<Arc<AppState>>) -> Response {
-    let mut files = load_revision_source_texts(&state.build_root, rev)
+    let mut files = build_source_snapshot(&state, rev)
         .await
-        .into_keys()
+        .into_iter()
+        .map(|entry| Utf8PathBuf::from(entry.file))
         .collect::<Vec<_>>();
     if files.is_empty() {
         files = state.world.manifest.toplevels.clone();
@@ -2467,6 +2482,40 @@ async fn load_revision_source_texts(
             .unwrap_or_default(),
         Err(_) => BTreeMap::new(),
     }
+}
+
+async fn load_live_workspace_source_snapshot(
+    root: &Utf8Path,
+    files: &[Utf8PathBuf],
+) -> Vec<SourceSnapshotFile> {
+    let mut snapshot = Vec::new();
+    for file in files {
+        match tokio::fs::read_to_string(root.join(file).as_std_path()).await {
+            Ok(content) => snapshot.push(SourceSnapshotFile {
+                file: file.to_string(),
+                line_count: source_line_count(&content) as usize,
+                content,
+            }),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => warn!("failed to read live source file {}: {error}", file),
+        }
+    }
+    snapshot
+}
+
+async fn build_source_snapshot(state: &AppState, rev: u64) -> Vec<SourceSnapshotFile> {
+    let source_texts = load_revision_source_texts(&state.build_root, rev).await;
+    if !source_texts.is_empty() {
+        return source_texts
+            .into_iter()
+            .map(|(file, content)| SourceSnapshotFile {
+                file: file.to_string(),
+                line_count: source_line_count(&content) as usize,
+                content,
+            })
+            .collect();
+    }
+    load_live_workspace_source_snapshot(&state.root, &state.world.manifest.toplevels).await
 }
 
 fn source_line_count(content: &str) -> u32 {
@@ -4582,7 +4631,9 @@ mod tests {
     };
     use tower::util::ServiceExt;
 
-    use hmr_protocol::{ClientMsg, Diagnostic, DiagnosticLevel, PagePreviewArtifact};
+    use hmr_protocol::{
+        ClientMsg, Diagnostic, DiagnosticLevel, PagePreviewArtifact, SourceSnapshotFile,
+    };
     use tex_world::ProjectWorld;
 
     use super::{
@@ -4604,8 +4655,9 @@ mod tests {
         parse_png_path_suffix, parse_png_u32_path_suffix, prewarm_viewport_rasters,
         raster_cache_path, render_session_handle, render_session_key,
         render_session_metrics_snapshot, render_sessions, renderer_session_metrics, required_tiles,
-        revision_artifact, revision_page_png, revision_tile_png, source_editor_uri, source_file,
-        source_file_uri, source_files, source_jump, update_source_file,
+        revision_artifact, revision_page_png, revision_tile_png, snapshot, source_editor_uri,
+        source_file, source_file_uri, source_files, source_jump, update_source_file,
+        viewer_prefixed_path_for,
     };
     use crate::compiler::{
         ArtifactSourceSpan, ArtifactSyncSpan, CompilerDriver, PageArtifactMeta, PageSyncMapArtifact,
@@ -8479,6 +8531,109 @@ mod tests {
                 Utf8PathBuf::from("main.tex"),
                 Utf8PathBuf::from("sections/intro.tex")
             ]
+        );
+    }
+
+    #[tokio::test]
+    async fn snapshot_endpoint_includes_live_workspace_source_snapshot_before_first_revision() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n  - appendix.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "hello").expect("main tex");
+        fs::write(root.join("appendix.tex"), "appendix\n").expect("appendix tex");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: root.join(".latexd/build"),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+
+        let Json(payload) = snapshot(State(state)).await;
+
+        assert_eq!(payload.last_applied_rev, 0);
+        assert_eq!(
+            payload.source_snapshot,
+            vec![
+                SourceSnapshotFile {
+                    file: "main.tex".to_string(),
+                    content: "hello".to_string(),
+                    line_count: 1,
+                },
+                SourceSnapshotFile {
+                    file: "appendix.tex".to_string(),
+                    content: "appendix\n".to_string(),
+                    line_count: 2,
+                },
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn snapshot_endpoint_prefers_revision_source_snapshot_for_last_applied_revision() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "workspace").expect("main tex");
+        let build_root = root.join(".latexd/build");
+        fs::create_dir_all(build_root.join("rev-13")).expect("rev dir");
+        fs::write(
+            build_root.join("rev-13/sources.json"),
+            serde_json::json!({
+                "files": {
+                    "main.tex": "revision\nbody\n"
+                }
+            })
+            .to_string(),
+        )
+        .expect("write sources");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: build_root.clone(),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState {
+                snapshot: PreviewSnapshot {
+                    current_rev: 13,
+                    last_applied_rev: 13,
+                    ..PreviewSnapshot::default()
+                },
+                ..LivePreviewState::default()
+            }),
+            events: broadcast::channel(4).0,
+        });
+
+        let Json(payload) = snapshot(State(state)).await;
+
+        assert_eq!(payload.last_applied_rev, 13);
+        assert_eq!(
+            payload.source_snapshot,
+            vec![SourceSnapshotFile {
+                file: "main.tex".to_string(),
+                content: "revision\nbody\n".to_string(),
+                line_count: 3,
+            }]
         );
     }
 

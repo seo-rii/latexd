@@ -46,7 +46,6 @@
         void syncFromViewer(event);
       }
     });
-    void refreshAvailableFiles(0);
     return () => {
       if (saveTimer) {
         clearTimeout(saveTimer);
@@ -73,7 +72,18 @@
         ? event.state.changedFiles.slice()
         : [];
       previewState.editorBridgeEnabled = event.state.editorBridgeEnabled === true;
-      if (event.state.lastAppliedRev !== previousRev || availableFiles.length === 0) {
+      const snapshotFiles = Object.keys((event.state.sourceFiles ?? {}) as Record<string, unknown>)
+        .sort((left, right) => left.localeCompare(right));
+      if (snapshotFiles.length > 0) {
+        availableFiles = Array.from(new Set([
+          ...snapshotFiles,
+          ...(activeFile ? [activeFile] : [])
+        ])).sort((left, right) => left.localeCompare(right));
+        if (!activeFile && availableFiles[0]) {
+          await openFile(availableFiles[0]);
+          return;
+        }
+      } else if (availableFiles.length === 0) {
         await refreshAvailableFiles(event.state.lastAppliedRev);
       }
       if (event.state.lastAppliedRev !== previousRev && activeFile) {

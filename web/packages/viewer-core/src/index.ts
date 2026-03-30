@@ -114,6 +114,21 @@ export const initialState = {
   selectedSource: null
 };
 
+function sourceFilesFromSnapshot(entries) {
+  const sourceFiles = {};
+  for (const entry of entries ?? []) {
+    if (typeof entry?.file !== "string" || entry.file.length === 0) {
+      continue;
+    }
+    sourceFiles[entry.file] = {
+      rev: entry.rev ?? null,
+      content: typeof entry.content === "string" ? entry.content : "",
+      lineCount: Number.isFinite(entry.line_count) ? entry.line_count : 1
+    };
+  }
+  return sourceFiles;
+}
+
 export function zoomBucketForZoom(zoom) {
   return Math.round(Math.max(0.5, Math.min(3, zoom)) * 100);
 }
@@ -791,6 +806,25 @@ export function reduce(state, message) {
           }
         }
       };
+    case "source_snapshot":
+      if (message.rev < state.currentRev) {
+        return state;
+      }
+      if (message.rev !== state.lastAppliedRev) {
+        return state;
+      }
+      {
+        const sourceFiles = sourceFilesFromSnapshot(
+          (message.files ?? []).map((entry) => ({
+            ...entry,
+            rev: message.rev
+          }))
+        );
+        return {
+          ...state,
+          sourceFiles
+        };
+      }
     case "ui_sync_hovered":
       return {
         ...state,
@@ -1766,6 +1800,12 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
           pdfUrl: page.pdf_url,
           svgUrl: page.svg_url ?? null
         })) ?? [],
+        sourceFiles: sourceFilesFromSnapshot(
+          (snapshot.source_snapshot ?? []).map((entry) => ({
+            ...entry,
+            rev: snapshot.last_applied_rev
+          }))
+        ),
         tileLayers: {},
         diagnostics: snapshot.diagnostics,
         changedFiles: snapshot.changed_files,

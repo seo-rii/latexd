@@ -549,6 +549,56 @@ test("source file payloads install only for the applied revision", () => {
   });
 });
 
+test("source snapshot payloads replace source files only for the applied revision", () => {
+  let state = reduce(initialState, {
+    type: "full_pdf_ready",
+    rev: 8,
+    pdf_url: "/artifacts/rev/8/main.pdf",
+    page_ids: ["page-a"],
+    page_artifacts: [
+      { page_id: "page-a", pdf_url: "/artifacts/rev/8/pages/page-a.pdf", svg_url: "/artifacts/rev/8/pages/page-a.svg" }
+    ]
+  });
+  state = reduce(state, {
+    type: "source_snapshot",
+    rev: 7,
+    files: [
+      { file: "main.tex", content: "old\n", line_count: 1 }
+    ]
+  });
+  assert.deepEqual(state.sourceFiles, {});
+
+  state = reduce(state, {
+    type: "source_snapshot",
+    rev: 9,
+    files: [
+      { file: "future.tex", content: "future\n", line_count: 1 }
+    ]
+  });
+  assert.deepEqual(state.sourceFiles, {});
+
+  state = reduce(state, {
+    type: "source_snapshot",
+    rev: 8,
+    files: [
+      { file: "main.tex", content: "lead\nbody\n", line_count: 2 },
+      { file: "sections/intro.tex", content: "nested\n", line_count: 1 }
+    ]
+  });
+  assert.deepEqual(state.sourceFiles, {
+    "main.tex": {
+      rev: 8,
+      content: "lead\nbody\n",
+      lineCount: 2
+    },
+    "sections/intro.tex": {
+      rev: 8,
+      content: "nested\n",
+      lineCount: 1
+    }
+  });
+});
+
 test("nearest sync item picks the closest preview band", () => {
   const syncMap = {
     page_width_px: 612,
@@ -1257,11 +1307,11 @@ test("full preview refresh clears stale sync selection state", () => {
     }
   });
   state = reduce(state, {
-    type: "ui_source_file_ready",
+    type: "source_snapshot",
     rev: 9,
-    file: "main.tex",
-    content: "lead\nbody\n",
-    line_count: 2
+    files: [
+      { file: "main.tex", content: "lead\nbody\n", line_count: 2 }
+    ]
   });
   state = reduce(state, {
     type: "full_pdf_ready",
