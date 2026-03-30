@@ -35,6 +35,10 @@
   let lastEditorSyncKey = "";
   let suppressEditorSyncUntil = 0;
 
+  function focusKeyForPosition(file: string, line: number, column: number) {
+    return `${file}:${Math.max(1, Math.round(line))}:${Math.max(1, Math.round(column))}`;
+  }
+
   const mountWorkspace = (node: HTMLDivElement) => {
     apiClient = createLatexdApiClient();
     viewerController = mountLatexdViewerHost(node, {
@@ -114,6 +118,9 @@
       column: Math.max(1, Math.round(column))
     };
     currentFocus = focus;
+    if (editorNode === document.activeElement) {
+      return;
+    }
     if (activeFile === file && editorText.length > 0) {
       await focusEditorLine(focus.line, focus.column);
       return;
@@ -272,12 +279,15 @@
     }
     caret += Math.min(lines[clampedLine - 1]?.length ?? 0, targetColumn - 1);
     suppressEditorSyncUntil = Date.now() + 200;
-    lastEditorSyncKey = `${activeFile}:${clampedLine}:${targetColumn}`;
-    editorNode.focus();
+    lastEditorSyncKey = focusKeyForPosition(activeFile, clampedLine, targetColumn);
+    const pageScrollX = window.scrollX;
+    const pageScrollY = window.scrollY;
+    editorNode.focus({ preventScroll: true });
     editorNode.setSelectionRange(caret, caret);
     const computedLineHeight = Number.parseFloat(window.getComputedStyle(editorNode).lineHeight);
     const lineHeight = Number.isFinite(computedLineHeight) ? computedLineHeight : 22;
     editorNode.scrollTop = Math.max(0, (clampedLine - 2) * lineHeight);
+    window.scrollTo(pageScrollX, pageScrollY);
   }
 
   function handleEditorCaretActivity() {
@@ -314,7 +324,7 @@
         column += 1;
       }
     }
-    const nextSyncKey = `${activeFile}:${line}:${column}`;
+    const nextSyncKey = focusKeyForPosition(activeFile, line, column);
     if (nextSyncKey === lastEditorSyncKey) {
       return;
     }
@@ -338,13 +348,12 @@
 
 <div class="studio-shell">
   <section class="studio-hero">
-    <p class="studio-hero__eyebrow">Latex Live Desk</p>
-    <h1>Write in the textarea. Let the daemon chase the preview.</h1>
-    <p class="studio-hero__summary">
-      This SvelteKit shell now keeps the existing `latexd` preview surface intact while exposing a
-      live source editor that writes back into the current workspace and follows preview-driven
-      source selection.
-    </p>
+    <div class="studio-hero__intro">
+      <p class="studio-hero__eyebrow">Latex Live Desk</p>
+      <p class="studio-hero__summary">
+        Live editor and preview for the current `latexd` workspace.
+      </p>
+    </div>
     <div class="studio-hero__chips">
       <span class="chip">rev {previewState.currentRev}</span>
       <span class="chip">applied {previewState.lastAppliedRev}</span>
@@ -426,12 +435,10 @@
             class="editor-textarea"
             autocapitalize="off"
             autocomplete="off"
-            onfocus={handleEditorCaretActivity}
             placeholder="Type LaTeX here…"
             spellcheck="false"
-            onclick={handleEditorCaretActivity}
             oninput={handleEditorInput}
-            onkeyup={handleEditorCaretActivity}
+            onmouseup={handleEditorCaretActivity}
             onselect={handleEditorCaretActivity}
           ></textarea>
         </div>
@@ -462,12 +469,22 @@
 </div>
 
 <style>
+  :global(html),
+  :global(body) {
+    height: 100%;
+    margin: 0;
+  }
+
   :global(body) {
     color: #f8f2e5;
   }
 
   .studio-shell {
-    min-height: 100vh;
+    box-sizing: border-box;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 1.25rem;
+    min-height: 100dvh;
     padding: 2rem;
     background:
       radial-gradient(circle at top left, rgba(249, 203, 92, 0.16), transparent 32%),
@@ -476,8 +493,18 @@
   }
 
   .studio-hero {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
     max-width: 72rem;
-    margin: 0 auto 1.5rem;
+    width: 100%;
+    margin: 0 auto;
+  }
+
+  .studio-hero__intro {
+    display: grid;
+    gap: 0.35rem;
   }
 
   .studio-hero__eyebrow,
@@ -491,31 +518,23 @@
     color: #f7c873;
   }
 
-  h1,
   h2 {
     margin: 0;
     font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Georgia, serif;
   }
 
-  .studio-hero h1 {
-    max-width: 16ch;
-    font-size: clamp(2.3rem, 4vw, 4.4rem);
-    line-height: 0.95;
-  }
-
   .studio-hero__summary {
-    max-width: 56rem;
-    margin: 0.9rem 0 0;
-    font-size: 1rem;
-    line-height: 1.6;
+    margin: 0;
+    font-size: 0.95rem;
+    line-height: 1.5;
     color: rgba(248, 242, 229, 0.82);
   }
 
   .studio-hero__chips {
     display: flex;
     flex-wrap: wrap;
+    justify-content: flex-end;
     gap: 0.65rem;
-    margin-top: 1rem;
   }
 
   .chip {
@@ -546,13 +565,17 @@
     gap: 1.25rem;
     max-width: 92rem;
     margin: 0 auto;
+    width: 100%;
+    min-height: 0;
   }
 
   .editor-panel,
   .preview-panel {
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
     gap: 1rem;
+    overflow: hidden;
     min-height: 0;
     padding: 1.1rem;
     border: 1px solid rgba(255, 255, 255, 0.12);
@@ -685,8 +708,10 @@
   }
 
   .editor-paper {
+    box-sizing: border-box;
     flex: 1;
-    min-height: 24rem;
+    min-height: 0;
+    overflow: hidden;
     padding: 1rem;
     border-radius: 1.4rem;
     background:
@@ -701,11 +726,14 @@
   }
 
   .editor-textarea {
+    box-sizing: border-box;
     width: 100%;
-    min-height: 100%;
+    height: 100%;
+    min-height: 0;
     border: 0;
     background: transparent;
     color: #312317;
+    overflow: auto;
     resize: none;
     font: 1rem/1.7 "Cascadia Code", "JetBrains Mono", "SFMono-Regular", Menlo, Consolas, monospace;
     outline: none;
@@ -723,24 +751,54 @@
   }
 
   .preview-panel {
-    min-height: 48rem;
+    min-height: 0;
   }
 
   .viewer-frame {
+    box-sizing: border-box;
     flex: 1;
-    min-height: 40rem;
+    min-height: 0;
     overflow: hidden;
     border-radius: 1.25rem;
     background: rgba(255, 255, 255, 0.04);
   }
 
+  @media (min-width: 981px) {
+    :global(body) {
+      overflow: hidden;
+    }
+
+    .studio-shell {
+      height: 100dvh;
+    }
+
+    .workspace-grid {
+      height: 100%;
+    }
+
+    .editor-panel,
+    .preview-panel {
+      height: 100%;
+    }
+  }
+
   @media (max-width: 980px) {
     .studio-shell {
       padding: 1rem;
+      grid-template-rows: auto;
+    }
+
+    .studio-hero {
+      flex-direction: column;
+    }
+
+    .studio-hero__chips {
+      justify-content: flex-start;
     }
 
     .workspace-grid {
       grid-template-columns: 1fr;
+      height: auto;
     }
 
     .editor-panel,
@@ -750,6 +808,10 @@
 
     .viewer-frame {
       min-height: 30rem;
+    }
+
+    .editor-paper {
+      min-height: 24rem;
     }
   }
 </style>

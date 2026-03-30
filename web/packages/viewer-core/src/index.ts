@@ -129,6 +129,21 @@ function pageExistsForState(state, pageId) {
   return state.pages.some((page) => page.pageId === pageId);
 }
 
+function sourceKey(source) {
+  return source
+    ? [
+      source.itemId ?? "",
+      source.pageId,
+      source.file,
+      source.startUtf8,
+      source.endUtf8,
+      source.startLine ?? "",
+      source.endLine ?? "",
+      source.sourceHash ?? ""
+    ].join(":")
+    : "";
+}
+
 export function selectNearestSyncItem(syncMap, pageY, pageX = null) {
   if (!syncMap || !Array.isArray(syncMap.items) || syncMap.items.length === 0) {
     return null;
@@ -894,6 +909,28 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
   const sourceFileInflight = new Map();
   const syncInteractionSerials = new Map();
   let lastViewportPayload = null;
+  const scrollPageIntoFrame = (pageId) => {
+    const pageNode = pageNodes.get(pageId);
+    if (!pageNode) {
+      return;
+    }
+    const frameRect = elements.frame.getBoundingClientRect();
+    const pageRect = pageNode.getBoundingClientRect();
+    if (frameRect.height <= 0 || pageRect.height <= 0) {
+      return;
+    }
+    const targetTop =
+      elements.frame.scrollTop
+      + (pageRect.top - frameRect.top)
+      - Math.max(0, (frameRect.height - pageRect.height) / 2);
+    if (typeof elements.frame.scrollTo === "function") {
+      elements.frame.scrollTo({
+        top: Math.max(0, targetTop)
+      });
+      return;
+    }
+    elements.frame.scrollTop = Math.max(0, targetTop);
+  };
 
   const queueTileRefresh = () => {
     if (tileRefreshHandle !== 0) {
@@ -938,11 +975,7 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
           startTileY,
           endTileY
         ].join(":");
-        const existingLayer = state.tileLayers[page.pageId];
-        if (
-          tileRequestKeys.get(page.pageId) === requestKey
-          && existingLayer?.zoomBucket === zoomBucket
-        ) {
+        if (tileRequestKeys.get(page.pageId) === requestKey) {
           continue;
         }
         tileRequestKeys.set(page.pageId, requestKey);
@@ -1319,18 +1352,6 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
       rev: state.lastAppliedRev,
       source
     });
-    const sourceKey = (source) => source
-      ? [
-        source.itemId ?? "",
-        source.pageId,
-        source.file,
-        source.startUtf8,
-        source.endUtf8,
-        source.startLine ?? "",
-        source.endLine ?? "",
-        source.sourceHash ?? ""
-      ].join(":")
-      : "";
     if (sourceKey(previousHovered) !== sourceKey(state.hoveredSource)) {
       emitEvent({
         type: "source-hovered",
@@ -1462,6 +1483,9 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
         syncMap,
         selectNearestSyncItem(syncMap, pageY, pageX)
       );
+      if (sourceKey(item) === sourceKey(state.hoveredSource)) {
+        return;
+      }
       dispatch({
         type: "ui_sync_hovered",
         item
@@ -1547,7 +1571,7 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
           type: eventType,
           detail: resolvedDetail
         });
-        pageNodes.get(jump.page_id)?.scrollIntoView({ block: "center" });
+        scrollPageIntoFrame(jump.page_id);
         return resolvedDetail;
       })
       .catch((error) => {
@@ -1665,7 +1689,7 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
             page_index: response.page_index ?? Math.max(0, state.pageIds.indexOf(response.page_id)),
             item: resolvedDetail.item
           });
-          pageNodes.get(response.page_id)?.scrollIntoView({ block: "center" });
+          scrollPageIntoFrame(response.page_id);
         }
         return resolvedDetail;
       })

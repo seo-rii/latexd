@@ -374,7 +374,7 @@ async function withViewerBrowserHarness(optionsOrRun, maybeRun) {
   try {
     mountedViewer = mountTestHost();
     await flush();
-    return await run({ window: fakeWindow, fetchCalls, flush, sockets });
+    return await run({ window: fakeWindow, fetchCalls, flush, sockets, elements });
   } finally {
     mountedViewer?.destroy();
     globalThis.window = previousWindow;
@@ -434,6 +434,39 @@ test("viewer host forwards state changes through the app callback", async () => 
   }, async ({ flush }) => {
     await flush();
     assert.deepEqual(seenEvents, ["state-changed"]);
+  });
+});
+
+test("viewer hover over the same preview item does not re-emit app events", async () => {
+  const seenEvents = [];
+  await withViewerBrowserHarness({
+    hostOptions: {
+      onEvent(event) {
+        seenEvents.push(event.type);
+      }
+    }
+  }, async ({ elements, flush }) => {
+    seenEvents.length = 0;
+    const stage = elements.get("preview-stack")?.children[0]?.querySelector(".page-stage");
+    assert.ok(stage);
+
+    const moveWithinFirstSyncItem = (x, y) => {
+      const event = new Event("mousemove");
+      Object.defineProperties(event, {
+        clientX: { value: x },
+        clientY: { value: y }
+      });
+      return event;
+    };
+
+    stage.dispatchEvent(moveWithinFirstSyncItem(96, 36));
+    await flush();
+    const afterFirstHover = seenEvents.slice();
+    assert.deepEqual(afterFirstHover, ["source-hovered", "state-changed"]);
+
+    stage.dispatchEvent(moveWithinFirstSyncItem(108, 44));
+    await flush();
+    assert.deepEqual(seenEvents, afterFirstHover);
   });
 });
 
