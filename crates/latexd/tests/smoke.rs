@@ -1,4 +1,9 @@
-use std::{collections::BTreeMap, fs};
+use std::{
+    collections::BTreeMap,
+    fs,
+    os::unix::fs::PermissionsExt,
+    sync::{Mutex, OnceLock},
+};
 
 use camino::Utf8PathBuf;
 use hmr_protocol::PagePatchOp;
@@ -34,6 +39,8 @@ struct StoredSources {
     #[serde(default)]
     rewrite_spans: BTreeMap<Utf8PathBuf, Vec<MaterializedRewriteSpan>>,
 }
+
+static PATH_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 #[tokio::test]
 async fn mock_compiler_builds_pdf_and_failure_keeps_last_good_preview() {
@@ -648,6 +655,156 @@ toplevel:
 
     let output = fs::read_to_string(build_root.join("rev-1/output.txt")).expect("read output");
     assert!(output.contains("font-found"));
+}
+
+#[tokio::test]
+async fn external_oracle_supports_latex_dvips_ps2pdf_pipeline() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: latex_dvips_ps2_pdf
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}dvips pipeline\\end{document}",
+    )
+    .expect("write main");
+
+    let tool_dir = root.join("fake-tools");
+    fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
+    let latex_script = tool_dir.join("latex");
+    fs::write(
+        latex_script.as_std_path(),
+        r#"#!/usr/bin/env bash
+set -euo pipefail
+out_dir=""
+main=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -output-directory)
+      out_dir="$2"
+      shift 2
+      ;;
+    *)
+      main="$1"
+      shift
+      ;;
+  esac
+done
+stem="$(basename "$main" .tex)"
+mkdir -p "$out_dir"
+printf 'fake-dvi' > "$out_dir/$stem.dvi"
+printf 'INPUT %s\n' "$(pwd)/$main" > "$out_dir/$stem.fls"
+"#,
+    )
+    .expect("write fake latex");
+    fs::set_permissions(
+        latex_script.as_std_path(),
+        fs::Permissions::from_mode(0o755),
+    )
+    .expect("chmod fake latex");
+    let dvips_script = tool_dir.join("dvips");
+    fs::write(
+        dvips_script.as_std_path(),
+        r#"#!/usr/bin/env bash
+set -euo pipefail
+out=""
+input=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o)
+      out="$2"
+      shift 2
+      ;;
+    *)
+      input="$1"
+      shift
+      ;;
+  esac
+done
+test -f "$input"
+printf 'fake-ps' > "$out"
+"#,
+    )
+    .expect("write fake dvips");
+    fs::set_permissions(
+        dvips_script.as_std_path(),
+        fs::Permissions::from_mode(0o755),
+    )
+    .expect("chmod fake dvips");
+    let ps2pdf_script = tool_dir.join("ps2pdf");
+    fs::write(
+        ps2pdf_script.as_std_path(),
+        r#"#!/usr/bin/env bash
+set -euo pipefail
+input="$1"
+output="$2"
+test -f "$input"
+cat > "$output" <<'EOF'
+%PDF-1.4
+1 0 obj
+<<>>
+endobj
+trailer
+<<>>
+%%EOF
+EOF
+"#,
+    )
+    .expect("write fake ps2pdf");
+    fs::set_permissions(
+        ps2pdf_script.as_std_path(),
+        fs::Permissions::from_mode(0o755),
+    )
+    .expect("chmod fake ps2pdf");
+
+    let _path_lock = PATH_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("path env lock");
+    let original_path = std::env::var_os("PATH");
+    let mut prefixed_path = std::env::split_paths(original_path.as_deref().unwrap_or_default())
+        .collect::<Vec<_>>();
+    prefixed_path.insert(0, tool_dir.as_std_path().to_path_buf());
+    let joined_path = std::env::join_paths(prefixed_path).expect("join path");
+    unsafe {
+        std::env::set_var("PATH", &joined_path);
+    }
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(None, Vec::new());
+    let build_root = root.join(".latexd/build");
+    let outcome = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect("latex -> dvips -> ps2pdf build should succeed");
+
+    match original_path {
+        Some(path) => unsafe {
+            std::env::set_var("PATH", path);
+        },
+        None => unsafe {
+            std::env::remove_var("PATH");
+        },
+    }
+
+    assert!(outcome.pdf_path.exists());
+    assert!(build_root.join("rev-1/main.dvi").exists());
+    assert!(build_root.join("rev-1/main.ps").exists());
+    assert_eq!(outcome.dep_trace.inputs, vec![Utf8PathBuf::from("main.tex")]);
 }
 
 #[tokio::test]
@@ -6673,6 +6830,93 @@ toplevel:
     assert_eq!(build_meta.semantic_rerun_count, 0);
     assert!(build_meta.semantic_fixpoint_reached);
     assert!(build_meta.semantic_aux_backdated);
+}
+
+#[tokio::test]
+async fn internal_compiler_rebuilds_from_base_snapshot_when_late_section_title_changes_toc() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: pdf_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(root.join("article.cls"), "").expect("write class");
+    fs::create_dir_all(root.join("sections")).expect("create sections dir");
+    let filler = "late semantic invalidation filler ".repeat(520);
+    fs::write(
+        root.join("main.tex"),
+        format!(
+            "\\documentclass{{article}}\\begin{{document}}\\tableofcontents\\section{{Intro}}Intro body. {filler}\\input{{sections/tail}}\\end{{document}}"
+        ),
+    )
+    .expect("write main");
+    fs::write(
+        root.join("sections/tail.tex"),
+        "\\section{Old Tail Scope}\\label{sec:tail}See \\ref{sec:tail}.",
+    )
+    .expect("write tail");
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+    let build_root = root.join(".latexd/build");
+    let first = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("main.tex"), Utf8PathBuf::from("sections/tail.tex")],
+        })
+        .await
+        .expect("first semantic aux build should succeed");
+    assert!(
+        first.page_metadata.len() >= 2,
+        "fixture should push the second section onto a later page"
+    );
+
+    fs::write(
+        root.join("sections/tail.tex"),
+        "\\section{New Tail Scope}\\label{sec:tail}See \\ref{sec:tail}.",
+    )
+    .expect("rewrite tail");
+
+    let second = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 2,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("sections/tail.tex")],
+        })
+        .await
+        .expect("second semantic aux build should succeed");
+
+    let second_output =
+        fs::read_to_string(build_root.join("rev-2/output.txt")).expect("read second output");
+    assert!(second_output.contains("New Tail Scope"));
+    assert!(
+        !second_output.contains("Old Tail Scope"),
+        "late section title edits should not leave the stale TOC entry behind"
+    );
+    let build_meta = serde_json::from_slice::<BuildMeta>(
+        &fs::read(build_root.join("rev-2/build-meta.json")).expect("read build meta"),
+    )
+    .expect("parse build meta");
+    assert!(build_meta.aux_sensitive);
+    assert_eq!(
+        build_meta.dirty_files,
+        vec![Utf8PathBuf::from("sections/tail.tex")]
+    );
+    assert_eq!(build_meta.start_checkpoint_id, second.reused_checkpoint_id);
+    assert_eq!(build_meta.start_page_index, 0);
+    assert!(build_meta.semantic_fixpoint_reached);
 }
 
 #[tokio::test]

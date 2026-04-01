@@ -1633,7 +1633,11 @@ impl CompilerDriver {
             });
         }
 
-        let (program, args) = if let Some(compiler_bin) = &self.compiler_bin {
+        let main_stem = request.toplevel.file_stem().unwrap_or("main");
+        let dvi_path = rev_dir.join(format!("{main_stem}.dvi"));
+        let ps_path = rev_dir.join(format!("{main_stem}.ps"));
+        let mut commands = Vec::new();
+        if let Some(compiler_bin) = &self.compiler_bin {
             let mut materialized_args = Vec::with_capacity(self.compiler_args.len());
             for argument in &self.compiler_args {
                 materialized_args.push(
@@ -1647,12 +1651,12 @@ impl CompilerDriver {
                         .replace("{rev}", &request.rev.to_string()),
                 );
             }
-            (compiler_bin.clone(), materialized_args)
+            commands.push((compiler_bin.clone(), materialized_args, Some(pdf_path.clone()), "PDF"));
         } else {
             match request.manifest.compiler {
                 CompilerMode::PdfLatex => {
                     if let Ok(program) = which::which("tectonic") {
-                        (
+                        commands.push((
                             program.to_string_lossy().into_owned(),
                             vec![
                                 "-X".to_string(),
@@ -1665,9 +1669,11 @@ impl CompilerDriver {
                                 rev_dir.to_string(),
                                 request.toplevel.to_string(),
                             ],
-                        )
+                            Some(pdf_path.clone()),
+                            "PDF",
+                        ));
                     } else if let Ok(program) = which::which("pdflatex") {
-                        (
+                        commands.push((
                             program.to_string_lossy().into_owned(),
                             vec![
                                 "-interaction=nonstopmode".to_string(),
@@ -1677,7 +1683,9 @@ impl CompilerDriver {
                                 rev_dir.to_string(),
                                 request.toplevel.to_string(),
                             ],
-                        )
+                            Some(pdf_path.clone()),
+                            "PDF",
+                        ));
                     } else {
                         return Err(CompileFailure {
                             diagnostics: vec![Diagnostic {
@@ -1692,7 +1700,7 @@ impl CompilerDriver {
                 }
                 CompilerMode::XeLatex => {
                     if let Ok(program) = which::which("xelatex") {
-                        (
+                        commands.push((
                             program.to_string_lossy().into_owned(),
                             vec![
                                 "-interaction=nonstopmode".to_string(),
@@ -1702,7 +1710,9 @@ impl CompilerDriver {
                                 rev_dir.to_string(),
                                 request.toplevel.to_string(),
                             ],
-                        )
+                            Some(pdf_path.clone()),
+                            "PDF",
+                        ));
                     } else {
                         return Err(CompileFailure {
                             diagnostics: vec![Diagnostic {
@@ -1716,69 +1726,137 @@ impl CompilerDriver {
                     }
                 }
                 CompilerMode::LatexDvipsPs2Pdf => {
-                    if let Ok(program) = which::which("latex") {
-                        (
-                            program.to_string_lossy().into_owned(),
-                            vec![
-                                "-interaction=nonstopmode".to_string(),
-                                "-halt-on-error".to_string(),
-                                "-recorder".to_string(),
-                                "-output-directory".to_string(),
-                                rev_dir.to_string(),
-                                request.toplevel.to_string(),
-                            ],
-                        )
-                    } else {
-                        return Err(CompileFailure {
-                            diagnostics: vec![Diagnostic {
-                                level: DiagnosticLevel::Error,
-                                file: Some(request.toplevel.to_string()),
-                                line: None,
-                                message: "latex is not installed; pass --compiler-bin to configure a compatible compiler".to_string(),
-                            }],
-                            message: "latex is not installed".to_string(),
-                        });
-                    }
+                    let latex_program = which::which("latex").map_err(|_| CompileFailure {
+                        diagnostics: vec![Diagnostic {
+                            level: DiagnosticLevel::Error,
+                            file: Some(request.toplevel.to_string()),
+                            line: None,
+                            message: "latex is not installed; pass --compiler-bin to configure a compatible compiler".to_string(),
+                        }],
+                        message: "latex is not installed".to_string(),
+                    })?;
+                    let dvips_program = which::which("dvips").map_err(|_| CompileFailure {
+                        diagnostics: vec![Diagnostic {
+                            level: DiagnosticLevel::Error,
+                            file: Some(request.toplevel.to_string()),
+                            line: None,
+                            message: "dvips is not installed; install a DVI-to-PostScript toolchain or pass --compiler-bin".to_string(),
+                        }],
+                        message: "dvips is not installed".to_string(),
+                    })?;
+                    let ps2pdf_program = which::which("ps2pdf").map_err(|_| CompileFailure {
+                        diagnostics: vec![Diagnostic {
+                            level: DiagnosticLevel::Error,
+                            file: Some(request.toplevel.to_string()),
+                            line: None,
+                            message: "ps2pdf is not installed; install a PostScript-to-PDF toolchain or pass --compiler-bin".to_string(),
+                        }],
+                        message: "ps2pdf is not installed".to_string(),
+                    })?;
+                    commands.push((
+                        latex_program.to_string_lossy().into_owned(),
+                        vec![
+                            "-interaction=nonstopmode".to_string(),
+                            "-halt-on-error".to_string(),
+                            "-recorder".to_string(),
+                            "-output-directory".to_string(),
+                            rev_dir.to_string(),
+                            request.toplevel.to_string(),
+                        ],
+                        Some(dvi_path.clone()),
+                        "DVI",
+                    ));
+                    commands.push((
+                        dvips_program.to_string_lossy().into_owned(),
+                        vec![
+                            "-o".to_string(),
+                            ps_path.to_string(),
+                            dvi_path.to_string(),
+                        ],
+                        Some(ps_path.clone()),
+                        "PostScript",
+                    ));
+                    commands.push((
+                        ps2pdf_program.to_string_lossy().into_owned(),
+                        vec![ps_path.to_string(), pdf_path.to_string()],
+                        Some(pdf_path.clone()),
+                        "PDF",
+                    ));
                 }
             }
-        };
+        }
 
-        let output = tokio::process::Command::new(&program)
-            .args(&args)
-            .current_dir(request.root.as_std_path())
-            .output()
-            .await
-            .map_err(|error| CompileFailure {
-                diagnostics: vec![Diagnostic {
-                    level: DiagnosticLevel::Error,
-                    file: Some(request.toplevel.to_string()),
-                    line: None,
+        let mut diagnostics = Vec::new();
+        for (program, args, expected_output_path, expected_output_kind) in commands {
+            let output = tokio::process::Command::new(&program)
+                .args(&args)
+                .current_dir(request.root.as_std_path())
+                .output()
+                .await
+                .map_err(|error| CompileFailure {
+                    diagnostics: vec![Diagnostic {
+                        level: DiagnosticLevel::Error,
+                        file: Some(request.toplevel.to_string()),
+                        line: None,
+                        message: format!("failed to spawn compiler `{program}`: {error}"),
+                    }],
                     message: format!("failed to spawn compiler `{program}`: {error}"),
-                }],
-                message: format!("failed to spawn compiler `{program}`: {error}"),
-            })?;
+                })?;
 
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if !output.status.success() {
-            let details = if stderr.trim().is_empty() {
-                stdout.lines().rev().take(8).collect::<Vec<_>>().join("\n")
-            } else {
-                stderr.lines().rev().take(8).collect::<Vec<_>>().join("\n")
-            };
-            return Err(CompileFailure {
-                diagnostics: vec![Diagnostic {
-                    level: DiagnosticLevel::Error,
-                    file: Some(request.toplevel.to_string()),
-                    line: None,
-                    message: if details.is_empty() {
-                        format!("compiler `{program}` exited with status {}", output.status)
-                    } else {
-                        details
-                    },
-                }],
-                message: format!("compiler `{program}` exited with status {}", output.status),
-            });
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if !output.status.success() {
+                let details = if stderr.trim().is_empty() {
+                    stdout.lines().rev().take(8).collect::<Vec<_>>().join("\n")
+                } else {
+                    stderr.lines().rev().take(8).collect::<Vec<_>>().join("\n")
+                };
+                return Err(CompileFailure {
+                    diagnostics: vec![Diagnostic {
+                        level: DiagnosticLevel::Error,
+                        file: Some(request.toplevel.to_string()),
+                        line: None,
+                        message: if details.is_empty() {
+                            format!("compiler `{program}` exited with status {}", output.status)
+                        } else {
+                            details
+                        },
+                    }],
+                    message: format!("compiler `{program}` exited with status {}", output.status),
+                });
+            }
+
+            for line in stderr.lines() {
+                let lower = line.to_ascii_lowercase();
+                if lower.contains("warning") {
+                    diagnostics.push(Diagnostic {
+                        level: DiagnosticLevel::Warning,
+                        file: Some(request.toplevel.to_string()),
+                        line: None,
+                        message: line.to_string(),
+                    });
+                }
+            }
+
+            if let Some(expected_output_path) = expected_output_path {
+                if !expected_output_path.exists() {
+                    return Err(CompileFailure {
+                        diagnostics: vec![Diagnostic {
+                            level: DiagnosticLevel::Error,
+                            file: Some(request.toplevel.to_string()),
+                            line: None,
+                            message: format!(
+                                "compiler `{program}` succeeded but did not produce expected {expected_output_kind} {}",
+                                expected_output_path
+                            ),
+                        }],
+                        message: format!(
+                            "expected {expected_output_kind} {} was not created",
+                            expected_output_path
+                        ),
+                    });
+                }
+            }
         }
 
         if !pdf_path.exists() {
@@ -1788,25 +1866,12 @@ impl CompilerDriver {
                     file: Some(request.toplevel.to_string()),
                     line: None,
                     message: format!(
-                        "compiler `{program}` succeeded but did not produce expected PDF {}",
+                        "compiler succeeded but did not produce expected PDF {}",
                         pdf_path
                     ),
                 }],
                 message: format!("expected PDF {} was not created", pdf_path),
             });
-        }
-
-        let mut diagnostics = Vec::new();
-        for line in stderr.lines() {
-            let lower = line.to_ascii_lowercase();
-            if lower.contains("warning") {
-                diagnostics.push(Diagnostic {
-                    level: DiagnosticLevel::Warning,
-                    file: Some(request.toplevel.to_string()),
-                    line: None,
-                    message: line.to_string(),
-                });
-            }
         }
 
         let dep_trace = if depfile_path.exists() {
