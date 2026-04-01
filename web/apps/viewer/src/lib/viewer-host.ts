@@ -11,6 +11,10 @@ import {
   createLatexdViewerTransport,
   type LatexdViewerTransportOptions
 } from "./latexd-client";
+import {
+  createLatexdViewerRealtime,
+  type LatexdViewerRealtime
+} from "./viewer-socket";
 
 type ViewerWindow = Window & typeof globalThis & Record<string, any>;
 
@@ -32,6 +36,7 @@ export interface LatexdViewerHostOptions
   CustomEvent?: typeof CustomEvent;
   exposeGlobals?: boolean;
   onEvent?: (event: ViewerEvent) => void;
+  realtime?: LatexdViewerRealtime;
 }
 
 export function mountLatexdViewerHost(
@@ -44,12 +49,20 @@ export function mountLatexdViewerHost(
     WebSocket,
     window,
     wsPath,
+    openWebSocket: _unusedOpenWebSocket,
+    realtime,
     CustomEvent: CustomEventCtor = CustomEvent,
     exposeGlobals = true,
     onEvent: hostOnEvent,
     ...viewerOptions
   } = options;
   const viewerWindow = (window ?? globalThis.window) as ViewerWindow;
+  const ownedRealtime = realtime ?? createLatexdViewerRealtime({
+    apiBase,
+    WebSocket,
+    window: viewerWindow,
+    wsPath
+  });
   let state = null as any;
   let pendingSourceHashRequest = parseSourceHashRequest(viewerWindow.location.hash);
 
@@ -59,9 +72,9 @@ export function mountLatexdViewerHost(
     transport: createLatexdViewerTransport({
       apiBase,
       fetch,
-      WebSocket,
       window: viewerWindow,
-      wsPath
+      wsPath,
+      openWebSocket: () => ownedRealtime.openWebSocket()
     }),
     onEvent(event) {
       if (event.type === "state-changed") {
@@ -149,6 +162,9 @@ export function mountLatexdViewerHost(
         }
       }
       viewer.destroy();
+      if (!realtime) {
+        ownedRealtime.destroy();
+      }
     }
   };
 }

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readable } from "svelte/store";
 
 import { mountLatexdViewerHost } from "../src/lib/viewer-host.ts";
 
@@ -197,6 +198,8 @@ async function withViewerBrowserHarness(optionsOrRun, maybeRun) {
 
   const fetchCalls = [];
   const sockets = [];
+  let nextAnimationFrameHandle = 1;
+  const pendingAnimationFrames = new Map();
   const fakeWindow = new EventTarget();
   fakeWindow.location = new URL("http://example.test/");
   if (typeof options.initialHash === "string" && options.initialHash.length > 0) {
@@ -209,8 +212,17 @@ async function withViewerBrowserHarness(optionsOrRun, maybeRun) {
       fakeWindow.location = new URL(String(nextUrl), fakeWindow.location.href);
     }
   };
-  fakeWindow.requestAnimationFrame = () => 1;
-  fakeWindow.cancelAnimationFrame = () => {};
+  fakeWindow.requestAnimationFrame = (callback) => {
+    const handle = nextAnimationFrameHandle;
+    nextAnimationFrameHandle += 1;
+    if (options.driveAnimationFrames) {
+      pendingAnimationFrames.set(handle, callback);
+    }
+    return handle;
+  };
+  fakeWindow.cancelAnimationFrame = (handle) => {
+    pendingAnimationFrames.delete(handle);
+  };
 
   const jsonResponse = (body, status = 200) => ({
     ok: status >= 200 && status < 300,
@@ -311,6 +323,9 @@ async function withViewerBrowserHarness(optionsOrRun, maybeRun) {
       });
     }
     if (url.pathname === "/api/tiles/15/page-a") {
+      if (typeof options.tileManifestResponse === "function") {
+        return jsonResponse(options.tileManifestResponse(url));
+      }
       return jsonResponse({
         rev: 15,
         page_id: "page-a",
@@ -355,6 +370,16 @@ async function withViewerBrowserHarness(optionsOrRun, maybeRun) {
 
   const flush = async () => {
     await Promise.resolve();
+    if (options.driveAnimationFrames) {
+      while (pendingAnimationFrames.size > 0) {
+        const callbacks = [...pendingAnimationFrames.values()];
+        pendingAnimationFrames.clear();
+        for (const callback of callbacks) {
+          callback(0);
+        }
+        await Promise.resolve();
+      }
+    }
     await new Promise((resolve) => setTimeout(resolve, 0));
     await Promise.resolve();
   };
@@ -383,6 +408,59 @@ async function withViewerBrowserHarness(optionsOrRun, maybeRun) {
     globalThis.WebSocket = previousWebSocket;
     globalThis.CustomEvent = previousCustomEvent;
   }
+}
+
+function installScrollablePreviewGeometry(elements, options = {}) {
+  const frame = elements.get("frame");
+  const previewStack = elements.get("preview-stack");
+  assert.ok(frame);
+  assert.ok(previewStack);
+
+  const frameTop = options.frameTop ?? 0;
+  const frameHeight = options.frameHeight ?? 600;
+  const frameWidth = options.frameWidth ?? 612;
+  const pageHeight = options.pageHeight ?? 800;
+  const pageGap = options.pageGap ?? 40;
+
+  frame.getBoundingClientRect = () => ({
+    left: 0,
+    top: frameTop,
+    right: frameWidth,
+    bottom: frameTop + frameHeight,
+    width: frameWidth,
+    height: frameHeight
+  });
+  frame.scrollTo = ({ top } = {}) => {
+    if (typeof top === "number" && Number.isFinite(top)) {
+      frame.scrollTop = Math.max(0, top);
+    }
+  };
+
+  for (const [index, pageNode] of previewStack.children.entries()) {
+    const absoluteTop = index * (pageHeight + pageGap);
+    const getRect = () => {
+      const top = frameTop + absoluteTop - frame.scrollTop;
+      return {
+        left: 0,
+        top,
+        right: frameWidth,
+        bottom: top + pageHeight,
+        width: frameWidth,
+        height: pageHeight
+      };
+    };
+    pageNode.getBoundingClientRect = getRect;
+    const stage = pageNode.querySelector(".page-stage");
+    if (stage) {
+      stage.getBoundingClientRect = getRect;
+    }
+  }
+
+  return {
+    frame,
+    pageHeight,
+    pageGap
+  };
 }
 
 test("viewer open-source without editor bridge still fetches resolved payload", async () => {
@@ -434,6 +512,123 @@ test("viewer host forwards state changes through the app callback", async () => 
   }, async ({ flush }) => {
     await flush();
     assert.deepEqual(seenEvents, ["state-changed"]);
+  });
+});
+
+test("viewer host can mount against an app-owned realtime socket", async () => {
+  let openCalls = 0;
+  let socketCloseCalls = 0;
+  let realtimeDestroyCalls = 0;
+  const socket = new EventTarget();
+  socket.readyState = 0;
+  socket.send = () => {};
+  socket.close = () => {
+    socketCloseCalls += 1;
+  };
+
+  await withViewerBrowserHarness({
+    hostOptions: {
+      realtime: {
+        openWebSocket() {
+          openCalls += 1;
+          return socket;
+        },
+        status: readable({
+          phase: "open",
+          url: "ws://example.test/ws"
+        }),
+        messages: readable(null),
+        destroy() {
+          realtimeDestroyCalls += 1;
+        }
+      }
+    }
+  }, async ({ flush }) => {
+    socket.readyState = 1;
+    socket.dispatchEvent(new Event("open"));
+    await flush();
+    assert.equal(openCalls, 1);
+  });
+
+  assert.equal(socketCloseCalls, 1);
+  assert.equal(realtimeDestroyCalls, 0);
+});
+
+test("viewer next and prev buttons scroll the frame to the active page", async () => {
+  await withViewerBrowserHarness({
+    stateResponse: {
+      page_ids: ["page-a", "page-b", "page-c"],
+      page_artifacts: [
+        {
+          page_id: "page-a",
+          pdf_url: "/artifacts/rev/15/pages/page-a.pdf",
+          svg_url: "/artifacts/rev/15/pages/page-a.svg"
+        },
+        {
+          page_id: "page-b",
+          pdf_url: "/artifacts/rev/15/pages/page-b.pdf",
+          svg_url: "/artifacts/rev/15/pages/page-b.svg"
+        },
+        {
+          page_id: "page-c",
+          pdf_url: "/artifacts/rev/15/pages/page-c.pdf",
+          svg_url: "/artifacts/rev/15/pages/page-c.svg"
+        }
+      ]
+    }
+  }, async ({ elements, flush }) => {
+    const { frame, pageHeight, pageGap } = installScrollablePreviewGeometry(elements);
+
+    assert.equal(elements.get("page-label")?.textContent, "1 / 3");
+
+    elements.get("next-page")?.dispatchEvent(new Event("click"));
+    await flush();
+
+    assert.equal(elements.get("page-label")?.textContent, "2 / 3");
+    assert.equal(frame.scrollTop, pageHeight + pageGap);
+
+    elements.get("prev-page")?.dispatchEvent(new Event("click"));
+    await flush();
+
+    assert.equal(elements.get("page-label")?.textContent, "1 / 3");
+    assert.equal(frame.scrollTop, 0);
+  });
+});
+
+test("viewer frame scrolling updates the active page label", async () => {
+  await withViewerBrowserHarness({
+    stateResponse: {
+      page_ids: ["page-a", "page-b", "page-c"],
+      page_artifacts: [
+        {
+          page_id: "page-a",
+          pdf_url: "/artifacts/rev/15/pages/page-a.pdf",
+          svg_url: "/artifacts/rev/15/pages/page-a.svg"
+        },
+        {
+          page_id: "page-b",
+          pdf_url: "/artifacts/rev/15/pages/page-b.pdf",
+          svg_url: "/artifacts/rev/15/pages/page-b.svg"
+        },
+        {
+          page_id: "page-c",
+          pdf_url: "/artifacts/rev/15/pages/page-c.pdf",
+          svg_url: "/artifacts/rev/15/pages/page-c.svg"
+        }
+      ]
+    }
+  }, async ({ elements, flush }) => {
+    const { frame, pageHeight, pageGap } = installScrollablePreviewGeometry(elements);
+
+    frame.scrollTop = pageHeight + pageGap + 120;
+    elements.get("frame")?.dispatchEvent(new Event("scroll"));
+    await flush();
+    assert.equal(elements.get("page-label")?.textContent, "2 / 3");
+
+    frame.scrollTop = (pageHeight + pageGap) * 2 + 120;
+    elements.get("frame")?.dispatchEvent(new Event("scroll"));
+    await flush();
+    assert.equal(elements.get("page-label")?.textContent, "3 / 3");
   });
 });
 

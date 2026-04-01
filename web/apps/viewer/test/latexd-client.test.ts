@@ -1,7 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { createLatexdApiClient } from "../src/lib/latexd-client.ts";
+import {
+  createLatexdApiClient,
+  createLatexdViewerTransport
+} from "../src/lib/latexd-client.ts";
+import { createLatexdViewerRealtime } from "../src/lib/viewer-socket.ts";
 
 test("latexd api client fetches source file lists and writes source text", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
@@ -89,5 +93,151 @@ test("latexd api client resolves endpoints relative to the current base path", a
   assert.deepEqual(calls, [
     "http://example.test/viewer/api/state",
     "http://example.test/viewer/api/source-files/3"
+  ]);
+});
+
+test("latexd viewer transport can reuse an app-owned websocket", () => {
+  const socket = {
+    readyState: 1,
+    send() {},
+    close() {}
+  };
+  let openCalls = 0;
+  const transport = createLatexdViewerTransport({
+    window: {
+      location: new URL("http://example.test/viewer/")
+    } as Window & typeof globalThis,
+    fetch: async () => {
+      throw new Error("not expected");
+    },
+    openWebSocket() {
+      openCalls += 1;
+      return socket;
+    }
+  });
+
+  assert.equal(transport.openWebSocket(), socket);
+  assert.equal(openCalls, 1);
+});
+
+test("latexd viewer realtime exposes websocket lifecycle through a store", () => {
+  class FakeWebSocket extends EventTarget {
+    readyState = 0;
+    url: string;
+
+    constructor(url: string) {
+      super();
+      this.url = url;
+    }
+
+    send() {}
+
+    close() {
+      this.readyState = 3;
+      this.dispatchEvent(new Event("close"));
+    }
+  }
+
+  const realtime = createLatexdViewerRealtime({
+    window: {
+      location: new URL("http://example.test/viewer/")
+    } as Window & typeof globalThis,
+    WebSocket: FakeWebSocket as unknown as typeof WebSocket
+  });
+  const socket = realtime.openWebSocket() as FakeWebSocket;
+  const seenPhases: string[] = [];
+  const unsubscribe = realtime.status.subscribe((status) => {
+    seenPhases.push(status.phase);
+  });
+
+  socket.readyState = 1;
+  socket.dispatchEvent(new Event("open"));
+  realtime.destroy();
+  unsubscribe();
+
+  assert.equal(socket.url, "ws://example.test/viewer/ws");
+  assert.deepEqual(seenPhases, ["connecting", "open", "closed"]);
+});
+
+test("latexd viewer realtime exposes parsed websocket messages through a store", () => {
+  class FakeWebSocket extends EventTarget {
+    readyState = 1;
+    url: string;
+
+    constructor(url: string) {
+      super();
+      this.url = url;
+    }
+
+    send() {}
+
+    close() {
+      this.readyState = 3;
+      this.dispatchEvent(new Event("close"));
+    }
+  }
+
+  const realtime = createLatexdViewerRealtime({
+    window: {
+      location: new URL("http://example.test/viewer/")
+    } as Window & typeof globalThis,
+    WebSocket: FakeWebSocket as unknown as typeof WebSocket
+  });
+  const socket = realtime.openWebSocket() as FakeWebSocket;
+  const seenMessages: unknown[] = [];
+  const unsubscribe = realtime.messages.subscribe((message) => {
+    if (message) {
+      seenMessages.push(message);
+    }
+  });
+
+  const buildStartedEvent = new Event("message");
+  Object.defineProperty(buildStartedEvent, "data", {
+    value: JSON.stringify({
+      type: "build_started",
+      rev: 12,
+      changed_files: ["main.tex"]
+    })
+  });
+  socket.dispatchEvent(buildStartedEvent);
+
+  const invalidEvent = new Event("message");
+  Object.defineProperty(invalidEvent, "data", {
+    value: "not json"
+  });
+  socket.dispatchEvent(invalidEvent);
+
+  const sourceSnapshotEvent = new Event("message");
+  Object.defineProperty(sourceSnapshotEvent, "data", {
+    value: JSON.stringify({
+      type: "source_snapshot",
+      rev: 12,
+      files: [{
+        file: "main.tex",
+        content: "\\section{Hi}\\n",
+        line_count: 1
+      }]
+    })
+  });
+  socket.dispatchEvent(sourceSnapshotEvent);
+
+  unsubscribe();
+  realtime.destroy();
+
+  assert.deepEqual(seenMessages, [
+    {
+      type: "build_started",
+      rev: 12,
+      changed_files: ["main.tex"]
+    },
+    {
+      type: "source_snapshot",
+      rev: 12,
+      files: [{
+        file: "main.tex",
+        content: "\\section{Hi}\\n",
+        line_count: 1
+      }]
+    }
   ]);
 });

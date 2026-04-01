@@ -144,6 +144,24 @@ function pageExistsForState(state, pageId) {
   return state.pages.some((page) => page.pageId === pageId);
 }
 
+function retainPageEntries(previousPages, nextPages, entries, mapEntry = (entry) => entry) {
+  const previousById = new Map<string, any>(previousPages.map((page) => [page.pageId, page]));
+  const retained: Record<string, any> = {};
+  for (const page of nextPages) {
+    const previous = previousById.get(page.pageId);
+    if (!previous) {
+      continue;
+    }
+    if (previous.pdfUrl !== page.pdfUrl || previous.svgUrl !== page.svgUrl) {
+      continue;
+    }
+    if (Object.prototype.hasOwnProperty.call(entries, page.pageId)) {
+      retained[page.pageId] = mapEntry(entries[page.pageId]);
+    }
+  }
+  return retained;
+}
+
 function sourceKey(source) {
   return source
     ? [
@@ -157,6 +175,10 @@ function sourceKey(source) {
       source.sourceHash ?? ""
     ].join(":")
     : "";
+}
+
+function tileCacheKey(tile) {
+  return `${tile.tile_x}:${tile.tile_y}`;
 }
 
 export function selectNearestSyncItem(syncMap, pageY, pageX = null) {
@@ -637,6 +659,21 @@ export function reduce(state, message) {
             pdfUrl: page.pdf_url,
             svgUrl: page.svg_url ?? null
           }));
+        const syncMaps = retainPageEntries(
+          state.pages,
+          pages,
+          state.syncMaps,
+          (entry) => ({ ...entry, rev: message.rev })
+        );
+        const tileLayers = retainPageEntries(state.pages, pages, state.tileLayers);
+        const selectedSource = state.selectedSource?.pageId
+          && Object.prototype.hasOwnProperty.call(syncMaps, state.selectedSource.pageId)
+          ? state.selectedSource
+          : null;
+        const hoveredSource = state.hoveredSource?.pageId
+          && Object.prototype.hasOwnProperty.call(syncMaps, state.hoveredSource.pageId)
+          ? state.hoveredSource
+          : null;
         return {
           ...state,
           currentRev: message.rev,
@@ -644,15 +681,15 @@ export function reduce(state, message) {
           pdfUrl: message.pdf_url,
           pageIds,
           pages,
-          syncMaps: {},
+          syncMaps,
           sourceFiles: {},
-          tileLayers: {},
+          tileLayers,
           pendingPagePatchOps: [],
           currentPage: pageIds.length > 0
             ? Math.min(state.currentPage, pageIds.length)
             : state.currentPage,
-          hoveredSource: null,
-          selectedSource: null,
+          hoveredSource,
+          selectedSource,
           building: false,
           lastBuildSucceeded: true
         };
@@ -686,19 +723,34 @@ export function reduce(state, message) {
           }
         }
         const pageIds = pages.map((page) => page.pageId);
+        const syncMaps = retainPageEntries(
+          state.pages,
+          pages,
+          state.syncMaps,
+          (entry) => ({ ...entry, rev: message.rev })
+        );
+        const tileLayers = retainPageEntries(state.pages, pages, state.tileLayers);
+        const selectedSource = state.selectedSource?.pageId
+          && Object.prototype.hasOwnProperty.call(syncMaps, state.selectedSource.pageId)
+          ? state.selectedSource
+          : null;
+        const hoveredSource = state.hoveredSource?.pageId
+          && Object.prototype.hasOwnProperty.call(syncMaps, state.hoveredSource.pageId)
+          ? state.hoveredSource
+          : null;
         return {
           ...state,
           currentRev: message.rev,
           pageIds,
           pages,
-          syncMaps: {},
-          tileLayers: {},
+          syncMaps,
+          tileLayers,
           pendingPagePatchOps: [...state.pendingPagePatchOps, ...message.ops],
           currentPage: pageIds.length > 0
             ? Math.min(state.currentPage, pageIds.length)
             : state.currentPage,
-          hoveredSource: null,
-          selectedSource: null
+          hoveredSource,
+          selectedSource
         };
       }
     case "build_finished":
@@ -744,17 +796,35 @@ export function reduce(state, message) {
       if (!pageExistsForState(state, message.page_id)) {
         return state;
       }
-      return {
-        ...state,
-        tileLayers: {
-          ...state.tileLayers,
-          [message.page_id]: {
-            zoomBucket: message.zoom_bucket,
-            tileSize: message.tile_size,
-            items: message.items
+      {
+        const previousLayer = state.tileLayers[message.page_id];
+        const items = previousLayer
+          && previousLayer.zoomBucket === message.zoom_bucket
+          && previousLayer.tileSize === message.tile_size
+          ? (() => {
+            const merged = new Map<string, any>(
+              previousLayer.items.map((item) => [tileCacheKey(item), item])
+            );
+            for (const item of message.items) {
+              merged.set(tileCacheKey(item), item);
+            }
+            return [...merged.values()].sort((left, right) =>
+              left.tile_y - right.tile_y || left.tile_x - right.tile_x
+            );
+          })()
+          : message.items;
+        return {
+          ...state,
+          tileLayers: {
+            ...state.tileLayers,
+            [message.page_id]: {
+              zoomBucket: message.zoom_bucket,
+              tileSize: message.tile_size,
+              items
+            }
           }
-        }
-      };
+        };
+      }
     case "ui_syncmap_ready":
       if (message.rev < state.currentRev) {
         return state;
@@ -1000,6 +1070,26 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
         const endTileX = Math.floor((right - 1) / TILE_SIZE);
         const startTileY = Math.floor(top / TILE_SIZE);
         const endTileY = Math.floor((bottom - 1) / TILE_SIZE);
+        const existingLayer = state.tileLayers[page.pageId];
+        if (
+          existingLayer
+          && existingLayer.zoomBucket === zoomBucket
+          && existingLayer.tileSize === TILE_SIZE
+        ) {
+          const cachedTiles = new Set(existingLayer.items.map((item) => tileCacheKey(item)));
+          let hasAllTiles = true;
+          for (let tileY = startTileY; tileY <= endTileY && hasAllTiles; tileY += 1) {
+            for (let tileX = startTileX; tileX <= endTileX; tileX += 1) {
+              if (!cachedTiles.has(`${tileX}:${tileY}`)) {
+                hasAllTiles = false;
+                break;
+              }
+            }
+          }
+          if (hasAllTiles) {
+            continue;
+          }
+        }
         const requestKey = [
           state.lastAppliedRev,
           page.pageId,
@@ -1772,8 +1862,23 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
   const emitPreviewSourceRequest = (requestInput = null) =>
     emitOpenSourceRequest(requestInput, { launch: false });
 
-  elements.prevPage.addEventListener("click", () => dispatch({ type: "ui_page_changed", page: state.currentPage - 1 }));
-  elements.nextPage.addEventListener("click", () => dispatch({ type: "ui_page_changed", page: state.currentPage + 1 }));
+  const changePageBy = (delta) => {
+    const nextPage = state.pageIds.length > 0
+      ? Math.max(1, Math.min(state.pageIds.length, state.currentPage + delta))
+      : Math.max(1, state.currentPage + delta);
+    if (nextPage === state.currentPage) {
+      return;
+    }
+    dispatch({ type: "ui_page_changed", page: nextPage });
+    const nextPageId = activePageForState(state)?.pageId;
+    if (nextPageId) {
+      scrollPageIntoFrame(nextPageId);
+    }
+    queueTileRefresh();
+  };
+
+  elements.prevPage.addEventListener("click", () => changePageBy(-1));
+  elements.nextPage.addEventListener("click", () => changePageBy(1));
   elements.zoomOut.addEventListener("click", () => dispatch({ type: "ui_zoom_changed", zoom: state.zoom - 0.1 }));
   elements.zoomIn.addEventListener("click", () => dispatch({ type: "ui_zoom_changed", zoom: state.zoom + 0.1 }));
   elements.sourceOpen.addEventListener("click", () => {
@@ -1781,6 +1886,47 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
   });
   elements.frame.addEventListener("scroll", () => {
     state = reduce(state, { type: "ui_scroll_changed", scrollTop: elements.frame.scrollTop });
+    if (state.pageIds.length > 0) {
+      const frameRect = elements.frame.getBoundingClientRect();
+      if (frameRect.height > 0) {
+        const frameCenter = frameRect.top + (frameRect.height / 2);
+        let nextPage = state.currentPage;
+        let bestVisibleOverlap = -1;
+        let bestVisibleDistance = Number.POSITIVE_INFINITY;
+        let bestFallbackDistance = Number.POSITIVE_INFINITY;
+        for (const [index, page] of state.pages.entries()) {
+          const pageNode = pageNodes.get(page.pageId);
+          if (!pageNode) {
+            continue;
+          }
+          const pageRect = pageNode.getBoundingClientRect();
+          if (pageRect.height <= 0) {
+            continue;
+          }
+          const overlap = Math.min(frameRect.bottom, pageRect.bottom) - Math.max(frameRect.top, pageRect.top);
+          const pageCenter = pageRect.top + (pageRect.height / 2);
+          const distance = Math.abs(pageCenter - frameCenter);
+          if (overlap > 0) {
+            if (overlap > bestVisibleOverlap || (overlap === bestVisibleOverlap && distance < bestVisibleDistance)) {
+              bestVisibleOverlap = overlap;
+              bestVisibleDistance = distance;
+              nextPage = index + 1;
+            }
+            continue;
+          }
+          if (bestVisibleOverlap > 0) {
+            continue;
+          }
+          if (distance < bestFallbackDistance) {
+            bestFallbackDistance = distance;
+            nextPage = index + 1;
+          }
+        }
+        if (nextPage !== state.currentPage) {
+          dispatch({ type: "ui_page_changed", page: nextPage });
+        }
+      }
+    }
     queueTileRefresh();
   });
   viewerWindow.addEventListener("resize", queueTileRefresh);

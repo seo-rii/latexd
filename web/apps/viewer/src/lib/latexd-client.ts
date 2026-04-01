@@ -5,6 +5,12 @@ import type {
   ViewerTransport
 } from "@latexd/viewer-core";
 
+export interface LatexdSourceSnapshotFile {
+  file: string;
+  content: string;
+  line_count: number;
+}
+
 export interface PreviewStateResponse {
   current_rev: number;
   last_applied_rev: number;
@@ -16,17 +22,51 @@ export interface PreviewStateResponse {
     pdf_url: string;
     svg_url?: string | null;
   }>;
-  source_snapshot?: Array<{
-    file: string;
-    content: string;
-    line_count: number;
-  }>;
+  source_snapshot?: LatexdSourceSnapshotFile[];
   diagnostics: unknown[];
   changed_files: string[];
   building: boolean;
   last_build_succeeded: boolean | null;
   editor_bridge_enabled: boolean;
 }
+
+export type LatexdServerMessage =
+  | {
+    type: "build_started";
+    rev: number;
+    changed_files: string[];
+  }
+  | {
+    type: "diagnostics";
+    rev: number;
+    items: unknown[];
+  }
+  | {
+    type: "full_pdf_ready";
+    rev: number;
+    pdf_url: string;
+    page_ids: string[];
+    page_artifacts: Array<{
+      page_id: string;
+      pdf_url: string;
+      svg_url?: string | null;
+    }>;
+  }
+  | {
+    type: "patch_pages";
+    rev: number;
+    ops: unknown[];
+  }
+  | {
+    type: "source_snapshot";
+    rev: number;
+    files: LatexdSourceSnapshotFile[];
+  }
+  | {
+    type: "build_finished";
+    rev: number;
+    success: boolean;
+  };
 
 export interface SourceFilesResponse {
   rev: number;
@@ -57,6 +97,7 @@ export interface LatexdViewerTransportOptions {
   WebSocket?: typeof WebSocket;
   window?: Window & typeof globalThis;
   wsPath?: string;
+  openWebSocket?: () => ViewerSocket;
 }
 
 export interface LatexdApiClient {
@@ -153,8 +194,7 @@ export function createLatexdViewerTransport(
   options: LatexdViewerTransportOptions = {}
 ): ViewerTransport {
   const client = createLatexdApiClient(options);
-  const { resolveWebSocketUrl } = createLatexdApiContext(options);
-  const ViewerWebSocket = options.WebSocket ?? WebSocket;
+  const openExternalWebSocket = options.openWebSocket;
 
   return {
     fetchState: client.fetchState,
@@ -164,9 +204,19 @@ export function createLatexdViewerTransport(
     jumpToSource: client.jumpToSource,
     openSource: client.openSource,
     openWebSocket() {
-      return new ViewerWebSocket(resolveWebSocketUrl()) as ViewerSocket;
+      return openExternalWebSocket
+        ? openExternalWebSocket()
+        : openLatexdWebSocket(options);
     }
   };
+}
+
+export function openLatexdWebSocket(
+  options: LatexdViewerTransportOptions = {}
+): ViewerSocket {
+  const { resolveWebSocketUrl } = createLatexdApiContext(options);
+  const ViewerWebSocket = options.WebSocket ?? WebSocket;
+  return new ViewerWebSocket(resolveWebSocketUrl()) as ViewerSocket;
 }
 
 function createLatexdApiContext(options: LatexdViewerTransportOptions) {

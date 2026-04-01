@@ -1,7 +1,12 @@
 <script lang="ts">
   import { tick } from "svelte";
   import type { ViewerEvent } from "@latexd/viewer-core";
-  import { createLatexdApiClient, mountLatexdViewerHost } from "$lib";
+  import {
+    createLatexdApiClient,
+    createLatexdViewerRealtime,
+    mountLatexdViewerHost,
+    type LatexdServerMessage
+  } from "$lib";
 
   type EditorStatus = "idle" | "loading" | "ready" | "dirty" | "saving" | "saved" | "error";
   type EditorFocus = {
@@ -19,7 +24,8 @@
     building: false,
     lastBuildSucceeded: null as boolean | null,
     changedFiles: [] as string[],
-    editorBridgeEnabled: false
+    editorBridgeEnabled: false,
+    socketPhase: "idle" as "idle" | "connecting" | "open" | "closed"
   });
   let availableFiles = $state<string[]>([]);
   let activeFile = $state("");
@@ -41,7 +47,18 @@
 
   const mountWorkspace = (node: HTMLDivElement) => {
     apiClient = createLatexdApiClient();
+    const realtime = createLatexdViewerRealtime();
+    const unsubscribeSocketStatus = realtime.status.subscribe((status) => {
+      previewState.socketPhase = status.phase;
+    });
+    const unsubscribeSocketMessages = realtime.messages.subscribe((message) => {
+      if (!message) {
+        return;
+      }
+      void syncFromRealtimeMessage(message);
+    });
     viewerController = mountLatexdViewerHost(node, {
+      realtime,
       onEvent(event) {
         void syncFromViewer(event);
       }
@@ -55,7 +72,10 @@
         clearTimeout(previewSyncTimer);
         previewSyncTimer = null;
       }
+      unsubscribeSocketMessages();
+      unsubscribeSocketStatus();
       viewerController?.destroy();
+      realtime.destroy();
       viewerController = null;
       apiClient = null;
     };
@@ -136,6 +156,41 @@
       return;
     }
     await openFile(file, focus);
+  }
+
+  async function syncFromRealtimeMessage(message: LatexdServerMessage) {
+    if (message.type === "build_started") {
+      previewState.currentRev = Math.max(previewState.currentRev, message.rev);
+      previewState.building = true;
+      previewState.changedFiles = Array.isArray(message.changed_files)
+        ? message.changed_files.slice()
+        : [];
+      return;
+    }
+    if (message.type === "full_pdf_ready") {
+      previewState.currentRev = Math.max(previewState.currentRev, message.rev);
+      previewState.lastAppliedRev = Math.max(previewState.lastAppliedRev, message.rev);
+      return;
+    }
+    if (message.type === "source_snapshot") {
+      const snapshotFiles = message.files
+        .map((entry) => entry.file)
+        .filter((file) => typeof file === "string" && file.length > 0)
+        .sort((left, right) => left.localeCompare(right));
+      if (snapshotFiles.length === 0) {
+        return;
+      }
+      availableFiles = Array.from(new Set([
+        ...snapshotFiles,
+        ...(activeFile ? [activeFile] : [])
+      ])).sort((left, right) => left.localeCompare(right));
+      return;
+    }
+    if (message.type === "build_finished") {
+      previewState.currentRev = Math.max(previewState.currentRev, message.rev);
+      previewState.building = false;
+      previewState.lastBuildSucceeded = message.success;
+    }
   }
 
   async function refreshAvailableFiles(rev: number) {
@@ -383,6 +438,13 @@
       </span>
       <span class="chip">
         {previewState.editorBridgeEnabled ? "external editor bridge on" : "in-app editor active"}
+      </span>
+      <span
+        class:chip-good={previewState.socketPhase === "open"}
+        class:chip-bad={previewState.socketPhase === "closed"}
+        class="chip"
+      >
+        socket {previewState.socketPhase}
       </span>
     </div>
   </section>
@@ -762,6 +824,10 @@
 
   .preview-panel {
     min-height: 0;
+    border-color: rgba(15, 23, 42, 0.08);
+    background: white;
+    box-shadow: 0 18px 48px rgba(15, 23, 42, 0.1);
+    color: #111827;
   }
 
   .viewer-frame {
@@ -770,7 +836,11 @@
     min-height: 0;
     overflow: hidden;
     border-radius: 1.25rem;
-    background: rgba(255, 255, 255, 0.04);
+    background: white;
+  }
+
+  .preview-panel .preview-focus {
+    color: #64748b;
   }
 
   @media (min-width: 981px) {

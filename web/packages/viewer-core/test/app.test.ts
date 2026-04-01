@@ -1893,6 +1893,180 @@ test("tile manifests accumulate across multiple visible pages", () => {
   });
 });
 
+test("tile manifests merge new tiles into an existing page cache", () => {
+  let state = reduce(initialState, {
+    type: "full_pdf_ready",
+    rev: 8,
+    pdf_url: "/artifacts/rev/8/main.pdf",
+    page_ids: ["page-a"],
+    page_artifacts: [
+      { page_id: "page-a", pdf_url: "/artifacts/rev/8/pages/page-a.pdf", svg_url: "/artifacts/rev/8/pages/page-a.svg" }
+    ]
+  });
+  state = reduce(state, {
+    type: "ui_tiles_ready",
+    rev: 8,
+    page_id: "page-a",
+    zoom_bucket: 100,
+    tile_size: 256,
+    items: [{ page_id: "page-a", zoom_bucket: 100, tile_x: 0, tile_y: 0, png_url: "/tile-a-0.png" }]
+  });
+  state = reduce(state, {
+    type: "ui_tiles_ready",
+    rev: 8,
+    page_id: "page-a",
+    zoom_bucket: 100,
+    tile_size: 256,
+    items: [{ page_id: "page-a", zoom_bucket: 100, tile_x: 1, tile_y: 0, png_url: "/tile-a-1.png" }]
+  });
+
+  assert.deepEqual(state.tileLayers, {
+    "page-a": {
+      zoomBucket: 100,
+      tileSize: 256,
+      items: [
+        { page_id: "page-a", zoom_bucket: 100, tile_x: 0, tile_y: 0, png_url: "/tile-a-0.png" },
+        { page_id: "page-a", zoom_bucket: 100, tile_x: 1, tile_y: 0, png_url: "/tile-a-1.png" }
+      ]
+    }
+  });
+});
+
+test("full preview refresh retains caches for unchanged page artifacts", () => {
+  let state = reduce(initialState, {
+    type: "full_pdf_ready",
+    rev: 8,
+    pdf_url: "/artifacts/rev/8/main.pdf",
+    page_ids: ["page-a", "page-b"],
+    page_artifacts: [
+      { page_id: "page-a", pdf_url: "/artifacts/rev/8/pages/page-a.pdf", svg_url: "/artifacts/rev/8/pages/page-a.svg" },
+      { page_id: "page-b", pdf_url: "/artifacts/rev/8/pages/page-b.pdf", svg_url: "/artifacts/rev/8/pages/page-b.svg" }
+    ]
+  });
+  state = reduce(state, {
+    type: "ui_syncmap_ready",
+    rev: 8,
+    page_id: "page-a",
+    page_width_px: 612,
+    page_height_px: 792,
+    page_source_start_utf8: 0,
+    page_source_end_utf8: 20,
+    page_output_start_utf8: 0,
+    page_output_end_utf8: 24,
+    items: [{ file: "main.tex", start_utf8: 0, end_utf8: 10, start_line: 1, end_line: 2, left_px: 72, right_px: 144, top_px: 0, bottom_px: 100 }]
+  });
+  state = reduce(state, {
+    type: "ui_tiles_ready",
+    rev: 8,
+    page_id: "page-a",
+    zoom_bucket: 100,
+    tile_size: 256,
+    items: [{ page_id: "page-a", zoom_bucket: 100, tile_x: 0, tile_y: 0, png_url: "/tile-a.png" }]
+  });
+  state = reduce(state, {
+    type: "ui_sync_selected",
+    item: {
+      pageId: "page-a",
+      file: "main.tex",
+      startUtf8: 0,
+      endUtf8: 10,
+      startLine: 1,
+      endLine: 2
+    }
+  });
+
+  state = reduce(state, {
+    type: "full_pdf_ready",
+    rev: 9,
+    pdf_url: "/artifacts/rev/9/main.pdf",
+    page_ids: ["page-a", "page-b"],
+    page_artifacts: [
+      { page_id: "page-a", pdf_url: "/artifacts/rev/8/pages/page-a.pdf", svg_url: "/artifacts/rev/8/pages/page-a.svg" },
+      { page_id: "page-b", pdf_url: "/artifacts/rev/9/pages/page-b.pdf", svg_url: "/artifacts/rev/9/pages/page-b.svg" }
+    ]
+  });
+
+  assert.deepEqual(state.tileLayers, {
+    "page-a": {
+      zoomBucket: 100,
+      tileSize: 256,
+      items: [{ page_id: "page-a", zoom_bucket: 100, tile_x: 0, tile_y: 0, png_url: "/tile-a.png" }]
+    }
+  });
+  assert.equal(state.syncMaps["page-a"]?.rev, 9);
+  assert.equal(state.selectedSource?.pageId, "page-a");
+  assert.equal(state.hoveredSource, null);
+});
+
+test("page patches retain caches for untouched pages", () => {
+  let state = reduce(initialState, {
+    type: "full_pdf_ready",
+    rev: 8,
+    pdf_url: "/artifacts/rev/8/main.pdf",
+    page_ids: ["page-a", "page-b"],
+    page_artifacts: [
+      { page_id: "page-a", pdf_url: "/artifacts/rev/8/pages/page-a.pdf", svg_url: "/artifacts/rev/8/pages/page-a.svg" },
+      { page_id: "page-b", pdf_url: "/artifacts/rev/8/pages/page-b.pdf", svg_url: "/artifacts/rev/8/pages/page-b.svg" }
+    ]
+  });
+  state = reduce(state, {
+    type: "ui_syncmap_ready",
+    rev: 8,
+    page_id: "page-a",
+    page_width_px: 612,
+    page_height_px: 792,
+    page_source_start_utf8: 0,
+    page_source_end_utf8: 20,
+    page_output_start_utf8: 0,
+    page_output_end_utf8: 24,
+    items: [{ file: "main.tex", start_utf8: 0, end_utf8: 10, start_line: 1, end_line: 2, left_px: 72, right_px: 144, top_px: 0, bottom_px: 100 }]
+  });
+  state = reduce(state, {
+    type: "ui_tiles_ready",
+    rev: 8,
+    page_id: "page-a",
+    zoom_bucket: 100,
+    tile_size: 256,
+    items: [{ page_id: "page-a", zoom_bucket: 100, tile_x: 0, tile_y: 0, png_url: "/tile-a.png" }]
+  });
+  state = reduce(state, {
+    type: "ui_sync_selected",
+    item: {
+      pageId: "page-a",
+      file: "main.tex",
+      startUtf8: 0,
+      endUtf8: 10,
+      startLine: 1,
+      endLine: 2
+    }
+  });
+
+  state = reduce(state, {
+    type: "patch_pages",
+    rev: 9,
+    ops: [{
+      op: "replace_page",
+      index: 1,
+      page_id: "page-c",
+      pdf_url: "/artifacts/rev/9/pages/page-c.pdf",
+      svg_url: "/artifacts/rev/9/pages/page-c.svg"
+    }]
+  });
+
+  assert.deepEqual(state.pageIds, ["page-a", "page-c"]);
+  assert.deepEqual(state.tileLayers, {
+    "page-a": {
+      zoomBucket: 100,
+      tileSize: 256,
+      items: [{ page_id: "page-a", zoom_bucket: 100, tile_x: 0, tile_y: 0, png_url: "/tile-a.png" }]
+    }
+  });
+  assert.equal(state.syncMaps["page-a"]?.rev, 9);
+  assert.equal(state.selectedSource?.pageId, "page-a");
+  assert.equal(state.syncMaps["page-b"], undefined);
+  assert.equal(state.tileLayers["page-b"], undefined);
+});
+
 test("stale tile manifests are ignored and zoom changes clear tile layers", () => {
   let state = reduce(initialState, {
     type: "full_pdf_ready",
