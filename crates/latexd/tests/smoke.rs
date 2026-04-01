@@ -808,6 +808,108 @@ EOF
 }
 
 #[tokio::test]
+async fn external_oracle_supports_xelatex_pipeline() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: xe_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}xelatex pipeline\\end{document}",
+    )
+    .expect("write main");
+
+    let tool_dir = root.join("fake-tools");
+    fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
+    let xelatex_script = tool_dir.join("xelatex");
+    fs::write(
+        xelatex_script.as_std_path(),
+        r#"#!/usr/bin/env bash
+set -euo pipefail
+out_dir=""
+main=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -output-directory)
+      out_dir="$2"
+      shift 2
+      ;;
+    *)
+      main="$1"
+      shift
+      ;;
+  esac
+done
+stem="$(basename "$main" .tex)"
+mkdir -p "$out_dir"
+cat > "$out_dir/$stem.pdf" <<'EOF'
+%PDF-1.4
+1 0 obj
+<<>>
+endobj
+trailer
+<<>>
+%%EOF
+EOF
+printf 'INPUT %s\n' "$(pwd)/$main" > "$out_dir/$stem.fls"
+"#,
+    )
+    .expect("write fake xelatex");
+    fs::set_permissions(
+        xelatex_script.as_std_path(),
+        fs::Permissions::from_mode(0o755),
+    )
+    .expect("chmod fake xelatex");
+
+    let _path_lock = PATH_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("path env lock");
+    let original_path = std::env::var_os("PATH");
+    let mut prefixed_path = std::env::split_paths(original_path.as_deref().unwrap_or_default())
+        .collect::<Vec<_>>();
+    prefixed_path.insert(0, tool_dir.as_std_path().to_path_buf());
+    let joined_path = std::env::join_paths(prefixed_path).expect("join path");
+    unsafe {
+        std::env::set_var("PATH", &joined_path);
+    }
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(None, Vec::new());
+    let build_root = root.join(".latexd/build");
+    let outcome = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect("xelatex build should succeed");
+
+    match original_path {
+        Some(path) => unsafe {
+            std::env::set_var("PATH", path);
+        },
+        None => unsafe {
+            std::env::remove_var("PATH");
+        },
+    }
+
+    assert!(outcome.pdf_path.exists());
+    assert_eq!(outcome.dep_trace.inputs, vec![Utf8PathBuf::from("main.tex")]);
+}
+
+#[tokio::test]
 async fn internal_compiler_stabilizes_semantic_aux_and_ingests_bbl() {
     let tempdir = tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
