@@ -1651,7 +1651,12 @@ impl CompilerDriver {
                         .replace("{rev}", &request.rev.to_string()),
                 );
             }
-            commands.push((compiler_bin.clone(), materialized_args, Some(pdf_path.clone()), "PDF"));
+            commands.push((
+                compiler_bin.clone(),
+                materialized_args,
+                Some(pdf_path.clone()),
+                "PDF",
+            ));
         } else {
             match request.manifest.compiler {
                 CompilerMode::PdfLatex => {
@@ -1768,11 +1773,7 @@ impl CompilerDriver {
                     ));
                     commands.push((
                         dvips_program.to_string_lossy().into_owned(),
-                        vec![
-                            "-o".to_string(),
-                            ps_path.to_string(),
-                            dvi_path.to_string(),
-                        ],
+                        vec!["-o".to_string(), ps_path.to_string(), dvi_path.to_string()],
                         Some(ps_path.clone()),
                         "PostScript",
                     ));
@@ -1826,7 +1827,7 @@ impl CompilerDriver {
                 });
             }
 
-            for line in stderr.lines() {
+            for line in stderr.lines().chain(stdout.lines()) {
                 let lower = line.to_ascii_lowercase();
                 if lower.contains("warning") {
                     diagnostics.push(Diagnostic {
@@ -5343,6 +5344,385 @@ mod tests {
     }
 
     #[test]
+    fn shipout_replay_plan_prefers_shorter_same_page_prefix_across_multiple_semantic_files() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            "\\bibliography{refsa}\\bibliography{refsb}",
+        )
+        .expect("write main");
+        fs::write(root.join("refsa.bbl"), "[1] Alpha entry.").expect("write refsa");
+        fs::write(root.join("refsb.bbl"), "[1] Beta entry.").expect("write refsb");
+
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot = compile_format_snapshot(&mut interner, r"\def\fmt{pre}");
+        let bundle = build_checkpoint_bundle_with_snapshots(
+            27,
+            &preamble_snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            0,
+            &[checkpoint_page("p0", 0, "hash-0")],
+            &[compile_format_snapshot(&mut interner, r"\def\fmt{ship0}")],
+            &[48],
+            &[
+                InputBoundaryCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: Utf8PathBuf::from("refsa.bbl"),
+                    resume_path: Some(Utf8PathBuf::from("refsa.bbl")),
+                    source_offset_utf8: 0,
+                    continuation_stack: Vec::new(),
+                    output_start_utf8: 8,
+                    page_index_after: 0,
+                    snapshot: compile_format_snapshot(&mut interner, r"\def\fmt{refsa-enter}"),
+                },
+                InputBoundaryCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: Utf8PathBuf::from("refsb.bbl"),
+                    resume_path: Some(Utf8PathBuf::from("refsb.bbl")),
+                    source_offset_utf8: 0,
+                    continuation_stack: Vec::new(),
+                    output_start_utf8: 24,
+                    page_index_after: 0,
+                    snapshot: compile_format_snapshot(&mut interner, r"\def\fmt{refsb-enter}"),
+                },
+            ],
+        )
+        .expect("bundle");
+        let previous = PreviousInternalBuild {
+            rev: 27,
+            bundle,
+            page_metadata: vec![PageArtifactMeta {
+                page_id: "p0".to_string(),
+                index: 0,
+                line_count: 1,
+                width_pt: 612,
+                height_pt: 792,
+                content_hash: "hash-0".to_string(),
+                text_start_utf8: 0,
+                text_end_utf8: 48,
+                pdf_artifact_path: Utf8PathBuf::from("rev-27/pages/p0.pdf"),
+                source_spans: vec![
+                    ArtifactSourceSpan {
+                        file: Utf8PathBuf::from("refsa.bbl"),
+                        start_utf8: 0,
+                        end_utf8: 16,
+                    },
+                    ArtifactSourceSpan {
+                        file: Utf8PathBuf::from("refsb.bbl"),
+                        start_utf8: 0,
+                        end_utf8: 15,
+                    },
+                ],
+            }],
+            output: "Prelude [1] Alpha entry. Middle [1] Beta entry.".to_string(),
+            sources: BTreeMap::from([
+                (
+                    Utf8PathBuf::from("main.tex"),
+                    "\\bibliography{refsa}\\bibliography{refsb}".to_string(),
+                ),
+                (
+                    Utf8PathBuf::from("refsa.bbl"),
+                    "[1] Alpha entry.".to_string(),
+                ),
+                (
+                    Utf8PathBuf::from("refsb.bbl"),
+                    "[1] Beta entry.".to_string(),
+                ),
+            ]),
+            executed_sources: BTreeMap::from([
+                (
+                    Utf8PathBuf::from("main.tex"),
+                    "\\input{refsa.bbl}\\input{refsb.bbl}".to_string(),
+                ),
+                (
+                    Utf8PathBuf::from("refsa.bbl"),
+                    "[1] Alpha entry.".to_string(),
+                ),
+                (
+                    Utf8PathBuf::from("refsb.bbl"),
+                    "[1] Beta entry.".to_string(),
+                ),
+            ]),
+            rewrite_spans: BTreeMap::new(),
+            module_traces: vec![
+                StoredModuleTrace {
+                    path: Utf8PathBuf::from("refsa.bbl"),
+                    source_start_utf8: 0,
+                    source_end_utf8: 16,
+                    output_start_utf8: 8,
+                    output_end_utf8: 24,
+                },
+                StoredModuleTrace {
+                    path: Utf8PathBuf::from("refsb.bbl"),
+                    source_start_utf8: 0,
+                    source_end_utf8: 15,
+                    output_start_utf8: 32,
+                    output_end_utf8: 47,
+                },
+            ],
+            module_checkpoints: vec![],
+            semantic_aux: None,
+            semantic_aux_payload: None,
+            semantic_aux_concrete_payload: None,
+        };
+
+        let plan = select_shipout_replay_plan_with_spans(
+            &previous,
+            &root,
+            Utf8Path::new("main.tex"),
+            &[
+                Utf8PathBuf::from("refsb.bbl"),
+                Utf8PathBuf::from("refsa.bbl"),
+            ],
+            Some(&BTreeMap::from([
+                (
+                    Utf8PathBuf::from("main.tex"),
+                    "\\input{refsa.bbl}\\input{refsb.bbl}".to_string(),
+                ),
+                (
+                    Utf8PathBuf::from("refsa.bbl"),
+                    "[1] Alpha revised entry.".to_string(),
+                ),
+                (
+                    Utf8PathBuf::from("refsb.bbl"),
+                    "[1] Beta revised entry.".to_string(),
+                ),
+            ])),
+            None,
+            Some(&[
+                Utf8PathBuf::from("refsb.bbl"),
+                Utf8PathBuf::from("refsa.bbl"),
+            ]),
+        )
+        .expect("plan")
+        .expect("shipout replay plan");
+
+        let expected_checkpoint_id = previous
+            .bundle
+            .checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.meta.kind == CheckpointKind::InputBoundary
+                    && checkpoint.meta.input_boundary_kind == Some(VmModuleCheckpointKind::Enter)
+                    && checkpoint.meta.module_path.as_ref() == Some(&Utf8PathBuf::from("refsa.bbl"))
+                    && checkpoint.meta.output_start_utf8 == 8
+            })
+            .map(|checkpoint| checkpoint.meta.checkpoint_id.clone())
+            .expect("refsa enter checkpoint");
+        assert_eq!(plan.checkpoint_id, expected_checkpoint_id);
+        assert_eq!(plan.start_page_index, 0);
+        assert_eq!(plan.output_prefix, "Prelude ");
+    }
+
+    #[test]
+    fn shipout_replay_plan_prefers_earlier_page_across_multiple_semantic_files() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            "\\section{Intro}\\bibliography{refsa}\\bibliography{refsb}",
+        )
+        .expect("write main");
+        fs::write(root.join("refsa.bbl"), "[1] Alpha entry.").expect("write refsa");
+        fs::write(root.join("refsb.bbl"), "[1] Beta entry.").expect("write refsb");
+
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot = compile_format_snapshot(&mut interner, r"\def\fmt{pre}");
+        let bundle = build_checkpoint_bundle_with_snapshots(
+            28,
+            &preamble_snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            0,
+            &[
+                checkpoint_page("p0", 0, "hash-0"),
+                checkpoint_page("p1", 1, "hash-1"),
+                checkpoint_page("p2", 2, "hash-2"),
+            ],
+            &[
+                compile_format_snapshot(&mut interner, r"\def\fmt{ship0}"),
+                compile_format_snapshot(&mut interner, r"\def\fmt{ship1}"),
+                compile_format_snapshot(&mut interner, r"\def\fmt{ship2}"),
+            ],
+            &[8, 32, 64],
+            &[
+                InputBoundaryCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: Utf8PathBuf::from("refsa.bbl"),
+                    resume_path: Some(Utf8PathBuf::from("refsa.bbl")),
+                    source_offset_utf8: 0,
+                    continuation_stack: Vec::new(),
+                    output_start_utf8: 32,
+                    page_index_after: 1,
+                    snapshot: compile_format_snapshot(&mut interner, r"\def\fmt{refsa-enter}"),
+                },
+                InputBoundaryCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: Utf8PathBuf::from("refsb.bbl"),
+                    resume_path: Some(Utf8PathBuf::from("refsb.bbl")),
+                    source_offset_utf8: 0,
+                    continuation_stack: Vec::new(),
+                    output_start_utf8: 64,
+                    page_index_after: 2,
+                    snapshot: compile_format_snapshot(&mut interner, r"\def\fmt{refsb-enter}"),
+                },
+            ],
+        )
+        .expect("bundle");
+        let previous = PreviousInternalBuild {
+            rev: 28,
+            bundle,
+            page_metadata: vec![
+                PageArtifactMeta {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    line_count: 1,
+                    width_pt: 612,
+                    height_pt: 792,
+                    content_hash: "hash-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 31,
+                    pdf_artifact_path: Utf8PathBuf::from("rev-28/pages/p0.pdf"),
+                    source_spans: vec![ArtifactSourceSpan {
+                        file: Utf8PathBuf::from("main.tex"),
+                        start_utf8: 0,
+                        end_utf8: 56,
+                    }],
+                },
+                PageArtifactMeta {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    line_count: 1,
+                    width_pt: 612,
+                    height_pt: 792,
+                    content_hash: "hash-1".to_string(),
+                    text_start_utf8: 32,
+                    text_end_utf8: 63,
+                    pdf_artifact_path: Utf8PathBuf::from("rev-28/pages/p1.pdf"),
+                    source_spans: vec![ArtifactSourceSpan {
+                        file: Utf8PathBuf::from("refsa.bbl"),
+                        start_utf8: 0,
+                        end_utf8: 16,
+                    }],
+                },
+                PageArtifactMeta {
+                    page_id: "p2".to_string(),
+                    index: 2,
+                    line_count: 1,
+                    width_pt: 612,
+                    height_pt: 792,
+                    content_hash: "hash-2".to_string(),
+                    text_start_utf8: 64,
+                    text_end_utf8: 95,
+                    pdf_artifact_path: Utf8PathBuf::from("rev-28/pages/p2.pdf"),
+                    source_spans: vec![ArtifactSourceSpan {
+                        file: Utf8PathBuf::from("refsb.bbl"),
+                        start_utf8: 0,
+                        end_utf8: 15,
+                    }],
+                },
+            ],
+            output: "Prelude page. Alpha page. Beta page.".to_string(),
+            sources: BTreeMap::from([
+                (
+                    Utf8PathBuf::from("main.tex"),
+                    "\\section{Intro}\\bibliography{refsa}\\bibliography{refsb}".to_string(),
+                ),
+                (
+                    Utf8PathBuf::from("refsa.bbl"),
+                    "[1] Alpha entry.".to_string(),
+                ),
+                (
+                    Utf8PathBuf::from("refsb.bbl"),
+                    "[1] Beta entry.".to_string(),
+                ),
+            ]),
+            executed_sources: BTreeMap::from([
+                (
+                    Utf8PathBuf::from("main.tex"),
+                    "\\section{Intro}\\input{refsa.bbl}\\input{refsb.bbl}".to_string(),
+                ),
+                (
+                    Utf8PathBuf::from("refsa.bbl"),
+                    "[1] Alpha entry.".to_string(),
+                ),
+                (
+                    Utf8PathBuf::from("refsb.bbl"),
+                    "[1] Beta entry.".to_string(),
+                ),
+            ]),
+            rewrite_spans: BTreeMap::new(),
+            module_traces: vec![
+                StoredModuleTrace {
+                    path: Utf8PathBuf::from("refsa.bbl"),
+                    source_start_utf8: 0,
+                    source_end_utf8: 16,
+                    output_start_utf8: 32,
+                    output_end_utf8: 48,
+                },
+                StoredModuleTrace {
+                    path: Utf8PathBuf::from("refsb.bbl"),
+                    source_start_utf8: 0,
+                    source_end_utf8: 15,
+                    output_start_utf8: 64,
+                    output_end_utf8: 79,
+                },
+            ],
+            module_checkpoints: vec![],
+            semantic_aux: None,
+            semantic_aux_payload: None,
+            semantic_aux_concrete_payload: None,
+        };
+
+        let plan = select_shipout_replay_plan_with_spans(
+            &previous,
+            &root,
+            Utf8Path::new("main.tex"),
+            &[
+                Utf8PathBuf::from("refsb.bbl"),
+                Utf8PathBuf::from("refsa.bbl"),
+            ],
+            Some(&BTreeMap::from([
+                (
+                    Utf8PathBuf::from("main.tex"),
+                    "\\section{Intro}\\input{refsa.bbl}\\input{refsb.bbl}".to_string(),
+                ),
+                (
+                    Utf8PathBuf::from("refsa.bbl"),
+                    "[1] Alpha revised entry.".to_string(),
+                ),
+                (
+                    Utf8PathBuf::from("refsb.bbl"),
+                    "[1] Beta revised entry.".to_string(),
+                ),
+            ])),
+            None,
+            Some(&[
+                Utf8PathBuf::from("refsb.bbl"),
+                Utf8PathBuf::from("refsa.bbl"),
+            ]),
+        )
+        .expect("plan")
+        .expect("shipout replay plan");
+
+        let expected_checkpoint_id = previous
+            .bundle
+            .checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.meta.kind == CheckpointKind::InputBoundary
+                    && checkpoint.meta.input_boundary_kind == Some(VmModuleCheckpointKind::Enter)
+                    && checkpoint.meta.module_path.as_ref() == Some(&Utf8PathBuf::from("refsa.bbl"))
+                    && checkpoint.meta.page_index_after == 1
+            })
+            .map(|checkpoint| checkpoint.meta.checkpoint_id.clone())
+            .expect("refsa enter checkpoint");
+        assert_eq!(plan.checkpoint_id, expected_checkpoint_id);
+        assert_eq!(plan.start_page_index, 1);
+        assert_eq!(plan.output_prefix, "Prelude page. Alpha page. Beta p");
+    }
+
+    #[test]
     fn shipout_replay_plan_prefers_trace_page_over_earlier_placeholder_span() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
@@ -5743,6 +6123,250 @@ mod tests {
             &root,
             Utf8Path::new("main.tex"),
             &[Utf8PathBuf::from("main.tex")],
+            None,
+        )
+        .expect("plan")
+        .expect("shipout replay plan");
+
+        assert_eq!(plan.start_page_index, 1);
+        assert_eq!(plan.output_prefix, "page0\npage");
+    }
+
+    #[test]
+    fn shipout_replay_plan_prefers_more_conservative_candidate_across_multiple_changed_files() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(root.join("main.tex"), "Xain body").expect("write current main");
+        fs::write(root.join("pkg.sty"), "prefix suffiX OLD").expect("write current package");
+
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot = compile_format_snapshot(&mut interner, r"\def\fmt{pre}");
+        let bundle = build_checkpoint_bundle_with_snapshots(
+            25,
+            &preamble_snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            0,
+            &[
+                checkpoint_page("p0", 0, "hash-0"),
+                checkpoint_page("p1", 1, "hash-1"),
+            ],
+            &[
+                compile_format_snapshot(&mut interner, r"\def\fmt{a}"),
+                compile_format_snapshot(&mut interner, r"\def\fmt{b}"),
+            ],
+            &[10, 20],
+            &[],
+        )
+        .expect("bundle");
+        let previous = PreviousInternalBuild {
+            rev: 25,
+            bundle,
+            page_metadata: vec![
+                PageArtifactMeta {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    line_count: 1,
+                    width_pt: 612,
+                    height_pt: 792,
+                    content_hash: "hash-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 9,
+                    pdf_artifact_path: Utf8PathBuf::from("rev-25/pages/p0.pdf"),
+                    source_spans: vec![ArtifactSourceSpan {
+                        file: Utf8PathBuf::from("main.tex"),
+                        start_utf8: 0,
+                        end_utf8: 10,
+                    }],
+                },
+                PageArtifactMeta {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    line_count: 1,
+                    width_pt: 612,
+                    height_pt: 792,
+                    content_hash: "hash-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 19,
+                    pdf_artifact_path: Utf8PathBuf::from("rev-25/pages/p1.pdf"),
+                    source_spans: vec![ArtifactSourceSpan {
+                        file: Utf8PathBuf::from("pkg.sty"),
+                        start_utf8: 0,
+                        end_utf8: 18,
+                    }],
+                },
+            ],
+            output: "page0\npage1".to_string(),
+            sources: BTreeMap::from([
+                (Utf8PathBuf::from("main.tex"), "main body".to_string()),
+                (
+                    Utf8PathBuf::from("pkg.sty"),
+                    "prefix suffix OLD".to_string(),
+                ),
+            ]),
+            executed_sources: BTreeMap::from([
+                (Utf8PathBuf::from("main.tex"), "main body".to_string()),
+                (
+                    Utf8PathBuf::from("pkg.sty"),
+                    "prefix suffix OLD".to_string(),
+                ),
+            ]),
+            rewrite_spans: BTreeMap::new(),
+            module_traces: vec![StoredModuleTrace {
+                path: Utf8PathBuf::from("pkg.sty"),
+                source_start_utf8: "prefix ".len() as u32,
+                source_end_utf8: "prefix suffix".len() as u32,
+                output_start_utf8: 10,
+                output_end_utf8: 19,
+            }],
+            module_checkpoints: vec![],
+            semantic_aux: None,
+            semantic_aux_payload: None,
+            semantic_aux_concrete_payload: None,
+        };
+
+        let plan = select_shipout_replay_plan(
+            &previous,
+            &root,
+            Utf8Path::new("main.tex"),
+            &[Utf8PathBuf::from("main.tex"), Utf8PathBuf::from("pkg.sty")],
+            None,
+        )
+        .expect("plan")
+        .expect("shipout replay plan");
+
+        assert_eq!(
+            plan.checkpoint_id,
+            previous.bundle.checkpoints[0].meta.checkpoint_id
+        );
+        assert_eq!(plan.start_page_index, 0);
+        assert_eq!(plan.output_prefix, "");
+    }
+
+    #[test]
+    fn shipout_replay_plan_prefers_shorter_prefix_when_changed_files_share_start_page() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(root.join("main.tex"), "main body").expect("write main");
+        fs::write(root.join("pkg-a.sty"), "prefiX suffix A").expect("write pkg a");
+        fs::write(root.join("pkg-b.sty"), "prefix suffiX B").expect("write pkg b");
+
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot = compile_format_snapshot(&mut interner, r"\def\fmt{pre}");
+        let bundle = build_checkpoint_bundle_with_snapshots(
+            26,
+            &preamble_snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            0,
+            &[
+                checkpoint_page("p0", 0, "hash-0"),
+                checkpoint_page("p1", 1, "hash-1"),
+            ],
+            &[
+                compile_format_snapshot(&mut interner, r"\def\fmt{a}"),
+                compile_format_snapshot(&mut interner, r"\def\fmt{b}"),
+            ],
+            &[10, 20],
+            &[],
+        )
+        .expect("bundle");
+        let previous = PreviousInternalBuild {
+            rev: 26,
+            bundle,
+            page_metadata: vec![
+                PageArtifactMeta {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    line_count: 1,
+                    width_pt: 612,
+                    height_pt: 792,
+                    content_hash: "hash-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 9,
+                    pdf_artifact_path: Utf8PathBuf::from("rev-26/pages/p0.pdf"),
+                    source_spans: vec![ArtifactSourceSpan {
+                        file: Utf8PathBuf::from("main.tex"),
+                        start_utf8: 0,
+                        end_utf8: 10,
+                    }],
+                },
+                PageArtifactMeta {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    line_count: 1,
+                    width_pt: 612,
+                    height_pt: 792,
+                    content_hash: "hash-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 24,
+                    pdf_artifact_path: Utf8PathBuf::from("rev-26/pages/p1.pdf"),
+                    source_spans: vec![
+                        ArtifactSourceSpan {
+                            file: Utf8PathBuf::from("pkg-a.sty"),
+                            start_utf8: 0,
+                            end_utf8: 15,
+                        },
+                        ArtifactSourceSpan {
+                            file: Utf8PathBuf::from("pkg-b.sty"),
+                            start_utf8: 0,
+                            end_utf8: 16,
+                        },
+                    ],
+                },
+            ],
+            output: "page0\npage1-trailer".to_string(),
+            sources: BTreeMap::from([
+                (Utf8PathBuf::from("main.tex"), "main body".to_string()),
+                (
+                    Utf8PathBuf::from("pkg-a.sty"),
+                    "prefix suffix A".to_string(),
+                ),
+                (
+                    Utf8PathBuf::from("pkg-b.sty"),
+                    "prefix suffix B".to_string(),
+                ),
+            ]),
+            executed_sources: BTreeMap::from([
+                (Utf8PathBuf::from("main.tex"), "main body".to_string()),
+                (
+                    Utf8PathBuf::from("pkg-a.sty"),
+                    "prefix suffix A".to_string(),
+                ),
+                (
+                    Utf8PathBuf::from("pkg-b.sty"),
+                    "prefix suffix B".to_string(),
+                ),
+            ]),
+            rewrite_spans: BTreeMap::new(),
+            module_traces: vec![
+                StoredModuleTrace {
+                    path: Utf8PathBuf::from("pkg-a.sty"),
+                    source_start_utf8: 0,
+                    source_end_utf8: 6,
+                    output_start_utf8: 10,
+                    output_end_utf8: 13,
+                },
+                StoredModuleTrace {
+                    path: Utf8PathBuf::from("pkg-b.sty"),
+                    source_start_utf8: 7,
+                    source_end_utf8: 13,
+                    output_start_utf8: 14,
+                    output_end_utf8: 19,
+                },
+            ],
+            module_checkpoints: vec![],
+            semantic_aux: None,
+            semantic_aux_payload: None,
+            semantic_aux_concrete_payload: None,
+        };
+
+        let plan = select_shipout_replay_plan(
+            &previous,
+            &root,
+            Utf8Path::new("main.tex"),
+            &[
+                Utf8PathBuf::from("pkg-a.sty"),
+                Utf8PathBuf::from("pkg-b.sty"),
+            ],
             None,
         )
         .expect("plan")
