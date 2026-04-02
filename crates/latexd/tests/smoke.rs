@@ -1,11 +1,12 @@
 use std::{
     collections::BTreeMap,
+    ffi::OsString,
     fs,
     os::unix::fs::PermissionsExt,
-    sync::{Mutex, OnceLock},
+    sync::{Mutex, MutexGuard, OnceLock},
 };
 
-use camino::Utf8PathBuf;
+use camino::{Utf8Path, Utf8PathBuf};
 use hmr_protocol::PagePatchOp;
 use latexd::{
     PreviewSnapshot,
@@ -14,6 +15,7 @@ use latexd::{
 use tempfile::tempdir;
 use tex_aux::{MaterializedRewriteSpan, SemanticAuxIndex, load_semantic_aux};
 use tex_checkpoint::{CheckpointKind, load_checkpoint_bundle};
+use tex_vm::VmModuleCheckpointKind;
 use tex_world::ProjectWorld;
 
 #[derive(Debug, serde::Deserialize)]
@@ -41,6 +43,193 @@ struct StoredSources {
 }
 
 static PATH_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+struct PathOverrideGuard {
+    original_path: Option<OsString>,
+}
+
+impl Drop for PathOverrideGuard {
+    fn drop(&mut self) {
+        match self.original_path.take() {
+            Some(path) => unsafe {
+                std::env::set_var("PATH", path);
+            },
+            None => unsafe {
+                std::env::remove_var("PATH");
+            },
+        }
+    }
+}
+
+fn set_path(tool_dir: &Utf8Path, include_original_path: bool) -> PathOverrideGuard {
+    let original_path = std::env::var_os("PATH");
+    let mut path_entries = vec![tool_dir.as_std_path().to_path_buf()];
+    if include_original_path {
+        path_entries.extend(std::env::split_paths(
+            original_path.as_deref().unwrap_or_default(),
+        ));
+    }
+    let joined_path = std::env::join_paths(path_entries).expect("join path");
+    unsafe {
+        std::env::set_var("PATH", &joined_path);
+    }
+    PathOverrideGuard { original_path }
+}
+
+fn write_executable_script(path: &Utf8Path, body: &str) {
+    fs::write(path.as_std_path(), body).expect("write executable script");
+    fs::set_permissions(path.as_std_path(), fs::Permissions::from_mode(0o755))
+        .expect("chmod executable script");
+}
+
+fn lock_path_env() -> MutexGuard<'static, ()> {
+    PATH_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+fn fake_latex_dvi_script() -> &'static str {
+    r#"#!/bin/bash
+set -euo pipefail
+out_dir=""
+main=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -output-directory)
+      out_dir="$2"
+      shift 2
+      ;;
+    *)
+      main="$1"
+      shift
+      ;;
+  esac
+done
+stem="${main##*/}"
+stem="${stem%.tex}"
+printf 'fake-dvi' > "$out_dir/$stem.dvi"
+printf 'INPUT %s\n' "$(pwd)/$main" > "$out_dir/$stem.fls"
+"#
+}
+
+fn fake_dvips_script() -> &'static str {
+    r#"#!/bin/bash
+set -euo pipefail
+out=""
+input=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o)
+      out="$2"
+      shift 2
+      ;;
+    *)
+      input="$1"
+      shift
+      ;;
+  esac
+done
+test -f "$input"
+printf 'fake-ps' > "$out"
+"#
+}
+
+fn fake_ps2pdf_script() -> &'static str {
+    r#"#!/bin/bash
+set -euo pipefail
+input="$1"
+output="$2"
+test -f "$input"
+printf '%s\n' \
+  '%PDF-1.4' \
+  '1 0 obj' \
+  '<<>>' \
+  'endobj' \
+  'trailer' \
+  '<<>>' \
+  '%%EOF' > "$output"
+"#
+}
+
+fn fake_pdflatex_pdf_script() -> &'static str {
+    r#"#!/bin/bash
+set -euo pipefail
+out_dir=""
+main=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -output-directory)
+      out_dir="$2"
+      shift 2
+      ;;
+    -*)
+      shift
+      ;;
+    *)
+      main="$1"
+      shift
+      ;;
+  esac
+done
+stem="${main##*/}"
+stem="${stem%.tex}"
+printf '%s\n' \
+  '%PDF-1.4' \
+  '1 0 obj' \
+  '<<>>' \
+  'endobj' \
+  'trailer' \
+  '<<>>' \
+  '%%EOF' > "$out_dir/$stem.pdf"
+printf 'INPUT %s\n' "$(pwd)/$main" > "$out_dir/$stem.fls"
+"#
+}
+
+fn fake_tectonic_pdf_script() -> &'static str {
+    r#"#!/bin/bash
+set -euo pipefail
+depfile=""
+out_dir=""
+main=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --makefile-rules)
+      depfile="$2"
+      shift 2
+      ;;
+    --outdir)
+      out_dir="$2"
+      shift 2
+      ;;
+    -*)
+      shift
+      ;;
+    *)
+      main="$1"
+      shift
+      ;;
+  esac
+done
+stem="${main##*/}"
+stem="${stem%.tex}"
+printf '%s\n' \
+  '%PDF-1.4' \
+  '1 0 obj' \
+  '<<>>' \
+  'endobj' \
+  'trailer' \
+  '<<>>' \
+  '%%EOF' > "$out_dir/$stem.pdf"
+if [ -n "$depfile" ]; then
+  printf '%s: %s\n' "$out_dir/$stem.pdf" "$main" > "$depfile"
+fi
+"#
+}
+
+fn fake_success_without_output_script() -> &'static str {
+    "#!/bin/bash\nset -euo pipefail\nexit 0\n"
+}
 
 #[tokio::test]
 async fn mock_compiler_builds_pdf_and_failure_keeps_last_good_preview() {
@@ -136,6 +325,226 @@ toplevel:
     assert_eq!(snapshot.pdf_url, last_good);
     assert_eq!(snapshot.last_build_succeeded, Some(false));
     assert!(!failure.diagnostics.is_empty());
+}
+
+#[tokio::test]
+async fn external_oracle_surfaces_stdout_warnings_as_diagnostics() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: pdf_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}warning lane\\end{document}",
+    )
+    .expect("write main");
+
+    let tool_dir = root.join("fake-tools");
+    fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
+    let compiler_script = tool_dir.join("oracle-compiler");
+    write_executable_script(
+        &compiler_script,
+        r#"#!/bin/bash
+set -euo pipefail
+output="$1"
+fls="$2"
+echo "LaTeX Warning: rerun to get cross-references right."
+cat > "$output" <<'EOF'
+%PDF-1.4
+1 0 obj
+<<>>
+endobj
+trailer
+<<>>
+%%EOF
+EOF
+printf 'INPUT %s\n' "$(pwd)/main.tex" > "$fls"
+"#,
+    );
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(
+        Some(compiler_script.to_string()),
+        vec!["{out_pdf}".to_string(), "{fls}".to_string()],
+    );
+    let outcome = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: root.join(".latexd/build"),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect("external oracle build should succeed");
+
+    assert!(outcome.pdf_path.exists());
+    assert_eq!(
+        outcome.dep_trace.inputs,
+        vec![Utf8PathBuf::from("main.tex")]
+    );
+    assert!(
+        outcome
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("LaTeX Warning"))
+    );
+}
+
+#[tokio::test]
+async fn external_oracle_preserves_stderr_warnings_as_diagnostics() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: pdf_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}stderr warning lane\\end{document}",
+    )
+    .expect("write main");
+
+    let tool_dir = root.join("fake-tools");
+    fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
+    let compiler_script = tool_dir.join("oracle-compiler");
+    write_executable_script(
+        &compiler_script,
+        r#"#!/bin/bash
+set -euo pipefail
+output="$1"
+fls="$2"
+echo "LaTeX Warning: label(s) may have changed." >&2
+cat > "$output" <<'EOF'
+%PDF-1.4
+1 0 obj
+<<>>
+endobj
+trailer
+<<>>
+%%EOF
+EOF
+printf 'INPUT %s\n' "$(pwd)/main.tex" > "$fls"
+"#,
+    );
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(
+        Some(compiler_script.to_string()),
+        vec!["{out_pdf}".to_string(), "{fls}".to_string()],
+    );
+    let outcome = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: root.join(".latexd/build"),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect("external oracle build should succeed");
+
+    assert!(outcome.pdf_path.exists());
+    assert_eq!(
+        outcome.dep_trace.inputs,
+        vec![Utf8PathBuf::from("main.tex")]
+    );
+    assert!(
+        outcome
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("label(s) may have changed"))
+    );
+}
+
+#[tokio::test]
+async fn external_oracle_surfaces_dvips_warnings_as_diagnostics() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: latex_dvips_ps2_pdf
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}dvips warning lane\\end{document}",
+    )
+    .expect("write main");
+
+    let tool_dir = root.join("fake-tools");
+    fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
+    write_executable_script(&tool_dir.join("latex"), fake_latex_dvi_script());
+    write_executable_script(
+        &tool_dir.join("dvips"),
+        r#"#!/bin/bash
+set -euo pipefail
+out=""
+input=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o)
+      out="$2"
+      shift 2
+      ;;
+    *)
+      input="$1"
+      shift
+      ;;
+  esac
+done
+test -f "$input"
+echo "dvips warning: paper size fallback applied." >&2
+printf 'fake-ps' > "$out"
+"#,
+    );
+    write_executable_script(&tool_dir.join("ps2pdf"), fake_ps2pdf_script());
+
+    let _path_lock = PATH_ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .expect("lock path env");
+    let _path_guard = set_path(&tool_dir, false);
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(None, Vec::new());
+    let outcome = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: root.join(".latexd/build"),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect("latex_dvips_ps2_pdf build should succeed");
+
+    assert!(outcome.pdf_path.exists());
+    assert!(
+        outcome
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("dvips warning"))
+    );
 }
 
 #[tokio::test]
@@ -679,103 +1088,14 @@ toplevel:
     let tool_dir = root.join("fake-tools");
     fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
     let latex_script = tool_dir.join("latex");
-    fs::write(
-        latex_script.as_std_path(),
-        r#"#!/usr/bin/env bash
-set -euo pipefail
-out_dir=""
-main=""
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    -output-directory)
-      out_dir="$2"
-      shift 2
-      ;;
-    *)
-      main="$1"
-      shift
-      ;;
-  esac
-done
-stem="$(basename "$main" .tex)"
-mkdir -p "$out_dir"
-printf 'fake-dvi' > "$out_dir/$stem.dvi"
-printf 'INPUT %s\n' "$(pwd)/$main" > "$out_dir/$stem.fls"
-"#,
-    )
-    .expect("write fake latex");
-    fs::set_permissions(
-        latex_script.as_std_path(),
-        fs::Permissions::from_mode(0o755),
-    )
-    .expect("chmod fake latex");
+    write_executable_script(&latex_script, fake_latex_dvi_script());
     let dvips_script = tool_dir.join("dvips");
-    fs::write(
-        dvips_script.as_std_path(),
-        r#"#!/usr/bin/env bash
-set -euo pipefail
-out=""
-input=""
-while [ "$#" -gt 0 ]; do
-  case "$1" in
-    -o)
-      out="$2"
-      shift 2
-      ;;
-    *)
-      input="$1"
-      shift
-      ;;
-  esac
-done
-test -f "$input"
-printf 'fake-ps' > "$out"
-"#,
-    )
-    .expect("write fake dvips");
-    fs::set_permissions(
-        dvips_script.as_std_path(),
-        fs::Permissions::from_mode(0o755),
-    )
-    .expect("chmod fake dvips");
+    write_executable_script(&dvips_script, fake_dvips_script());
     let ps2pdf_script = tool_dir.join("ps2pdf");
-    fs::write(
-        ps2pdf_script.as_std_path(),
-        r#"#!/usr/bin/env bash
-set -euo pipefail
-input="$1"
-output="$2"
-test -f "$input"
-cat > "$output" <<'EOF'
-%PDF-1.4
-1 0 obj
-<<>>
-endobj
-trailer
-<<>>
-%%EOF
-EOF
-"#,
-    )
-    .expect("write fake ps2pdf");
-    fs::set_permissions(
-        ps2pdf_script.as_std_path(),
-        fs::Permissions::from_mode(0o755),
-    )
-    .expect("chmod fake ps2pdf");
+    write_executable_script(&ps2pdf_script, fake_ps2pdf_script());
 
-    let _path_lock = PATH_ENV_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("path env lock");
-    let original_path = std::env::var_os("PATH");
-    let mut prefixed_path = std::env::split_paths(original_path.as_deref().unwrap_or_default())
-        .collect::<Vec<_>>();
-    prefixed_path.insert(0, tool_dir.as_std_path().to_path_buf());
-    let joined_path = std::env::join_paths(prefixed_path).expect("join path");
-    unsafe {
-        std::env::set_var("PATH", &joined_path);
-    }
+    let _path_lock = lock_path_env();
+    let _path_guard = set_path(&tool_dir, true);
 
     let world = ProjectWorld::load(root.clone()).expect("world");
     let driver = CompilerDriver::new(None, Vec::new());
@@ -792,19 +1112,13 @@ EOF
         .await
         .expect("latex -> dvips -> ps2pdf build should succeed");
 
-    match original_path {
-        Some(path) => unsafe {
-            std::env::set_var("PATH", path);
-        },
-        None => unsafe {
-            std::env::remove_var("PATH");
-        },
-    }
-
     assert!(outcome.pdf_path.exists());
     assert!(build_root.join("rev-1/main.dvi").exists());
     assert!(build_root.join("rev-1/main.ps").exists());
-    assert_eq!(outcome.dep_trace.inputs, vec![Utf8PathBuf::from("main.tex")]);
+    assert_eq!(
+        outcome.dep_trace.inputs,
+        vec![Utf8PathBuf::from("main.tex")]
+    );
 }
 
 #[tokio::test]
@@ -829,8 +1143,8 @@ toplevel:
     let tool_dir = root.join("fake-tools");
     fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
     let xelatex_script = tool_dir.join("xelatex");
-    fs::write(
-        xelatex_script.as_std_path(),
+    write_executable_script(
+        &xelatex_script,
         r#"#!/usr/bin/env bash
 set -euo pipefail
 out_dir=""
@@ -860,26 +1174,10 @@ trailer
 EOF
 printf 'INPUT %s\n' "$(pwd)/$main" > "$out_dir/$stem.fls"
 "#,
-    )
-    .expect("write fake xelatex");
-    fs::set_permissions(
-        xelatex_script.as_std_path(),
-        fs::Permissions::from_mode(0o755),
-    )
-    .expect("chmod fake xelatex");
+    );
 
-    let _path_lock = PATH_ENV_LOCK
-        .get_or_init(|| Mutex::new(()))
-        .lock()
-        .expect("path env lock");
-    let original_path = std::env::var_os("PATH");
-    let mut prefixed_path = std::env::split_paths(original_path.as_deref().unwrap_or_default())
-        .collect::<Vec<_>>();
-    prefixed_path.insert(0, tool_dir.as_std_path().to_path_buf());
-    let joined_path = std::env::join_paths(prefixed_path).expect("join path");
-    unsafe {
-        std::env::set_var("PATH", &joined_path);
-    }
+    let _path_lock = lock_path_env();
+    let _path_guard = set_path(&tool_dir, true);
 
     let world = ProjectWorld::load(root.clone()).expect("world");
     let driver = CompilerDriver::new(None, Vec::new());
@@ -896,17 +1194,673 @@ printf 'INPUT %s\n' "$(pwd)/$main" > "$out_dir/$stem.fls"
         .await
         .expect("xelatex build should succeed");
 
-    match original_path {
-        Some(path) => unsafe {
-            std::env::set_var("PATH", path);
-        },
-        None => unsafe {
-            std::env::remove_var("PATH");
-        },
-    }
+    assert!(outcome.pdf_path.exists());
+    assert_eq!(
+        outcome.dep_trace.inputs,
+        vec![Utf8PathBuf::from("main.tex")]
+    );
+}
+
+#[tokio::test]
+async fn external_oracle_reports_missing_xelatex_binary() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: xe_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}x\\end{document}",
+    )
+    .expect("write main");
+    let tool_dir = root.join("empty-tools");
+    fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
+
+    let _path_lock = lock_path_env();
+    let _path_guard = set_path(&tool_dir, false);
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(None, Vec::new());
+    let failure = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: root.join(".latexd/build"),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect_err("xelatex build should fail without xelatex");
+
+    assert_eq!(failure.message, "xelatex is not installed");
+    assert_eq!(failure.diagnostics.len(), 1);
+    assert!(
+        failure.diagnostics[0]
+            .message
+            .contains("xelatex is not installed")
+    );
+}
+
+#[tokio::test]
+async fn external_oracle_reports_missing_pdf_latex_compiler_on_path() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: pdf_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}x\\end{document}",
+    )
+    .expect("write main");
+    let tool_dir = root.join("empty-tools");
+    fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
+
+    let _path_lock = lock_path_env();
+    let _path_guard = set_path(&tool_dir, false);
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(None, Vec::new());
+    let failure = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: root.join(".latexd/build"),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect_err("pdf_latex build should fail without tectonic or pdflatex");
+
+    assert_eq!(failure.message, "no TeX compiler found on PATH");
+    assert_eq!(failure.diagnostics.len(), 1);
+    assert!(
+        failure.diagnostics[0]
+            .message
+            .contains("no TeX compiler found")
+    );
+}
+
+#[tokio::test]
+async fn external_oracle_reports_missing_latex_binary() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: latex_dvips_ps2_pdf
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}x\\end{document}",
+    )
+    .expect("write main");
+    let tool_dir = root.join("empty-tools");
+    fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
+
+    let _path_lock = lock_path_env();
+    let _path_guard = set_path(&tool_dir, false);
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(None, Vec::new());
+    let failure = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: root.join(".latexd/build"),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect_err("latex -> dvips -> ps2pdf build should fail without latex");
+
+    assert_eq!(failure.message, "latex is not installed");
+    assert_eq!(failure.diagnostics.len(), 1);
+    assert!(
+        failure.diagnostics[0]
+            .message
+            .contains("latex is not installed")
+    );
+}
+
+#[tokio::test]
+async fn external_oracle_reports_missing_dvips_binary() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: latex_dvips_ps2_pdf
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}x\\end{document}",
+    )
+    .expect("write main");
+    let tool_dir = root.join("fake-tools");
+    fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
+    write_executable_script(&tool_dir.join("latex"), fake_latex_dvi_script());
+
+    let _path_lock = lock_path_env();
+    let _path_guard = set_path(&tool_dir, false);
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(None, Vec::new());
+    let failure = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: root.join(".latexd/build"),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect_err("dvips build should fail without dvips");
+
+    assert_eq!(failure.message, "dvips is not installed");
+    assert_eq!(failure.diagnostics.len(), 1);
+    assert!(
+        failure.diagnostics[0]
+            .message
+            .contains("dvips is not installed")
+    );
+}
+
+#[tokio::test]
+async fn external_oracle_reports_missing_dvi_artifact() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: latex_dvips_ps2_pdf
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}x\\end{document}",
+    )
+    .expect("write main");
+    let tool_dir = root.join("fake-tools");
+    fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
+    write_executable_script(
+        &tool_dir.join("latex"),
+        fake_success_without_output_script(),
+    );
+    write_executable_script(&tool_dir.join("dvips"), fake_dvips_script());
+    write_executable_script(&tool_dir.join("ps2pdf"), fake_ps2pdf_script());
+
+    let _path_lock = lock_path_env();
+    let _path_guard = set_path(&tool_dir, false);
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(None, Vec::new());
+    let build_root = root.join(".latexd/build");
+    let expected_dvi = build_root.join("rev-1/main.dvi");
+    let failure = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect_err("latex build should fail when it does not emit a DVI");
+
+    assert_eq!(
+        failure.message,
+        format!("expected DVI {expected_dvi} was not created")
+    );
+    assert_eq!(failure.diagnostics.len(), 1);
+    assert!(
+        failure.diagnostics[0]
+            .message
+            .contains("did not produce expected DVI")
+    );
+}
+
+#[tokio::test]
+async fn external_oracle_reports_missing_ps2pdf_binary() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: latex_dvips_ps2_pdf
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}x\\end{document}",
+    )
+    .expect("write main");
+    let tool_dir = root.join("fake-tools");
+    fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
+    write_executable_script(&tool_dir.join("latex"), fake_latex_dvi_script());
+    write_executable_script(&tool_dir.join("dvips"), fake_dvips_script());
+
+    let _path_lock = lock_path_env();
+    let _path_guard = set_path(&tool_dir, false);
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(None, Vec::new());
+    let failure = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: root.join(".latexd/build"),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect_err("dvips build should fail without ps2pdf");
+
+    assert_eq!(failure.message, "ps2pdf is not installed");
+    assert_eq!(failure.diagnostics.len(), 1);
+    assert!(
+        failure.diagnostics[0]
+            .message
+            .contains("ps2pdf is not installed")
+    );
+}
+
+#[tokio::test]
+async fn external_oracle_reports_missing_postscript_artifact() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: latex_dvips_ps2_pdf
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}x\\end{document}",
+    )
+    .expect("write main");
+    let tool_dir = root.join("fake-tools");
+    fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
+    write_executable_script(&tool_dir.join("latex"), fake_latex_dvi_script());
+    write_executable_script(
+        &tool_dir.join("dvips"),
+        fake_success_without_output_script(),
+    );
+    write_executable_script(&tool_dir.join("ps2pdf"), fake_ps2pdf_script());
+
+    let _path_lock = lock_path_env();
+    let _path_guard = set_path(&tool_dir, false);
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(None, Vec::new());
+    let build_root = root.join(".latexd/build");
+    let expected_ps = build_root.join("rev-1/main.ps");
+    let failure = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect_err("dvips build should fail when it does not emit PostScript");
+
+    assert_eq!(
+        failure.message,
+        format!("expected PostScript {expected_ps} was not created")
+    );
+    assert_eq!(failure.diagnostics.len(), 1);
+    assert!(
+        failure.diagnostics[0]
+            .message
+            .contains("did not produce expected PostScript")
+    );
+}
+
+#[tokio::test]
+async fn external_oracle_reports_missing_pdf_artifact_from_xelatex() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: xe_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}x\\end{document}",
+    )
+    .expect("write main");
+    let tool_dir = root.join("fake-tools");
+    fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
+    write_executable_script(
+        &tool_dir.join("xelatex"),
+        fake_success_without_output_script(),
+    );
+
+    let _path_lock = lock_path_env();
+    let _path_guard = set_path(&tool_dir, false);
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(None, Vec::new());
+    let build_root = root.join(".latexd/build");
+    let expected_pdf = build_root.join("rev-1/main.pdf");
+    let failure = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect_err("xelatex build should fail when it does not emit a PDF");
+
+    assert_eq!(
+        failure.message,
+        format!("expected PDF {expected_pdf} was not created")
+    );
+    assert_eq!(failure.diagnostics.len(), 1);
+    assert!(
+        failure.diagnostics[0]
+            .message
+            .contains("did not produce expected PDF")
+    );
+}
+
+#[tokio::test]
+async fn external_oracle_prefers_tectonic_for_pdf_latex() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: pdf_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}x\\end{document}",
+    )
+    .expect("write main");
+    let tool_dir = root.join("fake-tools");
+    fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
+    write_executable_script(&tool_dir.join("tectonic"), fake_tectonic_pdf_script());
+    write_executable_script(
+        &tool_dir.join("pdflatex"),
+        "#!/bin/bash\nset -euo pipefail\nexit 99\n",
+    );
+
+    let _path_lock = lock_path_env();
+    let _path_guard = set_path(&tool_dir, false);
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(None, Vec::new());
+    let build_root = root.join(".latexd/build");
+    let outcome = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect("pdf_latex should prefer tectonic when both compilers exist");
 
     assert!(outcome.pdf_path.exists());
-    assert_eq!(outcome.dep_trace.inputs, vec![Utf8PathBuf::from("main.tex")]);
+    assert_eq!(outcome.pdf_path, build_root.join("rev-1/main.pdf"));
+}
+
+#[tokio::test]
+async fn external_oracle_reports_missing_pdf_artifact_from_tectonic() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: pdf_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}x\\end{document}",
+    )
+    .expect("write main");
+    let tool_dir = root.join("fake-tools");
+    fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
+    write_executable_script(
+        &tool_dir.join("tectonic"),
+        fake_success_without_output_script(),
+    );
+    write_executable_script(&tool_dir.join("pdflatex"), fake_pdflatex_pdf_script());
+
+    let _path_lock = lock_path_env();
+    let _path_guard = set_path(&tool_dir, false);
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(None, Vec::new());
+    let build_root = root.join(".latexd/build");
+    let expected_pdf = build_root.join("rev-1/main.pdf");
+    let failure = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect_err("tectonic path should fail when it does not emit a PDF");
+
+    assert_eq!(
+        failure.message,
+        format!("expected PDF {expected_pdf} was not created")
+    );
+    assert_eq!(failure.diagnostics.len(), 1);
+    assert!(
+        failure.diagnostics[0]
+            .message
+            .contains("did not produce expected PDF")
+    );
+}
+
+#[tokio::test]
+async fn external_oracle_reports_missing_pdf_artifact_from_pdflatex() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: pdf_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}x\\end{document}",
+    )
+    .expect("write main");
+    let tool_dir = root.join("fake-tools");
+    fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
+    write_executable_script(
+        &tool_dir.join("pdflatex"),
+        fake_success_without_output_script(),
+    );
+
+    let _path_lock = lock_path_env();
+    let _path_guard = set_path(&tool_dir, false);
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(None, Vec::new());
+    let build_root = root.join(".latexd/build");
+    let expected_pdf = build_root.join("rev-1/main.pdf");
+    let failure = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect_err("pdflatex path should fail when it does not emit a PDF");
+
+    assert_eq!(
+        failure.message,
+        format!("expected PDF {expected_pdf} was not created")
+    );
+    assert_eq!(failure.diagnostics.len(), 1);
+    assert!(
+        failure.diagnostics[0]
+            .message
+            .contains("did not produce expected PDF")
+    );
+}
+
+#[tokio::test]
+async fn external_oracle_falls_back_to_pdflatex_for_pdf_latex() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: pdf_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}x\\end{document}",
+    )
+    .expect("write main");
+    let tool_dir = root.join("fake-tools");
+    fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
+    write_executable_script(&tool_dir.join("pdflatex"), fake_pdflatex_pdf_script());
+
+    let _path_lock = lock_path_env();
+    let _path_guard = set_path(&tool_dir, false);
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(None, Vec::new());
+    let build_root = root.join(".latexd/build");
+    let outcome = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect("pdf_latex should fall back to pdflatex when tectonic is absent");
+
+    assert!(outcome.pdf_path.exists());
+    assert_eq!(outcome.pdf_path, build_root.join("rev-1/main.pdf"));
+}
+
+#[tokio::test]
+async fn external_oracle_reports_missing_pdf_latex_toolchain() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: pdf_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}x\\end{document}",
+    )
+    .expect("write main");
+    let tool_dir = root.join("empty-tools");
+    fs::create_dir_all(tool_dir.as_std_path()).expect("create tool dir");
+
+    let _path_lock = lock_path_env();
+    let _path_guard = set_path(&tool_dir, false);
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(None, Vec::new());
+    let failure = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: root.join(".latexd/build"),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect_err("pdf_latex should fail when no TeX compiler is present");
+
+    assert_eq!(failure.message, "no TeX compiler found on PATH");
+    assert_eq!(failure.diagnostics.len(), 1);
+    assert!(
+        failure.diagnostics[0]
+            .message
+            .contains("no TeX compiler found")
+    );
 }
 
 #[tokio::test]
@@ -6973,7 +7927,10 @@ toplevel:
             toplevel: Utf8PathBuf::from("main.tex"),
             rev: 1,
             build_root: build_root.clone(),
-            changed_files: vec![Utf8PathBuf::from("main.tex"), Utf8PathBuf::from("sections/tail.tex")],
+            changed_files: vec![
+                Utf8PathBuf::from("main.tex"),
+                Utf8PathBuf::from("sections/tail.tex"),
+            ],
         })
         .await
         .expect("first semantic aux build should succeed");
@@ -7114,6 +8071,395 @@ toplevel:
         build_meta.start_page_index,
         expected_checkpoint.meta.page_index_after
     );
+    assert_eq!(build_meta.page_count, second.page_metadata.len());
+    assert_eq!(build_meta.rebuilt_page_count, 0);
+    assert_eq!(build_meta.reused_page_count, second.page_metadata.len());
+    assert_eq!(build_meta.semantic_pass_count, 1);
+    assert_eq!(build_meta.semantic_rerun_count, 0);
+    assert!(build_meta.semantic_fixpoint_reached);
+    assert!(build_meta.semantic_aux_backdated);
+}
+
+#[tokio::test]
+async fn internal_compiler_prefers_earlier_same_page_bibliography_checkpoint_across_multiple_changed_files()
+ {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: pdf_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(root.join("article.cls"), "").expect("write class");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}Order check. \\cite{alpha} and \\cite{beta}.\\bibliography{refsa,refsb}\\end{document}",
+    )
+    .expect("write main");
+    fs::write(
+        root.join("refsa.bbl"),
+        "\\begin{thebibliography}{1}\n\\bibitem[A 2024]{alpha} Alpha entry.\n\\end{thebibliography}\n",
+    )
+    .expect("write first bibliography");
+    fs::write(
+        root.join("refsb.bbl"),
+        "\\begin{thebibliography}{1}\n\\bibitem[B 2025]{beta} Beta entry.\n\\end{thebibliography}\n",
+    )
+    .expect("write second bibliography");
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+    let build_root = root.join(".latexd/build");
+    let first = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![
+                Utf8PathBuf::from("main.tex"),
+                Utf8PathBuf::from("refsa.bbl"),
+                Utf8PathBuf::from("refsb.bbl"),
+            ],
+        })
+        .await
+        .expect("first semantic aux build should succeed");
+    assert_eq!(
+        first.page_metadata.len(),
+        1,
+        "fixture should keep both bibliography files on the same page"
+    );
+    let first_bundle =
+        load_checkpoint_bundle(&build_root.join("rev-1/checkpoints.json")).expect("load bundle");
+    let same_page_bibliography_checkpoints = first_bundle
+        .checkpoints
+        .iter()
+        .filter(|checkpoint| {
+            checkpoint.meta.kind == CheckpointKind::InputBoundary
+                && checkpoint.meta.input_boundary_kind == Some(VmModuleCheckpointKind::Enter)
+                && checkpoint.meta.module_path.as_ref().is_some_and(|path| {
+                    path == &Utf8PathBuf::from("refsa.bbl")
+                        || path == &Utf8PathBuf::from("refsb.bbl")
+                })
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(same_page_bibliography_checkpoints.len(), 2);
+    assert_eq!(
+        same_page_bibliography_checkpoints[0].meta.page_index_after,
+        same_page_bibliography_checkpoints[1].meta.page_index_after
+    );
+    let expected_checkpoint = same_page_bibliography_checkpoints
+        .into_iter()
+        .min_by_key(|checkpoint| checkpoint.meta.output_start_utf8)
+        .expect("earlier same-page bibliography checkpoint");
+
+    fs::write(
+        root.join("refsa.bbl"),
+        "\\begin{thebibliography}{1}\n\\bibitem[A 2024]{alpha}  Alpha entry.\n\\end{thebibliography}\n",
+    )
+    .expect("rewrite first bibliography");
+    fs::write(
+        root.join("refsb.bbl"),
+        "\\begin{thebibliography}{1}\n\\bibitem[B 2025]{beta}  Beta entry.\n\\end{thebibliography}\n",
+    )
+    .expect("rewrite second bibliography");
+
+    let second = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest,
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 2,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("refsb.bbl"), Utf8PathBuf::from("refsa.bbl")],
+        })
+        .await
+        .expect("second semantic aux build should succeed");
+
+    assert_eq!(
+        second.reused_checkpoint_id,
+        Some(expected_checkpoint.meta.checkpoint_id.clone())
+    );
+    assert!(second.page_patches.is_empty());
+    let build_meta = serde_json::from_slice::<BuildMeta>(
+        &fs::read(build_root.join("rev-2/build-meta.json")).expect("read build meta"),
+    )
+    .expect("parse build meta");
+    assert!(build_meta.aux_sensitive);
+    assert_eq!(
+        build_meta.dirty_files,
+        vec![Utf8PathBuf::from("refsb.bbl"), Utf8PathBuf::from("refsa.bbl")]
+    );
+    assert_eq!(
+        build_meta.start_checkpoint_id,
+        Some(expected_checkpoint.meta.checkpoint_id.clone())
+    );
+    assert_eq!(
+        build_meta.start_page_index,
+        expected_checkpoint.meta.page_index_after
+    );
+    assert_eq!(build_meta.page_count, second.page_metadata.len());
+    assert_eq!(build_meta.rebuilt_page_count, 0);
+    assert_eq!(build_meta.reused_page_count, second.page_metadata.len());
+    assert_eq!(build_meta.semantic_pass_count, 1);
+    assert_eq!(build_meta.semantic_rerun_count, 0);
+    assert!(build_meta.semantic_fixpoint_reached);
+    assert!(build_meta.semantic_aux_backdated);
+}
+
+#[tokio::test]
+async fn internal_compiler_prefers_earlier_bibliography_page_across_multiple_changed_files() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: pdf_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(root.join("article.cls"), "").expect("write class");
+    let intro_filler = "bibliography page ordering filler ".repeat(220);
+    let first_bibliography_body = (0..1800)
+        .map(|index| format!("alpha{index:04}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    fs::write(
+        root.join("main.tex"),
+        format!(
+            "\\documentclass{{article}}\\begin{{document}}Intro. {intro_filler} \\cite{{alpha}} and \\cite{{beta}}.\\bibliography{{refsa,refsb}}\\end{{document}}"
+        ),
+    )
+    .expect("write main");
+    fs::write(
+        root.join("refsa.bbl"),
+        format!(
+            "\\begin{{thebibliography}}{{1}}\n\\bibitem[A 2024]{{alpha}} Alpha entry. {first_bibliography_body}\n\\end{{thebibliography}}\n"
+        ),
+    )
+    .expect("write first bibliography");
+    fs::write(
+        root.join("refsb.bbl"),
+        "\\begin{thebibliography}{1}\n\\bibitem[B 2025]{beta} Beta entry.\n\\end{thebibliography}\n",
+    )
+    .expect("write second bibliography");
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+    let build_root = root.join(".latexd/build");
+    let first = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![
+                Utf8PathBuf::from("main.tex"),
+                Utf8PathBuf::from("refsa.bbl"),
+                Utf8PathBuf::from("refsb.bbl"),
+            ],
+        })
+        .await
+        .expect("first semantic aux build should succeed");
+
+    let bibliography_page_indexes = ["refsa.bbl", "refsb.bbl"]
+        .into_iter()
+        .map(|path| {
+            first
+                .page_metadata
+                .iter()
+                .find(|page| {
+                    page.source_spans
+                        .iter()
+                        .any(|span| span.file == Utf8PathBuf::from(path))
+                })
+                .map(|page| page.index)
+                .expect("bibliography page")
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        bibliography_page_indexes[0] < bibliography_page_indexes[1],
+        "fixture should place refsa before refsb across pages, saw {:?}",
+        bibliography_page_indexes
+    );
+    assert!(bibliography_page_indexes[0] > 0);
+
+    let first_bundle =
+        load_checkpoint_bundle(&build_root.join("rev-1/checkpoints.json")).expect("load bundle");
+    let expected_checkpoint = first_bundle
+        .checkpoints
+        .iter()
+        .filter(|checkpoint| {
+            checkpoint.meta.kind == CheckpointKind::InputBoundary
+                && checkpoint.meta.input_boundary_kind == Some(VmModuleCheckpointKind::Enter)
+                && checkpoint.meta.module_path.as_ref().is_some_and(|path| {
+                    path == &Utf8PathBuf::from("refsa.bbl")
+                        || path == &Utf8PathBuf::from("refsb.bbl")
+                })
+        })
+        .min_by_key(|checkpoint| {
+            (
+                checkpoint.meta.page_index_after,
+                checkpoint.meta.output_start_utf8,
+            )
+        })
+        .expect("earlier bibliography-page checkpoint");
+
+    fs::write(
+        root.join("refsa.bbl"),
+        format!(
+            "\\begin{{thebibliography}}{{1}}\n\\bibitem[A 2024]{{alpha}} Alpha  entry. {first_bibliography_body}\n\\end{{thebibliography}}\n"
+        ),
+    )
+    .expect("rewrite first bibliography");
+    fs::write(
+        root.join("refsb.bbl"),
+        "\\begin{thebibliography}{1}\n\\bibitem[B 2025]{beta}  Beta entry.\n\\end{thebibliography}\n",
+    )
+    .expect("rewrite second bibliography");
+
+    let second = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest,
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 2,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("refsb.bbl"), Utf8PathBuf::from("refsa.bbl")],
+        })
+        .await
+        .expect("second semantic aux build should succeed");
+
+    assert_eq!(
+        second.reused_checkpoint_id,
+        Some(expected_checkpoint.meta.checkpoint_id.clone())
+    );
+    let build_meta = serde_json::from_slice::<BuildMeta>(
+        &fs::read(build_root.join("rev-2/build-meta.json")).expect("read build meta"),
+    )
+    .expect("parse build meta");
+    assert!(build_meta.aux_sensitive);
+    assert_eq!(
+        build_meta.dirty_files,
+        vec![Utf8PathBuf::from("refsb.bbl"), Utf8PathBuf::from("refsa.bbl")]
+    );
+    assert_eq!(
+        build_meta.start_checkpoint_id,
+        Some(expected_checkpoint.meta.checkpoint_id.clone())
+    );
+    assert_eq!(
+        build_meta.start_page_index,
+        expected_checkpoint.meta.page_index_after
+    );
+    assert!(build_meta.start_page_index > 0);
+    assert_eq!(build_meta.page_count, second.page_metadata.len());
+    assert!(second.page_patches.is_empty());
+    assert_eq!(build_meta.rebuilt_page_count, 0);
+    assert_eq!(build_meta.reused_page_count, second.page_metadata.len());
+    assert_eq!(build_meta.semantic_pass_count, 1);
+    assert_eq!(build_meta.semantic_rerun_count, 0);
+    assert!(build_meta.semantic_fixpoint_reached);
+    assert!(build_meta.semantic_aux_backdated);
+}
+
+#[tokio::test]
+async fn internal_compiler_skips_late_bibliography_replay_when_earlier_multi_bibliography_input_is_unchanged()
+ {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: pdf_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(root.join("article.cls"), "").expect("write class");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}Order check. \\cite{alpha} and \\cite{beta}.\\bibliography{refsa,refsb}\\end{document}",
+    )
+    .expect("write main");
+    fs::write(
+        root.join("refsa.bbl"),
+        "\\begin{thebibliography}{1}\n\\bibitem[A 2024]{alpha} Alpha entry.\n\\end{thebibliography}\n",
+    )
+    .expect("write first bibliography");
+    fs::write(
+        root.join("refsb.bbl"),
+        "\\begin{thebibliography}{1}\n\\bibitem[B 2025]{beta} Beta entry.\n\\end{thebibliography}\n",
+    )
+    .expect("write second bibliography");
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+    let build_root = root.join(".latexd/build");
+    let first = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![
+                Utf8PathBuf::from("main.tex"),
+                Utf8PathBuf::from("refsa.bbl"),
+                Utf8PathBuf::from("refsb.bbl"),
+            ],
+        })
+        .await
+        .expect("first semantic aux build should succeed");
+    assert_eq!(first.page_metadata.len(), 1);
+
+    let first_bundle =
+        load_checkpoint_bundle(&build_root.join("rev-1/checkpoints.json")).expect("load bundle");
+    let preamble_checkpoint_id = first_bundle
+        .checkpoints
+        .first()
+        .map(|checkpoint| checkpoint.meta.checkpoint_id.clone())
+        .expect("preamble checkpoint");
+
+    fs::write(
+        root.join("refsb.bbl"),
+        "\\begin{thebibliography}{1}\n\\bibitem[B 2025]{beta}  Beta entry.\n\\end{thebibliography}\n",
+    )
+    .expect("rewrite second bibliography");
+
+    let second = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest,
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 2,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("refsb.bbl")],
+        })
+        .await
+        .expect("second semantic aux build should succeed");
+
+    assert_eq!(second.reused_checkpoint_id, Some(preamble_checkpoint_id.clone()));
+    assert!(second.page_patches.is_empty());
+    let build_meta = serde_json::from_slice::<BuildMeta>(
+        &fs::read(build_root.join("rev-2/build-meta.json")).expect("read build meta"),
+    )
+    .expect("parse build meta");
+    assert!(build_meta.aux_sensitive);
+    assert_eq!(build_meta.dirty_files, vec![Utf8PathBuf::from("refsb.bbl")]);
+    assert_eq!(
+        build_meta.start_checkpoint_id,
+        Some(preamble_checkpoint_id)
+    );
+    assert_eq!(build_meta.start_page_index, 0);
     assert_eq!(build_meta.page_count, second.page_metadata.len());
     assert_eq!(build_meta.rebuilt_page_count, 0);
     assert_eq!(build_meta.reused_page_count, second.page_metadata.len());
@@ -7486,6 +8832,207 @@ async fn internal_compiler_avoids_shipout_replay_corruption_for_semantically_equ
     assert!(build_meta.semantic_fixpoint_reached);
     assert!(build_meta.semantic_aux_backdated);
     assert_eq!(fourth.reused_checkpoint_id, third_preamble_checkpoint);
+}
+
+#[tokio::test]
+async fn internal_compiler_rebuilds_from_base_snapshot_for_semantic_multi_bibliography_edit() {
+    let fixture_root = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/arxiv-smoke/optioned-bibliography-order-stack");
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().join("project")).expect("utf8 tempdir");
+    let mut copy_dirs = vec![(fixture_root.clone(), root.clone())];
+    while let Some((source_dir, target_dir)) = copy_dirs.pop() {
+        fs::create_dir_all(target_dir.as_std_path()).expect("create target dir");
+        for entry in fs::read_dir(source_dir.as_std_path())
+            .expect("read source dir")
+            .filter_map(|entry| entry.ok())
+        {
+            let source_path = Utf8PathBuf::from_path_buf(entry.path()).expect("utf8 source path");
+            let target_path = target_dir.join(entry.file_name().to_string_lossy().as_ref());
+            if entry.file_type().is_ok_and(|file_type| file_type.is_dir()) {
+                copy_dirs.push((source_path, target_path));
+                continue;
+            }
+            fs::copy(source_path.as_std_path(), target_path.as_std_path())
+                .expect("copy fixture file");
+        }
+    }
+
+    let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+    let build_root = root.join(".latexd/build");
+    let mut fifth = None;
+    for rev in 1..=5u64 {
+        let mut changed_files = Vec::new();
+        if rev > 1 {
+            let overlay_root = fixture_root.join(format!("rev{rev}"));
+            if overlay_root.exists() {
+                let mut overlay_dirs = vec![overlay_root.clone()];
+                while let Some(source_dir) = overlay_dirs.pop() {
+                    for entry in fs::read_dir(source_dir.as_std_path())
+                        .expect("read overlay dir")
+                        .filter_map(|entry| entry.ok())
+                    {
+                        let source_path =
+                            Utf8PathBuf::from_path_buf(entry.path()).expect("utf8 overlay path");
+                        if entry.file_type().is_ok_and(|file_type| file_type.is_dir()) {
+                            overlay_dirs.push(source_path);
+                            continue;
+                        }
+                        let relative_path = source_path
+                            .strip_prefix(&overlay_root)
+                            .expect("overlay path should be relative to overlay root");
+                        let target_path = root.join(relative_path);
+                        if let Some(parent) = target_path.parent() {
+                            fs::create_dir_all(parent.as_std_path()).expect("create parent dir");
+                        }
+                        fs::copy(source_path.as_std_path(), target_path.as_std_path())
+                            .expect("copy overlay file");
+                        changed_files.push(relative_path.to_owned());
+                    }
+                }
+            }
+        }
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let outcome = driver
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest: world.manifest.clone(),
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev,
+                build_root: build_root.clone(),
+                changed_files,
+            })
+            .await
+            .expect("build should succeed");
+        if rev == 5 {
+            fifth = Some(outcome);
+        }
+    }
+
+    let fifth = fifth.expect("fifth outcome");
+    let fifth_output =
+        fs::read_to_string(build_root.join("rev-5/output.txt")).expect("read fifth output");
+    assert!(fifth_output.contains("Order check. [2] and [1]"));
+    assert!(fifth_output.contains("Alpha entry."));
+    assert!(fifth_output.contains("Beta revised entry."));
+    assert_eq!(
+        fifth.reused_checkpoint_id, None,
+        "semantic-changing earlier bibliography edits should rebuild from the base snapshot"
+    );
+
+    let build_meta = serde_json::from_slice::<BuildMeta>(
+        &fs::read(build_root.join("rev-5/build-meta.json")).expect("read build meta"),
+    )
+    .expect("parse build meta");
+    assert!(build_meta.aux_sensitive);
+    assert_eq!(build_meta.dirty_files, vec![Utf8PathBuf::from("refsb.bbl")]);
+    assert_eq!(build_meta.start_checkpoint_id, None);
+    assert_eq!(build_meta.start_page_index, 0);
+    assert_eq!(build_meta.page_count, fifth.page_metadata.len());
+    assert_eq!(build_meta.rebuilt_page_count, fifth.page_metadata.len());
+    assert_eq!(build_meta.reused_page_count, 0);
+    assert_eq!(build_meta.semantic_pass_count, 2);
+    assert_eq!(build_meta.semantic_rerun_count, 1);
+    assert!(build_meta.semantic_fixpoint_reached);
+    assert!(!build_meta.semantic_aux_backdated);
+}
+
+#[tokio::test]
+async fn internal_compiler_prefers_conservative_rebuild_over_skip_for_late_multi_bibliography_semantic_change()
+ {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: pdf_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(root.join("article.cls"), "").expect("write class");
+    fs::write(
+        root.join("main.tex"),
+        "\\documentclass{article}\\begin{document}Order check. \\cite{beta} and \\citeyear{alpha}.\\bibliography{refsb,refsa}\\end{document}",
+    )
+    .expect("write main");
+    fs::write(
+        root.join("refsb.bbl"),
+        "\\begin{thebibliography}{1}\n\\bibitem[B 2025]{beta} Beta entry.\n\\end{thebibliography}\n",
+    )
+    .expect("write first bibliography");
+    fs::write(
+        root.join("refsa.bbl"),
+        "\\begin{thebibliography}{1}\n\\bibitem[A 2024]{alpha} Alpha entry.\n\\end{thebibliography}\n",
+    )
+    .expect("write second bibliography");
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+    let build_root = root.join(".latexd/build");
+    let first = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![
+                Utf8PathBuf::from("main.tex"),
+                Utf8PathBuf::from("refsb.bbl"),
+                Utf8PathBuf::from("refsa.bbl"),
+            ],
+        })
+        .await
+        .expect("first semantic aux build should succeed");
+    assert_eq!(first.page_metadata.len(), 1);
+
+    fs::write(
+        root.join("refsa.bbl"),
+        "\\begin{thebibliography}{1}\n\\bibitem[A 2026]{alpha} Alpha revised entry.\n\\end{thebibliography}\n",
+    )
+    .expect("rewrite later bibliography");
+
+    let second = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest,
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 2,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("refsa.bbl")],
+        })
+        .await
+        .expect("second semantic aux build should succeed");
+
+    let second_output =
+        fs::read_to_string(build_root.join("rev-2/output.txt")).expect("read second output");
+    assert!(second_output.contains("Alpha revised entry."));
+    assert!(
+        second_output.contains("2026"),
+        "executed citation output should reflect the semantic year change"
+    );
+    assert_eq!(
+        second.reused_checkpoint_id, None,
+        "semantic-changing later bibliography edits should rebuild from the base snapshot even when skip-shipout conditions also hold"
+    );
+
+    let build_meta = serde_json::from_slice::<BuildMeta>(
+        &fs::read(build_root.join("rev-2/build-meta.json")).expect("read build meta"),
+    )
+    .expect("parse build meta");
+    assert!(build_meta.aux_sensitive);
+    assert_eq!(build_meta.dirty_files, vec![Utf8PathBuf::from("refsa.bbl")]);
+    assert_eq!(build_meta.start_checkpoint_id, None);
+    assert_eq!(build_meta.start_page_index, 0);
+    assert_eq!(build_meta.page_count, second.page_metadata.len());
+    assert_eq!(build_meta.rebuilt_page_count, second.page_metadata.len());
+    assert_eq!(build_meta.reused_page_count, 0);
+    assert_eq!(build_meta.semantic_pass_count, 2);
+    assert_eq!(build_meta.semantic_rerun_count, 1);
+    assert!(build_meta.semantic_fixpoint_reached);
+    assert!(!build_meta.semantic_aux_backdated);
 }
 
 #[tokio::test]
@@ -8090,6 +9637,372 @@ toplevel:
 }
 
 #[tokio::test]
+async fn internal_compiler_prefers_cp0_when_early_toplevel_and_late_input_change_together() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: pdf_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(root.join("article.cls"), "").expect("write class");
+    fs::create_dir_all(root.join("sections")).expect("sections dir");
+    let filler = (0..1700)
+        .map(|index| format!("body{index:04}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    fs::write(root.join("sections/tail.tex"), "tail-A").expect("write tail input");
+    let original_main = format!(
+        "\\documentclass{{article}}\\begin{{document}} intro {filler} \\input{{sections/tail}} \\end{{document}}"
+    );
+    fs::write(root.join("main.tex"), &original_main).expect("write main tex");
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+    let build_root = root.join(".latexd/build");
+    let first = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![
+                Utf8PathBuf::from("main.tex"),
+                Utf8PathBuf::from("sections/tail.tex"),
+            ],
+        })
+        .await
+        .expect("first build should succeed");
+    assert!(
+        first.page_metadata.len() >= 2,
+        "fixture should place the included tail on a later page"
+    );
+    let first_checkpoints = load_checkpoint_bundle(&build_root.join("rev-1/checkpoints.json"))
+        .expect("load rev1 checkpoints");
+    let cp0_id = first_checkpoints.checkpoints[0].meta.checkpoint_id.clone();
+
+    let second_main = original_main.replacen("intro", "Intro", 1);
+    fs::write(root.join("main.tex"), second_main).expect("rewrite main");
+    fs::write(root.join("sections/tail.tex"), "tail-B").expect("rewrite tail input");
+
+    let second = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest,
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 2,
+            build_root: build_root.clone(),
+            changed_files: vec![
+                Utf8PathBuf::from("main.tex"),
+                Utf8PathBuf::from("sections/tail.tex"),
+            ],
+        })
+        .await
+        .expect("second build should succeed");
+
+    assert_eq!(second.reused_checkpoint_id, Some(cp0_id.clone()));
+    let build_meta = serde_json::from_slice::<BuildMeta>(
+        &fs::read(build_root.join("rev-2/build-meta.json")).expect("read build meta"),
+    )
+    .expect("parse build meta");
+    assert_eq!(
+        build_meta.dirty_files,
+        vec![
+            Utf8PathBuf::from("main.tex"),
+            Utf8PathBuf::from("sections/tail.tex"),
+        ]
+    );
+    assert_eq!(build_meta.start_checkpoint_id, Some(cp0_id));
+    assert_eq!(build_meta.start_page_index, 0);
+    assert!(build_meta.rebuilt_page_count >= 1);
+}
+
+#[tokio::test]
+async fn internal_compiler_prefers_earlier_same_page_input_checkpoint_across_multiple_changed_files()
+ {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: pdf_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(root.join("article.cls"), "").expect("write class");
+    fs::create_dir_all(root.join("sections")).expect("sections dir");
+    let filler = (0..1650)
+        .map(|index| format!("body{index:04}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    fs::write(root.join("sections/a.tex"), "alpha-old").expect("write first input");
+    fs::write(root.join("sections/b.tex"), "beta-old").expect("write second input");
+    fs::write(
+        root.join("main.tex"),
+        format!(
+            "\\documentclass{{article}}\\begin{{document}} {filler} \\input{{sections/a}} \\input{{sections/b}} \\end{{document}}"
+        ),
+    )
+    .expect("write main tex");
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+    let build_root = root.join(".latexd/build");
+    let first = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![
+                Utf8PathBuf::from("main.tex"),
+                Utf8PathBuf::from("sections/a.tex"),
+                Utf8PathBuf::from("sections/b.tex"),
+            ],
+        })
+        .await
+        .expect("first build should succeed");
+
+    let input_page_indexes = ["sections/a.tex", "sections/b.tex"]
+        .into_iter()
+        .map(|path| {
+            first
+                .page_metadata
+                .iter()
+                .find(|page| {
+                    page.source_spans
+                        .iter()
+                        .any(|span| span.file == Utf8PathBuf::from(path))
+                })
+                .map(|page| page.index)
+                .expect("input page")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(input_page_indexes[0], input_page_indexes[1]);
+    assert!(input_page_indexes[0] > 0);
+
+    let first_checkpoints = load_checkpoint_bundle(&build_root.join("rev-1/checkpoints.json"))
+        .expect("load rev1 checkpoints");
+    let same_page_input_checkpoints = first_checkpoints
+        .checkpoints
+        .iter()
+        .filter(|checkpoint| {
+            checkpoint.meta.kind == CheckpointKind::InputBoundary
+                && checkpoint.meta.module_path.as_ref().is_some_and(|path| {
+                    path == &Utf8PathBuf::from("sections/a.tex")
+                        || path == &Utf8PathBuf::from("sections/b.tex")
+                })
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        !same_page_input_checkpoints.is_empty(),
+        "expected same-page input checkpoints, saw {:?}",
+        first_checkpoints
+            .checkpoints
+            .iter()
+            .filter(|checkpoint| checkpoint.meta.kind == CheckpointKind::InputBoundary)
+            .map(|checkpoint| (
+                checkpoint.meta.checkpoint_id.clone(),
+                checkpoint.meta.module_path.clone(),
+                checkpoint.meta.resume_path.clone(),
+                checkpoint.meta.output_start_utf8,
+                checkpoint.meta.page_index_after,
+            ))
+            .collect::<Vec<_>>()
+    );
+    let expected_checkpoint = same_page_input_checkpoints
+        .into_iter()
+        .min_by_key(|checkpoint| checkpoint.meta.output_start_utf8)
+        .expect("earlier same-page input checkpoint");
+
+    fs::write(root.join("sections/a.tex"), "alpha-new").expect("rewrite first input");
+    fs::write(root.join("sections/b.tex"), "beta-new").expect("rewrite second input");
+
+    let second = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest,
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 2,
+            build_root: build_root.clone(),
+            changed_files: vec![
+                Utf8PathBuf::from("sections/b.tex"),
+                Utf8PathBuf::from("sections/a.tex"),
+            ],
+        })
+        .await
+        .expect("second build should succeed");
+
+    assert_eq!(
+        second.reused_checkpoint_id,
+        Some(expected_checkpoint.meta.checkpoint_id.clone())
+    );
+    let build_meta = serde_json::from_slice::<BuildMeta>(
+        &fs::read(build_root.join("rev-2/build-meta.json")).expect("read build meta"),
+    )
+    .expect("parse build meta");
+    assert_eq!(
+        build_meta.dirty_files,
+        vec![
+            Utf8PathBuf::from("sections/b.tex"),
+            Utf8PathBuf::from("sections/a.tex"),
+        ]
+    );
+    assert_eq!(
+        build_meta.start_checkpoint_id,
+        Some(expected_checkpoint.meta.checkpoint_id.clone())
+    );
+    assert_eq!(
+        build_meta.start_page_index,
+        expected_checkpoint.meta.page_index_after
+    );
+}
+
+#[tokio::test]
+async fn internal_compiler_prefers_earlier_input_page_across_multiple_changed_files() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: pdf_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(root.join("article.cls"), "").expect("write class");
+    fs::create_dir_all(root.join("sections")).expect("sections dir");
+    let first_filler = (0..1500)
+        .map(|index| format!("bodya{index:04}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let second_filler = (0..1500)
+        .map(|index| format!("bodyb{index:04}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    fs::write(root.join("sections/a.tex"), "alpha-old").expect("write first input");
+    fs::write(root.join("sections/b.tex"), "beta-old").expect("write second input");
+    fs::write(
+        root.join("main.tex"),
+        format!(
+            "\\documentclass{{article}}\\begin{{document}} {first_filler} \\input{{sections/a}} {second_filler} \\input{{sections/b}} \\end{{document}}"
+        ),
+    )
+    .expect("write main tex");
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+    let build_root = root.join(".latexd/build");
+    let first = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![
+                Utf8PathBuf::from("main.tex"),
+                Utf8PathBuf::from("sections/a.tex"),
+                Utf8PathBuf::from("sections/b.tex"),
+            ],
+        })
+        .await
+        .expect("first build should succeed");
+
+    let input_page_indexes = ["sections/a.tex", "sections/b.tex"]
+        .into_iter()
+        .map(|path| {
+            first
+                .page_metadata
+                .iter()
+                .find(|page| {
+                    page.source_spans
+                        .iter()
+                        .any(|span| span.file == Utf8PathBuf::from(path))
+                })
+                .map(|page| page.index)
+                .expect("input page")
+        })
+        .collect::<Vec<_>>();
+    assert!(input_page_indexes[0] > 0);
+    assert!(input_page_indexes[1] > input_page_indexes[0]);
+
+    let first_checkpoints = load_checkpoint_bundle(&build_root.join("rev-1/checkpoints.json"))
+        .expect("load rev1 checkpoints");
+    let expected_checkpoint = first_checkpoints
+        .checkpoints
+        .iter()
+        .filter(|checkpoint| {
+            checkpoint.meta.kind == CheckpointKind::InputBoundary
+                && checkpoint.meta.input_boundary_kind
+                    == Some(tex_vm::VmModuleCheckpointKind::Enter)
+                && checkpoint.meta.module_path.as_ref().is_some_and(|path| {
+                    path == &Utf8PathBuf::from("sections/a.tex")
+                        || path == &Utf8PathBuf::from("sections/b.tex")
+                })
+        })
+        .min_by_key(|checkpoint| {
+            (
+                checkpoint.meta.page_index_after,
+                checkpoint.meta.output_start_utf8,
+            )
+        })
+        .cloned()
+        .expect("earlier input-page checkpoint");
+
+    fs::write(root.join("sections/a.tex"), "alpha-new").expect("rewrite first input");
+    fs::write(root.join("sections/b.tex"), "beta-new").expect("rewrite second input");
+
+    let second = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest,
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 2,
+            build_root: build_root.clone(),
+            changed_files: vec![
+                Utf8PathBuf::from("sections/b.tex"),
+                Utf8PathBuf::from("sections/a.tex"),
+            ],
+        })
+        .await
+        .expect("second build should succeed");
+
+    assert_eq!(
+        second.reused_checkpoint_id,
+        Some(expected_checkpoint.meta.checkpoint_id.clone())
+    );
+    let build_meta = serde_json::from_slice::<BuildMeta>(
+        &fs::read(build_root.join("rev-2/build-meta.json")).expect("read build meta"),
+    )
+    .expect("parse build meta");
+    assert_eq!(
+        build_meta.dirty_files,
+        vec![
+            Utf8PathBuf::from("sections/b.tex"),
+            Utf8PathBuf::from("sections/a.tex"),
+        ]
+    );
+    assert_eq!(
+        build_meta.start_checkpoint_id,
+        Some(expected_checkpoint.meta.checkpoint_id.clone())
+    );
+    assert_eq!(
+        build_meta.start_page_index,
+        expected_checkpoint.meta.page_index_after
+    );
+}
+
+#[tokio::test]
 async fn internal_compiler_replays_from_toplevel_input_exit_boundary() {
     let tempdir = tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
@@ -8159,6 +10072,105 @@ toplevel:
         .expect("second build should succeed");
 
     assert_eq!(second.reused_checkpoint_id, Some(expected_checkpoint_id));
+}
+
+#[tokio::test]
+async fn internal_compiler_clamps_toplevel_input_exit_replay_to_last_page() {
+    let tempdir = tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+    fs::write(
+        root.join("00README.yaml"),
+        r#"
+compiler: pdf_latex
+toplevel:
+  - main.tex
+"#,
+    )
+    .expect("write manifest");
+    fs::write(root.join("article.cls"), "").expect("write class");
+    fs::create_dir_all(root.join("sections")).expect("sections dir");
+    fs::write(root.join("sections/tail.tex"), "tail-body").expect("write tail");
+    let mut words = (0..3200)
+        .map(|index| format!("word{index:04}"))
+        .collect::<Vec<_>>();
+    words.insert(3190, "\\input{sections/tail}".to_string());
+    words.push("after-old".to_string());
+    fs::write(
+        root.join("main.tex"),
+        format!(
+            "\\documentclass{{article}}\\begin{{document}} {} \\end{{document}}",
+            words.join(" ")
+        ),
+    )
+    .expect("write main");
+
+    let world = ProjectWorld::load(root.clone()).expect("world");
+    let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+    let build_root = root.join(".latexd/build");
+    let first = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 1,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect("first build should succeed");
+    assert!(first.page_metadata.len() > 1);
+
+    let last_page_index = first
+        .page_metadata
+        .last()
+        .expect("last page metadata")
+        .index;
+    let first_checkpoints = load_checkpoint_bundle(&build_root.join("rev-1/checkpoints.json"))
+        .expect("load rev1 checkpoints");
+    let expected_checkpoint = first_checkpoints
+        .checkpoints
+        .iter()
+        .filter(|checkpoint| {
+            checkpoint.meta.kind == tex_checkpoint::CheckpointKind::InputBoundary
+                && checkpoint.meta.input_boundary_kind == Some(tex_vm::VmModuleCheckpointKind::Exit)
+                && checkpoint.meta.resume_path.as_ref() == Some(&Utf8PathBuf::from("main.tex"))
+                && checkpoint.meta.module_path.as_ref()
+                    == Some(&Utf8PathBuf::from("sections/tail.tex"))
+        })
+        .max_by_key(|checkpoint| checkpoint.meta.output_start_utf8)
+        .expect("late toplevel input exit checkpoint");
+    assert_eq!(expected_checkpoint.meta.page_index_after, last_page_index);
+
+    let rewritten_source = fs::read_to_string(root.join("main.tex").as_std_path())
+        .expect("read main")
+        .replace("after-old", "after-new");
+    fs::write(root.join("main.tex"), rewritten_source).expect("rewrite main");
+    let second = driver
+        .compile(CompileRequest {
+            root: root.clone(),
+            manifest: world.manifest,
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 2,
+            build_root: build_root.clone(),
+            changed_files: vec![Utf8PathBuf::from("main.tex")],
+        })
+        .await
+        .expect("second build should succeed");
+
+    assert_eq!(
+        second.reused_checkpoint_id,
+        Some(expected_checkpoint.meta.checkpoint_id.clone())
+    );
+    let build_meta = serde_json::from_slice::<BuildMeta>(
+        &fs::read(build_root.join("rev-2/build-meta.json")).expect("read build meta"),
+    )
+    .expect("parse build meta");
+    assert_eq!(
+        build_meta.start_checkpoint_id,
+        Some(expected_checkpoint.meta.checkpoint_id.clone())
+    );
+    assert_eq!(build_meta.start_page_index, last_page_index);
+    assert_eq!(build_meta.dirty_files, vec![Utf8PathBuf::from("main.tex")]);
 }
 
 #[tokio::test]
