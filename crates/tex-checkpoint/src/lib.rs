@@ -954,4 +954,2037 @@ mod tests {
 
         assert!(tail.is_none());
     }
+
+    #[test]
+    fn returns_none_when_previous_bundle_has_no_pages() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let bundle = build_checkpoint_bundle(
+            6,
+            &snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[],
+        )
+        .expect("bundle");
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[CheckpointPage {
+                page_id: "new-0".to_string(),
+                index: 0,
+                content_hash: "hash-0".to_string(),
+                text_start_utf8: 0,
+                text_end_utf8: 10,
+            }],
+        );
+
+        assert!(tail.is_none());
+    }
+
+    #[test]
+    fn returns_none_when_current_document_has_no_pages() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let bundle = build_checkpoint_bundle(
+            7,
+            &snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[CheckpointPage {
+                page_id: "p0".to_string(),
+                index: 0,
+                content_hash: "old-0".to_string(),
+                text_start_utf8: 0,
+                text_end_utf8: 10,
+            }],
+        )
+        .expect("bundle");
+
+        let tail = find_unchanged_tail(&bundle, &[]);
+
+        assert!(tail.is_none());
+    }
+
+    #[test]
+    fn returns_none_when_current_document_only_preserves_prefix() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let bundle = build_checkpoint_bundle(
+            9,
+            &snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("bundle");
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+                CheckpointPage {
+                    page_id: "new-2".to_string(),
+                    index: 2,
+                    content_hash: "appended".to_string(),
+                    text_start_utf8: 20,
+                    text_end_utf8: 30,
+                },
+            ],
+        );
+
+        assert!(tail.is_none());
+    }
+
+    #[test]
+    fn returns_full_tail_when_all_pages_match() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let bundle = build_checkpoint_bundle(
+            2,
+            &snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("bundle");
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 2);
+        assert_eq!(tail.previous_page_start, 0);
+        assert_eq!(tail.current_page_start, 0);
+        assert_eq!(tail.page_count, 2);
+        assert_eq!(
+            tail.resume_checkpoint_id,
+            bundle.checkpoints[0].meta.checkpoint_id
+        );
+    }
+
+    #[test]
+    fn prefers_preamble_resume_checkpoint_over_page_zero_input_boundary_for_full_tail() {
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let input_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{input}");
+        let bundle = build_checkpoint_bundle_with_snapshots(
+            21,
+            &preamble_snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            0,
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+            &[
+                compile_format_snapshot(&mut interner, r"\def\foo{a}"),
+                compile_format_snapshot(&mut interner, r"\def\foo{b}"),
+            ],
+            &[10, 20],
+            &[InputBoundaryCheckpoint {
+                kind: VmModuleCheckpointKind::Enter,
+                module_path: Utf8PathBuf::from("sections/frontmatter.tex"),
+                resume_path: Some(Utf8PathBuf::from("main.tex")),
+                source_offset_utf8: 0,
+                continuation_stack: Vec::new(),
+                output_start_utf8: 0,
+                page_index_after: 0,
+                snapshot: input_snapshot,
+            }],
+        )
+        .expect("bundle");
+        let page_zero_input_checkpoint_id = bundle
+            .checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.meta.kind == CheckpointKind::InputBoundary
+                    && checkpoint.meta.page_index_after == 0
+            })
+            .expect("page-zero input boundary checkpoint")
+            .meta
+            .checkpoint_id
+            .clone();
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 21);
+        assert_eq!(tail.previous_page_start, 0);
+        assert_eq!(tail.current_page_start, 0);
+        assert_eq!(tail.page_count, 2);
+        assert_eq!(
+            tail.resume_checkpoint_id,
+            bundle.checkpoints[0].meta.checkpoint_id
+        );
+        assert_ne!(tail.resume_checkpoint_id, page_zero_input_checkpoint_id);
+    }
+
+    #[test]
+    fn falls_back_to_page_zero_input_boundary_when_preamble_checkpoint_is_missing() {
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let input_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{input}");
+        let mut bundle = build_checkpoint_bundle_with_snapshots(
+            22,
+            &preamble_snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            0,
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+            &[
+                compile_format_snapshot(&mut interner, r"\def\foo{a}"),
+                compile_format_snapshot(&mut interner, r"\def\foo{b}"),
+            ],
+            &[10, 20],
+            &[InputBoundaryCheckpoint {
+                kind: VmModuleCheckpointKind::Enter,
+                module_path: Utf8PathBuf::from("sections/frontmatter.tex"),
+                resume_path: Some(Utf8PathBuf::from("main.tex")),
+                source_offset_utf8: 0,
+                continuation_stack: Vec::new(),
+                output_start_utf8: 0,
+                page_index_after: 0,
+                snapshot: input_snapshot,
+            }],
+        )
+        .expect("bundle");
+        let expected_checkpoint_id = bundle
+            .checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.meta.kind == CheckpointKind::InputBoundary
+                    && checkpoint.meta.page_index_after == 0
+            })
+            .expect("page-zero input boundary checkpoint")
+            .meta
+            .checkpoint_id
+            .clone();
+        bundle
+            .checkpoints
+            .retain(|checkpoint| checkpoint.meta.kind != CheckpointKind::Preamble);
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 22);
+        assert_eq!(tail.previous_page_start, 0);
+        assert_eq!(tail.current_page_start, 0);
+        assert_eq!(tail.page_count, 2);
+        assert_eq!(tail.resume_checkpoint_id, expected_checkpoint_id);
+    }
+
+    #[test]
+    fn prefers_earlier_page_zero_input_boundary_when_preamble_checkpoint_is_missing() {
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let first_input_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{first}");
+        let second_input_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{second}");
+        let mut bundle = build_checkpoint_bundle_with_snapshots(
+            24,
+            &preamble_snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            0,
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+            &[
+                compile_format_snapshot(&mut interner, r"\def\foo{a}"),
+                compile_format_snapshot(&mut interner, r"\def\foo{b}"),
+            ],
+            &[10, 20],
+            &[
+                InputBoundaryCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: Utf8PathBuf::from("sections/frontmatter.tex"),
+                    resume_path: Some(Utf8PathBuf::from("main.tex")),
+                    source_offset_utf8: 0,
+                    continuation_stack: Vec::new(),
+                    output_start_utf8: 0,
+                    page_index_after: 0,
+                    snapshot: first_input_snapshot,
+                },
+                InputBoundaryCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: Utf8PathBuf::from("sections/abstract.tex"),
+                    resume_path: Some(Utf8PathBuf::from("main.tex")),
+                    source_offset_utf8: 3,
+                    continuation_stack: Vec::new(),
+                    output_start_utf8: 4,
+                    page_index_after: 0,
+                    snapshot: second_input_snapshot,
+                },
+            ],
+        )
+        .expect("bundle");
+        let expected_checkpoint_id = bundle
+            .checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.meta.kind == CheckpointKind::InputBoundary
+                    && checkpoint.meta.page_index_after == 0
+                    && checkpoint.meta.module_path.as_ref()
+                        == Some(&Utf8PathBuf::from("sections/frontmatter.tex"))
+            })
+            .expect("first page-zero input boundary checkpoint")
+            .meta
+            .checkpoint_id
+            .clone();
+        let later_checkpoint_id = bundle
+            .checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.meta.kind == CheckpointKind::InputBoundary
+                    && checkpoint.meta.page_index_after == 0
+                    && checkpoint.meta.module_path.as_ref()
+                        == Some(&Utf8PathBuf::from("sections/abstract.tex"))
+            })
+            .expect("second page-zero input boundary checkpoint")
+            .meta
+            .checkpoint_id
+            .clone();
+        bundle
+            .checkpoints
+            .retain(|checkpoint| checkpoint.meta.kind != CheckpointKind::Preamble);
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 24);
+        assert_eq!(tail.previous_page_start, 0);
+        assert_eq!(tail.current_page_start, 0);
+        assert_eq!(tail.page_count, 2);
+        assert_eq!(tail.resume_checkpoint_id, expected_checkpoint_id);
+        assert_ne!(tail.resume_checkpoint_id, later_checkpoint_id);
+    }
+
+    #[test]
+    fn falls_back_to_later_page_zero_input_boundary_when_earlier_one_is_missing() {
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let first_input_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{first}");
+        let second_input_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{second}");
+        let mut bundle = build_checkpoint_bundle_with_snapshots(
+            25,
+            &preamble_snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            0,
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+            &[
+                compile_format_snapshot(&mut interner, r"\def\foo{a}"),
+                compile_format_snapshot(&mut interner, r"\def\foo{b}"),
+            ],
+            &[10, 20],
+            &[
+                InputBoundaryCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: Utf8PathBuf::from("sections/frontmatter.tex"),
+                    resume_path: Some(Utf8PathBuf::from("main.tex")),
+                    source_offset_utf8: 0,
+                    continuation_stack: Vec::new(),
+                    output_start_utf8: 0,
+                    page_index_after: 0,
+                    snapshot: first_input_snapshot,
+                },
+                InputBoundaryCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: Utf8PathBuf::from("sections/abstract.tex"),
+                    resume_path: Some(Utf8PathBuf::from("main.tex")),
+                    source_offset_utf8: 3,
+                    continuation_stack: Vec::new(),
+                    output_start_utf8: 4,
+                    page_index_after: 0,
+                    snapshot: second_input_snapshot,
+                },
+            ],
+        )
+        .expect("bundle");
+        let expected_checkpoint_id = bundle
+            .checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.meta.kind == CheckpointKind::InputBoundary
+                    && checkpoint.meta.page_index_after == 0
+                    && checkpoint.meta.module_path.as_ref()
+                        == Some(&Utf8PathBuf::from("sections/abstract.tex"))
+            })
+            .expect("second page-zero input boundary checkpoint")
+            .meta
+            .checkpoint_id
+            .clone();
+        bundle.checkpoints.retain(|checkpoint| {
+            checkpoint.meta.kind != CheckpointKind::Preamble
+                && !(checkpoint.meta.kind == CheckpointKind::InputBoundary
+                    && checkpoint.meta.page_index_after == 0
+                    && checkpoint.meta.module_path.as_ref()
+                        == Some(&Utf8PathBuf::from("sections/frontmatter.tex")))
+        });
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 25);
+        assert_eq!(tail.previous_page_start, 0);
+        assert_eq!(tail.current_page_start, 0);
+        assert_eq!(tail.page_count, 2);
+        assert_eq!(tail.resume_checkpoint_id, expected_checkpoint_id);
+    }
+
+    #[test]
+    fn keeps_first_page_zero_input_boundary_in_bundle_order_when_preamble_is_missing() {
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let later_input_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{later}");
+        let earlier_input_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{earlier}");
+        let mut bundle = build_checkpoint_bundle_with_snapshots(
+            26,
+            &preamble_snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            0,
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+            &[
+                compile_format_snapshot(&mut interner, r"\def\foo{a}"),
+                compile_format_snapshot(&mut interner, r"\def\foo{b}"),
+            ],
+            &[10, 20],
+            &[
+                InputBoundaryCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: Utf8PathBuf::from("sections/abstract.tex"),
+                    resume_path: Some(Utf8PathBuf::from("main.tex")),
+                    source_offset_utf8: 3,
+                    continuation_stack: Vec::new(),
+                    output_start_utf8: 4,
+                    page_index_after: 0,
+                    snapshot: later_input_snapshot,
+                },
+                InputBoundaryCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: Utf8PathBuf::from("sections/frontmatter.tex"),
+                    resume_path: Some(Utf8PathBuf::from("main.tex")),
+                    source_offset_utf8: 0,
+                    continuation_stack: Vec::new(),
+                    output_start_utf8: 0,
+                    page_index_after: 0,
+                    snapshot: earlier_input_snapshot,
+                },
+            ],
+        )
+        .expect("bundle");
+        let expected_checkpoint_id = bundle
+            .checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.meta.kind == CheckpointKind::InputBoundary
+                    && checkpoint.meta.page_index_after == 0
+                    && checkpoint.meta.module_path.as_ref()
+                        == Some(&Utf8PathBuf::from("sections/abstract.tex"))
+            })
+            .expect("first bundle-order page-zero checkpoint")
+            .meta
+            .checkpoint_id
+            .clone();
+        let other_checkpoint_id = bundle
+            .checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.meta.kind == CheckpointKind::InputBoundary
+                    && checkpoint.meta.page_index_after == 0
+                    && checkpoint.meta.module_path.as_ref()
+                        == Some(&Utf8PathBuf::from("sections/frontmatter.tex"))
+            })
+            .expect("second bundle-order page-zero checkpoint")
+            .meta
+            .checkpoint_id
+            .clone();
+        bundle
+            .checkpoints
+            .retain(|checkpoint| checkpoint.meta.kind != CheckpointKind::Preamble);
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 26);
+        assert_eq!(tail.previous_page_start, 0);
+        assert_eq!(tail.current_page_start, 0);
+        assert_eq!(tail.page_count, 2);
+        assert_eq!(tail.resume_checkpoint_id, expected_checkpoint_id);
+        assert_ne!(tail.resume_checkpoint_id, other_checkpoint_id);
+    }
+
+    #[test]
+    fn returns_none_for_full_tail_when_page_zero_resume_checkpoint_is_missing() {
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let input_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{input}");
+        let mut bundle = build_checkpoint_bundle_with_snapshots(
+            23,
+            &preamble_snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            0,
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+            &[
+                compile_format_snapshot(&mut interner, r"\def\foo{a}"),
+                compile_format_snapshot(&mut interner, r"\def\foo{b}"),
+            ],
+            &[10, 20],
+            &[InputBoundaryCheckpoint {
+                kind: VmModuleCheckpointKind::Enter,
+                module_path: Utf8PathBuf::from("sections/frontmatter.tex"),
+                resume_path: Some(Utf8PathBuf::from("main.tex")),
+                source_offset_utf8: 0,
+                continuation_stack: Vec::new(),
+                output_start_utf8: 0,
+                page_index_after: 0,
+                snapshot: input_snapshot,
+            }],
+        )
+        .expect("bundle");
+        bundle
+            .checkpoints
+            .retain(|checkpoint| checkpoint.meta.page_index_after != 0);
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        );
+
+        assert!(tail.is_none());
+    }
+
+    #[test]
+    fn returns_single_page_tail_when_only_last_page_matches() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let bundle = build_checkpoint_bundle(
+            3,
+            &snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+                CheckpointPage {
+                    page_id: "p2".to_string(),
+                    index: 2,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 20,
+                    text_end_utf8: 30,
+                },
+            ],
+        )
+        .expect("bundle");
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "changed-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "changed-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+                CheckpointPage {
+                    page_id: "new-2".to_string(),
+                    index: 2,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 20,
+                    text_end_utf8: 30,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 3);
+        assert_eq!(tail.previous_page_start, 2);
+        assert_eq!(tail.current_page_start, 2);
+        assert_eq!(tail.page_count, 1);
+        assert_eq!(
+            tail.resume_checkpoint_id,
+            bundle.checkpoints[2].meta.checkpoint_id
+        );
+    }
+
+    #[test]
+    fn returns_tail_when_current_document_is_shorter() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let bundle = build_checkpoint_bundle(
+            5,
+            &snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+                CheckpointPage {
+                    page_id: "p2".to_string(),
+                    index: 2,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 20,
+                    text_end_utf8: 30,
+                },
+            ],
+        )
+        .expect("bundle");
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 5);
+        assert_eq!(tail.previous_page_start, 1);
+        assert_eq!(tail.current_page_start, 0);
+        assert_eq!(tail.page_count, 2);
+        assert_eq!(
+            tail.resume_checkpoint_id,
+            bundle.checkpoints[1].meta.checkpoint_id
+        );
+    }
+
+    #[test]
+    fn returns_tail_when_current_document_gains_front_pages() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let bundle = build_checkpoint_bundle(
+            8,
+            &snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("bundle");
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "front-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+                CheckpointPage {
+                    page_id: "new-2".to_string(),
+                    index: 2,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 20,
+                    text_end_utf8: 30,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 8);
+        assert_eq!(tail.previous_page_start, 0);
+        assert_eq!(tail.current_page_start, 1);
+        assert_eq!(tail.page_count, 2);
+        assert_eq!(
+            tail.resume_checkpoint_id,
+            bundle.checkpoints[0].meta.checkpoint_id
+        );
+    }
+
+    #[test]
+    fn returns_only_last_page_when_current_document_appends_duplicate_tail_page() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let bundle = build_checkpoint_bundle(
+            9,
+            &snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("bundle");
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+                CheckpointPage {
+                    page_id: "new-2".to_string(),
+                    index: 2,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 20,
+                    text_end_utf8: 30,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 9);
+        assert_eq!(tail.previous_page_start, 1);
+        assert_eq!(tail.current_page_start, 2);
+        assert_eq!(tail.page_count, 1);
+        assert_eq!(
+            tail.resume_checkpoint_id,
+            bundle.checkpoints[1].meta.checkpoint_id
+        );
+    }
+
+    #[test]
+    fn returns_only_last_two_pages_when_current_document_appends_duplicate_two_page_tail() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let bundle = build_checkpoint_bundle(
+            16,
+            &snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "head-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "tail-0".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+                CheckpointPage {
+                    page_id: "p2".to_string(),
+                    index: 2,
+                    content_hash: "tail-1".to_string(),
+                    text_start_utf8: 20,
+                    text_end_utf8: 30,
+                },
+            ],
+        )
+        .expect("bundle");
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "changed-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "tail-0".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+                CheckpointPage {
+                    page_id: "new-2".to_string(),
+                    index: 2,
+                    content_hash: "tail-1".to_string(),
+                    text_start_utf8: 20,
+                    text_end_utf8: 30,
+                },
+                CheckpointPage {
+                    page_id: "new-3".to_string(),
+                    index: 3,
+                    content_hash: "tail-0".to_string(),
+                    text_start_utf8: 30,
+                    text_end_utf8: 40,
+                },
+                CheckpointPage {
+                    page_id: "new-4".to_string(),
+                    index: 4,
+                    content_hash: "tail-1".to_string(),
+                    text_start_utf8: 40,
+                    text_end_utf8: 50,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 16);
+        assert_eq!(tail.previous_page_start, 1);
+        assert_eq!(tail.current_page_start, 3);
+        assert_eq!(tail.page_count, 2);
+        assert_eq!(
+            tail.resume_checkpoint_id,
+            bundle.checkpoints[1].meta.checkpoint_id
+        );
+    }
+
+    #[test]
+    fn returns_last_two_pages_when_current_document_repeats_entire_two_page_document() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let bundle = build_checkpoint_bundle(
+            17,
+            &snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "tail-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "tail-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("bundle");
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "tail-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "tail-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+                CheckpointPage {
+                    page_id: "new-2".to_string(),
+                    index: 2,
+                    content_hash: "tail-0".to_string(),
+                    text_start_utf8: 20,
+                    text_end_utf8: 30,
+                },
+                CheckpointPage {
+                    page_id: "new-3".to_string(),
+                    index: 3,
+                    content_hash: "tail-1".to_string(),
+                    text_start_utf8: 30,
+                    text_end_utf8: 40,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 17);
+        assert_eq!(tail.previous_page_start, 0);
+        assert_eq!(tail.current_page_start, 2);
+        assert_eq!(tail.page_count, 2);
+        assert_eq!(
+            tail.resume_checkpoint_id,
+            bundle.checkpoints[0].meta.checkpoint_id
+        );
+    }
+
+    #[test]
+    fn returns_none_when_matching_tail_lacks_resume_checkpoint() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let mut bundle = build_checkpoint_bundle(
+            10,
+            &snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+                CheckpointPage {
+                    page_id: "p2".to_string(),
+                    index: 2,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 20,
+                    text_end_utf8: 30,
+                },
+            ],
+        )
+        .expect("bundle");
+        bundle
+            .checkpoints
+            .retain(|checkpoint| checkpoint.meta.page_index_after != 2);
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "changed-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        );
+
+        assert!(tail.is_none());
+    }
+
+    #[test]
+    fn prefers_shipout_resume_checkpoint_over_later_input_boundary_with_same_page_index() {
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let input_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{input}");
+        let bundle = build_checkpoint_bundle_with_snapshots(
+            11,
+            &preamble_snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            0,
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+                CheckpointPage {
+                    page_id: "p2".to_string(),
+                    index: 2,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 20,
+                    text_end_utf8: 30,
+                },
+            ],
+            &[
+                compile_format_snapshot(&mut interner, r"\def\foo{a}"),
+                compile_format_snapshot(&mut interner, r"\def\foo{b}"),
+                compile_format_snapshot(&mut interner, r"\def\foo{c}"),
+            ],
+            &[10, 20, 30],
+            &[InputBoundaryCheckpoint {
+                kind: VmModuleCheckpointKind::Enter,
+                module_path: Utf8PathBuf::from("sections/tail.tex"),
+                resume_path: Some(Utf8PathBuf::from("main.tex")),
+                source_offset_utf8: 12,
+                continuation_stack: Vec::new(),
+                output_start_utf8: 20,
+                page_index_after: 2,
+                snapshot: input_snapshot,
+            }],
+        )
+        .expect("bundle");
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "changed-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 11);
+        assert_eq!(tail.previous_page_start, 2);
+        assert_eq!(tail.current_page_start, 1);
+        assert_eq!(tail.page_count, 1);
+        assert_eq!(
+            tail.resume_checkpoint_id,
+            bundle.checkpoints[2].meta.checkpoint_id
+        );
+        assert_ne!(
+            tail.resume_checkpoint_id,
+            bundle
+                .checkpoints
+                .last()
+                .expect("input boundary checkpoint")
+                .meta
+                .checkpoint_id
+        );
+    }
+
+    #[test]
+    fn prefers_shipout_resume_checkpoint_over_multiple_input_boundaries_with_same_page_index() {
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let first_input_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{first}");
+        let second_input_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{second}");
+        let bundle = build_checkpoint_bundle_with_snapshots(
+            20,
+            &preamble_snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            0,
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+                CheckpointPage {
+                    page_id: "p2".to_string(),
+                    index: 2,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 20,
+                    text_end_utf8: 30,
+                },
+            ],
+            &[
+                compile_format_snapshot(&mut interner, r"\def\foo{a}"),
+                compile_format_snapshot(&mut interner, r"\def\foo{b}"),
+                compile_format_snapshot(&mut interner, r"\def\foo{c}"),
+            ],
+            &[10, 20, 30],
+            &[
+                InputBoundaryCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: Utf8PathBuf::from("sections/first.tex"),
+                    resume_path: Some(Utf8PathBuf::from("main.tex")),
+                    source_offset_utf8: 11,
+                    continuation_stack: Vec::new(),
+                    output_start_utf8: 18,
+                    page_index_after: 2,
+                    snapshot: first_input_snapshot,
+                },
+                InputBoundaryCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: Utf8PathBuf::from("sections/second.tex"),
+                    resume_path: Some(Utf8PathBuf::from("main.tex")),
+                    source_offset_utf8: 12,
+                    continuation_stack: Vec::new(),
+                    output_start_utf8: 22,
+                    page_index_after: 2,
+                    snapshot: second_input_snapshot,
+                },
+            ],
+        )
+        .expect("bundle");
+        let input_checkpoint_ids = bundle
+            .checkpoints
+            .iter()
+            .filter(|checkpoint| {
+                checkpoint.meta.kind == CheckpointKind::InputBoundary
+                    && checkpoint.meta.page_index_after == 2
+            })
+            .map(|checkpoint| checkpoint.meta.checkpoint_id.clone())
+            .collect::<Vec<_>>();
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "changed-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 20);
+        assert_eq!(tail.previous_page_start, 2);
+        assert_eq!(tail.current_page_start, 1);
+        assert_eq!(tail.page_count, 1);
+        assert_eq!(
+            tail.resume_checkpoint_id,
+            bundle.checkpoints[2].meta.checkpoint_id
+        );
+        assert!(
+            input_checkpoint_ids
+                .iter()
+                .all(|checkpoint_id| checkpoint_id != &tail.resume_checkpoint_id)
+        );
+    }
+
+    #[test]
+    fn keeps_first_matching_resume_checkpoint_in_bundle_order_when_input_precedes_shipout() {
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let input_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{input}");
+        let mut bundle = build_checkpoint_bundle_with_snapshots(
+            27,
+            &preamble_snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            0,
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+                CheckpointPage {
+                    page_id: "p2".to_string(),
+                    index: 2,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 20,
+                    text_end_utf8: 30,
+                },
+            ],
+            &[
+                compile_format_snapshot(&mut interner, r"\def\foo{a}"),
+                compile_format_snapshot(&mut interner, r"\def\foo{b}"),
+                compile_format_snapshot(&mut interner, r"\def\foo{c}"),
+            ],
+            &[10, 20, 30],
+            &[InputBoundaryCheckpoint {
+                kind: VmModuleCheckpointKind::Enter,
+                module_path: Utf8PathBuf::from("sections/tail.tex"),
+                resume_path: Some(Utf8PathBuf::from("main.tex")),
+                source_offset_utf8: 12,
+                continuation_stack: Vec::new(),
+                output_start_utf8: 20,
+                page_index_after: 2,
+                snapshot: input_snapshot,
+            }],
+        )
+        .expect("bundle");
+        let shipout_index = bundle
+            .checkpoints
+            .iter()
+            .position(|checkpoint| {
+                checkpoint.meta.kind == CheckpointKind::Shipout
+                    && checkpoint.meta.page_index_after == 2
+            })
+            .expect("shipout checkpoint");
+        let shipout_checkpoint_id = bundle.checkpoints[shipout_index].meta.checkpoint_id.clone();
+        let input_index = bundle
+            .checkpoints
+            .iter()
+            .position(|checkpoint| {
+                checkpoint.meta.kind == CheckpointKind::InputBoundary
+                    && checkpoint.meta.page_index_after == 2
+            })
+            .expect("input checkpoint");
+        let input_checkpoint_id = bundle.checkpoints[input_index].meta.checkpoint_id.clone();
+        let input_checkpoint = bundle.checkpoints.remove(input_index);
+        bundle.checkpoints.insert(shipout_index, input_checkpoint);
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "changed-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 27);
+        assert_eq!(tail.previous_page_start, 2);
+        assert_eq!(tail.current_page_start, 1);
+        assert_eq!(tail.page_count, 1);
+        assert_eq!(tail.resume_checkpoint_id, input_checkpoint_id);
+        assert_ne!(tail.resume_checkpoint_id, shipout_checkpoint_id);
+    }
+
+    #[test]
+    fn falls_back_to_input_boundary_resume_checkpoint_when_shipout_is_missing() {
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let input_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{input}");
+        let mut bundle = build_checkpoint_bundle_with_snapshots(
+            12,
+            &preamble_snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            0,
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+                CheckpointPage {
+                    page_id: "p2".to_string(),
+                    index: 2,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 20,
+                    text_end_utf8: 30,
+                },
+            ],
+            &[
+                compile_format_snapshot(&mut interner, r"\def\foo{a}"),
+                compile_format_snapshot(&mut interner, r"\def\foo{b}"),
+                compile_format_snapshot(&mut interner, r"\def\foo{c}"),
+            ],
+            &[10, 20, 30],
+            &[InputBoundaryCheckpoint {
+                kind: VmModuleCheckpointKind::Enter,
+                module_path: Utf8PathBuf::from("sections/tail.tex"),
+                resume_path: Some(Utf8PathBuf::from("main.tex")),
+                source_offset_utf8: 12,
+                continuation_stack: Vec::new(),
+                output_start_utf8: 20,
+                page_index_after: 2,
+                snapshot: input_snapshot,
+            }],
+        )
+        .expect("bundle");
+        let expected_checkpoint_id = bundle
+            .checkpoints
+            .last()
+            .expect("input boundary checkpoint")
+            .meta
+            .checkpoint_id
+            .clone();
+        bundle.checkpoints.retain(|checkpoint| {
+            !(checkpoint.meta.kind == CheckpointKind::Shipout
+                && checkpoint.meta.page_index_after == 2)
+        });
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "changed-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 12);
+        assert_eq!(tail.previous_page_start, 2);
+        assert_eq!(tail.current_page_start, 1);
+        assert_eq!(tail.page_count, 1);
+        assert_eq!(tail.resume_checkpoint_id, expected_checkpoint_id);
+    }
+
+    #[test]
+    fn prefers_earlier_input_boundary_resume_checkpoint_when_multiple_inputs_share_page_index() {
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let first_input_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{first}");
+        let second_input_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{second}");
+        let mut bundle = build_checkpoint_bundle_with_snapshots(
+            18,
+            &preamble_snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            0,
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+                CheckpointPage {
+                    page_id: "p2".to_string(),
+                    index: 2,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 20,
+                    text_end_utf8: 30,
+                },
+            ],
+            &[
+                compile_format_snapshot(&mut interner, r"\def\foo{a}"),
+                compile_format_snapshot(&mut interner, r"\def\foo{b}"),
+                compile_format_snapshot(&mut interner, r"\def\foo{c}"),
+            ],
+            &[10, 20, 30],
+            &[
+                InputBoundaryCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: Utf8PathBuf::from("sections/first.tex"),
+                    resume_path: Some(Utf8PathBuf::from("main.tex")),
+                    source_offset_utf8: 11,
+                    continuation_stack: Vec::new(),
+                    output_start_utf8: 18,
+                    page_index_after: 2,
+                    snapshot: first_input_snapshot,
+                },
+                InputBoundaryCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: Utf8PathBuf::from("sections/second.tex"),
+                    resume_path: Some(Utf8PathBuf::from("main.tex")),
+                    source_offset_utf8: 12,
+                    continuation_stack: Vec::new(),
+                    output_start_utf8: 19,
+                    page_index_after: 2,
+                    snapshot: second_input_snapshot,
+                },
+            ],
+        )
+        .expect("bundle");
+        let expected_checkpoint_id = bundle
+            .checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.meta.kind == CheckpointKind::InputBoundary
+                    && checkpoint.meta.page_index_after == 2
+                    && checkpoint.meta.module_path.as_ref()
+                        == Some(&Utf8PathBuf::from("sections/first.tex"))
+            })
+            .expect("first input boundary checkpoint")
+            .meta
+            .checkpoint_id
+            .clone();
+        bundle.checkpoints.retain(|checkpoint| {
+            !(checkpoint.meta.kind == CheckpointKind::Shipout
+                && checkpoint.meta.page_index_after == 2)
+        });
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "changed-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 18);
+        assert_eq!(tail.previous_page_start, 2);
+        assert_eq!(tail.current_page_start, 1);
+        assert_eq!(tail.page_count, 1);
+        assert_eq!(tail.resume_checkpoint_id, expected_checkpoint_id);
+    }
+
+    #[test]
+    fn falls_back_to_later_input_boundary_resume_checkpoint_when_earlier_one_is_missing() {
+        let mut interner = ControlSequenceInterner::new();
+        let preamble_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let first_input_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{first}");
+        let second_input_snapshot = compile_format_snapshot(&mut interner, r"\def\foo{second}");
+        let mut bundle = build_checkpoint_bundle_with_snapshots(
+            19,
+            &preamble_snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            0,
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+                CheckpointPage {
+                    page_id: "p2".to_string(),
+                    index: 2,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 20,
+                    text_end_utf8: 30,
+                },
+            ],
+            &[
+                compile_format_snapshot(&mut interner, r"\def\foo{a}"),
+                compile_format_snapshot(&mut interner, r"\def\foo{b}"),
+                compile_format_snapshot(&mut interner, r"\def\foo{c}"),
+            ],
+            &[10, 20, 30],
+            &[
+                InputBoundaryCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: Utf8PathBuf::from("sections/first.tex"),
+                    resume_path: Some(Utf8PathBuf::from("main.tex")),
+                    source_offset_utf8: 11,
+                    continuation_stack: Vec::new(),
+                    output_start_utf8: 18,
+                    page_index_after: 2,
+                    snapshot: first_input_snapshot,
+                },
+                InputBoundaryCheckpoint {
+                    kind: VmModuleCheckpointKind::Enter,
+                    module_path: Utf8PathBuf::from("sections/second.tex"),
+                    resume_path: Some(Utf8PathBuf::from("main.tex")),
+                    source_offset_utf8: 12,
+                    continuation_stack: Vec::new(),
+                    output_start_utf8: 19,
+                    page_index_after: 2,
+                    snapshot: second_input_snapshot,
+                },
+            ],
+        )
+        .expect("bundle");
+        let expected_checkpoint_id = bundle
+            .checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.meta.kind == CheckpointKind::InputBoundary
+                    && checkpoint.meta.page_index_after == 2
+                    && checkpoint.meta.module_path.as_ref()
+                        == Some(&Utf8PathBuf::from("sections/second.tex"))
+            })
+            .expect("second input boundary checkpoint")
+            .meta
+            .checkpoint_id
+            .clone();
+        bundle.checkpoints.retain(|checkpoint| {
+            !((checkpoint.meta.kind == CheckpointKind::Shipout
+                && checkpoint.meta.page_index_after == 2)
+                || (checkpoint.meta.kind == CheckpointKind::InputBoundary
+                    && checkpoint.meta.page_index_after == 2
+                    && checkpoint.meta.module_path.as_ref()
+                        == Some(&Utf8PathBuf::from("sections/first.tex"))))
+        });
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "changed-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 19);
+        assert_eq!(tail.previous_page_start, 2);
+        assert_eq!(tail.current_page_start, 1);
+        assert_eq!(tail.page_count, 1);
+        assert_eq!(tail.resume_checkpoint_id, expected_checkpoint_id);
+    }
+
+    #[test]
+    fn matches_tail_by_content_hash_even_when_text_offsets_shift() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let bundle = build_checkpoint_bundle(
+            13,
+            &snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+                CheckpointPage {
+                    page_id: "p2".to_string(),
+                    index: 2,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 20,
+                    text_end_utf8: 30,
+                },
+            ],
+        )
+        .expect("bundle");
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "new-0".to_string(),
+                    index: 0,
+                    content_hash: "front-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 11,
+                },
+                CheckpointPage {
+                    page_id: "new-1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 11,
+                    text_end_utf8: 25,
+                },
+                CheckpointPage {
+                    page_id: "new-2".to_string(),
+                    index: 2,
+                    content_hash: "old-2".to_string(),
+                    text_start_utf8: 25,
+                    text_end_utf8: 44,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 13);
+        assert_eq!(tail.previous_page_start, 1);
+        assert_eq!(tail.current_page_start, 1);
+        assert_eq!(tail.page_count, 2);
+        assert_eq!(
+            tail.resume_checkpoint_id,
+            bundle.checkpoints[1].meta.checkpoint_id
+        );
+    }
+
+    #[test]
+    fn matches_tail_by_content_hash_even_when_page_ids_and_indexes_change() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let bundle = build_checkpoint_bundle(
+            14,
+            &snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("bundle");
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "front".to_string(),
+                    index: 4,
+                    content_hash: "front-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 12,
+                },
+                CheckpointPage {
+                    page_id: "shifted-tail".to_string(),
+                    index: 7,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 12,
+                    text_end_utf8: 25,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 14);
+        assert_eq!(tail.previous_page_start, 1);
+        assert_eq!(tail.current_page_start, 1);
+        assert_eq!(tail.page_count, 1);
+        assert_eq!(
+            tail.resume_checkpoint_id,
+            bundle.checkpoints[1].meta.checkpoint_id
+        );
+    }
+
+    #[test]
+    fn returns_full_tail_when_all_hashes_match_despite_page_id_index_and_offset_drift() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\foo{bar}");
+        let bundle = build_checkpoint_bundle(
+            15,
+            &snapshot,
+            &preamble_key_for_source(r"\documentclass{article}"),
+            &[
+                CheckpointPage {
+                    page_id: "p0".to_string(),
+                    index: 0,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 0,
+                    text_end_utf8: 10,
+                },
+                CheckpointPage {
+                    page_id: "p1".to_string(),
+                    index: 1,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 10,
+                    text_end_utf8: 20,
+                },
+            ],
+        )
+        .expect("bundle");
+
+        let tail = find_unchanged_tail(
+            &bundle,
+            &[
+                CheckpointPage {
+                    page_id: "shifted-0".to_string(),
+                    index: 8,
+                    content_hash: "old-0".to_string(),
+                    text_start_utf8: 3,
+                    text_end_utf8: 17,
+                },
+                CheckpointPage {
+                    page_id: "shifted-1".to_string(),
+                    index: 9,
+                    content_hash: "old-1".to_string(),
+                    text_start_utf8: 17,
+                    text_end_utf8: 34,
+                },
+            ],
+        )
+        .expect("tail");
+
+        assert_eq!(tail.previous_rev, 15);
+        assert_eq!(tail.previous_page_start, 0);
+        assert_eq!(tail.current_page_start, 0);
+        assert_eq!(tail.page_count, 2);
+        assert_eq!(
+            tail.resume_checkpoint_id,
+            bundle.checkpoints[0].meta.checkpoint_id
+        );
+    }
 }
