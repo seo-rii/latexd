@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_eqref_variants => run_reference_variants_basic_refs_case(ReferenceVariantsBasicRefsCase::EqRef));

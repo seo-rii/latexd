@@ -1,0 +1,2 @@
+include!("bibliography_multi_rebuild_trailing_input_included_body_sibling_ordering.rs");
+include!("bibliography_multi_rebuild_trailing_input_included_body_sibling_extra_dirty.rs");

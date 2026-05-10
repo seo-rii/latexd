@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_replays_from_bibliography_input_checkpoint_for_semantically_equal_bibliography_edit_with_later_trailing_input_change_with_reversed_dirty_order_in_toplevel_document,
+    run_trail_top_sem_eq_case(TrailTopSemEqCase::Reversed)
+);

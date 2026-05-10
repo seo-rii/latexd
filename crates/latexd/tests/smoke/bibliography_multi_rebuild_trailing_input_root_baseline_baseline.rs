@@ -1,0 +1,1 @@
+smoke!(internal_compiler_rebuilds_from_base_for_late_semantic_multi_bibliography_change_with_later_trailing_input_change => run_root_trail_case(RootTrailCase::Baseline));

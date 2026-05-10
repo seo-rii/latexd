@@ -1,0 +1,2 @@
+include!("bibliography_multi_rebuild_trailing_input_root_baseline_baseline.rs");
+include!("bibliography_multi_rebuild_trailing_input_root_baseline_reversed_dirty_order.rs");

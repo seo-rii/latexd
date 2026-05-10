@@ -1,0 +1,3 @@
+include!("bibliography_multi_same_page_trailing_input_included_body_sibling_ordering_interleaved_primary.rs");
+
+include!("bibliography_multi_same_page_trailing_input_included_body_sibling_ordering_interleaved_other.rs");

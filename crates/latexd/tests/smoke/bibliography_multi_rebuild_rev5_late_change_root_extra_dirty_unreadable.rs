@@ -1,0 +1,3 @@
+include!("bibliography_multi_rebuild_rev5_late_change_root_extra_dirty_unreadable_follows.rs",);
+
+include!("bibliography_multi_rebuild_rev5_late_change_root_extra_dirty_unreadable_precedes.rs",);

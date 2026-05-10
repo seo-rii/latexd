@@ -1,0 +1,1 @@
+smoke!(internal_compiler_follows_include_files_for_semantic_aux_sections_and_labels => run_bib_sem_aux(BibSemAux::IncludeSectionsAndLabels));

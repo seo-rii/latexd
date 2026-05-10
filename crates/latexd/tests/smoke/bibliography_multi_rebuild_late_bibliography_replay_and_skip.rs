@@ -1,0 +1,2 @@
+include!("bibliography_multi_rebuild_late_bibliography_replay_included_body.rs");
+include!("bibliography_multi_rebuild_late_bibliography_skip_and_rewrite.rs");

@@ -1,0 +1,2 @@
+include!("reference_variants_autoref_equations_floats_float_lists_float_kinds.rs");
+include!("reference_variants_autoref_equations_floats_float_lists_captions_and_lists.rs");

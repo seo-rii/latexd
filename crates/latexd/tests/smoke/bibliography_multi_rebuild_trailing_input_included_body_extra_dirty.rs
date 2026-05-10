@@ -1,0 +1,3 @@
+include!("../support/bibliography_multi_rebuild_trailing_input_included_body_extra_dirty_helpers.rs");
+include!("bibliography_multi_rebuild_trailing_input_included_body_extra_dirty_untracked.rs");
+include!("bibliography_multi_rebuild_trailing_input_included_body_extra_dirty_unreadable.rs");

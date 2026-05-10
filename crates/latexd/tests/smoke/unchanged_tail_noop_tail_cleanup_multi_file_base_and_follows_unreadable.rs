@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_multi_file_edits_and_unreadable_dirty_file_follows => run_tail_multi_case(TailMultiCase::UnreadableFollows));

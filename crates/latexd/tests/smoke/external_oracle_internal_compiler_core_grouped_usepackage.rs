@@ -1,0 +1,1 @@
+smoke!(internal_compiler_keeps_grouped_usepackage_definitions_visible => run_internal_compiler_core_case(InternalCompilerCoreCase::GroupedUsepackage));

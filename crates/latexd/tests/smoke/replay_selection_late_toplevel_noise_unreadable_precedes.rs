@@ -1,0 +1,1 @@
+smoke!(internal_compiler_falls_back_to_preamble_replay_when_unreadable_dirty_file_precedes_late_toplevel_edit => run_late_top_noise_case(LateTopNoiseCase::UnreadablePrecedes));

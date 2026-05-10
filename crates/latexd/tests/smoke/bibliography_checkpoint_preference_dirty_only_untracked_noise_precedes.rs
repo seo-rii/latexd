@@ -1,0 +1,1 @@
+smoke!(internal_compiler_still_replays_semantically_equal_bibliography_edit_when_untracked_dirty_file_precedes_it => run_bib_cp_dirty_case(BibCpDirtyCase::UntrackedPrecedes));

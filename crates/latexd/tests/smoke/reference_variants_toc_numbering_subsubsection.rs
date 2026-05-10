@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_subsubsection_toc_and_label_numbering => run_reference_variants_toc_numbering(ReferenceVariantsTocNumberingCase::Subsubsection));

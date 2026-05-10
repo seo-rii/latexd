@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_rebuilds_from_base_for_late_semantic_bibliography_change_inside_included_file_even_with_later_tracked_change_and_unreadable_dirty_file_follows,
+    run_late_rebuild_inc(LateRebuildInc::TrackedUnreadableFollows)
+);

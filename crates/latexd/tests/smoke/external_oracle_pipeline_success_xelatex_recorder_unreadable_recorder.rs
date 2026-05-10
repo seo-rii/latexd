@@ -1,0 +1,1 @@
+smoke!(external_oracle_reports_unreadable_recorder_file_for_custom_compiler => run_xrec(XRec::UnreadableCustomCompilerRecorder));

@@ -1,0 +1,2 @@
+include!("external_oracle_engine_failures_warning_and_spawn_warnings_tectonic.rs");
+include!("external_oracle_engine_failures_warning_and_spawn_warnings_pdflatex.rs");

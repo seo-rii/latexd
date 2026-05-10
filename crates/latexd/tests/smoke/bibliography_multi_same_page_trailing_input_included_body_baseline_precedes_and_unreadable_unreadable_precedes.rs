@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_falls_back_to_preamble_replay_when_unreadable_dirty_file_precedes_semantically_equal_same_page_multi_bibliography_edit_with_later_trailing_input_change_with_included_body,
+    run_body_trailing_base_case(BodyTrailingBaseCase::UnreadablePrecedes)
+);

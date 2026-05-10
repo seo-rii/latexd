@@ -6,6 +6,12 @@ enum ExternalOracleCustomCompilerDependencyTrackingCase {
     UnreadableDepfile,
 }
 
+type CustomDep = ExternalOracleCustomCompilerDependencyTrackingCase;
+
+async fn run_custom_dep(case: CustomDep) {
+    run_external_oracle_custom_compiler_dependency_tracking(case).await;
+}
+
 async fn run_external_oracle_custom_compiler_dependency_tracking(
     case: ExternalOracleCustomCompilerDependencyTrackingCase,
 ) {

@@ -5,6 +5,12 @@ enum ExternalOracleLatexDvipsSuccessCase {
     IntroOnlyFls,
 }
 
+type DvipsOk = ExternalOracleLatexDvipsSuccessCase;
+
+async fn run_dvips_ok(case: DvipsOk) {
+    run_external_oracle_latex_dvips_success(case).await;
+}
+
 async fn run_external_oracle_latex_dvips_success(case: ExternalOracleLatexDvipsSuccessCase) {
     let tempdir = tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");

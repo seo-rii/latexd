@@ -1,0 +1,3 @@
+include!("bibliography_multi_rebuild_trailing_input_included_body_baseline.rs");
+include!("bibliography_multi_rebuild_trailing_input_included_body_sibling.rs");
+include!("bibliography_multi_rebuild_trailing_input_included_body_extra_dirty.rs");

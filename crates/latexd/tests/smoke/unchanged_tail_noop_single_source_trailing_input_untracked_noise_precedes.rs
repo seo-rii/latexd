@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_input_edit_when_untracked_dirty_file_precedes_it => run_single_trail_case(SingleTrailCase::UntrackedPrecedes));

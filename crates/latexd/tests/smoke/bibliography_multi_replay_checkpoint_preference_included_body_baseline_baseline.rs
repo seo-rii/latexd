@@ -1,0 +1,1 @@
+smoke!(internal_compiler_prefers_earlier_input_checkpoint_over_semantically_equal_multi_bibliography_replay_with_included_body => run_replay_body_cp_base(ReplayBodyCpBase::Baseline));

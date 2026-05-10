@@ -5,6 +5,12 @@ enum ExternalOracleXelatexMetaSuccessCase {
     ChangedFileOrder,
 }
 
+type XMeta = ExternalOracleXelatexMetaSuccessCase;
+
+async fn run_xmeta(case: XMeta) {
+    run_external_oracle_xelatex_meta_success(case).await;
+}
+
 async fn run_external_oracle_xelatex_meta_success(case: ExternalOracleXelatexMetaSuccessCase) {
     let tempdir = tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");

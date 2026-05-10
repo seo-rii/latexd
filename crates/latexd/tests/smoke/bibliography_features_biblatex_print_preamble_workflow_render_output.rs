@@ -1,0 +1,1 @@
+smoke!(internal_compiler_recovers_split_preamble_biblatex_paper_family_without_stale_tail => run_bib_print_workflow(BibPrintWorkflow::RenderOutput));

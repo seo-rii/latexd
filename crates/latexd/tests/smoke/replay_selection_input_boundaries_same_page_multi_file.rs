@@ -1,0 +1,1 @@
+smoke!(internal_compiler_prefers_earlier_same_page_input_checkpoint_across_multiple_changed_files => run_boundary_top_case(BoundaryTopCase::SamePageInputOnly));

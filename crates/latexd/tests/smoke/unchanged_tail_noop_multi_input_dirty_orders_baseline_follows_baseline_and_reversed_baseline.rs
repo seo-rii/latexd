@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_multi_input_edits => run_input_base_follow_case(InputBaseFollowCase::Baseline));

@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_rebuilds_from_base_for_late_semantic_same_page_multi_bibliography_change_with_later_trailing_input_change_when_untracked_dirty_file_follows,
+    run_root_base_case(RootBaseCase::UntrackedFollows)
+);

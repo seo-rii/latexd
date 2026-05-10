@@ -1,0 +1,5 @@
+include!("bibliography_multi_same_page_trailing_input_included_body_sibling_extra_dirty_unreadable_dirty_orders.rs");
+
+include!("bibliography_multi_same_page_trailing_input_included_body_sibling_extra_dirty_unreadable_interleaved_orders.rs");
+
+include!("bibliography_multi_same_page_trailing_input_included_body_sibling_extra_dirty_unreadable_other_interleaved_orders.rs");

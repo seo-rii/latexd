@@ -1,0 +1,1 @@
+smoke!(internal_compiler_prefers_earlier_toplevel_checkpoint_over_semantically_equal_same_page_multi_bibliography_replay => run_same_page_top_cp_case(SamePageTopCpCase::Baseline));

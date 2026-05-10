@@ -1,0 +1,1 @@
+smoke!(internal_compiler_still_replays_earlier_toplevel_checkpoint_when_untracked_dirty_file_precedes_semantically_equal_multi_bibliography_edit => run_top_cp_dirty(TopCpDirty::UntrackedPrecedes));

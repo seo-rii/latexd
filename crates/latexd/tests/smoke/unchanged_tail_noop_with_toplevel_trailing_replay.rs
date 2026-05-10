@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_replays_from_checkpoint_for_nonrendering_multi_input_and_toplevel_edits_with_interleaved_dirty_order_and_untracked_dirty_file_between_them,
+    run_trailing_noise_case(TrailingNoiseCase::InterleavedUntrackedBetween)
+);

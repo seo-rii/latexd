@@ -1,0 +1,11 @@
+include!("reference_variants_basic_refs.rs");
+include!("reference_variants_autoref.rs");
+include!("reference_variants_autoref_equations_floats.rs");
+include!("reference_variants_theorem_setup.rs");
+include!("reference_variants_theorem_kinds.rs");
+include!("reference_variants_command_forms.rs");
+include!("reference_variants_cleveref_forms.rs");
+include!("reference_variants_page_ranges.rs");
+include!("reference_variants_multi_label_cleveref.rs");
+include!("reference_variants_toc_numbering.rs");
+include!("reference_variants_appendix_numbering.rs");

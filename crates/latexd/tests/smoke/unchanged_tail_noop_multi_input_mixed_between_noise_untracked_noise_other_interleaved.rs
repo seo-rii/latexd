@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_reuses_full_unchanged_tail_for_nonrendering_mixed_multi_input_edits_with_other_interleaved_dirty_order_and_untracked_dirty_file_between_them,
+    run_mix_between_case(MixBetweenCase::OtherInterleavedUntracked)
+);

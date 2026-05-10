@@ -1,0 +1,2 @@
+include!("external_oracle_custom_compiler_dependency_tracking_fallback_and_depfile_fallback.rs");
+include!("external_oracle_custom_compiler_dependency_tracking_fallback_and_depfile_depfile.rs");

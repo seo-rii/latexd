@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_reuses_full_unchanged_tail_for_nonrendering_leading_toplevel_and_multi_input_edits_with_other_interleaved_dirty_order,
+    run_lead_top_other_inter_case(LeadTopOtherInterCase::Base)
+);

@@ -1,0 +1,2 @@
+include!("external_oracle_missing_artifacts_output_files_pdf_outputs_ps2pdf.rs");
+include!("external_oracle_missing_artifacts_output_files_pdf_outputs_xelatex.rs");

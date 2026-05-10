@@ -1,0 +1,1 @@
+smoke!(internal_compiler_prefers_cp0_when_early_toplevel_and_late_input_change_together => run_boundary_top_case(BoundaryTopCase::SamePageCp0));

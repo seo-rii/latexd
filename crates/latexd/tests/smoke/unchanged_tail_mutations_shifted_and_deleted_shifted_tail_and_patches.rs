@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reports_shifted_unchanged_tail_from_prior_shipout => run_shifted_unchanged_tail_mutation(ShiftedUnchangedTailMutationCase::TailAndPatches));

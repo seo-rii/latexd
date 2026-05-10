@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_multi_file_edits_and_untracked_dirty_file_precedes_it => run_tail_multi_case(TailMultiCase::UntrackedPrecedes));

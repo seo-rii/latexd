@@ -1,0 +1,1 @@
+smoke!(internal_compiler_uses_semantic_rewrite_span_for_late_bibliography_only_change => run_late_bibliography_rewrite_case(LateBibliographyRewriteCaseKind::LateOnlyChange));

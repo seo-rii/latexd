@@ -1,0 +1,1 @@
+smoke!(internal_compiler_preserves_bibliography_stem_order_across_multiple_bbl_files => run_base_bib_toc(BaseBibToc::BibliographyStemOrder));

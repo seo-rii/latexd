@@ -1,0 +1,3 @@
+include!("bibliography_multi_rebuild_rev5_tracked_toplevel_baseline_baseline.rs");
+include!("bibliography_multi_rebuild_rev5_tracked_toplevel_baseline_untracked.rs");
+include!("bibliography_multi_rebuild_rev5_tracked_toplevel_baseline_unreadable.rs");

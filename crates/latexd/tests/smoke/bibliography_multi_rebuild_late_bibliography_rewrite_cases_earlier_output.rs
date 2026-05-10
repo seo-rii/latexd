@@ -1,0 +1,1 @@
+smoke!(internal_compiler_falls_back_to_cp0_when_bibliography_edit_changes_earlier_citation_output => run_late_rewrite(LateRewrite::EarlierCitationOutput));

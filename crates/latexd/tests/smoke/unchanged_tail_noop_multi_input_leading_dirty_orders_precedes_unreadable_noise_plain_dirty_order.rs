@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_multi_input_leading_edits_and_unreadable_dirty_file_precedes_it => run_lead_pre_case(LeadPreCase::Unreadable));

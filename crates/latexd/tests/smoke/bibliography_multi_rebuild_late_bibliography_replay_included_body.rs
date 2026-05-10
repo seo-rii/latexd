@@ -1,0 +1,4 @@
+include!("../support/bibliography_multi_rebuild_late_bibliography_replay_included_body_extra_dirty_helpers.rs");
+
+include!("bibliography_multi_rebuild_late_bibliography_replay_included_body_baseline.rs");
+include!("bibliography_multi_rebuild_late_bibliography_replay_included_body_extra_dirty.rs");

@@ -1,0 +1,2 @@
+include!("bibliography_multi_same_page_trailing_input_sibling_ordering_baseline_plain.rs");
+include!("bibliography_multi_same_page_trailing_input_sibling_ordering_baseline_reversed.rs");

@@ -1,0 +1,1 @@
+smoke!(internal_compiler_strips_urlprefix_and_renders_bibnamedash_in_bibliography_output => run_bib_out_basic(BibOutBasic::UrlprefixAndNamedash));

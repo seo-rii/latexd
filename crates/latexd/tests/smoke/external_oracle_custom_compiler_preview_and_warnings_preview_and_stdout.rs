@@ -1,0 +1,2 @@
+include!("external_oracle_custom_compiler_preview_and_warnings_preview_and_stdout_preview.rs");
+include!("external_oracle_custom_compiler_preview_and_warnings_preview_and_stdout_stdout.rs");

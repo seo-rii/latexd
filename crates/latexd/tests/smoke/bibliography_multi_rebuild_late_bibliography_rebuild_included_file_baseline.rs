@@ -1,0 +1,5 @@
+include!("bibliography_multi_rebuild_late_bibliography_rebuild_included_file_baseline_base.rs");
+
+include!("bibliography_multi_rebuild_late_bibliography_rebuild_included_file_baseline_untracked_noise.rs");
+
+include!("bibliography_multi_rebuild_late_bibliography_rebuild_included_file_baseline_unreadable_noise.rs");

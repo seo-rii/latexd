@@ -1,0 +1,1 @@
+smoke!(internal_compiler_prefers_nested_input_exit_boundary_over_late_toplevel_edit => run_nested_exit_top_case(NestedExitTopCase::Plain));

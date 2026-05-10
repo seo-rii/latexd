@@ -1,0 +1,2 @@
+include!("reference_variants_autoref_equations_floats_caption_variants_captionof.rs");
+include!("reference_variants_autoref_equations_floats_caption_variants_starred.rs");

@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_newtheorem_section_scoped_counters => run_ref_setup(RefSetup::NewtheoremSectionScopedCounters));

@@ -1,0 +1,1 @@
+smoke!(internal_compiler_prefers_earlier_toplevel_checkpoint_over_semantically_equal_multi_bibliography_replay => run_top_cp_replay(TopCpReplay::Baseline));

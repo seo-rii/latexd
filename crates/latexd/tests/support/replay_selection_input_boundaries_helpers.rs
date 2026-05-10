@@ -331,6 +331,274 @@ fn assert_input_boundary_replay_selection(
     assert!(!build_meta.semantic_aux_backdated);
 }
 
+fn input_boundary_edited_suffix(
+    tail_start: usize,
+    tail_end: usize,
+    edit_start: usize,
+    edit_end: usize,
+) -> String {
+    format!(
+        "{} {}",
+        (tail_start..tail_end)
+            .map(|index| format!("tail{index:04}"))
+            .collect::<Vec<_>>()
+            .join(" "),
+        (edit_start..edit_end)
+            .map(|index| format!("edit{index:04}"))
+            .collect::<Vec<_>>()
+            .join(" ")
+    )
+}
+
+fn input_boundary_changed_files(paths: &[&str]) -> Vec<Utf8PathBuf> {
+    paths.iter().map(|path| Utf8PathBuf::from(*path)).collect()
+}
+
+async fn compile_input_boundary_rev2(
+    root: &Utf8Path,
+    world: &ProjectWorld,
+    driver: &CompilerDriver,
+    build_root: &Utf8Path,
+    changed_files: &[&str],
+) -> (CompileOutcome, Vec<Utf8PathBuf>) {
+    let dirty_files = input_boundary_changed_files(changed_files);
+    let second = driver
+        .compile(CompileRequest {
+            root: root.to_path_buf(),
+            manifest: world.manifest.clone(),
+            toplevel: Utf8PathBuf::from("main.tex"),
+            rev: 2,
+            build_root: build_root.to_path_buf(),
+            changed_files: dirty_files.clone(),
+        })
+        .await
+        .expect("second build should succeed");
+    (second, dirty_files)
+}
+
+async fn compile_same_page_input_boundary_rev2(
+    fixture: &SamePageInputBoundaryFixture,
+    changed_files: &[&str],
+) -> (CompileOutcome, Vec<Utf8PathBuf>) {
+    compile_input_boundary_rev2(
+        &fixture.root,
+        &fixture.world,
+        &fixture.driver,
+        &fixture.build_root,
+        changed_files,
+    )
+    .await
+}
+
+async fn compile_earlier_page_input_boundary_rev2(
+    fixture: &EarlierPageInputBoundaryFixture,
+    changed_files: &[&str],
+) -> (CompileOutcome, Vec<Utf8PathBuf>) {
+    compile_input_boundary_rev2(
+        &fixture.root,
+        &fixture.world,
+        &fixture.driver,
+        &fixture.build_root,
+        changed_files,
+    )
+    .await
+}
+
+enum ReplaySelectionInputBoundaryToplevelCase {
+    SamePage,
+    SamePageAppendix,
+    SamePageInputOnly,
+    SamePageCp0,
+    EarlierPage,
+    EarlierPageAppendix,
+    EarlierPageInputOnly,
+}
+
+type BoundaryTopCase = ReplaySelectionInputBoundaryToplevelCase;
+
+async fn run_boundary_top_case(case: BoundaryTopCase) {
+    run_replay_selection_input_boundary_toplevel(case).await;
+}
+
+async fn run_replay_selection_input_boundary_toplevel(
+    case: ReplaySelectionInputBoundaryToplevelCase,
+) {
+    match case {
+        ReplaySelectionInputBoundaryToplevelCase::SamePageInputOnly => {
+            let fixture = prepare_same_page_input_boundary_fixture(false).await;
+            fs::write(fixture.root.join("sections/a.tex"), "alpha-new")
+                .expect("rewrite first input");
+            fs::write(fixture.root.join("sections/b.tex"), "beta-new")
+                .expect("rewrite second input");
+
+            let (second, dirty_files) = compile_same_page_input_boundary_rev2(
+                &fixture,
+                &["sections/b.tex", "sections/a.tex"],
+            )
+            .await;
+
+            assert_input_boundary_replay_selection(
+                &fixture.build_root,
+                &second,
+                dirty_files,
+                fixture.expected_checkpoint_id.clone(),
+                fixture.expected_page_index_after,
+            );
+        }
+        ReplaySelectionInputBoundaryToplevelCase::SamePageCp0 => {
+            let fixture = prepare_same_page_input_boundary_fixture(false).await;
+            let first_checkpoints =
+                load_checkpoint_bundle(&fixture.build_root.join("rev-1/checkpoints.json"))
+                    .expect("load rev1 checkpoints");
+            let cp0_id = first_checkpoints.checkpoints[0].meta.checkpoint_id.clone();
+
+            let second_main = fs::read_to_string(fixture.root.join("main.tex"))
+                .expect("read main")
+                .replacen("\\begin{document}", "\\begin{document} Intro", 1);
+            fs::write(fixture.root.join("main.tex"), second_main).expect("rewrite main");
+            fs::write(fixture.root.join("sections/a.tex"), "alpha-new")
+                .expect("rewrite first input");
+            fs::write(fixture.root.join("sections/b.tex"), "beta-new")
+                .expect("rewrite second input");
+
+            let (second, dirty_files) = compile_same_page_input_boundary_rev2(
+                &fixture,
+                &["main.tex", "sections/b.tex", "sections/a.tex"],
+            )
+            .await;
+
+            assert_input_boundary_replay_selection(
+                &fixture.build_root,
+                &second,
+                dirty_files,
+                cp0_id,
+                0,
+            );
+        }
+        ReplaySelectionInputBoundaryToplevelCase::SamePage
+        | ReplaySelectionInputBoundaryToplevelCase::SamePageAppendix => {
+            let with_appendix = matches!(
+                case,
+                ReplaySelectionInputBoundaryToplevelCase::SamePageAppendix
+            );
+            let fixture = prepare_same_page_input_boundary_fixture(with_appendix).await;
+            let edited_suffix = input_boundary_edited_suffix(0, 300, 300, 600);
+            let second_main = if let Some(appendix_filler) = &fixture.appendix_filler {
+                format!(
+                    "\\documentclass{{article}}\\begin{{document}} {} \\input{{sections/a}} \\input{{sections/b}} {edited_suffix} {appendix_filler} \\input{{sections/appendix}} \\end{{document}}",
+                    fixture.filler,
+                )
+            } else {
+                format!(
+                    "\\documentclass{{article}}\\begin{{document}} {} \\input{{sections/a}} \\input{{sections/b}} {edited_suffix} \\end{{document}}",
+                    fixture.filler,
+                )
+            };
+            fs::write(fixture.root.join("main.tex"), &second_main).expect("rewrite main");
+            fs::write(fixture.root.join("sections/a.tex"), "alpha-new")
+                .expect("rewrite first input");
+            fs::write(fixture.root.join("sections/b.tex"), "beta-new")
+                .expect("rewrite second input");
+            let changed_files = if with_appendix {
+                fs::write(fixture.root.join("sections/appendix.tex"), "appendix-new")
+                    .expect("rewrite appendix");
+                vec![
+                    "main.tex",
+                    "sections/appendix.tex",
+                    "sections/b.tex",
+                    "sections/a.tex",
+                ]
+            } else {
+                vec!["main.tex", "sections/b.tex", "sections/a.tex"]
+            };
+
+            let (second, dirty_files) =
+                compile_same_page_input_boundary_rev2(&fixture, &changed_files).await;
+
+            assert_input_boundary_replay_selection(
+                &fixture.build_root,
+                &second,
+                dirty_files,
+                fixture.expected_checkpoint_id.clone(),
+                fixture.expected_page_index_after,
+            );
+        }
+        ReplaySelectionInputBoundaryToplevelCase::EarlierPageInputOnly => {
+            let fixture = prepare_earlier_page_input_boundary_fixture(false).await;
+            fs::write(fixture.root.join("sections/a.tex"), "alpha-new")
+                .expect("rewrite first input");
+            fs::write(fixture.root.join("sections/b.tex"), "beta-new")
+                .expect("rewrite second input");
+
+            let (second, dirty_files) = compile_earlier_page_input_boundary_rev2(
+                &fixture,
+                &["sections/b.tex", "sections/a.tex"],
+            )
+            .await;
+
+            assert_input_boundary_replay_selection(
+                &fixture.build_root,
+                &second,
+                dirty_files,
+                fixture.expected_checkpoint_id.clone(),
+                fixture.expected_page_index_after,
+            );
+        }
+        ReplaySelectionInputBoundaryToplevelCase::EarlierPage
+        | ReplaySelectionInputBoundaryToplevelCase::EarlierPageAppendix => {
+            let with_appendix = matches!(
+                case,
+                ReplaySelectionInputBoundaryToplevelCase::EarlierPageAppendix
+            );
+            let fixture = prepare_earlier_page_input_boundary_fixture(with_appendix).await;
+            let edited_suffix = if with_appendix {
+                input_boundary_edited_suffix(0, 400, 400, 800)
+            } else {
+                input_boundary_edited_suffix(0, 450, 450, 900)
+            };
+            let second_main = if let Some(appendix_filler) = &fixture.appendix_filler {
+                format!(
+                    "\\documentclass{{article}}\\begin{{document}} {} \\input{{sections/a}} {} \\input{{sections/b}} {edited_suffix} {appendix_filler} \\input{{sections/appendix}} \\end{{document}}",
+                    fixture.first_filler, fixture.second_filler,
+                )
+            } else {
+                format!(
+                    "\\documentclass{{article}}\\begin{{document}} {} \\input{{sections/a}} {} \\input{{sections/b}} {edited_suffix} \\end{{document}}",
+                    fixture.first_filler, fixture.second_filler,
+                )
+            };
+            fs::write(fixture.root.join("main.tex"), &second_main).expect("rewrite main");
+            fs::write(fixture.root.join("sections/a.tex"), "alpha-new")
+                .expect("rewrite first input");
+            fs::write(fixture.root.join("sections/b.tex"), "beta-new")
+                .expect("rewrite second input");
+            let changed_files = if with_appendix {
+                fs::write(fixture.root.join("sections/appendix.tex"), "appendix-new")
+                    .expect("rewrite appendix");
+                vec![
+                    "main.tex",
+                    "sections/appendix.tex",
+                    "sections/b.tex",
+                    "sections/a.tex",
+                ]
+            } else {
+                vec!["main.tex", "sections/b.tex", "sections/a.tex"]
+            };
+
+            let (second, dirty_files) =
+                compile_earlier_page_input_boundary_rev2(&fixture, &changed_files).await;
+
+            assert_input_boundary_replay_selection(
+                &fixture.build_root,
+                &second,
+                dirty_files,
+                fixture.expected_checkpoint_id.clone(),
+                fixture.expected_page_index_after,
+            );
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 enum ReplaySelectionLateInputNoiseDirtyKind {
     Untracked,
@@ -341,6 +609,45 @@ enum ReplaySelectionLateInputNoiseDirtyKind {
 enum ReplaySelectionLateInputNoiseDirtyOrder {
     FollowsLateInput,
     PrecedesLateInput,
+}
+
+#[derive(Clone, Copy)]
+enum ReplaySelectionLateInputNoiseCase {
+    UntrackedFollows,
+    UntrackedPrecedes,
+    UnreadableFollows,
+    UnreadablePrecedes,
+}
+
+type BoundaryLateInputNoiseCase = ReplaySelectionLateInputNoiseCase;
+
+async fn run_boundary_late_input_noise_case(case: BoundaryLateInputNoiseCase) {
+    run_replay_selection_input_boundaries_late_input_noise_case(case).await;
+}
+
+async fn run_replay_selection_input_boundaries_late_input_noise_case(
+    case: ReplaySelectionLateInputNoiseCase,
+) {
+    let (dirty_kind, dirty_order) = match case {
+        ReplaySelectionLateInputNoiseCase::UntrackedFollows => (
+            ReplaySelectionLateInputNoiseDirtyKind::Untracked,
+            ReplaySelectionLateInputNoiseDirtyOrder::FollowsLateInput,
+        ),
+        ReplaySelectionLateInputNoiseCase::UntrackedPrecedes => (
+            ReplaySelectionLateInputNoiseDirtyKind::Untracked,
+            ReplaySelectionLateInputNoiseDirtyOrder::PrecedesLateInput,
+        ),
+        ReplaySelectionLateInputNoiseCase::UnreadableFollows => (
+            ReplaySelectionLateInputNoiseDirtyKind::Unreadable,
+            ReplaySelectionLateInputNoiseDirtyOrder::FollowsLateInput,
+        ),
+        ReplaySelectionLateInputNoiseCase::UnreadablePrecedes => (
+            ReplaySelectionLateInputNoiseDirtyKind::Unreadable,
+            ReplaySelectionLateInputNoiseDirtyOrder::PrecedesLateInput,
+        ),
+    };
+
+    run_replay_selection_input_boundaries_late_input_noise(dirty_kind, dirty_order).await;
 }
 
 async fn run_replay_selection_input_boundaries_late_input_noise(

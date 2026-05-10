@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_mixed_toplevel_leading_edit => run_order_mixed_case(OrderMixedCase::ToplevelLeading));

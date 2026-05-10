@@ -1,0 +1,3 @@
+include!("external_oracle_missing_artifacts_output_files_ps2pdf_and_postscript_missing_binary.rs");
+#[rustfmt::skip]
+include!("external_oracle_missing_artifacts_output_files_ps2pdf_and_postscript_missing_postscript.rs");

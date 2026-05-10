@@ -1,0 +1,1 @@
+smoke!(internal_compiler_rebuilds_from_base_snapshot_for_semantic_multi_bibliography_edit => run_rev5_baseline_core_rebuild_from_base());

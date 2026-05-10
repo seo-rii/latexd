@@ -1,0 +1,4 @@
+include!("bibliography_multi_rebuild_rev5_late_change_included_body_extra_dirty_untracked_follows.rs");
+include!("bibliography_multi_rebuild_rev5_late_change_included_body_extra_dirty_untracked_precedes.rs");
+include!("bibliography_multi_rebuild_rev5_late_change_included_body_extra_dirty_unreadable_follows.rs");
+include!("bibliography_multi_rebuild_rev5_late_change_included_body_extra_dirty_unreadable_precedes.rs");

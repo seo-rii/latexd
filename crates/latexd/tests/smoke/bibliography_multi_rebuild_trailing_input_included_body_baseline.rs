@@ -1,0 +1,4 @@
+include!("../support/bibliography_multi_rebuild_trailing_input_included_body_baseline_helpers.rs");
+
+include!("bibliography_multi_rebuild_trailing_input_included_body_baseline_baseline.rs");
+include!("bibliography_multi_rebuild_trailing_input_included_body_baseline_reversed_dirty_order.rs");

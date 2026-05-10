@@ -1,0 +1,1 @@
+smoke!(internal_compiler_avoids_shipout_replay_corruption_for_semantically_equal_multi_bibliography_edit => run_ship_replay_case(ShipReplayCase::Output));

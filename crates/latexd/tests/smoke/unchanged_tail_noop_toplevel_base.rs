@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_toplevel_edit => run_unchanged_tail_toplevel_noop(ToplevelNoopCase::Base));

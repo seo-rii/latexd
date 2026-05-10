@@ -1,0 +1,1 @@
+smoke!(internal_compiler_strips_newunit_finentry_and_renders_addpunct_wrappers => run_bib_out_basic(BibOutBasic::NewunitAndPunctuation));

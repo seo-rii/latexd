@@ -5,6 +5,12 @@ enum ExternalOraclePdfLatexPdflatexFlsCase {
     IntroOnly,
 }
 
+type PdfFls = ExternalOraclePdfLatexPdflatexFlsCase;
+
+async fn run_pdf_fls(case: PdfFls) {
+    run_external_oracle_pdf_latex_pdflatex_success(case).await;
+}
+
 async fn run_external_oracle_pdf_latex_pdflatex_success(
     fls_case: ExternalOraclePdfLatexPdflatexFlsCase,
 ) {

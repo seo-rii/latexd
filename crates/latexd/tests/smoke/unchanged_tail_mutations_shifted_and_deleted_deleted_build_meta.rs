@@ -1,0 +1,1 @@
+smoke!(internal_compiler_tracks_deleted_page_unchanged_tail_build_meta => run_deleted_unchanged_tail_mutation(DeletedUnchangedTailMutationCase::BuildMeta));

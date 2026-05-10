@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_axiom_fact_and_observation_reference_variants => run_ref_kinds(RefKinds::AxiomFactAndObservation));

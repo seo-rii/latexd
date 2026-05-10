@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_rebuilds_from_base_for_late_semantic_same_page_multi_bibliography_change_with_later_trailing_input_change_with_included_body_when_unchanged_sibling_bibliography_is_also_dirty_and_untracked_dirty_file_precedes,
+    run_body_sib_noise(BodySibNoise::UntrackedPrecedes)
+);

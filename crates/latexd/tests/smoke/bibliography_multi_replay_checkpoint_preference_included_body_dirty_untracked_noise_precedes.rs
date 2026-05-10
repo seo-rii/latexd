@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_still_replays_earlier_input_checkpoint_when_untracked_dirty_file_precedes_semantically_equal_multi_bibliography_edit_with_earlier_input_change_with_included_body,
+    run_replay_body_cp_noise(ReplayBodyCpNoise::UntrackedPrecedes)
+);

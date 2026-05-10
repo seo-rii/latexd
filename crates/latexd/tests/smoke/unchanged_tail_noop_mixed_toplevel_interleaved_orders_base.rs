@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_mixed_toplevel_and_multi_input_edits_with_interleaved_dirty_order => run_mixed_top_inter_case(MixedTopInterCase::Base));

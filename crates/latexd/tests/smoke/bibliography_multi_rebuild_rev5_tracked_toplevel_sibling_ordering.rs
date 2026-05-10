@@ -1,0 +1,3 @@
+include!("bibliography_multi_rebuild_rev5_tracked_toplevel_sibling_ordering_baseline.rs");
+include!("bibliography_multi_rebuild_rev5_tracked_toplevel_sibling_ordering_extra_dirty.rs");
+include!("bibliography_multi_rebuild_rev5_tracked_toplevel_sibling_ordering_interleaved.rs");

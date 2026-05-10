@@ -1,0 +1,2 @@
+include!("bibliography_multi_same_page_trailing_input_included_body_baseline.rs");
+include!("bibliography_multi_same_page_trailing_input_included_body_sibling.rs");

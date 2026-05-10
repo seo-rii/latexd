@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_mixed_input_leading_edit_with_reversed_dirty_order => run_order_mixed_case(OrderMixedCase::ReversedInputLeading));

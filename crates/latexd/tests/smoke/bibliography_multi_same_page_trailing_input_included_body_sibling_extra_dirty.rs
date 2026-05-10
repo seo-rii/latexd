@@ -1,0 +1,4 @@
+include!("../support/bibliography_multi_same_page_trailing_input_included_body_sibling_extra_dirty_helpers.rs");
+
+include!("bibliography_multi_same_page_trailing_input_included_body_sibling_extra_dirty_untracked.rs");
+include!("bibliography_multi_same_page_trailing_input_included_body_sibling_extra_dirty_unreadable.rs");

@@ -1,0 +1,3 @@
+include!("../support/bibliography_multi_rebuild_trailing_input_included_body_sibling_ordering_helpers.rs");
+include!("bibliography_multi_rebuild_trailing_input_included_body_sibling_ordering_baseline.rs");
+include!("bibliography_multi_rebuild_trailing_input_included_body_sibling_ordering_interleaved.rs");

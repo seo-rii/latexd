@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_multi_input_and_toplevel_edits_and_untracked_dirty_file_precedes_it => run_trailing_noise_case(TrailingNoiseCase::UntrackedPrecedes));

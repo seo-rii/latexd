@@ -1,0 +1,2 @@
+include!("external_oracle_pipeline_success_pdf_latex_tectonic_support_and_depfile_pipeline.rs");
+include!("external_oracle_pipeline_success_pdf_latex_tectonic_support_and_depfile_depfile.rs");

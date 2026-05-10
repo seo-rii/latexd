@@ -1,0 +1,1 @@
+smoke!(internal_compiler_prefers_earlier_bibliography_page_across_multiple_changed_files => run_page_ordering_case(PageOrderingCase::MultiPage));

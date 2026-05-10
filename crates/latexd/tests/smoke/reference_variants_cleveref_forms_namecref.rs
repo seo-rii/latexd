@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_namecref_variants => run_reference_variants_command_forms(ReferenceVariantsCommandFormsCase::NameCref));

@@ -1,0 +1,5 @@
+include!("../support/bibliography_multi_same_page_trailing_input_included_body_baseline_helpers.rs");
+
+include!("bibliography_multi_same_page_trailing_input_included_body_baseline_baseline_reversed_and_follows.rs");
+
+include!("bibliography_multi_same_page_trailing_input_included_body_baseline_precedes_and_unreadable.rs");

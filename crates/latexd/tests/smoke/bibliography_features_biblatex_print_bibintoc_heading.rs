@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_printbibliography_bibintoc_heading => run_bib_print(BibPrint::PrintbibliographyBibintocHeading));

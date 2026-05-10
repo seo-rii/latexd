@@ -1,0 +1,1 @@
+smoke!(internal_compiler_still_replays_semantically_equal_bibliography_edit_with_included_body_when_untracked_dirty_file_precedes_it => run_body_sem_eq_case(BodySemEqCase::UntrackedPrecedes));

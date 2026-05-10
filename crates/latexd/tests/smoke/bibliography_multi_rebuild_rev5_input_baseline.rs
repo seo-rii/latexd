@@ -1,0 +1,6 @@
+include!("bibliography_multi_rebuild_rev5_input_baseline_baseline.rs");
+include!("bibliography_multi_rebuild_rev5_input_baseline_reversed_dirty_order.rs");
+include!("bibliography_multi_rebuild_rev5_input_baseline_untracked_follows.rs");
+include!("bibliography_multi_rebuild_rev5_input_baseline_untracked_precedes.rs");
+include!("bibliography_multi_rebuild_rev5_input_baseline_unreadable_follows.rs");
+include!("bibliography_multi_rebuild_rev5_input_baseline_unreadable_precedes.rs");

@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_falls_back_to_preamble_replay_when_semantically_equal_multi_bibliography_edit_with_earlier_input_change_is_followed_by_unreadable_dirty_file_with_included_body,
+    run_replay_body_cp_noise(ReplayBodyCpNoise::UnreadableFollows)
+);

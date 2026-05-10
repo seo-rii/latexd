@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_leading_toplevel_and_multi_input_leading_edits => run_lead_top_dirty_case(LeadTopDirtyCase::Baseline));

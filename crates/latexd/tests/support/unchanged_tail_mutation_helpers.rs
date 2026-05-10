@@ -327,3 +327,9 @@ async fn run_inserted_or_replaced_unchanged_tail_mutation(
     assert!(build_meta.semantic_fixpoint_reached);
     assert!(!build_meta.semantic_aux_backdated);
 }
+
+type TailMut = InsertedAndReplacedUnchangedTailMutationKind;
+
+async fn run_tail_mut(case: TailMut) {
+    run_inserted_or_replaced_unchanged_tail_mutation(case).await;
+}

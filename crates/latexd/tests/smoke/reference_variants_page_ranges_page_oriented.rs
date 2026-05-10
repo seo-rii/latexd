@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_page_oriented_ref_variants => run_reference_variants_page_range(ReferenceVariantsPageRangeCase::PageOriented));

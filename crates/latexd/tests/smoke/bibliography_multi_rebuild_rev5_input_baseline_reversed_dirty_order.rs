@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_rebuilds_from_base_snapshot_for_semantic_multi_bibliography_edit_even_with_later_tracked_input_change_in_fixture_branch_with_reversed_dirty_order,
+    run_tt_base_ord(TtBaseOrd::Reversed)
+);

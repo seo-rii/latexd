@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_autoref_for_subsection_depth => run_reference_variants_autoref(ReferenceVariantsAutorefCase::SubsectionDepth));

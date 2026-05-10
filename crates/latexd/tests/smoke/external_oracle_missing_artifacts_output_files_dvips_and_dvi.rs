@@ -1,0 +1,2 @@
+include!("external_oracle_missing_artifacts_output_files_dvips_and_dvi_missing_binary.rs");
+include!("external_oracle_missing_artifacts_output_files_dvips_and_dvi_missing_dvi.rs");

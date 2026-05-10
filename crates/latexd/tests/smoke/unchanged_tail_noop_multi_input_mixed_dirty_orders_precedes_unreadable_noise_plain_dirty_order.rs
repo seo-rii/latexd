@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_mixed_multi_input_edits_and_unreadable_dirty_file_precedes_it => run_mix_pre_case(MixPreCase::UnreadablePlain));

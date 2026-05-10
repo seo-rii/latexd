@@ -5,6 +5,12 @@ enum ExternalOraclePdfLatexTectonicDepfileCase {
     IntroOnly,
 }
 
+type TectonicDep = ExternalOraclePdfLatexTectonicDepfileCase;
+
+async fn run_tectonic_dep(case: TectonicDep) {
+    run_external_oracle_pdf_latex_tectonic_success(case).await;
+}
+
 async fn run_external_oracle_pdf_latex_tectonic_success(
     depfile_case: ExternalOraclePdfLatexTectonicDepfileCase,
 ) {

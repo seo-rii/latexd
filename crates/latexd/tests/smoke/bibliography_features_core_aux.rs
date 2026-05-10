@@ -1,0 +1,1 @@
+smoke!(internal_compiler_stabilizes_semantic_aux_and_ingests_bbl => run_bibliography_features_semantic_case(BibliographyFeaturesSemanticCase::CoreAux));

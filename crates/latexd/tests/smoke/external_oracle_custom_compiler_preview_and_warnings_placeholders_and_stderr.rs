@@ -1,0 +1,2 @@
+include!("external_oracle_custom_compiler_preview_and_warnings_placeholders_and_stderr_placeholders.rs");
+include!("external_oracle_custom_compiler_preview_and_warnings_placeholders_and_stderr_stderr.rs");

@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_mixed_multi_input_edits => run_mix_base_follow_case(MixBaseFollowCase::Baseline));

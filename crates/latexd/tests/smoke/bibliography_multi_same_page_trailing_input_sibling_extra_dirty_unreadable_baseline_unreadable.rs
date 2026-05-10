@@ -1,0 +1,3 @@
+include!("bibliography_multi_same_page_trailing_input_sibling_extra_dirty_unreadable_baseline_unreadable_follows.rs");
+
+include!("bibliography_multi_same_page_trailing_input_sibling_extra_dirty_unreadable_baseline_unreadable_precedes.rs");

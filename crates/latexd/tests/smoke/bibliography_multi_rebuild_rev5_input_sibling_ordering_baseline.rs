@@ -1,0 +1,4 @@
+include!("bibliography_multi_rebuild_rev5_input_sibling_ordering_baseline_baseline.rs");
+include!("bibliography_multi_rebuild_rev5_input_sibling_ordering_baseline_reversed_dirty_order.rs");
+include!("bibliography_multi_rebuild_rev5_input_sibling_ordering_baseline_interleaved.rs");
+include!("bibliography_multi_rebuild_rev5_input_sibling_ordering_baseline_other_interleaved.rs");

@@ -1,0 +1,1 @@
+smoke!(internal_compiler_rebuilds_from_base_snapshot_for_semantic_multi_bibliography_edit_when_unchanged_sibling_bibliography_is_also_dirty => run_rev5_sib_dirty(Rev5SibDirty::PlainOrder));

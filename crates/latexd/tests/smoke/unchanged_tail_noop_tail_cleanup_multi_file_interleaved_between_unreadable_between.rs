@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_reuses_full_unchanged_tail_for_nonrendering_multi_file_edits_with_interleaved_dirty_order_and_unreadable_dirty_file_between_them,
+    run_tail_multi_case(TailMultiCase::InterleavedUnreadableBetween)
+);

@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_reuses_full_unchanged_tail_for_nonrendering_multi_input_leading_edits_with_interleaved_dirty_order_and_unreadable_dirty_file_between_them,
+    run_lead_between_case(LeadBetweenCase::InterleavedUnreadable)
+);

@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_biblatex_textual_parenthetical_and_printbibliography => run_bib_print(BibPrint::CoreTextualParentheticalAndPrintbibliography));

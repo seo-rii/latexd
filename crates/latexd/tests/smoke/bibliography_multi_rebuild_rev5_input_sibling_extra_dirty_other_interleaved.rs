@@ -1,0 +1,4 @@
+include!("bibliography_multi_rebuild_rev5_input_sibling_extra_dirty_other_interleaved_untracked_follows.rs");
+include!("bibliography_multi_rebuild_rev5_input_sibling_extra_dirty_other_interleaved_untracked_precedes.rs");
+include!("bibliography_multi_rebuild_rev5_input_sibling_extra_dirty_other_interleaved_unreadable_follows.rs");
+include!("bibliography_multi_rebuild_rev5_input_sibling_extra_dirty_other_interleaved_unreadable_precedes.rs");

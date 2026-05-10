@@ -1,0 +1,3 @@
+include!("../support/bibliography_multi_same_page_late_change_included_body_sibling_dirty_orders_baseline_and_reversed_helpers.rs");
+include!("bibliography_multi_same_page_late_change_included_body_sibling_dirty_orders_baseline_and_reversed_baseline.rs");
+include!("bibliography_multi_same_page_late_change_included_body_sibling_dirty_orders_baseline_and_reversed_reversed_dirty_order.rs");

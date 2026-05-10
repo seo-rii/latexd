@@ -1,0 +1,1 @@
+smoke!(internal_compiler_prefers_earliest_repeated_include_occurrence_for_same_file_edit => run_repeat_include_base_case(RepeatIncludeBaseCase::SameFile));

@@ -1,0 +1,1 @@
+smoke!(internal_compiler_prefers_earlier_toplevel_checkpoint_over_semantically_equal_bibliography_replay => run_bib_cp_top_case(BibCpTopCase::Baseline));

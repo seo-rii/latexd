@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_still_replays_semantically_equal_multi_bibliography_edit_with_later_trailing_input_change_when_untracked_dirty_file_precedes_it,
+    run_tail_replay_case(TailReplayCase::UntrackedPrecedes)
+);

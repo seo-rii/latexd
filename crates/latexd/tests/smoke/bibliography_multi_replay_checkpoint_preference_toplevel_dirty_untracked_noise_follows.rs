@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_falls_back_to_preamble_replay_when_semantically_equal_multi_bibliography_edit_with_earlier_toplevel_change_is_followed_by_untracked_dirty_file,
+    run_top_cp_dirty(TopCpDirty::UntrackedFollows)
+);

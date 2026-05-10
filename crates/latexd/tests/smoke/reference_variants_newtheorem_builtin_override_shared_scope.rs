@@ -1,0 +1,1 @@
+smoke!(internal_compiler_prefers_newtheorem_override_for_builtin_env_and_shared_scope => run_ref_setup(RefSetup::NewtheoremBuiltinOverrideSharedScope));

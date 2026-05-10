@@ -1,0 +1,1 @@
+smoke!(internal_compiler_rebuilds_from_base_for_late_bibliography_only_semantic_change_when_unreadable_dirty_file_precedes => run_late_rebuild_top(LateRebuildTop::UnreadablePrecedes));

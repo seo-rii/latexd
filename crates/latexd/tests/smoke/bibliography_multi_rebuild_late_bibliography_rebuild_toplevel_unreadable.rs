@@ -1,0 +1,2 @@
+include!("bibliography_multi_rebuild_late_bibliography_rebuild_toplevel_unreadable_follows.rs");
+include!("bibliography_multi_rebuild_late_bibliography_rebuild_toplevel_unreadable_precedes.rs");

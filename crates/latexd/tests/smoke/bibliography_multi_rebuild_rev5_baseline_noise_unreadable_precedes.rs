@@ -1,0 +1,1 @@
+smoke!(internal_compiler_rebuilds_from_base_snapshot_for_semantic_multi_bibliography_edit_when_unreadable_dirty_file_precedes => run_rev5_base_noise(Rev5BaseNoise::UnreadablePrecedes));

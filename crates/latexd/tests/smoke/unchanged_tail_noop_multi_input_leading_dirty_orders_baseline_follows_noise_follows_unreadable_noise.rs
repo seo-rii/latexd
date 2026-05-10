@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_multi_input_leading_edits_and_unreadable_dirty_file_follows => run_lead_base_follow_case(LeadBaseFollowCase::UnreadableFollows));

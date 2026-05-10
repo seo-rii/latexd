@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_mixed_multi_input_edits_and_untracked_dirty_file_follows => run_mix_base_follow_case(MixBaseFollowCase::UntrackedFollows));

@@ -1,0 +1,2 @@
+include!("bibliography_multi_same_page_late_change_root.rs");
+include!("bibliography_multi_same_page_late_change_included_body.rs");

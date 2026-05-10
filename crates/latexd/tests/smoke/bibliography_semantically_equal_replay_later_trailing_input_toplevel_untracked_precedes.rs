@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_still_replays_semantically_equal_bibliography_edit_with_later_trailing_input_change_when_untracked_dirty_file_precedes_it_in_toplevel_document,
+    run_trail_top_sem_eq_case(TrailTopSemEqCase::UntrackedPrecedes)
+);

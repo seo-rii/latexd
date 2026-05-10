@@ -1,0 +1,1 @@
+smoke!(internal_compiler_materializes_theorem_and_proof_environment_headers => run_ref_setup(RefSetup::TheoremAndProofHeaders));

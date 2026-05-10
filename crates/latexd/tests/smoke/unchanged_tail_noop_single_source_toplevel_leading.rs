@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_leading_toplevel_edit => run_single_lead_case(SingleLeadCase::ToplevelLeading));

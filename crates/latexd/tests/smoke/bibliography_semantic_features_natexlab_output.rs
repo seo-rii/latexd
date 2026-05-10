@@ -1,0 +1,1 @@
+smoke!(internal_compiler_strips_natexlab_suffix_markup_in_bibliography_output => run_bibliography_features_semantic_case(BibliographyFeaturesSemanticCase::NatexlabOutput));

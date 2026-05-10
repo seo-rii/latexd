@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_multi_input_and_leading_toplevel_edits => run_toplevel_leading_base_case(ToplevelLeadingBaseCase::Baseline));

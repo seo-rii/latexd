@@ -1,0 +1,1 @@
+smoke!(internal_compiler_uses_optional_section_title_for_toc_and_long_title_for_body => run_reference_variants_toc_numbering(ReferenceVariantsTocNumberingCase::OptionalTitle));

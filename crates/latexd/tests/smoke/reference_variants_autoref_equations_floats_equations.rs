@@ -1,0 +1,2 @@
+include!("reference_variants_autoref_equations_floats_equations_kinds.rs");
+include!("reference_variants_autoref_equations_floats_equations_align_labels.rs");

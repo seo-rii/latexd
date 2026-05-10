@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_reuses_full_unchanged_tail_for_nonrendering_trailing_toplevel_and_multi_input_leading_edits_with_other_interleaved_dirty_order_and_untracked_dirty_file_precedes_it,
+    run_multi_lead_case(MultiLeadCase::OtherInterleavedUntrackedPrecedes)
+);

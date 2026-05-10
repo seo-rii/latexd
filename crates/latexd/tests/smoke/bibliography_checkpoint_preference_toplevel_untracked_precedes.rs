@@ -1,0 +1,1 @@
+smoke!(internal_compiler_still_replays_earlier_toplevel_checkpoint_when_untracked_dirty_file_precedes_semantically_equal_bibliography_edit => run_bib_cp_top_case(BibCpTopCase::UntrackedPrecedes));

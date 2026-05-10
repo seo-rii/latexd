@@ -1,0 +1,1 @@
+smoke!(internal_compiler_replays_from_bibliography_input_checkpoint_after_semantic_fixpoint => run_fix_reuse(FixReuse::ToplevelReplayCheckpoint));

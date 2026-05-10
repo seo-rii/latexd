@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_reuses_full_unchanged_tail_for_nonrendering_double_leading_edits_with_reversed_dirty_order_and_unreadable_dirty_file_follows,
+    run_order_double_case(OrderDoubleCase::UnreadableFollows)
+);

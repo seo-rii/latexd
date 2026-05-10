@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_titleref_variants => run_reference_variants_basic_refs_case(ReferenceVariantsBasicRefsCase::TitleRef));

@@ -4,6 +4,12 @@ enum ExternalOraclePipelineWarningCase {
     MultiStage,
 }
 
+type PipeWarn = ExternalOraclePipelineWarningCase;
+
+async fn run_pipe_warn(case: PipeWarn) {
+    run_external_oracle_custom_compiler_pipeline_warning(case).await;
+}
+
 async fn run_external_oracle_custom_compiler_pipeline_warning(
     warning_case: ExternalOraclePipelineWarningCase,
 ) {

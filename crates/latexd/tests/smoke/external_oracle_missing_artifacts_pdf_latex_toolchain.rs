@@ -1,0 +1,5 @@
+include!("external_oracle_missing_artifacts_pdf_latex_toolchain_prefers_tectonic.rs");
+include!("external_oracle_missing_artifacts_pdf_latex_toolchain_missing_tectonic_pdf.rs");
+include!("external_oracle_missing_artifacts_pdf_latex_toolchain_missing_pdflatex_pdf.rs");
+include!("external_oracle_missing_artifacts_pdf_latex_toolchain_fallback_pdflatex.rs");
+include!("external_oracle_missing_artifacts_pdf_latex_toolchain_missing_toolchain.rs");

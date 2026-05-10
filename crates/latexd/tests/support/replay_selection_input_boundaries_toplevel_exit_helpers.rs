@@ -4,6 +4,12 @@ enum ReplaySelectionToplevelExitCase {
     ClampLastPage,
 }
 
+type BoundaryExitCase = ReplaySelectionToplevelExitCase;
+
+async fn run_boundary_exit_case(case: BoundaryExitCase) {
+    run_replay_selection_input_boundaries_toplevel_exit(case).await;
+}
+
 async fn run_replay_selection_input_boundaries_toplevel_exit(
     exit_case: ReplaySelectionToplevelExitCase,
 ) {

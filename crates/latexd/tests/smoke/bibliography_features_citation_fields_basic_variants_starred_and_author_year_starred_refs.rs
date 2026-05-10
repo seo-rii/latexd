@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_starred_refs_optional_cite_notes_and_bibitem_labels => run_cite_basic(CiteBasic::StarredRefs));

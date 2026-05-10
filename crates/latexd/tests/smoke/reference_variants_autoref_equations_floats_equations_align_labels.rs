@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_align_labels_for_equation_reference_variants => run_reference_variants_autoref_kind(ReferenceVariantsAutorefKindCase::AlignLabels));

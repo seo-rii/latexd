@@ -1,0 +1,1 @@
+smoke!(internal_compiler_rebuilds_from_base_for_late_semantic_same_page_multi_bibliography_change_with_later_trailing_input_change_with_included_body => run_body_late_base_case(BodyLateBaseCase::Baseline));

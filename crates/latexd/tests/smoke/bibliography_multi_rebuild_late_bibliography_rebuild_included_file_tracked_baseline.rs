@@ -1,0 +1,1 @@
+smoke!(internal_compiler_rebuilds_from_base_for_late_semantic_bibliography_change_inside_included_file_even_with_later_tracked_change => run_late_rebuild_inc(LateRebuildInc::Tracked));

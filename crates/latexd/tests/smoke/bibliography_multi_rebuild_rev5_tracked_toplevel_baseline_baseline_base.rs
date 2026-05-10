@@ -1,0 +1,1 @@
+smoke!(internal_compiler_rebuilds_from_base_snapshot_for_semantic_multi_bibliography_edit_even_with_later_tracked_toplevel_change => run_rev5_tracked_toplevel_case(Rev5TrackedToplevelCase::Baseline));

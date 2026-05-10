@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_pagerefrange_variant => run_reference_variants_page_range(ReferenceVariantsPageRangeCase::PageRefRange));

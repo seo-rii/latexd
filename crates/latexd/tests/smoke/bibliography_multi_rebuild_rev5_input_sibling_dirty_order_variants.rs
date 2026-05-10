@@ -1,0 +1,6 @@
+include!("bibliography_multi_rebuild_rev5_input_sibling_dirty_order_variants_baseline.rs");
+include!("bibliography_multi_rebuild_rev5_input_sibling_dirty_order_variants_reversed_dirty_order.rs");
+include!("bibliography_multi_rebuild_rev5_input_sibling_dirty_order_variants_untracked_follows.rs");
+include!("bibliography_multi_rebuild_rev5_input_sibling_dirty_order_variants_untracked_precedes.rs");
+include!("bibliography_multi_rebuild_rev5_input_sibling_dirty_order_variants_unreadable_follows.rs");
+include!("bibliography_multi_rebuild_rev5_input_sibling_dirty_order_variants_unreadable_precedes.rs");

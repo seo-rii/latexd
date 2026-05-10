@@ -1,0 +1,1 @@
+smoke!(internal_compiler_rebuilds_from_base_when_late_input_is_removed_and_file_deleted_with_untracked_dirty_file_follows => run_late_input_removal_case(LateInputRemovalCase::DeletedUntrackedFollows));

@@ -1,0 +1,3 @@
+include!("bibliography_multi_same_page_trailing_input_included_body_baseline_baseline_reversed_and_follows_baseline.rs");
+
+include!("bibliography_multi_same_page_trailing_input_included_body_baseline_baseline_reversed_and_follows_reversed.rs");

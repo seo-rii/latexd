@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_hyperxmp_style_package_load_order => run_internal_compiler_core_case(InternalCompilerCoreCase::HyperxmpStyleLoadOrder));

@@ -1,0 +1,1 @@
+smoke!(internal_compiler_skips_late_multi_page_bibliography_replay_when_earlier_input_is_unchanged => run_late_skip(LateSkip::MultiPageBibliography));

@@ -1,0 +1,1 @@
+smoke!(internal_compiler_strips_case_textstyle_and_textsuper_wrappers => run_bib_out_style(BibOutStyle::CaseTextstyleAndTextsuper));

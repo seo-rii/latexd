@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_problem_exercise_question_and_notation_reference_variants => run_ref_kinds(RefKinds::ProblemExerciseQuestionAndNotation));

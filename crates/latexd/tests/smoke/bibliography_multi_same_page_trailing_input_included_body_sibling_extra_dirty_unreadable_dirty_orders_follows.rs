@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_falls_back_to_preamble_replay_when_semantically_equal_same_page_multi_bibliography_edit_with_later_trailing_input_change_with_included_body_when_unchanged_sibling_bibliography_is_also_dirty_and_unreadable_dirty_file_follows,
+    run_body_sibling_extra_case(BodySiblingExtraCase::UnreadableDirtyFollows)
+);

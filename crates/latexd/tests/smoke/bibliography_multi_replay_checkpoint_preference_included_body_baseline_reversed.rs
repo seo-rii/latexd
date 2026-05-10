@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_prefers_earlier_input_checkpoint_over_semantically_equal_multi_bibliography_replay_with_included_body_with_reversed_dirty_order,
+    run_replay_body_cp_base(ReplayBodyCpBase::Reversed)
+);

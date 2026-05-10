@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reports_deleted_pages_before_stable_unchanged_tail_from_prior_input => run_deleted_unchanged_tail_mutation(DeletedUnchangedTailMutationCase::TailAndPatches));

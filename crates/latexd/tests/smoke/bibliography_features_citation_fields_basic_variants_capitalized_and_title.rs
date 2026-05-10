@@ -1,0 +1,3 @@
+#[rustfmt::skip]
+include!("bibliography_features_citation_fields_basic_variants_capitalized_and_title_capitalized_author_year.rs");
+include!("bibliography_features_citation_fields_basic_variants_capitalized_and_title_title.rs");

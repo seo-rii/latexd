@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_rebuilds_from_base_when_unreadable_dirty_file_precedes_late_input_removal_with_retained_file_also_dirty,
+    run_late_input_removal_case(LateInputRemovalCase::RetainedDirtyUnreadablePrecedes)
+);

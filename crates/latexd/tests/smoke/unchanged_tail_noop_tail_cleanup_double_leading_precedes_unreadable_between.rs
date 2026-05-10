@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_double_leading_edits_and_unreadable_dirty_file_precedes_it => run_tail_double_case(TailDoubleCase::UnreadablePrecedes));

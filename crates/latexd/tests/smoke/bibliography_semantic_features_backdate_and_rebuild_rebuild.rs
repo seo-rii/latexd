@@ -1,0 +1,1 @@
+smoke!(internal_compiler_rebuilds_from_base_snapshot_when_late_section_title_changes_toc => run_bib_sem_build(BibSemBuild::Rebuild));

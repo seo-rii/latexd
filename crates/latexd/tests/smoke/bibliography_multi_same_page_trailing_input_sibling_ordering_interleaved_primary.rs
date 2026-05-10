@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_replays_from_bibliography_input_checkpoint_for_semantically_equal_same_page_multi_bibliography_edit_with_later_trailing_input_change_when_unchanged_sibling_bibliography_is_also_dirty_with_interleaved_dirty_order,
+    run_sibling_order_case(SiblingOrderCase::Interleaved)
+);

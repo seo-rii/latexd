@@ -1,0 +1,2 @@
+include!("external_oracle_engine_failures_xelatex_spawn_and_warnings_spawn.rs");
+include!("external_oracle_engine_failures_xelatex_spawn_and_warnings_warnings.rs");

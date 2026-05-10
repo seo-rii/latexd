@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_double_leading_edits => run_tail_double_case(TailDoubleCase::Baseline));

@@ -1,0 +1,1 @@
+smoke!(internal_compiler_replays_from_bibliography_input_checkpoint_for_semantically_equal_multi_bibliography_edit_with_later_trailing_input_change => run_tail_replay_case(TailReplayCase::Baseline));

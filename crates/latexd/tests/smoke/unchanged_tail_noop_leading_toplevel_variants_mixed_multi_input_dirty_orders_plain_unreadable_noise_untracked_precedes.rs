@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_reuses_full_unchanged_tail_for_nonrendering_leading_toplevel_and_mixed_multi_input_edits_and_untracked_dirty_file_precedes_it,
+    run_lead_top_mix_dirty_case(LeadTopMixDirtyCase::UntrackedPrecedesPlain)
+);

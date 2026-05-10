@@ -1,0 +1,1 @@
+smoke!(internal_compiler_builds_pdf_and_emits_page_metadata => run_internal_compiler_core_case(InternalCompilerCoreCase::PageMetadata));

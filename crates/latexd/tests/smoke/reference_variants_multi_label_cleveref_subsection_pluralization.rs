@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_multi_label_cleveref_for_subsection_pluralization => run_ref_clever(RefClever::SubsectionPluralization));

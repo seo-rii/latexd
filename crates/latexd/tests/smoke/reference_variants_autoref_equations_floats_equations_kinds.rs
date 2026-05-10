@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_equation_kinds_for_reference_variants => run_reference_variants_autoref_kind(ReferenceVariantsAutorefKindCase::EquationKinds));

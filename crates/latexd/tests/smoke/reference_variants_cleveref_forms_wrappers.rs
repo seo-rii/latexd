@@ -1,0 +1,1 @@
+smoke!(internal_compiler_strips_float_and_equation_environment_wrappers => run_reference_variants_command_forms(ReferenceVariantsCommandFormsCase::Wrappers));

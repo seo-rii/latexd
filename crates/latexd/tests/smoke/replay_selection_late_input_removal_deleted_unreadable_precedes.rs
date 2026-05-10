@@ -1,0 +1,1 @@
+smoke!(internal_compiler_rebuilds_from_base_when_unreadable_dirty_file_precedes_late_input_removal_and_file_deletion => run_late_input_removal_case(LateInputRemovalCase::DeletedUnreadablePrecedes));

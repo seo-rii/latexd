@@ -1,0 +1,1 @@
+smoke!(internal_compiler_reuses_full_unchanged_tail_for_nonrendering_multi_input_and_toplevel_edits_with_reversed_dirty_order => run_toplevel_trailing_base_case(ToplevelTrailingBaseCase::Reversed));

@@ -1,0 +1,5 @@
+include!("bibliography_multi_rebuild_rev5_input_sibling_other_interleaved_variants_base.rs");
+include!("bibliography_multi_rebuild_rev5_input_sibling_other_interleaved_variants_untracked_follows.rs");
+include!("bibliography_multi_rebuild_rev5_input_sibling_other_interleaved_variants_untracked_precedes.rs");
+include!("bibliography_multi_rebuild_rev5_input_sibling_other_interleaved_variants_unreadable_follows.rs");
+include!("bibliography_multi_rebuild_rev5_input_sibling_other_interleaved_variants_unreadable_precedes.rs");

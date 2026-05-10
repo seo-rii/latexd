@@ -1,0 +1,1 @@
+smoke!(internal_compiler_prefers_long_title_for_nameref_even_with_short_toc_title => run_ref_basic(RefBasic::PreferredSectionTitle));

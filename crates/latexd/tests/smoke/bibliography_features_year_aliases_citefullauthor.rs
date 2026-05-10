@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_citefullauthor_and_capitalized_citeyearpar_variants => run_year_alias(YearAlias::Citefullauthor));

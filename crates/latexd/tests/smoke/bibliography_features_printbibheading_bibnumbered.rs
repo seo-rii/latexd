@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_printbibheading_bibnumbered_heading => run_biblatex_print_simple_case(BiblatexPrintSimpleCase::PrintbibheadingBibnumbered));

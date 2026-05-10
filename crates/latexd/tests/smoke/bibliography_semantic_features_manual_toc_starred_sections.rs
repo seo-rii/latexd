@@ -1,0 +1,1 @@
+smoke!(internal_compiler_supports_manual_toc_entries_for_starred_sections => run_bib_sem_aux(BibSemAux::ManualTocStarredSections));

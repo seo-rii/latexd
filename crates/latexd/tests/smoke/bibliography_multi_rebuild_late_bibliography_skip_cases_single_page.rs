@@ -1,0 +1,1 @@
+smoke!(internal_compiler_skips_late_bibliography_replay_when_earlier_multi_bibliography_input_is_unchanged => run_late_multi_bibliography_skip_case(LateMultiBibliographySkipCase::SinglePage));

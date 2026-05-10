@@ -1,0 +1,1 @@
+smoke!(internal_compiler_still_replays_late_toplevel_edit_when_untracked_dirty_file_precedes_it => run_late_top_noise_case(LateTopNoiseCase::UntrackedPrecedes));

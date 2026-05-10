@@ -1,0 +1,2 @@
+include!("external_oracle_custom_compiler_failures_artifact_and_spawn_missing_pdf.rs");
+include!("external_oracle_custom_compiler_failures_artifact_and_spawn_spawn.rs");

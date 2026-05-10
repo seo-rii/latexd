@@ -1,0 +1,2 @@
+include!("bibliography_multi_rebuild_late_bibliography_rebuild_toplevel.rs");
+include!("bibliography_multi_rebuild_late_bibliography_rebuild_included_file.rs");

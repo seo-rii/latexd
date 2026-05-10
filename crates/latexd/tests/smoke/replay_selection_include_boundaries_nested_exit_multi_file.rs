@@ -1,0 +1,1 @@
+smoke!(internal_compiler_prefers_nested_input_exit_boundary_across_multiple_changed_files => run_nested_exit_base_case(NestedExitBaseCase::MultiFileAppendix));

@@ -1,0 +1,4 @@
+smoke_case_test!(
+    internal_compiler_replays_from_bibliography_input_checkpoint_for_semantically_equal_multi_bibliography_edit_with_later_trailing_input_change_with_included_body,
+    run_inc_body_replay(IncBodyReplay::Baseline)
+);
