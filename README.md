@@ -124,6 +124,7 @@ threshold regressions.
 - Roadmap: [`docs/roadmap.md`](./docs/roadmap.md)
 - Testing strategy: [`docs/testing-strategy.md`](./docs/testing-strategy.md)
 - Real rendering plan: [`docs/real-rendering-plan.md`](./docs/real-rendering-plan.md)
+- Real rendering accepted structure: [`docs/real-rendering-accepted-structure.md`](./docs/real-rendering-accepted-structure.md)
 - Rendering design question: [`docs/real-rendering-design-question.md`](./docs/real-rendering-design-question.md)
 - HMR protocol: [`docs/hmr-protocol.md`](./docs/hmr-protocol.md)
 - Contributor notes: [`docs/contributor-notes.md`](./docs/contributor-notes.md)

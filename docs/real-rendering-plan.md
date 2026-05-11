@@ -121,10 +121,10 @@ Track semantic surfaces separately from visual output:
 ## Architecture Direction
 
 The main architectural change is to stop treating VM output as one string.
-The strictest open design question is where the boundary should sit between TeX
-execution and Document IR construction; see
-[`real-rendering-design-question.md`](real-rendering-design-question.md) before
-starting broad implementation work.
+The boundary decision is now accepted: `tex-vm` emits typed `RenderEvent`s, and
+a separate builder derives `Document IR`. Read
+[`real-rendering-accepted-structure.md`](real-rendering-accepted-structure.md)
+before starting broad implementation work.
 
 ### Current Pipeline
 
@@ -138,14 +138,41 @@ TeX source -> lexer -> VM expansion -> String -> fixed-width layout -> simple PD
 TeX source
   -> lexer
   -> VM + LaTeX semantic hooks
+  -> RenderEvent stream
+  -> Document IR builder
   -> Document IR
   -> layout tree / boxes
   -> page builder
-  -> PDF/SVG/raster artifacts
+  -> PageDisplayList
+  -> renderer backend
+       -> PDF/SVG/raster artifacts
 ```
 
 The VM should still execute enough macros to discover document content, but
-rendering commands should produce structured nodes instead of dumping raw tokens.
+rendering commands should emit typed `RenderEvent`s instead of dumping raw tokens
+or mutating `Document IR` directly. `Document IR` is a stable semantic artifact
+derived from events. `PageDisplayList` is the stable renderer input.
+
+The accepted boundary decision is documented in
+[`real-rendering-design-question.md`](real-rendering-design-question.md):
+
+```text
+TeX VM execution
+  -> RenderEvent stream
+  -> Document IR builder
+  -> Document IR
+  -> layout/page builder
+  -> PageDisplayList
+  -> renderer backend
+```
+
+The VM decides what TeX execution produced. The IR builder decides what document
+structure that output represents. The layout engine decides where it goes. The
+renderer only draws already-positioned page operations.
+
+The accepted first-batch structure, crate split, event schema, provenance model,
+fallback contract, CI gates, and remaining deferred decisions are collected in
+[`real-rendering-accepted-structure.md`](real-rendering-accepted-structure.md).
 
 ## Document IR
 
@@ -188,8 +215,44 @@ Rules:
 - unknown constructs should become `RawFallback`, not disappear silently;
 - IR should preserve enough structure for layout and sync, but not attempt to be
   TeX's exact box list in the first milestone;
-- class/package shims should produce IR hooks where they intentionally abstract
-  over full LaTeX behavior.
+- class/package shims should emit high-level `RenderEvent`s where they
+  intentionally abstract over full LaTeX behavior;
+- shims must not mutate `Document IR` directly.
+
+## Render Events And Display Lists
+
+The first rendering migration should introduce two additional stable artifacts:
+
+- `RenderEvent`: the boundary between VM execution and semantic recovery;
+- `PageDisplayList`: the boundary between layout and renderer backends.
+
+First event families:
+
+- `Text`, `Space`, and `ParagraphBreak`;
+- `SetDocumentMetadata` and `FlushTitleBlock`;
+- `BeginBlock`, `EndBlock`, and `Heading`;
+- `InlineCitation` and `BibliographyItem`;
+- `GraphicRef` and `Caption`;
+- `InlineMath` and `DisplayMath`;
+- `RawFallback` and `Diagnostic`.
+
+First `PageDisplayList` operations:
+
+- positioned text runs;
+- rectangles/rules;
+- images;
+- links and named destinations;
+- clipping/save-restore;
+- page/source metadata.
+
+Text shaping should eventually happen before final display-list emission through
+a renderer-neutral shaping adapter. Skia can be one adapter/backend, but it
+should remain optional behind a feature flag until the display-list, font, and
+text contracts are stable.
+
+VM checkpoints stay renderer-neutral. Event segments, IR, layout,
+display-lists, shaped runs, decoded assets, and rendered tiles are all derived
+caches with independent invalidation keys.
 
 ## Workstreams
 
@@ -229,7 +292,9 @@ Tasks:
   `revtex4-2`, and `wacv`;
 - preserve abstract content as an `Abstract` block;
 - emit headings as heading nodes, not plain text only;
-- preserve author notes without leaking footnote macro syntax.
+- preserve author notes without leaking footnote macro syntax;
+- emit these surfaces first as `RenderEvent`s and let the IR builder construct
+  `TitleBlock`, `Abstract`, and `Heading` nodes.
 
 Done when:
 
@@ -243,10 +308,11 @@ Purpose: stop raw citation keys from polluting rendered text.
 
 Tasks:
 
-- represent citations as `Citation { keys, style_hint }`;
+- represent citation commands as `InlineCitation` events with keys and style
+  hints;
 - render unknown citations as `[?]` or a stable compact placeholder, never raw
   keys;
-- parse available `.bbl` entries into bibliography IR;
+- parse available `.bbl` entries into semantic records and bibliography events;
 - map citation keys to numeric labels when `.bbl` is available;
 - render bibliography items as paragraphs/list items;
 - keep citation semantic aux unchanged for incremental correctness.

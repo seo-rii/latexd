@@ -209,6 +209,248 @@ The Document IR builder consumes the event stream and owns block construction.
 - requires clear tests that define event ordering and builder behavior;
 - some state will still live in the VM until migrated.
 
+## Accepted Decision
+
+Adopt Option C, with one stricter invariant:
+
+```text
+TeX VM execution
+  -> RenderEvent stream
+  -> Document IR builder
+  -> Document IR
+  -> layout/page builder
+  -> PageDisplayList
+  -> renderer backend
+```
+
+The VM may emit high-level semantic `RenderEvent`s, but it must not mutate
+`Document IR` directly. `Document IR` is still a stable internal type, but it is
+a derived semantic artifact produced by a deterministic builder rather than the
+VM's mutation target.
+
+The core invariant is:
+
+```text
+The VM decides what TeX execution produced.
+The IR builder decides what document structure that output represents.
+The layout engine decides where it goes.
+The renderer only draws already-positioned page operations.
+```
+
+Use both `RenderEvent` and `Document IR` as stable boundaries, but with different
+roles:
+
+- `RenderEvent` is the stable boundary between TeX execution and semantic
+  recovery;
+- `Document IR` is the stable boundary between semantic recovery and layout;
+- `PageDisplayList` is the stable boundary between layout and renderer backends.
+
+This avoids coupling macro execution to layout policy, keeps replay/checkpoint
+semantics renderer-neutral, and gives tests inspectable artifacts before PDF or
+raster output.
+
+## RenderEvent Contract
+
+The first event vocabulary should be typed and versioned. A good first contract
+is:
+
+```rust
+enum RenderEvent {
+    Text(TextEvent),
+    Space(SpaceEvent),
+    ParagraphBreak(ParagraphBreakEvent),
+    SetDocumentMetadata(MetadataEvent),
+    FlushTitleBlock(FlushTitleBlockEvent),
+    BeginBlock(BlockKindEvent),
+    EndBlock(BlockKindEvent),
+    Heading(HeadingEvent),
+    InlineCitation(CitationEvent),
+    BibliographyItem(BibliographyItemEvent),
+    GraphicRef(GraphicRefEvent),
+    Caption(CaptionEvent),
+    InlineMath(MathSourceEvent),
+    DisplayMath(MathSourceEvent),
+    RawFallback(RawFallbackEvent),
+    Diagnostic(RenderDiagnosticEvent),
+}
+```
+
+Every event should carry common metadata:
+
+```rust
+struct EventMeta {
+    event_id: EventId,
+    source: SourceProvenance,
+    mode_hint: ModeHint,
+    confidence: SemanticConfidence,
+    producer: EventProducer,
+}
+```
+
+`producer` should distinguish primitives, macros, class/package shims, `.bbl`
+parsers, and fallback paths. `confidence` should record whether the event is
+normal semantic output, an approximation, or a conservative fallback.
+
+The `DocumentIrBuilder` should be a mostly deterministic consumer:
+
+```text
+(events, aux_view, asset_resolver, builder_options) -> Document IR
+```
+
+That makes event golden tests meaningful and lets `latexd` rebuild IR from an
+event log or from event segments after a checkpoint.
+
+## Checkpoints And Derived Caches
+
+VM checkpoints should not include partially built rendering state. Keep VM
+snapshots about TeX execution state only: input cursor, macro/catcode/register
+state, conditionals, aux-relevant state, and enough resolver state to replay
+deterministically.
+
+Rendering state should live in derived caches:
+
+```text
+VmCheckpoint
+  -> EventSegment cache
+  -> IrBuilderCheckpoint cache
+  -> DocumentIR cache
+  -> Layout/PageDisplayList cache
+  -> Renderer tile/cache
+```
+
+Practical replay rule:
+
+```text
+nearest valid VmCheckpoint
+  -> replay TeX from there
+  -> append/rebuild RenderEvent segment
+  -> replay IR builder from nearest valid IrBuilderCheckpoint
+  -> rebuild affected DocumentIR/layout/page-display-list regions
+```
+
+An `IrBuilderCheckpoint` is acceptable for performance, but it must be
+invalidatable derived state keyed by the VM checkpoint and event-prefix hash. It
+must not become part of the VM snapshot correctness contract.
+
+Suggested cache keys:
+
+```text
+EventSegmentKey {
+    vm_checkpoint_id,
+    input_range_hash,
+    macro_state_hash,
+    resolver_hash,
+}
+
+DocumentIrKey {
+    event_stream_hash,
+    aux_sem_hash,
+    asset_manifest_hash,
+    ir_builder_version,
+}
+
+LayoutKey {
+    document_ir_hash,
+    page_style_hash,
+    font_metrics_hash,
+    layout_engine_version,
+}
+
+PageDisplayListKey {
+    layout_page_hash,
+    shaped_run_hashes,
+    asset_hashes,
+    display_list_version,
+}
+
+RenderedTileKey {
+    backend_id,
+    backend_version,
+    page_display_list_hash,
+    tile_rect,
+    scale,
+    device_pixel_ratio,
+    color_mode,
+}
+```
+
+Renderer-specific state, decoded images, shaped glyph caches, Skia surfaces, and
+rendered tiles do not belong in VM checkpoints.
+
+## Source Provenance
+
+Source spans should be represented as provenance, not as a single span.
+
+```rust
+struct SourceProvenance {
+    primary: SourceSpan,
+    content_spans: Vec<SourceSpan>,
+    expansion_stack: Vec<ExpansionFrame>,
+    generated_by: GeneratedBy,
+}
+
+struct ExpansionFrame {
+    call_span: SourceSpan,
+    definition_span: Option<SourceSpan>,
+    command_name: Option<String>,
+}
+```
+
+Recommended blame policy:
+
+- literal body text points to the literal token span;
+- `\section{Intro}` visible heading text points primarily to the argument span;
+- `\cite{key}` rendered as `[3]` points primarily to the invocation span, with
+  the key span attached;
+- `\maketitle` title text carries title/author content spans plus the
+  `\maketitle` flush span;
+- synthetic numbering and punctuation point to the generating command;
+- shim-generated output records shim provenance and approximation confidence.
+
+For `\title{A}` in the preamble and `\maketitle` later, the `TitleBlock` should
+have both an emit span for `\maketitle` and content spans for the stored title,
+author, date, and note arguments.
+
+## Semantic Policies
+
+Class/package shims should emit high-level semantic events directly when they
+intentionally approximate complex package behavior. Prefer defining TeX macros
+only when the real macro flow naturally reaches normal event-producing commands.
+Shims must not mutate `Document IR` directly.
+
+Paragraph handling should be hybrid:
+
+- the VM emits paragraph-breaking and mode signals when execution clearly
+  reaches them;
+- the IR builder owns actual paragraph grouping;
+- text opens a paragraph implicitly;
+- `ParagraphBreak` closes the current paragraph;
+- structural block events close the current paragraph before emitting
+  themselves;
+- display math closes or suspends the paragraph according to builder policy.
+
+Unsupported visible material must never silently disappear. `RawFallback` should
+store source text, optional expanded text, optional normalized visible text,
+environment name, fallback reason, and provenance. Render the most readable
+bounded local fallback available. Unknown citations should become `[?]`, not raw
+body text.
+
+Citations should be resolved in the IR builder from read-only semantic aux and
+`.bbl` data. The VM emits citation intent; layout and rendering consume the
+chosen citation inline node/text.
+
+`.bbl` handling should produce both semantic records and bibliography events:
+
+```text
+.bbl semantic scan -> BibliographyRecord { key, label, raw_text, parsed_text }
+thebibliography execution -> BibliographyItem events
+IR builder -> Bibliography block
+```
+
+Math should initially be raw source plus optional normalized text and a small
+math AST. Lossy ASCII text can be a derived metric output, but it should not be
+the canonical math model.
+
 ## Additional Help Needed: Backend and Layout Boundary
 
 The event/IR boundary is the first decision, but the next difficult design area
@@ -276,6 +518,86 @@ It also gives tests a stable target before pixel-level rendering:
 - page display-list golden tests define layout decisions;
 - PDF text and raster tests define backend behavior.
 
+Minimum serious `PageDisplayList` model before a Skia backend:
+
+```rust
+struct PageDisplayList {
+    page_id: PageId,
+    width_pt: f32,
+    height_pt: f32,
+    ops: Vec<DrawOp>,
+    source_spans: Vec<SourceSpan>,
+    content_hash: Hash,
+}
+
+enum DrawOp {
+    Save,
+    Restore,
+    ClipRect(Rect),
+    ClipPath(PathId),
+    TextRun(PositionedTextRun),
+    Rule(Rect),
+    Path(PositionedPath),
+    Image(PositionedImage),
+    LinkAnnotation(LinkAnnotation),
+    NamedDestination(Destination),
+}
+```
+
+Text shaping should happen before final `PageDisplayList` emission through a
+renderer-neutral shaping adapter. Skia may implement the adapter, but the final
+renderer backend should not own line-breaking, shaping policy, or citation/math
+semantics.
+
+`latexd` also needs a renderer-neutral font layer:
+
+```text
+TexFontRequest -> ResolvedFontFace -> FontInstance
+```
+
+If TeX metrics are available, layout should use them as authority. If outline
+metrics are available, renderers should use them for drawing and glyph geometry.
+If both are available, layout uses TeX metrics while renderers draw mapped
+outlines with compatible scaling. Missing exact fonts should produce fallback
+diagnostics and cache keys that reflect the fallback.
+
+Skia should stay optional behind a feature flag until `PageDisplayList`, text
+shaping, and font contracts stabilize. Ghostscript/Poppler should remain
+available for external PDF/EPS interpretation even if Skia handles final page
+rendering.
+
+## Implementation Feasibility
+
+This direction is implementable now as an incremental migration, but only if the
+first batch stays deliberately small.
+
+Feasible immediately:
+
+- define `RenderEvent`, `EventMeta`, and `SourceProvenance` types in a new
+  internal crate or `latexd` module;
+- add an `EventSink` beside the existing VM string output path;
+- emit events for text, spaces, paragraph breaks, title metadata,
+  `\maketitle`, abstract, headings, citations, `.bbl` items, graphics, captions,
+  math source, and raw fallbacks;
+- build a first `Document IR` from those events;
+- keep existing text/PDF output as a compatibility fallback while the IR path is
+  incomplete;
+- add event golden tests and IR golden tests before changing page layout.
+
+Still needs focused design before broad implementation:
+
+- exact crate/module ownership for events, IR, layout, and display lists;
+- event schema versioning and golden serialization format;
+- source provenance data model that fits existing `tex-tokens` spans;
+- how the VM exposes mode hints without pretending to implement full TeX
+  vertical/horizontal/math mode semantics yet;
+- `aux_view` interface for citation and bibliography resolution;
+- asset resolver contract for graphics before renderer work begins;
+- font and text shaping model before Skia or serious page layout;
+- display-list golden format and tolerances;
+- CI strategy so long arXiv smoke and optional Skia work do not block every
+  default test run.
+
 ## Specific Questions
 
 1. What should be the stable boundary type: `Document IR`, `RenderEvent`, or both?
@@ -334,43 +656,58 @@ It also gives tests a stable target before pixel-level rendering:
 18. How should incremental preview cache page display lists and renderer tiles
     without making renderer-specific state part of VM checkpoints?
 
-## Proposed Answer
+## Direct Answers
 
-The safest initial design is Option C: a hybrid event stream with early
-high-level events.
+1. Use both. `RenderEvent` is the VM boundary; `Document IR` is the
+   semantic/layout boundary. Add `PageDisplayList` as the renderer boundary.
 
-Recommended boundary:
+2. VM snapshots should not include partial rendering state. Replay events from
+   VM checkpoints; optionally cache IR-builder checkpoints as derived state.
 
-```text
-VM execution -> RenderEvent stream -> Document IR builder -> layout/page builder
-```
+3. Use `SourceProvenance`: primary invocation/content span plus expansion stack
+   and definition spans.
 
-Recommended first event families:
+4. Prefer normal macros when they naturally reach event commands. Let shims emit
+   high-level events directly when intentionally approximating complex behavior.
 
-- `Text`;
-- `ParagraphBreak`;
-- `SetDocumentMetadata` for title/author/date/affiliation/keywords;
-- `FlushTitleBlock`;
-- `Heading`;
-- `InlineCitation`;
-- `BibliographyItem`;
-- `GraphicRef`;
-- `Caption`;
-- `RawFallback`;
-- `Diagnostic`.
+5. The VM emits paragraph-breaking/mode signals; the IR builder owns paragraph
+   grouping.
 
-Recommended first IR builder responsibilities:
+6. `RawFallback` is acceptable if it stores raw source, optional expanded text,
+   reason, and provenance. Never silently delete visible material.
 
-- group text into paragraphs;
-- build title block from stored metadata;
-- attach captions to preceding figure/table where possible;
-- turn citations into safe placeholders or resolved labels;
-- emit bibliography blocks from `.bbl` items;
-- preserve source spans and fallback reasons.
+7. The VM emits citation intent. The IR builder resolves citation labels using
+   semantic aux and `.bbl` data.
 
-This gives a reviewable boundary and avoids putting layout concepts directly
-inside the VM. It also lets the next implementation batch focus on text recovery
-without committing to a full box/page builder yet.
+8. `.bbl` parsing should produce semantic records plus bibliography events. IR
+   nodes are built by the IR builder.
+
+9. Initially store raw math source plus optional normalized text and small AST.
+   Do not make lossy ASCII the canonical representation.
+
+10. Define event goldens first, IR goldens second, `PageDisplayList` goldens as
+    layout begins, PDF text after that, and raster smoke later.
+
+11. Yes. Renderer backends consume `PageDisplayList`, not `Document IR`.
+
+12. Before Skia, define positioned text, rules/rects, images, links, clipping,
+    and page/source metadata. Text-only is only enough for a spike.
+
+13. Shape before final display-list emission through a renderer-neutral adapter.
+
+14. Use a neutral font resolver from TeX requests to resolved faces and font
+    instances. Layout and renderers must share metrics.
+
+15. Yes. Keep Ghostscript/Poppler for external PDF/EPS interpretation.
+
+16. All are test-critical, but phased: PDF text and page count early, bounding
+    boxes and nonblank pages next, raster diff later.
+
+17. Yes. Keep Skia behind a feature flag until display-list and text/font
+    contracts stabilize.
+
+18. Cache event segments, IR, layout, display lists, shaped runs, decoded assets,
+    and tiles independently. VM checkpoints stay renderer-neutral.
 
 ## Suggested First Design Spike
 
@@ -429,13 +766,41 @@ Acceptance criteria for the spike:
 - macro definitions can still live in separate files;
 - existing string-output path still works while the IR path is incomplete.
 
-## Decision Needed
+## Accepted First-Batch Structure
 
-Before implementing real rendering broadly, decide whether this event boundary is
-acceptable. If not, decide what invariant the replacement boundary must preserve:
+The architecture direction is specific enough for the first event/IR
+implementation batch. The accepted near-term structure is:
 
-- replay/checkpoint compatibility;
-- source span accuracy;
-- inspectable regression surface;
-- ability to add semantic shims without full package execution;
-- gradual migration from string output to real layout.
+```text
+tex-vm
+  legacy string output      // preserved
+  optional RenderEvent sink // new
+
+latexd / tex-layout-side experiment
+  RenderEvent[]
+    -> DocumentIrBuilder
+    -> Document IR golden tests
+
+existing tex-layout/tex-pdf path
+  unchanged for now
+```
+
+The concrete Rust ownership split is:
+
+- `crates/tex-render-model` owns `RenderEvent`, `SourceProvenance`,
+  `Document IR`, the `PageDisplayList` skeleton, `AuxView`-facing view types,
+  and JSON golden helpers;
+- `tex-vm` emits optional `RenderEvent`s while keeping the legacy string output;
+- the first `DocumentIrBuilder` lives outside `tex-vm`, initially under
+  `tex-layout` or an equivalent layout-side experiment;
+- existing `tex-layout` and `tex-pdf` behavior remains unchanged until event
+  and IR goldens are stable.
+
+The accepted structure, first PR sequence, compact fixture, and remaining
+deferred decisions are collected in
+[`real-rendering-accepted-structure.md`](real-rendering-accepted-structure.md).
+
+The first coding batch should stop after proving the event-to-IR vertical slice
+for title, author, abstract, heading, paragraph text, citation placeholders,
+basic bibliography item events, raw math source, and raw fallback. Skia and
+serious font shaping should wait until `PageDisplayList` is defined and tested.
