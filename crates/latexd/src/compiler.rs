@@ -27,10 +27,10 @@ use tex_checkpoint::{
     select_reusable_preamble,
 };
 use tex_pdf::{
-    PAGE_FONT_SIZE_PT, PAGE_LINE_HEIGHT_PT, PAGE_TEXT_LEFT_PT, PAGE_TEXT_TOP_PT, render_page_svg,
-    render_single_page_pdf,
+    PAGE_FONT_SIZE_PT, PAGE_LINE_HEIGHT_PT, PAGE_TEXT_LEFT_PT, PAGE_TEXT_TOP_PT,
+    render_display_list_pdf, render_page_svg, render_single_page_pdf,
 };
-use tex_render_model::{AuxView, DocumentIr, RenderEventStream};
+use tex_render_model::{AuxView, DocumentIr, PageDisplayList, RenderEventStream};
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{VmModuleCheckpointKind, VmReplayFrame};
 use tex_world::{CompilerMode, ProjectManifest, normalize_relative_path};
@@ -76,6 +76,8 @@ pub struct InternalRenderIrCapture {
     pub legacy_output: String,
     pub events: RenderEventStream,
     pub document_ir: DocumentIr,
+    pub page_display_lists: Vec<PageDisplayList>,
+    pub display_list_pdf: Vec<u8>,
 }
 
 pub fn capture_internal_render_ir(
@@ -91,11 +93,18 @@ pub fn capture_internal_render_ir(
     let outcome = vm.run_plain(source);
     let events = RenderEventStream::new(Some(source_path.to_string()), outcome.render_events);
     let document_ir = tex_layout::build_document_ir(&events, aux);
+    let page_display_lists = tex_layout::build_page_display_lists(
+        &document_ir,
+        tex_layout::PageDisplayListOptions::default(),
+    );
+    let display_list_pdf = render_display_list_pdf(&page_display_lists);
 
     InternalRenderIrCapture {
         legacy_output: outcome.output,
         events,
         document_ir,
+        page_display_lists,
+        display_list_pdf,
     }
 }
 
@@ -3254,6 +3263,8 @@ mod tests {
         assert!(capture.document_ir.extracted_text().contains("A Paper"));
         assert!(capture.document_ir.extracted_text().contains("Intro"));
         assert!(capture.document_ir.extracted_text().contains("[?]"));
+        assert_eq!(capture.page_display_lists.len(), 1);
+        assert!(String::from_utf8_lossy(&capture.display_list_pdf).contains("(A Paper) Tj"));
         assert!(!capture.legacy_output.is_empty());
     }
 

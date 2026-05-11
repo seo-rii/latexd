@@ -57,6 +57,8 @@ The next implementation step has started with a narrow display-list spike:
   PageDisplayList`;
 - `tex-pdf` can render text-only `PageDisplayList` pages into searchable PDF
   text operations without consuming `DocumentIr` directly;
+- `latexd` internal captures now return the derived text-only
+  `PageDisplayList` pages and display-list PDF bytes as debug/test artifacts;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:
@@ -789,15 +791,16 @@ Acceptance:
 
 ### PR 5: `latexd` Integration Wiring
 
-Add an internal-only command/test path that captures events and builds IR.
+Add an internal-only command/test path that captures events, builds IR, derives
+text-only display lists, and emits a display-list PDF artifact.
 
 Do not replace the PDF path yet.
 
 Acceptance:
 
 - legacy internal PDF path still works;
-- event/IR artifacts can be written for debugging;
-- compact smoke fixture has event and IR goldens.
+- event/IR/display-list/PDF artifacts can be written for debugging;
+- compact smoke fixture has event, IR, and display-list goldens.
 
 ## Recommended Compact Fixture
 
