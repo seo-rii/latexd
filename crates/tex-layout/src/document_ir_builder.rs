@@ -1,7 +1,7 @@
 use tex_render_model::{
     AbstractBlock, AuxView, BibliographyBlock, BibliographyItemIr, CitationInline, DocumentIr,
     HeadingBlock, InlineNode, IrBlock, MetadataField, ParagraphBlock, RenderEvent,
-    RenderEventEnvelope, RenderEventStream, SourceProvenance, TitleBlock,
+    RenderEventEnvelope, RenderEventStream, SourceProvenance, SourceSpanRole, TitleBlock,
 };
 
 pub fn build_document_ir(stream: &RenderEventStream, aux: &impl AuxView) -> DocumentIr {
@@ -18,7 +18,7 @@ pub struct DocumentIrBuilder<'a, A: AuxView> {
     title: Option<String>,
     authors: Vec<String>,
     date: Option<String>,
-    title_source: Option<SourceProvenance>,
+    metadata_sources: Vec<SourceProvenance>,
 }
 
 impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
@@ -33,7 +33,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             title: None,
             authors: Vec::new(),
             date: None,
-            title_source: None,
+            metadata_sources: Vec::new(),
         }
     }
 
@@ -43,28 +43,31 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                 RenderEvent::SetDocumentMetadata(event) => match event.field {
                     MetadataField::Title => {
                         self.title = Some(event.value.clone());
-                        self.title_source = Some(envelope.meta.source.clone());
+                        self.metadata_sources.push(envelope.meta.source.clone());
                     }
                     MetadataField::Author => {
                         self.authors.push(event.value.clone());
-                        if self.title_source.is_none() {
-                            self.title_source = Some(envelope.meta.source.clone());
-                        }
+                        self.metadata_sources.push(envelope.meta.source.clone());
                     }
                     MetadataField::Date => {
                         self.date = Some(event.value.clone());
-                        if self.title_source.is_none() {
-                            self.title_source = Some(envelope.meta.source.clone());
-                        }
+                        self.metadata_sources.push(envelope.meta.source.clone());
                     }
                 },
                 RenderEvent::FlushTitleBlock(_) => {
                     self.flush_paragraph();
+                    let mut source = envelope.meta.source.clone();
+                    for metadata_source in std::mem::take(&mut self.metadata_sources) {
+                        source = source.with_related(
+                            SourceSpanRole::MetadataDefinition,
+                            metadata_source.primary,
+                        );
+                    }
                     self.blocks.push(IrBlock::TitleBlock(TitleBlock {
                         title: self.title.take(),
                         authors: std::mem::take(&mut self.authors),
                         date: self.date.take(),
-                        source: envelope.meta.source.clone(),
+                        source,
                     }));
                 }
                 RenderEvent::BeginBlock(event) => {

@@ -20,6 +20,33 @@ The first batch should keep the existing string-output and PDF path working
 while adding event capture and IR goldens. Do not add Skia, serious text
 shaping, external asset conversion, or a real page builder in this batch.
 
+## Current Implementation Status
+
+As of 2026-05-11, the first implementation batch is complete:
+
+- `tex-render-model` owns shared provenance, event, IR, display-list skeleton,
+  `AuxView`, and JSON golden helper types.
+- `tex-vm` keeps legacy string output authoritative by default and can
+  optionally capture a first `RenderEvent` stream.
+- `tex-layout` builds first-slice `DocumentIr` from events and a read-only
+  `AuxView`.
+- `latexd` exposes an internal capture path for `RenderEvent -> DocumentIr`
+  debugging/tests without replacing the existing PDF path.
+- Compact event and IR JSON goldens cover title, author, date, abstract,
+  heading, paragraph text, unresolved citation, display math, bibliography, and
+  raw fallback.
+- Focused provenance tests cover macro-expanded section text, title metadata
+  definition spans, and `\maketitle` emission spans.
+
+Still intentionally outside this batch:
+
+- real page layout and page breaking;
+- a serious `PageDisplayList` producer;
+- Skia or other renderer backend integration;
+- renderer-neutral font resolution and shaping;
+- external PDF/EPS/SVG asset conversion;
+- full arXiv oracle/raster/performance CI gates.
+
 The most important guardrail is:
 
 ```text

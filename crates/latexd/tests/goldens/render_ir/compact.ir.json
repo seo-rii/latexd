@@ -1,0 +1,288 @@
+{
+  "schema_version": 1,
+  "blocks": [
+    {
+      "kind": "title_block",
+      "title": "A Paper",
+      "authors": [
+        "Ada Lovelace"
+      ],
+      "date": "May 1843",
+      "source": {
+        "primary": {
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 67,
+          "end_utf8": 77
+        },
+        "related": [
+          {
+            "role": "metadata_definition",
+            "span": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 7,
+              "end_utf8": 14
+            }
+          },
+          {
+            "role": "metadata_definition",
+            "span": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 23,
+              "end_utf8": 35
+            }
+          },
+          {
+            "role": "metadata_definition",
+            "span": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 42,
+              "end_utf8": 50
+            }
+          }
+        ],
+        "expansion_stack": [],
+        "generated_by": "source",
+        "expansion_stack_truncated": false
+      }
+    },
+    {
+      "kind": "abstract",
+      "content": [
+        {
+          "kind": "text",
+          "text": "Short",
+          "source": {
+            "primary": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 93,
+              "end_utf8": 108
+            },
+            "related": [],
+            "expansion_stack": [],
+            "generated_by": "source",
+            "expansion_stack_truncated": false
+          }
+        },
+        {
+          "kind": "space",
+          "source": {
+            "primary": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 93,
+              "end_utf8": 108
+            },
+            "related": [],
+            "expansion_stack": [],
+            "generated_by": "source",
+            "expansion_stack_truncated": false
+          }
+        },
+        {
+          "kind": "text",
+          "text": "abstract.",
+          "source": {
+            "primary": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 93,
+              "end_utf8": 108
+            },
+            "related": [],
+            "expansion_stack": [],
+            "generated_by": "source",
+            "expansion_stack_truncated": false
+          }
+        }
+      ],
+      "source": {
+        "primary": {
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 77,
+          "end_utf8": 93
+        },
+        "related": [],
+        "expansion_stack": [],
+        "generated_by": "source",
+        "expansion_stack_truncated": false
+      }
+    },
+    {
+      "kind": "heading",
+      "level": 1,
+      "content": [
+        {
+          "kind": "text",
+          "text": "Intro",
+          "source": {
+            "primary": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 131,
+              "end_utf8": 136
+            },
+            "related": [],
+            "expansion_stack": [],
+            "generated_by": "source",
+            "expansion_stack_truncated": false
+          }
+        }
+      ],
+      "source": {
+        "primary": {
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 131,
+          "end_utf8": 136
+        },
+        "related": [],
+        "expansion_stack": [],
+        "generated_by": "source",
+        "expansion_stack_truncated": false
+      }
+    },
+    {
+      "kind": "paragraph",
+      "content": [
+        {
+          "kind": "text",
+          "text": "Hello",
+          "source": {
+            "primary": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 137,
+              "end_utf8": 143
+            },
+            "related": [],
+            "expansion_stack": [],
+            "generated_by": "source",
+            "expansion_stack_truncated": false
+          }
+        },
+        {
+          "kind": "citation",
+          "keys": [
+            "key"
+          ],
+          "style_hint": "numeric",
+          "display_text": "[?]",
+          "source": {
+            "primary": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 149,
+              "end_utf8": 152
+            },
+            "related": [],
+            "expansion_stack": [],
+            "generated_by": "source",
+            "expansion_stack_truncated": false
+          }
+        },
+        {
+          "kind": "text",
+          "text": ".",
+          "source": {
+            "primary": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 153,
+              "end_utf8": 154
+            },
+            "related": [],
+            "expansion_stack": [],
+            "generated_by": "source",
+            "expansion_stack_truncated": false
+          }
+        }
+      ],
+      "source": {
+        "primary": {
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 137,
+          "end_utf8": 143
+        },
+        "related": [],
+        "expansion_stack": [],
+        "generated_by": "source",
+        "expansion_stack_truncated": false
+      }
+    },
+    {
+      "kind": "display_math",
+      "raw_source": "x^2",
+      "source": {
+        "primary": {
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 156,
+          "end_utf8": 159
+        },
+        "related": [],
+        "expansion_stack": [],
+        "generated_by": "source",
+        "expansion_stack_truncated": false
+      }
+    },
+    {
+      "kind": "bibliography",
+      "items": [
+        {
+          "key": "key",
+          "content": "Author. Title.",
+          "source": {
+            "primary": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 187,
+              "end_utf8": 215
+            },
+            "related": [],
+            "expansion_stack": [],
+            "generated_by": "source",
+            "expansion_stack_truncated": false
+          }
+        }
+      ],
+      "source": {
+        "primary": {
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 161,
+          "end_utf8": 187
+        },
+        "related": [],
+        "expansion_stack": [],
+        "generated_by": "source",
+        "expansion_stack_truncated": false
+      }
+    },
+    {
+      "kind": "raw_fallback",
+      "source_excerpt": "\\begin{unknownenv}Fallback text.\\end{unknownenv}",
+      "normalized_visible_text": "Fallback text.",
+      "environment": "unknownenv",
+      "reason": "unsupported_environment",
+      "source": {
+        "primary": {
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 236,
+          "end_utf8": 284
+        },
+        "related": [],
+        "expansion_stack": [],
+        "generated_by": "source",
+        "expansion_stack_truncated": false
+      }
+    }
+  ]
+}

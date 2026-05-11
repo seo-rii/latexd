@@ -11508,4 +11508,43 @@ Fallback text.
                 .is_some()
         );
     }
+
+    #[test]
+    fn render_event_capture_records_title_definition_and_emit_spans() {
+        let source = r"\title{A Paper}\begin{document}\maketitle\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let title = outcome
+            .render_events
+            .iter()
+            .find(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::SetDocumentMetadata(metadata)
+                        if metadata.field == MetadataField::Title
+                )
+            })
+            .expect("title metadata event");
+        let flush = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::FlushTitleBlock(_)))
+            .expect("flush title event");
+
+        assert!(matches!(
+            &title.meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "A Paper"
+        ));
+        assert!(matches!(
+            &flush.meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "\\maketitle"
+        ));
+    }
 }

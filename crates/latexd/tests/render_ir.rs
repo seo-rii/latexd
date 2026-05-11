@@ -1,22 +1,27 @@
+use std::{env, fs, path::Path};
+
 use latexd::compiler::capture_internal_render_ir;
 use tex_aux::SemanticAux;
+use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole};
 
 #[test]
-fn compact_render_ir_capture_has_reviewable_json_artifacts() {
-    let capture = capture_internal_render_ir(
-        "main.tex",
-        r"\title{A Paper}\author{Ada Lovelace}\begin{document}\maketitle\section{Intro}Hello \cite{key}.\[\alpha\]\begin{thebibliography}{1}\bibitem{key} Author. Title.\end{thebibliography}\end{document}",
-        &SemanticAux::default(),
-    );
+fn compact_render_ir_capture_matches_goldens() {
+    let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
 
     let event_json = serde_json::to_string_pretty(&capture.events).expect("event json");
     let ir_json = serde_json::to_string_pretty(&capture.document_ir).expect("ir json");
 
-    assert!(event_json.contains("\"schema_version\": 1"));
-    assert!(event_json.contains("\"kind\": \"inline_citation\""));
-    assert!(ir_json.contains("\"kind\": \"title_block\""));
-    assert!(ir_json.contains("\"display_text\": \"[?]\""));
+    assert_or_update_golden("tests/goldens/render_ir/compact.events.json", &event_json);
+    assert_or_update_golden("tests/goldens/render_ir/compact.ir.json", &ir_json);
+
     assert!(capture.document_ir.extracted_text().contains("A Paper"));
+    assert!(
+        capture
+            .document_ir
+            .extracted_text()
+            .contains("Short abstract.")
+    );
+    assert!(capture.document_ir.extracted_text().contains("Intro"));
     assert!(
         capture
             .document_ir
@@ -24,4 +29,90 @@ fn compact_render_ir_capture_has_reviewable_json_artifacts() {
             .contains("Author. Title.")
     );
     assert!(!capture.document_ir.extracted_text().contains("key."));
+}
+
+#[test]
+fn compact_title_ir_preserves_emit_and_metadata_provenance() {
+    let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
+    let title = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::TitleBlock(title) => Some(title),
+            _ => None,
+        })
+        .expect("title block");
+
+    assert!(matches!(
+        &title.source.primary,
+        ProvenanceSpan::File(span)
+            if span.path.as_str() == "main.tex"
+                && &COMPACT_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize] == "\\maketitle"
+    ));
+    assert!(title.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::MetadataDefinition
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &COMPACT_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize] == "A Paper"
+            )
+    }));
+}
+
+#[test]
+fn compact_ir_contains_expected_first_batch_structures() {
+    let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
+
+    assert!(matches!(
+        capture.document_ir.blocks.as_slice(),
+        [
+            IrBlock::TitleBlock(_),
+            IrBlock::Abstract(_),
+            IrBlock::Heading(_),
+            IrBlock::Paragraph(_),
+            IrBlock::DisplayMath(_),
+            IrBlock::Bibliography(_),
+            IrBlock::RawFallback(_)
+        ]
+    ));
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Citation(citation)
+                if citation.keys.len() == 1
+                    && citation.keys[0] == "key"
+                    && citation.display_text == "[?]"
+        )
+    }));
+}
+
+const COMPACT_SOURCE: &str = r"\title{A Paper}\author{Ada Lovelace}\date{May 1843}\begin{document}\maketitle\begin{abstract}Short abstract.\end{abstract}\section{Intro}Hello \cite{key}.\[x^2\]\begin{thebibliography}{1}\bibitem{key} Author. Title.\end{thebibliography}\begin{unknownenv}Fallback text.\end{unknownenv}\end{document}";
+
+fn assert_or_update_golden(relative_path: &str, actual: &str) {
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path);
+    if env::var_os("LATEXD_UPDATE_GOLDENS").is_some() {
+        fs::create_dir_all(path.parent().expect("golden parent")).expect("create golden dir");
+        fs::write(&path, format!("{actual}\n")).expect("write golden");
+        return;
+    }
+
+    let expected = fs::read_to_string(&path).unwrap_or_else(|error| {
+        panic!("read golden {}: {error}", path.display());
+    });
+    assert_eq!(
+        actual.trim_end(),
+        expected.trim_end(),
+        "golden {relative_path}"
+    );
 }

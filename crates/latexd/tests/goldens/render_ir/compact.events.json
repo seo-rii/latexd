@@ -1,0 +1,458 @@
+{
+  "schema_version": 1,
+  "case": "main.tex",
+  "events": [
+    {
+      "event": {
+        "kind": "set_document_metadata",
+        "field": "title",
+        "value": "A Paper"
+      },
+      "meta": {
+        "event_id": 1,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 7,
+            "end_utf8": 14
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    },
+    {
+      "event": {
+        "kind": "set_document_metadata",
+        "field": "author",
+        "value": "Ada Lovelace"
+      },
+      "meta": {
+        "event_id": 2,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 23,
+            "end_utf8": 35
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    },
+    {
+      "event": {
+        "kind": "set_document_metadata",
+        "field": "date",
+        "value": "May 1843"
+      },
+      "meta": {
+        "event_id": 3,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 42,
+            "end_utf8": 50
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    },
+    {
+      "event": {
+        "kind": "flush_title_block"
+      },
+      "meta": {
+        "event_id": 4,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 67,
+            "end_utf8": 77
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    },
+    {
+      "event": {
+        "kind": "begin_block",
+        "block": {
+          "kind": "abstract"
+        }
+      },
+      "meta": {
+        "event_id": 5,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 77,
+            "end_utf8": 93
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    },
+    {
+      "event": {
+        "kind": "text",
+        "text": "Short"
+      },
+      "meta": {
+        "event_id": 6,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 93,
+            "end_utf8": 108
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    },
+    {
+      "event": {
+        "kind": "space",
+        "space_kind": "interword"
+      },
+      "meta": {
+        "event_id": 7,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 93,
+            "end_utf8": 108
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    },
+    {
+      "event": {
+        "kind": "text",
+        "text": "abstract."
+      },
+      "meta": {
+        "event_id": 8,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 93,
+            "end_utf8": 108
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    },
+    {
+      "event": {
+        "kind": "end_block",
+        "block": {
+          "kind": "abstract"
+        }
+      },
+      "meta": {
+        "event_id": 9,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 108,
+            "end_utf8": 122
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    },
+    {
+      "event": {
+        "kind": "heading",
+        "level": 1,
+        "text": "Intro"
+      },
+      "meta": {
+        "event_id": 10,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 131,
+            "end_utf8": 136
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    },
+    {
+      "event": {
+        "kind": "text",
+        "text": "Hello"
+      },
+      "meta": {
+        "event_id": 11,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 137,
+            "end_utf8": 143
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    },
+    {
+      "event": {
+        "kind": "inline_citation",
+        "keys": [
+          "key"
+        ],
+        "command": "cite",
+        "style_hint": "numeric"
+      },
+      "meta": {
+        "event_id": 12,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 149,
+            "end_utf8": 152
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    },
+    {
+      "event": {
+        "kind": "text",
+        "text": "."
+      },
+      "meta": {
+        "event_id": 13,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 153,
+            "end_utf8": 154
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    },
+    {
+      "event": {
+        "kind": "display_math",
+        "raw_source": "x^2"
+      },
+      "meta": {
+        "event_id": 14,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 156,
+            "end_utf8": 159
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    },
+    {
+      "event": {
+        "kind": "begin_block",
+        "block": {
+          "kind": "bibliography"
+        }
+      },
+      "meta": {
+        "event_id": 15,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 161,
+            "end_utf8": 187
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    },
+    {
+      "event": {
+        "kind": "bibliography_item",
+        "key": "key",
+        "text": "Author. Title."
+      },
+      "meta": {
+        "event_id": 16,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 187,
+            "end_utf8": 215
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    },
+    {
+      "event": {
+        "kind": "end_block",
+        "block": {
+          "kind": "bibliography"
+        }
+      },
+      "meta": {
+        "event_id": 17,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 215,
+            "end_utf8": 236
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    },
+    {
+      "event": {
+        "kind": "raw_fallback",
+        "source_excerpt": "\\begin{unknownenv}Fallback text.\\end{unknownenv}",
+        "normalized_visible_text": "Fallback text.",
+        "environment": "unknownenv",
+        "reason": "unsupported_environment",
+        "truncated": false
+      },
+      "meta": {
+        "event_id": 18,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 236,
+            "end_utf8": 284
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    }
+  ]
+}

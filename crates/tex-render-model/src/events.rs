@@ -113,6 +113,7 @@ pub struct TextEvent {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpaceEvent {
+    #[serde(rename = "space_kind")]
     pub kind: SpaceKind,
 }
 
@@ -250,6 +251,7 @@ mod tests {
     use crate::{
         EventMeta, EventProducer, MetadataField, ModeHint, RenderEvent, RenderEventEnvelope,
         RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance,
+        SpaceEvent, SpaceKind,
     };
 
     #[test]
@@ -274,5 +276,23 @@ mod tests {
 
         assert!(encoded.contains("\"schema_version\": 1"));
         assert!(!encoded.contains("\"event_id\": 0"));
+    }
+
+    #[test]
+    fn space_event_uses_non_conflicting_payload_field() {
+        let stream = RenderEventStream::new(
+            Some("case".to_string()),
+            vec![RenderEventEnvelope::new(
+                1,
+                RenderEvent::Space(SpaceEvent {
+                    kind: SpaceKind::Interword,
+                }),
+                SourceProvenance::file("main.tex", 0, 1),
+            )],
+        );
+        let encoded = serde_json::to_string_pretty(&stream).expect("encode stream");
+
+        assert!(encoded.contains("\"kind\": \"space\""));
+        assert!(encoded.contains("\"space_kind\": \"interword\""));
     }
 }
