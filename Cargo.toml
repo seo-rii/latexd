@@ -6,6 +6,7 @@ members = [
     "crates/tex-aux",
     "crates/tex-tokens",
     "crates/tex-lexer",
+    "crates/tex-render-model",
     "crates/tex-vm",
     "crates/tex-bootstrap",
     "crates/tex-layout",

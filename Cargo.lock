@@ -713,6 +713,7 @@ dependencies = [
  "tex-layout",
  "tex-pdf",
  "tex-render-gs",
+ "tex-render-model",
  "tex-tokens",
  "tex-vm",
  "tex-world",
@@ -1280,6 +1281,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tempfile",
+ "tex-render-model",
  "tex-world",
 ]
 
@@ -1316,6 +1318,7 @@ name = "tex-layout"
 version = "0.1.0"
 dependencies = [
  "blake3",
+ "tex-render-model",
 ]
 
 [[package]]
@@ -1346,6 +1349,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "tex-render-model"
+version = "0.1.0"
+dependencies = [
+ "camino",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "tex-tokens"
 version = "0.1.0"
 dependencies = [
@@ -1360,6 +1372,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tex-lexer",
+ "tex-render-model",
  "tex-tokens",
  "tex-world",
 ]
