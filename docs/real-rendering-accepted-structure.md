@@ -47,6 +47,16 @@ Still intentionally outside this batch:
 - external PDF/EPS/SVG asset conversion;
 - full arXiv oracle/raster/performance CI gates.
 
+The next implementation step has started with a narrow display-list spike:
+
+- `tex-layout` can now derive text-only `PageDisplayList` pages from
+  `DocumentIr`;
+- text positioning uses fixed margins, line height, and approximate advances;
+- `glyphs` and `clusters` remain absent by design;
+- compact integration goldens now cover `RenderEvent -> DocumentIr ->
+  PageDisplayList`;
+- this is a renderer-boundary test artifact, not final TeX page layout.
+
 The most important guardrail is:
 
 ```text

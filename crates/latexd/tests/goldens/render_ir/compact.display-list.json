@@ -1,0 +1,407 @@
+[
+  {
+    "page_id": "d34d90d16e5086b499891c9344303295d862401baa9c413028444cc00193fea6",
+    "width_pt": 612.0,
+    "height_pt": 792.0,
+    "ops": [
+      {
+        "kind": "text_run",
+        "origin": {
+          "x": 72.0,
+          "y": 72.0
+        },
+        "text": "A Paper",
+        "font": {
+          "family": "serif",
+          "series": "bold",
+          "shape": "upright",
+          "size_pt": 18.0,
+          "role": "heading"
+        },
+        "size_pt": 18.0,
+        "approximate_advance_pt": 63.0,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 67,
+            "end_utf8": 77
+          },
+          "related": [
+            {
+              "role": "metadata_definition",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 7,
+                "end_utf8": 14
+              }
+            },
+            {
+              "role": "metadata_definition",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 23,
+                "end_utf8": 35
+              }
+            },
+            {
+              "role": "metadata_definition",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 42,
+                "end_utf8": 50
+              }
+            }
+          ],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      },
+      {
+        "kind": "text_run",
+        "origin": {
+          "x": 72.0,
+          "y": 93.0
+        },
+        "text": "Ada Lovelace",
+        "font": {
+          "family": "serif",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0,
+          "role": "body"
+        },
+        "size_pt": 11.0,
+        "approximate_advance_pt": 66.0,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 67,
+            "end_utf8": 77
+          },
+          "related": [
+            {
+              "role": "metadata_definition",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 7,
+                "end_utf8": 14
+              }
+            },
+            {
+              "role": "metadata_definition",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 23,
+                "end_utf8": 35
+              }
+            },
+            {
+              "role": "metadata_definition",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 42,
+                "end_utf8": 50
+              }
+            }
+          ],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      },
+      {
+        "kind": "text_run",
+        "origin": {
+          "x": 72.0,
+          "y": 107.0
+        },
+        "text": "May 1843",
+        "font": {
+          "family": "serif",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0,
+          "role": "body"
+        },
+        "size_pt": 11.0,
+        "approximate_advance_pt": 44.0,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 67,
+            "end_utf8": 77
+          },
+          "related": [
+            {
+              "role": "metadata_definition",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 7,
+                "end_utf8": 14
+              }
+            },
+            {
+              "role": "metadata_definition",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 23,
+                "end_utf8": 35
+              }
+            },
+            {
+              "role": "metadata_definition",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 42,
+                "end_utf8": 50
+              }
+            }
+          ],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      },
+      {
+        "kind": "text_run",
+        "origin": {
+          "x": 72.0,
+          "y": 128.0
+        },
+        "text": "Short abstract.",
+        "font": {
+          "family": "serif",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0,
+          "role": "body"
+        },
+        "size_pt": 11.0,
+        "approximate_advance_pt": 82.5,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 77,
+            "end_utf8": 93
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      },
+      {
+        "kind": "text_run",
+        "origin": {
+          "x": 72.0,
+          "y": 149.0
+        },
+        "text": "Intro",
+        "font": {
+          "family": "serif",
+          "series": "bold",
+          "shape": "upright",
+          "size_pt": 15.0,
+          "role": "heading"
+        },
+        "size_pt": 15.0,
+        "approximate_advance_pt": 37.5,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 131,
+            "end_utf8": 136
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      },
+      {
+        "kind": "text_run",
+        "origin": {
+          "x": 72.0,
+          "y": 170.0
+        },
+        "text": "Hello[?].",
+        "font": {
+          "family": "serif",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0,
+          "role": "body"
+        },
+        "size_pt": 11.0,
+        "approximate_advance_pt": 49.5,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 137,
+            "end_utf8": 143
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      },
+      {
+        "kind": "text_run",
+        "origin": {
+          "x": 72.0,
+          "y": 191.0
+        },
+        "text": "x^2",
+        "font": {
+          "family": "math",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0,
+          "role": "math"
+        },
+        "size_pt": 11.0,
+        "approximate_advance_pt": 16.5,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 156,
+            "end_utf8": 159
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      },
+      {
+        "kind": "text_run",
+        "origin": {
+          "x": 72.0,
+          "y": 212.0
+        },
+        "text": "Author. Title.",
+        "font": {
+          "family": "serif",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0,
+          "role": "body"
+        },
+        "size_pt": 11.0,
+        "approximate_advance_pt": 77.0,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 187,
+            "end_utf8": 215
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      },
+      {
+        "kind": "text_run",
+        "origin": {
+          "x": 72.0,
+          "y": 226.0
+        },
+        "text": "Fallback text.",
+        "font": {
+          "family": "serif",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0,
+          "role": "body"
+        },
+        "size_pt": 11.0,
+        "approximate_advance_pt": 77.0,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 236,
+            "end_utf8": 284
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      }
+    ],
+    "source_spans": [
+      {
+        "path": "main.tex",
+        "start_utf8": 67,
+        "end_utf8": 77
+      },
+      {
+        "path": "main.tex",
+        "start_utf8": 7,
+        "end_utf8": 14
+      },
+      {
+        "path": "main.tex",
+        "start_utf8": 23,
+        "end_utf8": 35
+      },
+      {
+        "path": "main.tex",
+        "start_utf8": 42,
+        "end_utf8": 50
+      },
+      {
+        "path": "main.tex",
+        "start_utf8": 77,
+        "end_utf8": 93
+      },
+      {
+        "path": "main.tex",
+        "start_utf8": 131,
+        "end_utf8": 136
+      },
+      {
+        "path": "main.tex",
+        "start_utf8": 137,
+        "end_utf8": 143
+      },
+      {
+        "path": "main.tex",
+        "start_utf8": 156,
+        "end_utf8": 159
+      },
+      {
+        "path": "main.tex",
+        "start_utf8": 187,
+        "end_utf8": 215
+      },
+      {
+        "path": "main.tex",
+        "start_utf8": 236,
+        "end_utf8": 284
+      }
+    ],
+    "content_hash": "1e5bdfeba76c7011e99dcb172bebde76f61ce167ee0e0cc533db33fe4870de50"
+  }
+]

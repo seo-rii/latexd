@@ -2,6 +2,8 @@ use std::{env, fs, path::Path};
 
 use latexd::compiler::capture_internal_render_ir;
 use tex_aux::SemanticAux;
+use tex_layout::{PageDisplayListOptions, build_page_display_lists};
+use tex_render_model::DrawOp;
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole};
 
 #[test]
@@ -10,9 +12,17 @@ fn compact_render_ir_capture_matches_goldens() {
 
     let event_json = serde_json::to_string_pretty(&capture.events).expect("event json");
     let ir_json = serde_json::to_string_pretty(&capture.document_ir).expect("ir json");
+    let display_lists =
+        build_page_display_lists(&capture.document_ir, PageDisplayListOptions::default());
+    let display_list_json =
+        serde_json::to_string_pretty(&display_lists).expect("display list json");
 
     assert_or_update_golden("tests/goldens/render_ir/compact.events.json", &event_json);
     assert_or_update_golden("tests/goldens/render_ir/compact.ir.json", &ir_json);
+    assert_or_update_golden(
+        "tests/goldens/render_ir/compact.display-list.json",
+        &display_list_json,
+    );
 
     assert!(capture.document_ir.extracted_text().contains("A Paper"));
     assert!(
@@ -29,6 +39,13 @@ fn compact_render_ir_capture_matches_goldens() {
             .contains("Author. Title.")
     );
     assert!(!capture.document_ir.extracted_text().contains("key."));
+    assert_eq!(display_lists.len(), 1);
+    assert!(display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::TextRun(run) if run.text == "A Paper" && run.glyphs.is_none()
+        )
+    }));
 }
 
 #[test]

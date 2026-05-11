@@ -1,7 +1,9 @@
 use std::collections::BTreeMap;
 
+mod display_list_builder;
 mod document_ir_builder;
 
+pub use display_list_builder::{PageDisplayListOptions, build_page_display_lists};
 pub use document_ir_builder::{DocumentIrBuilder, build_document_ir};
 
 #[derive(Debug, Clone, PartialEq)]
