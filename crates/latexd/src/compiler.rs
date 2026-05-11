@@ -30,7 +30,7 @@ use tex_pdf::{
     PAGE_FONT_SIZE_PT, PAGE_LINE_HEIGHT_PT, PAGE_TEXT_LEFT_PT, PAGE_TEXT_TOP_PT,
     render_display_list_pdf, render_page_svg, render_single_page_pdf,
 };
-use tex_render_model::{AuxView, DocumentIr, PageDisplayList, RenderEventStream};
+use tex_render_model::{AuxView, DocumentIr, PageDisplayList, RenderEventStream, to_pretty_json};
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{VmModuleCheckpointKind, VmReplayFrame};
 use tex_world::{CompilerMode, ProjectManifest, normalize_relative_path};
@@ -78,6 +78,58 @@ pub struct InternalRenderIrCapture {
     pub document_ir: DocumentIr,
     pub page_display_lists: Vec<PageDisplayList>,
     pub display_list_pdf: Vec<u8>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InternalRenderArtifactPaths {
+    pub legacy_output: Utf8PathBuf,
+    pub events: Utf8PathBuf,
+    pub document_ir: Utf8PathBuf,
+    pub page_display_list: Utf8PathBuf,
+    pub display_list_pdf: Utf8PathBuf,
+}
+
+impl InternalRenderIrCapture {
+    pub fn write_debug_artifacts(
+        &self,
+        output_dir: impl AsRef<Utf8Path>,
+    ) -> anyhow::Result<InternalRenderArtifactPaths> {
+        let output_dir = output_dir.as_ref();
+        fs::create_dir_all(output_dir.as_std_path())
+            .with_context(|| format!("failed to create render artifact dir {output_dir}"))?;
+
+        let paths = InternalRenderArtifactPaths {
+            legacy_output: output_dir.join("legacy-output.txt"),
+            events: output_dir.join("events.json"),
+            document_ir: output_dir.join("document-ir.json"),
+            page_display_list: output_dir.join("page-display-list.json"),
+            display_list_pdf: output_dir.join("display-list.pdf"),
+        };
+
+        fs::write(paths.legacy_output.as_std_path(), &self.legacy_output)
+            .with_context(|| format!("failed to write {}", paths.legacy_output))?;
+        fs::write(
+            paths.events.as_std_path(),
+            to_pretty_json(&self.events).context("failed to serialize render events artifact")?,
+        )
+        .with_context(|| format!("failed to write {}", paths.events))?;
+        fs::write(
+            paths.document_ir.as_std_path(),
+            to_pretty_json(&self.document_ir)
+                .context("failed to serialize document IR artifact")?,
+        )
+        .with_context(|| format!("failed to write {}", paths.document_ir))?;
+        fs::write(
+            paths.page_display_list.as_std_path(),
+            to_pretty_json(&self.page_display_lists)
+                .context("failed to serialize page display-list artifact")?,
+        )
+        .with_context(|| format!("failed to write {}", paths.page_display_list))?;
+        fs::write(paths.display_list_pdf.as_std_path(), &self.display_list_pdf)
+            .with_context(|| format!("failed to write {}", paths.display_list_pdf))?;
+
+        Ok(paths)
+    }
 }
 
 pub fn capture_internal_render_ir(

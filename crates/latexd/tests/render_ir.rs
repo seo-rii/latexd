@@ -1,5 +1,6 @@
 use std::{env, fs, path::Path};
 
+use camino::Utf8PathBuf;
 use latexd::compiler::capture_internal_render_ir;
 use tex_aux::SemanticAux;
 use tex_render_model::DrawOp;
@@ -112,6 +113,44 @@ fn compact_ir_contains_expected_first_batch_structures() {
                     && citation.display_text == "[?]"
         )
     }));
+}
+
+#[test]
+fn compact_render_ir_capture_writes_debug_artifacts() {
+    let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let output_dir = Utf8PathBuf::from_path_buf(tempdir.path().join("render-artifacts"))
+        .expect("utf8 temp path");
+
+    let paths = capture
+        .write_debug_artifacts(&output_dir)
+        .expect("write debug artifacts");
+
+    assert!(
+        fs::read_to_string(paths.legacy_output)
+            .expect("legacy output")
+            .contains("A Paper")
+    );
+    assert!(
+        fs::read_to_string(paths.events)
+            .expect("events json")
+            .contains("\"schema_version\": 1")
+    );
+    assert!(
+        fs::read_to_string(paths.document_ir)
+            .expect("document ir json")
+            .contains("\"kind\": \"title_block\"")
+    );
+    assert!(
+        fs::read_to_string(paths.page_display_list)
+            .expect("display list json")
+            .contains("\"kind\": \"text_run\"")
+    );
+    assert!(
+        fs::read(paths.display_list_pdf)
+            .expect("display list pdf")
+            .starts_with(b"%PDF-1.4")
+    );
 }
 
 const COMPACT_SOURCE: &str = r"\title{A Paper}\author{Ada Lovelace}\date{May 1843}\begin{document}\maketitle\begin{abstract}Short abstract.\end{abstract}\section{Intro}Hello \cite{key}.\[x^2\]\begin{thebibliography}{1}\bibitem{key} Author. Title.\end{thebibliography}\begin{unknownenv}Fallback text.\end{unknownenv}\end{document}";
