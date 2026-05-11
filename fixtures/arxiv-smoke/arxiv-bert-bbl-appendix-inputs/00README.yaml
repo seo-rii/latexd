@@ -1,0 +1,12 @@
+name: arxiv-bert-bbl-appendix-inputs
+summary: Reduced arXiv-style NLP paper with split body inputs, appendix overlay, and prebuilt bbl.
+compiler: pdf_latex
+sources:
+  - path: main.tex
+    usage: toplevel
+  - abstract.tex
+  - intro.tex
+  - appendix_main.tex
+  - main.bbl
+toplevel:
+  - main.tex

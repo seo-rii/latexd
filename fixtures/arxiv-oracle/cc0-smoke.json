@@ -1,0 +1,76 @@
+{
+  "cases": [
+    {
+      "arxiv_id": "2602.14379",
+      "version": "v1",
+      "title": "Fine-Grained Complexity for Quantum Problems from Size-Preserving Circuit-to-Hamiltonian Constructions",
+      "toplevel": "main.tex",
+      "license": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "source_url": "https://arxiv.org/e-print/2602.14379v1",
+      "pdf_url": "https://arxiv.org/pdf/2602.14379v1",
+      "min_oracle_tokens": 200,
+      "min_internal_tokens": 20,
+      "min_common_token_ratio": 0.01
+    },
+    {
+      "arxiv_id": "2508.10038",
+      "version": "v1",
+      "title": "Certifiably robust malware detectors by design",
+      "toplevel": "main.tex",
+      "license": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "source_url": "https://arxiv.org/e-print/2508.10038v1",
+      "pdf_url": "https://arxiv.org/pdf/2508.10038v1",
+      "min_oracle_tokens": 100,
+      "min_internal_tokens": 20,
+      "min_common_token_ratio": 0.01
+    },
+    {
+      "arxiv_id": "2404.05196",
+      "version": "v2",
+      "title": "HSViT: Horizontally Scalable Vision Transformer",
+      "toplevel": "main.tex",
+      "license": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "source_url": "https://arxiv.org/e-print/2404.05196v2",
+      "pdf_url": "https://arxiv.org/pdf/2404.05196v2",
+      "min_oracle_tokens": 100,
+      "min_internal_tokens": 20,
+      "min_common_token_ratio": 0.01
+    },
+    {
+      "arxiv_id": "2403.07956",
+      "version": "v1",
+      "title": "DeepCDCL: An CDCL-based Neural Network Verification Framework",
+      "toplevel": "samplepaper.tex",
+      "license": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "source_url": "https://arxiv.org/e-print/2403.07956v1",
+      "pdf_url": "https://arxiv.org/pdf/2403.07956v1",
+      "min_oracle_tokens": 200,
+      "min_internal_tokens": 20,
+      "min_common_token_ratio": 0.01
+    },
+    {
+      "arxiv_id": "2102.03748",
+      "version": "v1",
+      "title": "PAC-Bayes Bounds for Meta-learning with Data-Dependent Prior",
+      "toplevel": "MTT_reveyrand.tex",
+      "license": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "source_url": "https://arxiv.org/e-print/2102.03748v1",
+      "pdf_url": "https://arxiv.org/pdf/2102.03748v1",
+      "min_oracle_tokens": 100,
+      "min_internal_tokens": 20,
+      "min_common_token_ratio": 0.01
+    },
+    {
+      "arxiv_id": "2302.01837",
+      "version": "v1",
+      "title": "Resilient superconducting-element design with genetic algorithms",
+      "toplevel": "Qutrit_AI_1D.tex",
+      "license": "http://creativecommons.org/publicdomain/zero/1.0/",
+      "source_url": "https://arxiv.org/e-print/2302.01837v1",
+      "pdf_url": "https://arxiv.org/pdf/2302.01837v1",
+      "min_oracle_tokens": 100,
+      "min_internal_tokens": 20,
+      "min_common_token_ratio": 0.01
+    }
+  ]
+}

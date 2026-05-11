@@ -1,0 +1,12 @@
+name: arxiv-clip-table-macro-inputs
+summary: Reduced arXiv-style multimodal paper with external math commands and table inputs.
+compiler: pdf_latex
+sources:
+  - path: main.tex
+    usage: toplevel
+  - article.cls
+  - math_commands.tex
+  - sections/method.tex
+  - tables/zero_shot.tex
+toplevel:
+  - main.tex

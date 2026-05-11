@@ -5,9 +5,215 @@ use std::{
 
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
-use tex_lexer::lex_plain;
+use tex_lexer::{CatCodeTable, Lexer, lex_plain};
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
+
+fn lex_plain_at_letter(input: &str, interner: &mut ControlSequenceInterner) -> Vec<Token> {
+    let mut catcodes = CatCodeTable::plain_tex();
+    catcodes.set('@', CatCode::Letter);
+    Lexer::new(input, catcodes, interner).tokenize()
+}
+
+fn builtin_latex_module_source(label: &str, path: &Utf8Path) -> Option<&'static str> {
+    match (label, path.as_str()) {
+        ("class", "article.cls") => Some(ARTICLE_CLASS_SHIM),
+        ("class", "llncs.cls") => Some(LLNCS_CLASS_SHIM),
+        ("class", "IEEEtran.cls") => Some(IEEE_TRAN_CLASS_SHIM),
+        ("class", "revtex4-2.cls") => Some(REVTEX_CLASS_SHIM),
+        ("package", "braket.sty") => Some(BRAKET_PACKAGE_SHIM),
+        ("package", "wacv.sty") => Some(WACV_PACKAGE_SHIM),
+        ("package", package) if BUILTIN_PACKAGE_SHIMS.contains(&package) => {
+            Some(COMMON_PACKAGE_SHIM)
+        }
+        _ => None,
+    }
+}
+
+const ARTICLE_CLASS_SHIM: &str = r"
+\ProvidesClass{article}[2026/01/01 latexd article shim]
+\def\articleclass{article}
+\makeatletter
+\def\part#1{#1}
+\def\thepart{}
+\def\chapter#1{#1}
+\def\thechapter{}
+\def\chaptermark#1{}
+\def\partmark#1{}
+\def\sectionmark#1{}
+\def\subsectionmark#1{}
+\def\listoffigures{}
+\def\listoftables{}
+\def\theenumiv{}
+\def\newblock{}
+\def\footnoterule{}
+\def\contentsname{Contents}
+\def\listfigurename{List of Figures}
+\def\listtablename{List of Tables}
+\def\refname{References}
+\def\indexname{Index}
+\def\figurename{Figure}
+\def\tablename{Table}
+\def\abstractname{Abstract}
+\def\@chapapp{Chapter}
+\def\@textbottom{}
+\def\@afterindentfalse{}
+\def\@afterheading{}
+\def\@topnewpage#1{#1}
+\def\@makechapterhead#1{#1}
+\def\@makeschapterhead#1{#1}
+\makeatother
+";
+
+const REVTEX_CLASS_SHIM: &str = r"
+\ProvidesClass{revtex4-2}[2026/01/01 latexd revtex shim]
+\LoadClass{article}
+\def\email#1{}
+\def\affiliation#1{}
+\def\altaffiliation#1{}
+\def\homepage#1{}
+\def\pacs#1{}
+\def\keywords#1{#1}
+";
+
+const LLNCS_CLASS_SHIM: &str = r"
+\ProvidesClass{llncs}[2026/01/01 latexd llncs shim]
+\LoadClass{article}
+\providecommand{\institute}[1]{}
+\providecommand{\email}[1]{}
+\providecommand{\orcidID}[1]{}
+\providecommand{\titlerunning}[1]{}
+\providecommand{\authorrunning}[1]{}
+\providecommand{\keywords}[1]{#1}
+\def\inst#1{}
+\def\and{and}
+";
+
+const IEEE_TRAN_CLASS_SHIM: &str = r"
+\ProvidesClass{IEEEtran}[2026/01/01 latexd IEEEtran shim]
+\LoadClass{article}
+\newcommand{\IEEEauthorblockN}[1]{#1}
+\newcommand{\IEEEauthorblockA}[1]{#1}
+\newcommand{\IEEEpeerreviewmaketitle}{}
+\newcommand{\IEEEpubid}[1]{}
+\newcommand{\IEEEpubidadjcol}{}
+\newcommand{\IEEEPARstart}[2]{#1#2}
+\newcommand{\IEEEoverridecommandlockouts}{}
+\newcommand{\markboth}[2]{}
+\newif\ifCLASSOPTIONcaptionsoff
+";
+
+const WACV_PACKAGE_SHIM: &str = r"
+\ProvidesPackage{wacv}[2026/01/01 latexd wacv shim]
+\newcommand{\wacvfinalcopy}{}
+\newcommand{\wacvPaperID}{}
+\newcommand{\confName}{WACV}
+\newcommand{\confYear}{}
+\newcommand{\affiliation}[1]{}
+";
+
+const BRAKET_PACKAGE_SHIM: &str = r"
+\ProvidesPackage{braket}[2026/01/01 latexd braket shim]
+\providecommand{\ket}[1]{|#1>}
+\providecommand{\bra}[1]{<#1|}
+\providecommand{\braket}[2]{<#1|#2>}
+";
+
+const COMMON_PACKAGE_SHIM: &str = r"
+\providecommand{\hypersetup}[1]{}
+\providecommand{\href}[2]{#2}
+\providecommand{\url}[1]{#1}
+\providecommand{\nolinkurl}[1]{#1}
+\providecommand{\path}[1]{#1}
+\providecommand{\includegraphics}[2][]{[image]}
+\providecommand{\DeclareMathOperator}[2]{\def#1{#2}}
+\providecommand{\DeclareMathAlphabet}[5]{}
+\providecommand{\Crefname}[3]{}
+\providecommand{\crefname}[3]{}
+\providecommand{\Crefformat}[2]{}
+\providecommand{\crefformat}[2]{}
+\providecommand{\newaliascnt}[1]{\newcounter{#1}}
+\providecommand{\aliascntresetthe}[1]{}
+\providecommand{\newtoggle}[1]{}
+\providecommand{\toggletrue}[1]{}
+\providecommand{\togglefalse}[1]{}
+\providecommand{\iftoggle}[3]{#2}
+\providecommand{\WarningFilter}[2]{}
+\providecommand{\ActivateWarningFilters}{}
+\providecommand{\UrlFont}{}
+\providecommand{\urlstyle}[1]{}
+\providecommand{\textcolor}[2]{#2}
+\providecommand{\color}[1]{}
+\providecommand{\todo}[1]{}
+\providecommand{\sout}[1]{#1}
+\providecommand{\uline}[1]{#1}
+\providecommand{\hl}[1]{#1}
+\providecommand{\nicefrac}[2]{#1/#2}
+";
+
+const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
+    "aliascnt.sty",
+    "algpseudocode.sty",
+    "algorithm.sty",
+    "algorithm2e.sty",
+    "algorithmicx.sty",
+    "amsfonts.sty",
+    "amsmath.sty",
+    "amssymb.sty",
+    "amsthm.sty",
+    "array.sty",
+    "authblk.sty",
+    "bbm.sty",
+    "bigstrut.sty",
+    "bm.sty",
+    "booktabs.sty",
+    "braket.sty",
+    "caption.sty",
+    "cite.sty",
+    "cleveref.sty",
+    "color.sty",
+    "enumitem.sty",
+    "etoolbox.sty",
+    "fancybox.sty",
+    "float.sty",
+    "fontenc.sty",
+    "framed.sty",
+    "fullpage.sty",
+    "graphicx.sty",
+    "hyperref.sty",
+    "inputenc.sty",
+    "keyval.sty",
+    "latexsym.sty",
+    "lipsum.sty",
+    "longtable.sty",
+    "marvosym.sty",
+    "mathtools.sty",
+    "microtype.sty",
+    "multirow.sty",
+    "multicol.sty",
+    "natbib.sty",
+    "nicefrac.sty",
+    "optidef.sty",
+    "silence.sty",
+    "soul.sty",
+    "subcaption.sty",
+    "subfig.sty",
+    "subfigure.sty",
+    "tabu.sty",
+    "tabularx.sty",
+    "tcolorbox.sty",
+    "theorem.sty",
+    "threeparttable.sty",
+    "tikz.sty",
+    "times.sty",
+    "todonotes.sty",
+    "ulem.sty",
+    "upgreek.sty",
+    "url.sty",
+    "wacv.sty",
+    "xcolor.sty",
+    "xspace.sty",
+];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VmOutcome {
@@ -2844,6 +3050,8 @@ impl<'i> Vm<'i> {
                     return;
                 };
                 let path = normalize_relative_path(Utf8Path::new(&path_text)).ok();
+                let path =
+                    path.map(|path| self.resolve_existing_project_path(&path).unwrap_or(path));
                 let exists = path.as_ref().is_some_and(|path| self.path_exists(path));
                 self.define(
                     "@filef@und".to_string(),
@@ -2876,7 +3084,9 @@ impl<'i> Vm<'i> {
                 let Some(else_body) = self.read_balanced_group(queue) else {
                     return;
                 };
-                let path = normalize_relative_path(Utf8Path::new(&path_text)).ok();
+                let path = normalize_relative_path(Utf8Path::new(&path_text))
+                    .ok()
+                    .map(|path| self.resolve_existing_project_path(&path).unwrap_or(path));
                 let exists = path.as_ref().is_some_and(|path| self.path_exists(path));
                 self.define(
                     "@filef@und".to_string(),
@@ -2937,14 +3147,9 @@ impl<'i> Vm<'i> {
                 let Some(path) = self.read_input_path(queue) else {
                     return;
                 };
-                let exists = self.mounted_files.contains_key(&path)
-                    || self
-                        .file_root
-                        .as_ref()
-                        .is_some_and(|root| root.join(&path).exists());
-                if !exists {
+                let Some(path) = self.resolve_existing_project_path(&path) else {
                     return;
-                }
+                };
                 self.module_checkpoints.push(VmModuleCheckpoint {
                     kind: VmModuleCheckpointKind::Enter,
                     module_path: path.clone(),
@@ -4832,6 +5037,7 @@ impl<'i> Vm<'i> {
                 let Some(path) = self.read_input_path(queue) else {
                     return;
                 };
+                let path = self.resolve_existing_project_path(&path).unwrap_or(path);
                 self.module_checkpoints.push(VmModuleCheckpoint {
                     kind: VmModuleCheckpointKind::Enter,
                     module_path: path.clone(),
@@ -4860,6 +5066,7 @@ impl<'i> Vm<'i> {
                 let Some(path) = self.read_input_path(queue) else {
                     return;
                 };
+                let path = self.resolve_existing_project_path(&path).unwrap_or(path);
                 if self
                     .include_only
                     .as_ref()
@@ -6408,11 +6615,40 @@ impl<'i> Vm<'i> {
     }
 
     fn path_exists(&self, path: &Utf8Path) -> bool {
-        self.mounted_files.contains_key(path)
+        self.resolve_existing_project_path(path).is_some()
+    }
+
+    fn resolve_existing_project_path(&self, path: &Utf8Path) -> Option<Utf8PathBuf> {
+        if self.mounted_files.contains_key(path)
             || self
                 .file_root
                 .as_ref()
                 .is_some_and(|root| root.join(path).exists())
+        {
+            return Some(path.to_path_buf());
+        }
+        let root = self.file_root.as_ref()?;
+        let mut resolved = Utf8PathBuf::new();
+        let mut directory = root.to_path_buf();
+        for component in path.components() {
+            let component = component.as_str();
+            let mut matched = None::<String>;
+            for entry in fs::read_dir(directory.as_std_path()).ok()? {
+                let entry = entry.ok()?;
+                let name = entry.file_name().to_string_lossy().into_owned();
+                if name == component {
+                    matched = Some(name);
+                    break;
+                }
+                if matched.is_none() && name.eq_ignore_ascii_case(component) {
+                    matched = Some(name);
+                }
+            }
+            let matched = matched?;
+            resolved.push(&matched);
+            directory.push(&matched);
+        }
+        Some(resolved)
     }
 
     fn read_optional_bracket_text(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<String> {
@@ -6493,15 +6729,28 @@ impl<'i> Vm<'i> {
         module_options: Vec<String>,
         queue: &mut VecDeque<QueueItem>,
     ) {
-        if label != "input" && self.loaded_modules.contains(path) {
+        let path = self
+            .resolve_existing_project_path(path)
+            .unwrap_or_else(|| path.to_path_buf());
+        if label != "input" && self.loaded_modules.contains(&path) {
             return;
         }
 
-        let source = self.mounted_files.get(path).cloned().or_else(|| {
-            self.file_root
-                .as_ref()
-                .and_then(|root| fs::read_to_string(root.join(path)).ok())
-        });
+        let prefer_builtin_module = matches!(
+            (label, path.as_str()),
+            ("class", "llncs.cls" | "IEEEtran.cls") | ("package", "wacv.sty")
+        );
+        let builtin_source = builtin_latex_module_source(label, &path);
+        let source = prefer_builtin_module
+            .then(|| builtin_source.map(ToOwned::to_owned))
+            .flatten()
+            .or_else(|| self.mounted_files.get(&path).cloned())
+            .or_else(|| {
+                self.file_root
+                    .as_ref()
+                    .and_then(|root| fs::read_to_string(root.join(&path)).ok())
+            })
+            .or_else(|| builtin_source.map(ToOwned::to_owned));
         let Some(source) = source else {
             self.diagnostics.push(VmDiagnostic {
                 kind: VmDiagnosticKind::MissingFile,
@@ -6513,21 +6762,25 @@ impl<'i> Vm<'i> {
         let output_start_utf8 = self.output.len() as u32;
         if label == "package" {
             self.loaded_package_options
-                .insert(path.to_path_buf(), module_options.clone());
+                .insert(path.clone(), module_options.clone());
         } else if label == "class" {
             self.loaded_class_options
-                .insert(path.to_path_buf(), module_options.clone());
+                .insert(path.clone(), module_options.clone());
         }
-        self.loaded_modules.insert(path.to_path_buf());
+        self.loaded_modules.insert(path.clone());
         if record_transcript {
             self.transcript.push(format!("{label} {}", path));
         }
         let tokens = {
             let interner = &mut *self.interner;
-            lex_plain(&source, interner)
+            if label == "class" || label == "package" {
+                lex_plain_at_letter(&source, interner)
+            } else {
+                lex_plain(&source, interner)
+            }
         };
         self.source_stack.push(ActiveSourceFrame {
-            path: path.to_path_buf(),
+            path: path.clone(),
             return_to_parent: resume_path.as_ref().map(|path| VmReplayFrame {
                 path: path.clone(),
                 source_offset_utf8: resume_source_offset_utf8,
@@ -6554,7 +6807,7 @@ impl<'i> Vm<'i> {
             }),
         });
         queue.push_front(QueueItem::ModuleEnd {
-            path: path.to_path_buf(),
+            path: path.clone(),
             source_start_utf8: 0,
             source_end_utf8: source.len() as u32,
             output_start_utf8,
@@ -7323,7 +7576,11 @@ mod tests {
         );
 
         assert_eq!(outcome.output, "[6][6][6]");
-        assert!(outcome.diagnostics.is_empty());
+        assert!(
+            outcome.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            outcome.diagnostics
+        );
     }
 
     #[test]
@@ -7335,7 +7592,11 @@ mod tests {
         );
 
         assert_eq!(outcome.output, "[2][2][2]");
-        assert!(outcome.diagnostics.is_empty());
+        assert!(
+            outcome.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            outcome.diagnostics
+        );
     }
 
     #[test]
@@ -7653,6 +7914,32 @@ mod tests {
             outcome.module_traces[0].output_end_utf8,
             "from-input".len() as u32
         );
+    }
+
+    #[test]
+    fn input_resolves_case_insensitive_files_from_root() {
+        let root = std::env::temp_dir().join(format!(
+            "latexd-tex-vm-case-insensitive-input-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&root).expect("create temp root");
+        let root = Utf8PathBuf::from_path_buf(root).expect("utf8 root");
+        std::fs::write(root.join("localHamiltonian.tex"), "from-mixed-case")
+            .expect("write mixed-case input");
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_file_root(root.clone());
+
+        let outcome = vm.run_plain(r"\input{localhamiltonian}");
+
+        assert_eq!(outcome.output, "from-mixed-case");
+        assert!(outcome.diagnostics.is_empty());
+        assert_eq!(
+            outcome.loaded_modules,
+            vec![Utf8PathBuf::from("localHamiltonian.tex")]
+        );
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -10532,6 +10819,64 @@ mod tests {
                 "package pkg.sty",
                 "def \\pkgloaded #0"
             ]
+        );
+    }
+
+    #[test]
+    fn class_and_package_files_lex_at_letter_control_words() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file(
+            "wrapper.cls",
+            r"\def\class@mark{class}\def\classcall{\class@mark}",
+        );
+        vm.mount_file("pkg.sty", r"\def\pkg@mark{pkg}\def\pkgcall{\pkg@mark}");
+
+        let outcome = vm.run_plain(
+            r"\documentclass{wrapper}\usepackage{pkg}\classcall-\pkgcall-\class@mark-\pkg@mark",
+        );
+
+        assert_eq!(outcome.output, "class-pkg-\\class@mark-\\pkg@mark");
+        assert_eq!(
+            outcome
+                .diagnostics
+                .iter()
+                .map(|diagnostic| diagnostic.detail.as_str())
+                .collect::<Vec<_>>(),
+            vec!["class", "pkg"]
+        );
+    }
+
+    #[test]
+    fn builtin_article_and_package_shims_cover_common_latex_commands() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(
+            &mut interner,
+            r"\def\par{ }\def\begin#1{}\def\end#1{}\def\small{}\def\linewidth{0pt}",
+        );
+        let mut vm = Vm::restore(&mut interner, &snapshot);
+
+        let outcome = vm.run_plain(
+            r"\documentclass{article}\usepackage{hyperref,graphicx,amsmath}\begin{document}\small\href{https://example.test}{Link} \includegraphics[width=\linewidth]{fig} \DeclareMathOperator{\Var}{Var}\Var\end{document}",
+        );
+
+        assert!(outcome.output.contains("Link"));
+        assert!(outcome.output.contains("[image]"));
+        assert!(outcome.output.contains("Var"));
+        assert!(
+            outcome.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            outcome.diagnostics
+        );
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("article.cls"))
+        );
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("hyperref.sty"))
         );
     }
 }

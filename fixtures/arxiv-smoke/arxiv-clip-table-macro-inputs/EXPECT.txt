@@ -1,0 +1,2 @@
+ContrastiveImageText aligns image and text encoders.
+Table summary reports zero shot transfer.

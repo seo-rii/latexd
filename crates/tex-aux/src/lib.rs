@@ -843,11 +843,12 @@ pub fn scan_project(root: &Utf8Path, toplevel: &Utf8Path) -> Result<ProjectScan>
         include_only: &mut Option<HashSet<Utf8PathBuf>>,
         order: &mut usize,
     ) -> Result<()> {
+        let path = resolve_existing_project_path(root, path).unwrap_or_else(|| path.to_path_buf());
         if !active.insert(path.to_path_buf()) {
             return Ok(());
         }
-        let source = fs::read_to_string(root.join(path))
-            .with_context(|| format!("failed to read source {}", root.join(path)))?;
+        let source = fs::read_to_string(root.join(&path))
+            .with_context(|| format!("failed to read source {}", root.join(&path)))?;
         files
             .entry(path.to_path_buf())
             .or_insert_with(|| source.clone());
@@ -1059,6 +1060,8 @@ pub fn scan_project(root: &Utf8Path, toplevel: &Utf8Path) -> Result<ProjectScan>
                     path: input_path,
                     is_include,
                 } => {
+                    let input_path = resolve_existing_project_path(root, &input_path)
+                        .unwrap_or_else(|| input_path.clone());
                     if is_include
                         && include_only
                             .as_ref()
@@ -1107,7 +1110,7 @@ pub fn scan_project(root: &Utf8Path, toplevel: &Utf8Path) -> Result<ProjectScan>
                 }
             }
         }
-        active.remove(path);
+        active.remove(&path);
         Ok(())
     }
 
@@ -1165,6 +1168,33 @@ pub fn scan_project(root: &Utf8Path, toplevel: &Utf8Path) -> Result<ProjectScan>
         custom_block_environments,
         has_table_of_contents,
     })
+}
+
+fn resolve_existing_project_path(root: &Utf8Path, path: &Utf8Path) -> Option<Utf8PathBuf> {
+    if root.join(path).exists() {
+        return Some(path.to_path_buf());
+    }
+    let mut resolved = Utf8PathBuf::new();
+    let mut directory = root.to_path_buf();
+    for component in path.components() {
+        let component = component.as_str();
+        let mut matched = None::<String>;
+        for entry in fs::read_dir(directory.as_std_path()).ok()? {
+            let entry = entry.ok()?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name == component {
+                matched = Some(name);
+                break;
+            }
+            if matched.is_none() && name.eq_ignore_ascii_case(component) {
+                matched = Some(name);
+            }
+        }
+        let matched = matched?;
+        resolved.push(&matched);
+        directory.push(&matched);
+    }
+    Some(resolved)
 }
 
 pub fn materialize_project(
@@ -7944,6 +7974,33 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn scan_project_resolves_case_insensitive_input_paths() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            "\\section{Intro}\\input{localhamiltonian}",
+        )
+        .expect("write main");
+        fs::write(
+            root.join("localHamiltonian.tex"),
+            "\\section{Nested}\\label{sec:nested}",
+        )
+        .expect("write nested");
+
+        let scan = scan_project(&root, &Utf8PathBuf::from("main.tex")).expect("scan");
+
+        assert!(scan.files.contains_key(&Utf8PathBuf::from("main.tex")));
+        assert!(
+            scan.files
+                .contains_key(&Utf8PathBuf::from("localHamiltonian.tex"))
+        );
+        assert!(scan.labels.iter().any(|label| label.file
+            == Utf8PathBuf::from("localHamiltonian.tex")
+            && label.key == "sec:nested"));
     }
 
     #[test]

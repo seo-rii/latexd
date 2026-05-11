@@ -1,0 +1,2 @@
+math_commands.tex::\def\zeroshot{zero shot}
+tables/zero_shot.tex::\zeroshot{} transfer

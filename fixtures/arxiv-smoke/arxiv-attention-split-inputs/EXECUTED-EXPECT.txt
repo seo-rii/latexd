@@ -1,0 +1,3 @@
+macros.tex::\def\modelname{ArchiveAttention}
+sections/model.tex::\scoremacro
+sections/results.tex::Baseline result

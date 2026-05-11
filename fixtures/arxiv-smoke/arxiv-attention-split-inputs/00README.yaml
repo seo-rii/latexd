@@ -1,0 +1,13 @@
+name: arxiv-attention-split-inputs
+summary: Reduced arXiv-style attention paper with split section inputs and shared macros.
+compiler: pdf_latex
+sources:
+  - path: main.tex
+    usage: toplevel
+  - article.cls
+  - macros.tex
+  - sections/introduction.tex
+  - sections/model.tex
+  - sections/results.tex
+toplevel:
+  - main.tex
