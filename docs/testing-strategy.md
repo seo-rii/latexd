@@ -3,6 +3,31 @@
 This document describes the test layers, fixture corpus, and performance metrics that pin
 `latexd` behavior.
 
+## Current Local Oracle Harness
+
+`latexd` has an ignored integration test for local arXiv source/PDF corpora:
+[`crates/latexd/tests/arxiv_oracle.rs`](../crates/latexd/tests/arxiv_oracle.rs).
+The repository only stores a small manifest in
+[`fixtures/arxiv-oracle/cc0-smoke.json`](../fixtures/arxiv-oracle/cc0-smoke.json);
+it does not vendor full paper sources or PDFs.
+
+Fetch the configured corpus outside the repository:
+
+```bash
+python3 scripts/fetch_arxiv_cc0_corpus.py --output /tmp/latexd-arxiv-cc0
+```
+
+Run the oracle test:
+
+```bash
+LATEXD_ARXIV_CC0_CORPUS=/tmp/latexd-arxiv-cc0 \
+  cargo test -p latexd --test arxiv_oracle -- --ignored --nocapture
+```
+
+The oracle currently compares build success, diagnostics, extracted text token
+counts, and unique-token overlap. Use `LATEXD_ARXIV_ORACLE_STRICT=1` to turn the
+configured thresholds into hard failures.
+
 ## 테스트 전략
 
 ### 테스트 레이어

@@ -1,52 +1,77 @@
 # latexd
 
-`latexd` is a Rust workspace for an incremental LaTeX build and browser-preview pipeline.
-The current implementation targets an arXiv-like `pdflatex`-first workflow, keeps the last
-good preview on failures, and connects page/tile refresh with source-preview sync and local
-editor bridge surfaces.
+`latexd` is an experimental Rust workspace for incremental LaTeX compilation,
+PDF preview, and browser-based source sync.
 
-This README is intentionally short. The long design and planning material that used to live
-here now lives under [`docs/`](./docs).
+The project started as an arXiv-style preview pipeline: keep the last good
+preview visible, rebuild only when inputs change, and expose enough structured
+metadata for page reuse, source jumps, diagnostics, and future internal
+rendering work.
 
-## Current Status
+## Status
 
-- Milestones `M0` through `M12` are treated as complete by the repository's current definition
-  of done.
-- Current work is post-`M12` follow-on hardening, not an open `M12` blocker.
-- The latest milestone/progress view lives in [`PROGRESS.md`](./PROGRESS.md).
+`latexd` is usable as a development prototype, not yet as a drop-in LaTeX
+engine. The external-compiler preview path is the most practical path today.
+The internal compiler can process a growing subset of arXiv-like projects, but
+its PDF output is still a text scaffold rather than full TeX-quality rendering.
 
-## What The Project Does
+Current focus:
 
-- Builds and previews LaTeX documents through a Rust workspace centered on `latexd`.
-- Preserves stable page identity and supports page-level or tile-level preview refresh.
-- Exposes source jump, hover, open-source, hash deep-link, and in-browser source-pane flows.
-- Tracks semantic aux state, replay checkpoints, page reuse, and structured build metadata.
-- Uses a realistic fixture corpus to pin regression behavior across wrapper-heavy arXiv-style
-  projects.
+- incremental build and preview infrastructure;
+- arXiv-style project resolution and fixture coverage;
+- semantic aux data for labels, citations, bibliography, and source sync;
+- internal compiler smoke coverage against local oracle corpora;
+- the next rendering architecture: event stream, Document IR, page layout, and
+  renderer backends.
+
+See [`PROGRESS.md`](./PROGRESS.md), [`PLAN.md`](./PLAN.md), and
+[`docs/real-rendering-plan.md`](./docs/real-rendering-plan.md) for the current
+engineering plan.
+
+## Features
+
+- Rust daemon for watching LaTeX projects and serving preview artifacts.
+- Browser preview shell with WebSocket updates and source-preview bridge flows.
+- External compiler support for realistic `pdflatex`-style workflows.
+- Internal TeX lexer, token model, VM, mini LaTeX bootstrap, semantic aux scan,
+  simple layout, and PDF text output.
+- Checkpoint and page-reuse infrastructure for incremental rebuild work.
+- Fixture suites for small documents, synthetic arXiv-style projects, and local
+  arXiv oracle smoke tests.
 
 ## Repository Layout
 
-- [`crates/`](./crates): Rust crates for protocol, VM, layout, PDF, checkpointing, renderer,
-  semantic aux, and the `latexd` daemon itself.
-- [`web/apps/viewer/`](./web/apps/viewer): SvelteKit frontend shell plus the `latexd` transport adapter.
-- [`web/packages/viewer-core/`](./web/packages/viewer-core): reusable vanilla TypeScript viewer runtime with injected transport.
-- [`web/`](./web): `pnpm` workspace root for the frontend packages.
-- [`fixtures/`](./fixtures): `arxiv-basic` and `arxiv-smoke` fixture corpora.
-- [`docs/`](./docs): architecture, roadmap, protocol, testing, backlog, and milestone detail.
-- [`web/README.md`](./web/README.md): frontend workspace guide and commands.
+- [`crates/latexd`](./crates/latexd): daemon, compiler orchestration, tests.
+- [`crates/tex-lexer`](./crates/tex-lexer): TeX tokenization.
+- [`crates/tex-vm`](./crates/tex-vm): macro expansion and execution core.
+- [`crates/tex-bootstrap`](./crates/tex-bootstrap): mini LaTeX bootstrap layer.
+- [`crates/tex-aux`](./crates/tex-aux): semantic aux and bibliography scanning.
+- [`crates/tex-layout`](./crates/tex-layout): current text-layout scaffold.
+- [`crates/tex-pdf`](./crates/tex-pdf): current minimal PDF writer.
+- [`crates/tex-render-gs`](./crates/tex-render-gs): Ghostscript-backed raster
+  renderer integration.
+- [`web/`](./web): frontend `pnpm` workspace.
+- [`fixtures/`](./fixtures): checked-in compatibility and smoke fixtures.
+- [`docs/`](./docs): architecture, roadmap, test strategy, and design notes.
 
 ## Requirements
 
 - Rust toolchain with Cargo.
-- Node.js with `pnpm` for the frontend workspace.
-- Ghostscript only if you want the real tile renderer instead of the default mock path.
+- Node.js and `pnpm` for the web preview workspace.
+- Ghostscript if you want the real raster/tile renderer path.
+- Optional: `pdftotext` for PDF text oracle checks.
 
 ## Quick Start
 
-Prepare the frontend workspace:
+Install frontend dependencies:
 
 ```bash
 pnpm -C web install
+```
+
+Build the frontend:
+
+```bash
 pnpm -C web build
 ```
 
@@ -56,29 +81,68 @@ Run the daemon against the bundled sample project:
 cargo run -p latexd -- serve --root fixtures/arxiv-basic --compiler-bin internal
 ```
 
-Then open `http://127.0.0.1:4380/` in a browser.
+Then open:
 
-Useful local commands:
-
-```bash
-pnpm -C web dev
-pnpm -C web test
-cargo run -p latexd -- --help
-cargo test -q
+```text
+http://127.0.0.1:4380/
 ```
 
-When developing the SvelteKit app directly, `pnpm -C web dev` proxies `/api`, `/artifacts`, and
-`/ws` to `http://127.0.0.1:4380` by default. Override that with `LATEXD_DEV_ORIGIN` if needed.
+Useful development commands:
+
+```bash
+cargo test -q
+cargo run -p latexd -- --help
+pnpm -C web test
+pnpm -C web dev
+```
+
+When developing the SvelteKit app directly, `pnpm -C web dev` proxies `/api`,
+`/artifacts`, and `/ws` to `http://127.0.0.1:4380` by default. Override that
+with `LATEXD_DEV_ORIGIN` if needed.
+
+## arXiv Oracle Smoke Tests
+
+The repository does not vendor full arXiv source archives or PDFs. Instead,
+`fixtures/arxiv-oracle/cc0-smoke.json` describes a small local corpus, and
+`scripts/fetch_arxiv_cc0_corpus.py` can download it into a separate local
+directory.
+
+Example:
+
+```bash
+python3 scripts/fetch_arxiv_cc0_corpus.py --output /tmp/latexd-arxiv-cc0
+LATEXD_ARXIV_CC0_CORPUS=/tmp/latexd-arxiv-cc0 \
+  cargo test -p latexd --test arxiv_oracle -- --ignored --nocapture
+```
+
+Use `LATEXD_ARXIV_ORACLE_STRICT=1` when you want the test to fail on oracle
+threshold regressions.
 
 ## Documentation
 
 - Architecture: [`docs/architecture.md`](./docs/architecture.md)
 - Roadmap: [`docs/roadmap.md`](./docs/roadmap.md)
-- HMR protocol: [`docs/hmr-protocol.md`](./docs/hmr-protocol.md)
 - Testing strategy: [`docs/testing-strategy.md`](./docs/testing-strategy.md)
-- Frontend workspace guide: [`web/README.md`](./web/README.md)
+- Real rendering plan: [`docs/real-rendering-plan.md`](./docs/real-rendering-plan.md)
+- Rendering design question: [`docs/real-rendering-design-question.md`](./docs/real-rendering-design-question.md)
+- HMR protocol: [`docs/hmr-protocol.md`](./docs/hmr-protocol.md)
 - Contributor notes: [`docs/contributor-notes.md`](./docs/contributor-notes.md)
-- Progress snapshot: [`PROGRESS.md`](./PROGRESS.md)
-- Work backlog: [`docs/work-backlog.md`](./docs/work-backlog.md)
-- `M12` definition of done: [`docs/m12-checklist.md`](./docs/m12-checklist.md)
-- Renderer/session follow-up: [`docs/renderer-session-plan.md`](./docs/renderer-session-plan.md)
+- Frontend guide: [`web/README.md`](./web/README.md)
+
+## Contributing
+
+Contributions are welcome, but the project is still architecture-heavy. Before
+large changes, read [`CONTRIBUTING.md`](./CONTRIBUTING.md) and prefer small,
+test-backed patches.
+
+Good first areas:
+
+- focused regression fixtures;
+- diagnostics and error classification;
+- documentation cleanup;
+- small internal compiler compatibility fixes;
+- tests around source sync and semantic aux behavior.
+
+## License
+
+`latexd` is licensed under the [MIT License](./LICENSE).
