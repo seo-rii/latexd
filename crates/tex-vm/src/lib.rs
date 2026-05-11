@@ -2785,11 +2785,7 @@ impl<'i> Vm<'i> {
                 };
                 let exists =
                     self.lookup_meaning(&target).is_some() || builtin_primitive(&target).is_some();
-                if matches!(
-                    primitive,
-                    Primitive::NewCommand | Primitive::DeclareRobustCommand
-                ) && exists
-                {
+                if primitive == Primitive::NewCommand && exists {
                     self.diagnostics.push(VmDiagnostic {
                         kind: VmDiagnosticKind::ExplicitError,
                         detail: format!("{} \\{target} already defined", primitive_name(primitive)),
@@ -10695,6 +10691,16 @@ mod tests {
         let outcome = vm.run_plain(r"\def\foo{old}\providecommand{\foo}[1]{new}\foo");
 
         assert_eq!(outcome.output, "old");
+        assert!(outcome.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn declare_robust_command_replaces_existing_definition() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\foo{old}\DeclareRobustCommand{\foo}[1]{new #1}\foo{x}");
+
+        assert_eq!(outcome.output, "new x");
         assert!(outcome.diagnostics.is_empty());
     }
 

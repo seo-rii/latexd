@@ -1,2 +1,2 @@
 internal compiler reported diagnostics
-class article.cls
+class localarticle.cls

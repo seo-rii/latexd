@@ -1,1 +1,1 @@
-article.cls
+localarticle.cls

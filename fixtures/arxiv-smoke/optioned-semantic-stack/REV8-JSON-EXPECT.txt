@@ -1,2 +1,2 @@
 build-meta.json::aux_sensitive=true
-build-meta.json::dirty_files.0="article.cls"
+build-meta.json::dirty_files.0="localarticle.cls"

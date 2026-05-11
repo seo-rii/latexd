@@ -2,8 +2,8 @@ compiler: pdf_latex
 sources:
   - path: main.tex
     usage: toplevel
-  - article.cls
-  - hyperref.sty
+  - localarticle.cls
+  - localhyper.sty
   - wrapper.cls
   - sections/intro.tex
   - refs.bbl

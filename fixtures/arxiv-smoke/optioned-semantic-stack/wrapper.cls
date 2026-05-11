@@ -1,1 +1,1 @@
-\ProvidesClass{wrapper}[2024/01/01]\def\wrapperclass{wrapper}\DeclareOption{twocolumn}{\PassOptionsToClass{\CurrentOption}{article}}\DeclareOption*{\PassOptionsToPackage{\CurrentOption}{hyperref}}\ProcessOptions\relax\LoadClass{article}\RequirePackage{hyperref}
+\ProvidesClass{wrapper}[2024/01/01]\def\wrapperclass{wrapper}\DeclareOption{twocolumn}{\PassOptionsToClass{\CurrentOption}{localarticle}}\DeclareOption*{\PassOptionsToPackage{\CurrentOption}{localhyper}}\ProcessOptions\relax\LoadClass{localarticle}\RequirePackage{localhyper}
