@@ -30,6 +30,8 @@ use tex_pdf::{
     PAGE_FONT_SIZE_PT, PAGE_LINE_HEIGHT_PT, PAGE_TEXT_LEFT_PT, PAGE_TEXT_TOP_PT, render_page_svg,
     render_single_page_pdf,
 };
+use tex_render_model::{AuxView, DocumentIr, RenderEventStream};
+use tex_tokens::ControlSequenceInterner;
 use tex_vm::{VmModuleCheckpointKind, VmReplayFrame};
 use tex_world::{CompilerMode, ProjectManifest, normalize_relative_path};
 
@@ -67,6 +69,34 @@ pub struct CompileOutcome {
 pub struct CompileFailure {
     pub diagnostics: Vec<Diagnostic>,
     pub message: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct InternalRenderIrCapture {
+    pub legacy_output: String,
+    pub events: RenderEventStream,
+    pub document_ir: DocumentIr,
+}
+
+pub fn capture_internal_render_ir(
+    source_path: impl Into<Utf8PathBuf>,
+    source: &str,
+    aux: &impl AuxView,
+) -> InternalRenderIrCapture {
+    let source_path = source_path.into();
+    let mut interner = ControlSequenceInterner::new();
+    let mut vm = tex_vm::Vm::new(&mut interner);
+    vm.set_entry_source_path(source_path.clone());
+    vm.enable_render_event_capture();
+    let outcome = vm.run_plain(source);
+    let events = RenderEventStream::new(Some(source_path.to_string()), outcome.render_events);
+    let document_ir = tex_layout::build_document_ir(&events, aux);
+
+    InternalRenderIrCapture {
+        legacy_output: outcome.output,
+        events,
+        document_ir,
+    }
 }
 
 impl Display for CompileFailure {
@@ -3191,19 +3221,41 @@ mod tests {
         preamble_key_for_source,
     };
     use tex_layout::TextSpan;
+    use tex_render_model::RenderEvent;
     use tex_tokens::ControlSequenceInterner;
     use tex_vm::{VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot};
 
     use super::{
         ArtifactSourceSpan, CheckpointPage, DepTrace, PageArtifactMeta, PreviousInternalBuild,
         SemanticAux, StoredModuleCheckpoint, StoredModuleTrace, UnchangedTail,
-        earliest_changed_offset, earliest_changed_rewrite_span_offset,
+        capture_internal_render_ir, earliest_changed_offset, earliest_changed_rewrite_span_offset,
         earliest_changed_rewrite_span_source_offset, load_latest_previous_internal_build,
         parse_depfile, parse_fls, plan_page_patches, rebase_reused_shipout_checkpoint,
         rebase_shipout_path_offset, replay_checkpoint_from_stored, save_source_texts,
         select_shipout_replay_plan, select_shipout_replay_plan_with_spans,
         shift_shipout_source_offset,
     };
+
+    #[test]
+    fn internal_render_ir_capture_builds_events_and_ir_without_pdf_path() {
+        let capture = capture_internal_render_ir(
+            "main.tex",
+            r"\title{A Paper}\begin{document}\maketitle\section{Intro}Hello \cite{key}.\end{document}",
+            &SemanticAux::default(),
+        );
+
+        assert!(
+            capture
+                .events
+                .events
+                .iter()
+                .any(|event| matches!(&event.event, RenderEvent::FlushTitleBlock(_)))
+        );
+        assert!(capture.document_ir.extracted_text().contains("A Paper"));
+        assert!(capture.document_ir.extracted_text().contains("Intro"));
+        assert!(capture.document_ir.extracted_text().contains("[?]"));
+        assert!(!capture.legacy_output.is_empty());
+    }
 
     #[test]
     fn parses_makefile_depfile_with_continuations() {

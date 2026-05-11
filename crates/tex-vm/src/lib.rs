@@ -6,6 +6,13 @@ use std::{
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 use tex_lexer::{CatCodeTable, Lexer, lex_plain};
+use tex_render_model::{
+    BeginBlockEvent, BibliographyItemEvent, BlockKind, CitationStyleHint, EventId, ExpansionFrame,
+    FallbackReason, FlushTitleBlockEvent, HeadingEvent, InlineCitationEvent, MathSourceEvent,
+    MetadataField, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent,
+    RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent, SourceProvenance, SourceSpan,
+    SpaceEvent, SpaceKind, TextEvent,
+};
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
 
@@ -218,6 +225,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VmOutcome {
     pub output: String,
+    pub render_events: Vec<RenderEventEnvelope>,
     pub registers: BTreeMap<u32, i32>,
     pub transcript: Vec<String>,
     pub diagnostics: Vec<VmDiagnostic>,
@@ -691,6 +699,9 @@ pub struct Vm<'i> {
     module_traces: Vec<VmModuleTrace>,
     module_checkpoints: Vec<VmModuleCheckpoint>,
     output: String,
+    render_event_capture: bool,
+    render_events: Vec<RenderEventEnvelope>,
+    next_render_event_id: EventId,
     transcript: Vec<String>,
     diagnostics: Vec<VmDiagnostic>,
     read_stream_lines: BTreeMap<u32, Vec<String>>,
@@ -739,6 +750,9 @@ impl<'i> Vm<'i> {
             module_traces: Vec::new(),
             module_checkpoints: Vec::new(),
             output: String::new(),
+            render_event_capture: false,
+            render_events: Vec::new(),
+            next_render_event_id: 1,
             transcript: Vec::new(),
             diagnostics: Vec::new(),
             read_stream_lines: BTreeMap::new(),
@@ -909,12 +923,428 @@ impl<'i> Vm<'i> {
         self.mounted_files.insert(path.into(), source.into());
     }
 
+    pub fn enable_render_event_capture(&mut self) {
+        self.render_event_capture = true;
+    }
+
     pub fn run_plain(&mut self, source: &str) -> VmOutcome {
+        if self.render_event_capture {
+            let source_path = self
+                .entry_source_path
+                .clone()
+                .unwrap_or_else(|| Utf8PathBuf::from("texput.tex"));
+            self.capture_render_events_from_source(&source_path, source);
+        }
         let tokens = {
             let interner = &mut *self.interner;
             lex_plain(source, interner)
         };
         self.run(tokens)
+    }
+
+    fn capture_render_events_from_source(&mut self, source_path: &Utf8Path, source: &str) {
+        let bytes = source.as_bytes();
+        let mut index = 0usize;
+        let mut text_start = 0usize;
+        let mut in_document = false;
+        let mut section_macros = HashMap::<String, (usize, usize)>::new();
+        while index < bytes.len() {
+            if bytes[index] != b'\\' {
+                index += 1;
+                continue;
+            }
+            self.capture_text_events(source_path, source, text_start, index, in_document);
+            let command_start = index;
+            index += 1;
+            if index >= bytes.len() {
+                break;
+            }
+            let command = if bytes[index].is_ascii_alphabetic() || bytes[index] == b'@' {
+                let start = index;
+                while index < bytes.len()
+                    && (bytes[index].is_ascii_alphabetic() || bytes[index] == b'@')
+                {
+                    index += 1;
+                }
+                &source[start..index]
+            } else {
+                let start = index;
+                index += 1;
+                &source[start..index]
+            };
+            match command {
+                "newcommand" | "renewcommand" | "DeclareRobustCommand" => {
+                    if let Some((target, _, _, after_target)) =
+                        read_braced_source_argument(source, index)
+                    {
+                        let mut after_signature = after_target;
+                        if let Some((_, _, _, after_arity)) =
+                            read_bracket_source_argument(source, after_signature)
+                        {
+                            after_signature = after_arity;
+                        }
+                        if let Some((body, _, _, after_body)) =
+                            read_braced_source_argument(source, after_signature)
+                        {
+                            let macro_name = target.trim().trim_start_matches('\\');
+                            if body.contains("\\section") && body.contains("#1") {
+                                section_macros
+                                    .insert(macro_name.to_string(), (command_start, after_body));
+                            }
+                            index = after_body;
+                        }
+                    }
+                }
+                "title" | "author" | "date" => {
+                    if let Some((value, content_start, content_end, after)) =
+                        read_braced_source_argument(source, index)
+                    {
+                        let field = match command {
+                            "title" => MetadataField::Title,
+                            "author" => MetadataField::Author,
+                            "date" => MetadataField::Date,
+                            _ => unreachable!(),
+                        };
+                        self.emit_render_event(
+                            RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
+                                field,
+                                value: normalize_latex_text(value),
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                content_start as u32,
+                                content_end as u32,
+                            ),
+                        );
+                        index = after;
+                    }
+                }
+                "maketitle" if in_document => {
+                    self.emit_render_event(
+                        RenderEvent::FlushTitleBlock(FlushTitleBlockEvent),
+                        SourceProvenance::file(
+                            source_path.to_owned(),
+                            command_start as u32,
+                            index as u32,
+                        ),
+                    );
+                }
+                "begin" => {
+                    if let Some((environment, _, _, after)) =
+                        read_braced_source_argument(source, index)
+                    {
+                        let environment = environment.trim();
+                        index = after;
+                        match environment {
+                            "document" => {
+                                in_document = true;
+                            }
+                            "abstract" if in_document => {
+                                self.emit_render_event(
+                                    RenderEvent::BeginBlock(BeginBlockEvent {
+                                        block: BlockKind::Abstract,
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        command_start as u32,
+                                        index as u32,
+                                    ),
+                                );
+                            }
+                            "thebibliography" if in_document => {
+                                if let Some((_, _, _, after_width)) =
+                                    read_braced_source_argument(source, index)
+                                {
+                                    index = after_width;
+                                }
+                                self.emit_render_event(
+                                    RenderEvent::BeginBlock(BeginBlockEvent {
+                                        block: BlockKind::Bibliography,
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        command_start as u32,
+                                        index as u32,
+                                    ),
+                                );
+                            }
+                            other if in_document => {
+                                let end_marker = format!("\\end{{{other}}}");
+                                if let Some(relative_end) = source[index..].find(&end_marker) {
+                                    let body_start = index;
+                                    let body_end = index + relative_end;
+                                    let raw_end = body_end + end_marker.len();
+                                    self.emit_render_event(
+                                        RenderEvent::RawFallback(RawFallbackEvent {
+                                            source_excerpt: source[command_start..raw_end]
+                                                .chars()
+                                                .take(2048)
+                                                .collect(),
+                                            expanded_text: None,
+                                            normalized_visible_text: Some(normalize_latex_text(
+                                                &source[body_start..body_end],
+                                            )),
+                                            environment: Some(other.to_string()),
+                                            reason: FallbackReason::UnsupportedEnvironment,
+                                            source_hash: None,
+                                            full_source_artifact: None,
+                                            truncated: source[command_start..raw_end].len() > 2048,
+                                        }),
+                                        SourceProvenance::file(
+                                            source_path.to_owned(),
+                                            command_start as u32,
+                                            raw_end as u32,
+                                        ),
+                                    );
+                                    index = raw_end;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                "end" => {
+                    if let Some((environment, _, _, after)) =
+                        read_braced_source_argument(source, index)
+                    {
+                        let environment = environment.trim();
+                        index = after;
+                        match environment {
+                            "document" => {
+                                in_document = false;
+                            }
+                            "abstract" if in_document => {
+                                self.emit_render_event(
+                                    RenderEvent::EndBlock(BeginBlockEvent {
+                                        block: BlockKind::Abstract,
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        command_start as u32,
+                                        index as u32,
+                                    ),
+                                );
+                            }
+                            "thebibliography" if in_document => {
+                                self.emit_render_event(
+                                    RenderEvent::EndBlock(BeginBlockEvent {
+                                        block: BlockKind::Bibliography,
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        command_start as u32,
+                                        index as u32,
+                                    ),
+                                );
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                "section" if in_document => {
+                    index = skip_ascii_whitespace(source, index);
+                    if source[index..].starts_with('*') {
+                        index += 1;
+                    }
+                    if let Some((heading, content_start, content_end, after)) =
+                        read_braced_source_argument(source, index)
+                    {
+                        self.emit_render_event(
+                            RenderEvent::Heading(HeadingEvent {
+                                level: 1,
+                                text: normalize_latex_text(heading),
+                                number: None,
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                content_start as u32,
+                                content_end as u32,
+                            ),
+                        );
+                        index = after;
+                    }
+                }
+                "cite" if in_document => {
+                    if let Some((keys, content_start, content_end, after)) =
+                        read_braced_source_argument(source, index)
+                    {
+                        self.emit_render_event(
+                            RenderEvent::InlineCitation(InlineCitationEvent {
+                                keys: keys
+                                    .split(',')
+                                    .map(str::trim)
+                                    .filter(|key| !key.is_empty())
+                                    .map(ToOwned::to_owned)
+                                    .collect(),
+                                command: "cite".to_string(),
+                                style_hint: CitationStyleHint::Numeric,
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                content_start as u32,
+                                content_end as u32,
+                            ),
+                        );
+                        index = after;
+                    }
+                }
+                "[" if in_document => {
+                    if let Some(relative_end) = source[index..].find("\\]") {
+                        let math_start = index;
+                        let math_end = index + relative_end;
+                        self.emit_render_event(
+                            RenderEvent::DisplayMath(MathSourceEvent {
+                                raw_source: normalize_latex_text(&source[math_start..math_end]),
+                                normalized_text: None,
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                math_start as u32,
+                                math_end as u32,
+                            ),
+                        );
+                        index = math_end + 2;
+                    }
+                }
+                "bibitem" if in_document => {
+                    let mut label_hint = None;
+                    index = skip_ascii_whitespace(source, index);
+                    if let Some((label, _, _, after)) = read_bracket_source_argument(source, index)
+                    {
+                        label_hint = Some(normalize_latex_text(label));
+                        index = after;
+                    }
+                    if let Some((key, _, content_end, after)) =
+                        read_braced_source_argument(source, index)
+                    {
+                        let item_start = after;
+                        let next_bibitem = source[item_start..].find("\\bibitem");
+                        let end_bibliography = source[item_start..].find("\\end{thebibliography}");
+                        let item_end = match (next_bibitem, end_bibliography) {
+                            (Some(left), Some(right)) => item_start + left.min(right),
+                            (Some(left), None) => item_start + left,
+                            (None, Some(right)) => item_start + right,
+                            (None, None) => source.len(),
+                        };
+                        self.emit_render_event(
+                            RenderEvent::BibliographyItem(BibliographyItemEvent {
+                                key: key.trim().to_string(),
+                                label_hint,
+                                text: normalize_latex_text(&source[item_start..item_end]),
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                command_start as u32,
+                                item_end as u32,
+                            ),
+                        );
+                        let _ = content_end;
+                        index = item_end;
+                    }
+                }
+                "par" if in_document => {
+                    self.emit_render_event(
+                        RenderEvent::ParagraphBreak(ParagraphBreakEvent {
+                            reason: ParagraphBreakReason::ParCommand,
+                        }),
+                        SourceProvenance::file(
+                            source_path.to_owned(),
+                            command_start as u32,
+                            index as u32,
+                        ),
+                    );
+                }
+                _ if in_document => {
+                    if let Some((definition_start, definition_end)) =
+                        section_macros.get(command).copied()
+                        && let Some((heading, content_start, content_end, after)) =
+                            read_braced_source_argument(source, index)
+                    {
+                        self.emit_render_event(
+                            RenderEvent::Heading(HeadingEvent {
+                                level: 1,
+                                text: normalize_latex_text(heading),
+                                number: None,
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                content_start as u32,
+                                content_end as u32,
+                            )
+                            .with_expansion_frame(ExpansionFrame {
+                                call_span: ProvenanceSpan::File(SourceSpan {
+                                    path: source_path.to_owned(),
+                                    start_utf8: command_start as u32,
+                                    end_utf8: after as u32,
+                                }),
+                                definition_span: Some(ProvenanceSpan::File(SourceSpan {
+                                    path: source_path.to_owned(),
+                                    start_utf8: definition_start as u32,
+                                    end_utf8: definition_end as u32,
+                                })),
+                                command_name: Some(command.to_string()),
+                            }),
+                        );
+                        index = after;
+                    }
+                }
+                _ => {}
+            }
+            text_start = index;
+        }
+        self.capture_text_events(source_path, source, text_start, source.len(), in_document);
+    }
+
+    fn capture_text_events(
+        &mut self,
+        source_path: &Utf8Path,
+        source: &str,
+        start: usize,
+        end: usize,
+        in_document: bool,
+    ) {
+        if !in_document || start >= end {
+            return;
+        }
+        let mut pending_word = String::new();
+        let mut saw_space = false;
+        for ch in source[start..end].chars() {
+            if ch.is_whitespace() {
+                if !pending_word.is_empty() {
+                    self.emit_render_event(
+                        RenderEvent::Text(TextEvent {
+                            text: mem::take(&mut pending_word),
+                        }),
+                        SourceProvenance::file(source_path.to_owned(), start as u32, end as u32),
+                    );
+                }
+                saw_space = true;
+                continue;
+            }
+            if saw_space {
+                self.emit_render_event(
+                    RenderEvent::Space(SpaceEvent {
+                        kind: SpaceKind::Interword,
+                    }),
+                    SourceProvenance::file(source_path.to_owned(), start as u32, end as u32),
+                );
+                saw_space = false;
+            }
+            pending_word.push(ch);
+        }
+        if !pending_word.is_empty() {
+            self.emit_render_event(
+                RenderEvent::Text(TextEvent { text: pending_word }),
+                SourceProvenance::file(source_path.to_owned(), start as u32, end as u32),
+            );
+        }
+    }
+
+    fn emit_render_event(&mut self, event: RenderEvent, source: SourceProvenance) {
+        let event_id = self.next_render_event_id;
+        self.next_render_event_id += 1;
+        self.render_events
+            .push(RenderEventEnvelope::new(event_id, event, source));
     }
 
     pub fn run(&mut self, tokens: Vec<Token>) -> VmOutcome {
@@ -953,6 +1383,7 @@ impl<'i> Vm<'i> {
 
         VmOutcome {
             output: mem::take(&mut self.output),
+            render_events: mem::take(&mut self.render_events),
             registers: self.registers.clone(),
             transcript: mem::take(&mut self.transcript),
             diagnostics: mem::take(&mut self.diagnostics),
@@ -7416,6 +7847,98 @@ fn primitive_name(primitive: Primitive) -> &'static str {
     }
 }
 
+fn skip_ascii_whitespace(source: &str, mut index: usize) -> usize {
+    let bytes = source.as_bytes();
+    while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+        index += 1;
+    }
+    index
+}
+
+fn read_braced_source_argument(source: &str, index: usize) -> Option<(&str, usize, usize, usize)> {
+    read_delimited_source_argument(source, index, b'{', b'}')
+}
+
+fn read_bracket_source_argument(source: &str, index: usize) -> Option<(&str, usize, usize, usize)> {
+    read_delimited_source_argument(source, index, b'[', b']')
+}
+
+fn read_delimited_source_argument(
+    source: &str,
+    index: usize,
+    open: u8,
+    close: u8,
+) -> Option<(&str, usize, usize, usize)> {
+    let bytes = source.as_bytes();
+    let mut cursor = skip_ascii_whitespace(source, index);
+    if bytes.get(cursor).copied()? != open {
+        return None;
+    }
+    cursor += 1;
+    let content_start = cursor;
+    let mut depth = 1usize;
+    while cursor < bytes.len() {
+        match bytes[cursor] {
+            b'\\' => {
+                cursor = cursor.saturating_add(2);
+            }
+            byte if byte == open => {
+                depth += 1;
+                cursor += 1;
+            }
+            byte if byte == close => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some((
+                        &source[content_start..cursor],
+                        content_start,
+                        cursor,
+                        cursor + 1,
+                    ));
+                }
+                cursor += 1;
+            }
+            _ => {
+                cursor += 1;
+            }
+        }
+    }
+    None
+}
+
+fn normalize_latex_text(source: &str) -> String {
+    let mut text = String::new();
+    let mut in_command = false;
+    let mut previous_space = false;
+    for ch in source.chars() {
+        if in_command {
+            if ch.is_ascii_alphabetic() || ch == '@' {
+                continue;
+            }
+            in_command = false;
+        }
+        match ch {
+            '\\' => {
+                in_command = true;
+            }
+            '{' | '}' | '[' | ']' => {}
+            ch if ch.is_whitespace() => {
+                if !text.is_empty() {
+                    previous_space = true;
+                }
+            }
+            ch => {
+                if previous_space {
+                    text.push(' ');
+                    previous_space = false;
+                }
+                text.push(ch);
+            }
+        }
+    }
+    text.trim().to_string()
+}
+
 fn render_roman_numeral(value: i32) -> String {
     if value <= 0 {
         return String::new();
@@ -7482,6 +8005,7 @@ pub fn compile_format_snapshot(interner: &mut ControlSequenceInterner, source: &
 mod tests {
     use camino::{Utf8Path, Utf8PathBuf};
     use serde_json::json;
+    use tex_render_model::{BlockKind, MetadataField, RenderEvent};
     use tex_tokens::ControlSequenceInterner;
 
     use super::{
@@ -10883,6 +11407,105 @@ mod tests {
             outcome
                 .loaded_modules
                 .contains(&Utf8PathBuf::from("hyperref.sty"))
+        );
+    }
+
+    #[test]
+    fn render_event_capture_extracts_compact_latex_surface_without_changing_output() {
+        let source = r"
+\documentclass{article}
+\title{A Paper}
+\author{Ada Lovelace}
+\date{May 1843}
+\begin{document}
+\maketitle
+\begin{abstract}
+Short abstract.
+\end{abstract}
+\section{Intro}
+Hello \cite{key}.
+\[
+  x^2
+\]
+\begin{thebibliography}{1}
+\bibitem{key} Author. Title.
+\end{thebibliography}
+\begin{unknownenv}
+Fallback text.
+\end{unknownenv}
+\end{document}
+";
+
+        let mut baseline_interner = ControlSequenceInterner::new();
+        let mut baseline = Vm::new(&mut baseline_interner);
+        baseline.set_entry_source_path("main.tex");
+        let baseline_outcome = baseline.run_plain(source);
+
+        let mut capture_interner = ControlSequenceInterner::new();
+        let mut capture = Vm::new(&mut capture_interner);
+        capture.set_entry_source_path("main.tex");
+        capture.enable_render_event_capture();
+        let captured_outcome = capture.run_plain(source);
+
+        assert_eq!(captured_outcome.output, baseline_outcome.output);
+        assert!(captured_outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::SetDocumentMetadata(metadata)
+                if metadata.field == MetadataField::Title && metadata.value == "A Paper"
+        )));
+        assert!(
+            captured_outcome
+                .render_events
+                .iter()
+                .any(|event| matches!(&event.event, RenderEvent::FlushTitleBlock(_)))
+        );
+        assert!(captured_outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Abstract
+        )));
+        assert!(captured_outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineCitation(citation) if citation.keys == vec!["key".to_string()]
+        )));
+        assert!(captured_outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("unknownenv")
+                    && fallback.normalized_visible_text.as_deref() == Some("Fallback text.")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_section_macro_provenance() {
+        let source = r"\newcommand{\mysection}[1]{\section{#1}}\begin{document}\mysection{Intro}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let heading = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::Heading(_)))
+            .expect("heading event");
+
+        assert!(matches!(
+            &heading.meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "Intro"
+        ));
+        assert_eq!(heading.meta.source.expansion_stack.len(), 1);
+        assert_eq!(
+            heading.meta.source.expansion_stack[0]
+                .command_name
+                .as_deref(),
+            Some("mysection")
+        );
+        assert!(
+            heading.meta.source.expansion_stack[0]
+                .definition_span
+                .is_some()
         );
     }
 }
