@@ -6,6 +6,9 @@ use std::{
 use anyhow::{Context, Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
+use tex_render_model::{
+    AuxView, BibliographyRecordView, CitationLabel, CitationStyleHint, LabelTargetView,
+};
 use tex_world::normalize_relative_path;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -238,6 +241,53 @@ pub struct SourceSpan {
     pub file: Utf8PathBuf,
     pub start_utf8: u32,
     pub end_utf8: u32,
+}
+
+impl AuxView for SemanticAux {
+    fn citation_label(&self, key: &str, _style: CitationStyleHint) -> Option<CitationLabel> {
+        if let Some(alias) = self.citation_aliases.iter().find(|alias| alias.key == key) {
+            return Some(CitationLabel {
+                text: alias.text.clone(),
+            });
+        }
+        if let Some(entry) = self.bibliography.iter().find(|entry| entry.key == key) {
+            let fallback_position = self
+                .bibliography
+                .iter()
+                .position(|entry| entry.key == key)
+                .unwrap_or_default()
+                + 1;
+            return Some(CitationLabel {
+                text: entry
+                    .label
+                    .clone()
+                    .unwrap_or_else(|| fallback_position.to_string()),
+            });
+        }
+        None
+    }
+
+    fn bibliography_record(&self, key: &str) -> Option<BibliographyRecordView> {
+        self.bibliography
+            .iter()
+            .find(|entry| entry.key == key)
+            .map(|entry| BibliographyRecordView {
+                key: entry.key.clone(),
+                label: entry.label.clone(),
+                text: entry.text.clone(),
+            })
+    }
+
+    fn label_target(&self, key: &str) -> Option<LabelTargetView> {
+        self.labels
+            .iter()
+            .find(|label| label.key == key)
+            .map(|label| LabelTargetView {
+                key: label.key.clone(),
+                number: label.number.clone(),
+                page: Some(label.page),
+            })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7593,6 +7643,7 @@ mod tests {
     use camino::Utf8PathBuf;
     use std::fs;
     use tempfile::tempdir;
+    use tex_render_model::{AuxView, CitationStyleHint};
 
     #[test]
     fn label_parse_write_roundtrip() {
@@ -14072,5 +14123,42 @@ mod tests {
 
         assert!(main.contains("\\includeonly{chapters/intro}"));
         assert!(main.contains("\\include{chapters/intro}"));
+    }
+
+    #[test]
+    fn semantic_aux_provides_render_model_aux_view() {
+        let aux = SemanticAux {
+            labels: vec![super::SemanticLabel {
+                key: "sec:intro".to_string(),
+                number: "1".to_string(),
+                page: 2,
+                file: Utf8PathBuf::from("main.tex"),
+                offset_utf8: 10,
+            }],
+            bibliography: vec![super::BibliographyEntry {
+                key: "alpha".to_string(),
+                text: "Alpha entry.".to_string(),
+                label: Some("3".to_string()),
+                file: Utf8PathBuf::from("refs.bbl"),
+            }],
+            ..SemanticAux::default()
+        };
+
+        assert_eq!(
+            aux.citation_label("alpha", CitationStyleHint::Numeric)
+                .expect("citation label")
+                .text,
+            "3"
+        );
+        assert_eq!(
+            aux.bibliography_record("alpha")
+                .expect("bibliography record")
+                .text,
+            "Alpha entry."
+        );
+        assert_eq!(
+            aux.label_target("sec:intro").expect("label target").number,
+            "1"
+        );
     }
 }

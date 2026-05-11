@@ -1,5 +1,9 @@
 use std::collections::BTreeMap;
 
+mod document_ir_builder;
+
+pub use document_ir_builder::{DocumentIrBuilder, build_document_ir};
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct LayoutOptions {
     pub chars_per_line: usize,
