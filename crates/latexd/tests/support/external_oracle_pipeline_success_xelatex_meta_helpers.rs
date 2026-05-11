@@ -67,15 +67,14 @@ set -euo pipefail
 output="$1"
 fls="$2"
 depfile="${3:-}"
-cat > "$output" <<'EOF'
-%PDF-1.4
-1 0 obj
-<<>>
-endobj
-trailer
-<<>>
-%%EOF
-EOF
+printf '%s\n' \
+  '%PDF-1.4' \
+  '1 0 obj' \
+  '<<>>' \
+  'endobj' \
+  'trailer' \
+  '<<>>' \
+  '%%EOF' > "$output"
 printf '%s: %s %s\n' "$output" "main.tex" "sections/intro.tex" > "$depfile"
 printf 'INPUT %s\n' "$(pwd)/main.tex" > "$fls"
 printf 'INPUT %s\n' "$(pwd)/sections/intro.tex" >> "$fls"
@@ -113,16 +112,15 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 stem="$(basename "$main" .tex)"
-mkdir -p "$out_dir"
-cat > "$out_dir/$stem.pdf" <<'EOF'
-%PDF-1.4
-1 0 obj
-<<>>
-endobj
-trailer
-<<>>
-%%EOF
-EOF
+/bin/mkdir -p "$out_dir"
+printf '%s\n' \
+  '%PDF-1.4' \
+  '1 0 obj' \
+  '<<>>' \
+  'endobj' \
+  'trailer' \
+  '<<>>' \
+  '%%EOF' > "$out_dir/$stem.pdf"
 printf 'INPUT %s\n' "$(pwd)/$main" > "$out_dir/$stem.fls"
 "#
                 }

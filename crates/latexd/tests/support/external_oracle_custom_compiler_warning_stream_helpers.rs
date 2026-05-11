@@ -157,7 +157,7 @@ rev="$7"
 args_log="$8"
 printf 'root=%s\nmain=%s\nout_dir=%s\nout_pdf=%s\nfls=%s\ndepfile=%s\nrev=%s\n' \
   "$root" "$main" "$out_dir" "$out_pdf" "$fls" "$depfile" "$rev" > "$args_log"
-mkdir -p "$out_dir"
+/bin/mkdir -p "$out_dir"
 : > "$out_pdf"
 printf 'INPUT %s\n' "$root/$main" > "$fls"
 printf '%s: %s\n' "$out_pdf" "$main" > "$depfile"
@@ -228,15 +228,14 @@ set -euo pipefail
 output="$1"
 fls="$2"
 {warning_command}
-cat > "$output" <<'EOF'
-%PDF-1.4
-1 0 obj
-<<>>
-endobj
-trailer
-<<>>
-%%EOF
-EOF
+printf '%s\n' \
+  '%PDF-1.4' \
+  '1 0 obj' \
+  '<<>>' \
+  'endobj' \
+  'trailer' \
+  '<<>>' \
+  '%%EOF' > "$output"
 printf 'INPUT %s\n' "$(pwd)/main.tex" > "$fls"
 "#
         ),

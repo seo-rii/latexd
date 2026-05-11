@@ -64,15 +64,14 @@ toplevel:
             r#"#!/bin/bash
 set -euo pipefail
 output="$1"
-cat > "$output" <<'EOF'
-%PDF-1.4
-1 0 obj
-<<>>
-endobj
-trailer
-<<>>
-%%EOF
-EOF
+printf '%s\n' \
+  '%PDF-1.4' \
+  '1 0 obj' \
+  '<<>>' \
+  'endobj' \
+  'trailer' \
+  '<<>>' \
+  '%%EOF' > "$output"
 "#
         }
         ExternalOracleCustomCompilerDependencyTrackingCase::DepfilePreferred => {
@@ -81,15 +80,14 @@ set -euo pipefail
 output="$1"
 fls="$2"
 depfile="${3:-}"
-cat > "$output" <<'EOF'
-%PDF-1.4
-1 0 obj
-<<>>
-endobj
-trailer
-<<>>
-%%EOF
-EOF
+printf '%s\n' \
+  '%PDF-1.4' \
+  '1 0 obj' \
+  '<<>>' \
+  'endobj' \
+  'trailer' \
+  '<<>>' \
+  '%%EOF' > "$output"
 printf '%s: %s %s\n' "$output" "main.tex" "sections/intro.tex" > "$depfile"
 printf 'INPUT %s\n' "$(pwd)/main.tex" > "$fls"
 "#
@@ -99,15 +97,14 @@ printf 'INPUT %s\n' "$(pwd)/main.tex" > "$fls"
 set -euo pipefail
 output="$1"
 fls="$2"
-cat > "$output" <<'EOF'
-%PDF-1.4
-1 0 obj
-<<>>
-endobj
-trailer
-<<>>
-%%EOF
-EOF
+printf '%s\n' \
+  '%PDF-1.4' \
+  '1 0 obj' \
+  '<<>>' \
+  'endobj' \
+  'trailer' \
+  '<<>>' \
+  '%%EOF' > "$output"
 printf 'INPUT %s\n' "$(pwd)/main.tex" > "$fls"
 printf 'INPUT %s\n' "$(pwd)/sections/intro.tex" >> "$fls"
 "#
@@ -117,16 +114,15 @@ printf 'INPUT %s\n' "$(pwd)/sections/intro.tex" >> "$fls"
 set -euo pipefail
 output="$1"
 depfile="$2"
-cat > "$output" <<'EOF'
-%PDF-1.4
-1 0 obj
-<<>>
-endobj
-trailer
-<<>>
-%%EOF
-EOF
-mkdir -p "$depfile"
+printf '%s\n' \
+  '%PDF-1.4' \
+  '1 0 obj' \
+  '<<>>' \
+  'endobj' \
+  'trailer' \
+  '<<>>' \
+  '%%EOF' > "$output"
+/bin/mkdir -p "$depfile"
 "#
         }
     };

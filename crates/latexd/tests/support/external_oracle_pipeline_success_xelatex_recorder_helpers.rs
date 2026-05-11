@@ -64,8 +64,8 @@ async fn run_external_oracle_xelatex_recorder(case: ExternalOracleXelatexRecorde
             &compiler_script,
             r#"#!/bin/bash
 set -euo pipefail
-touch "$1"
-mkdir -p "$2"
+: > "$1"
+/bin/mkdir -p "$2"
 "#,
         );
 
