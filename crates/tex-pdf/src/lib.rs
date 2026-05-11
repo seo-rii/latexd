@@ -1,4 +1,5 @@
 use tex_layout::{DocumentLayout, LayoutOptions, PageLayout};
+use tex_render_model::{DrawOp, PageDisplayList};
 
 pub const PAGE_TEXT_LEFT_PT: f32 = 72.0;
 pub const PAGE_TEXT_TOP_PT: f32 = 72.0;
@@ -70,6 +71,79 @@ pub fn render_single_page_pdf(page: &PageLayout, options: &LayoutOptions) -> Vec
         pages: vec![page.clone()],
         options: options.clone(),
     })
+}
+
+pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
+    let mut objects = Vec::new();
+    objects.push("1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n".to_string());
+    objects.push(format!(
+        "2 0 obj << /Type /Pages /Kids [{}] /Count {} >> endobj\n",
+        pages
+            .iter()
+            .enumerate()
+            .map(|(index, _)| format!("{} 0 R", page_object_id(index)))
+            .collect::<Vec<_>>()
+            .join(" "),
+        pages.len()
+    ));
+    objects.push(
+        "3 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n".to_string(),
+    );
+
+    for (index, page) in pages.iter().enumerate() {
+        let content_id = content_object_id(index);
+        let page_id = page_object_id(index);
+        let mut stream = String::new();
+        for op in &page.ops {
+            if let DrawOp::TextRun(run) = op {
+                stream.push_str("BT ");
+                stream.push_str(&format!("/F1 {} Tf ", run.size_pt));
+                stream.push_str(&format!(
+                    "1 0 0 1 {} {} Tm ",
+                    run.origin.x,
+                    page.height_pt - run.origin.y
+                ));
+                stream.push('(');
+                stream.push_str(&escape_pdf_text(&run.text));
+                stream.push_str(") Tj ET ");
+            }
+        }
+        objects.push(format!(
+            "{content_id} 0 obj << /Length {} >> stream\n{}\nendstream\nendobj\n",
+            stream.len(),
+            stream
+        ));
+        objects.push(format!(
+            "{page_id} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << /F1 3 0 R >> >> /Contents {content_id} 0 R >> endobj\n",
+            page.width_pt,
+            page.height_pt
+        ));
+    }
+
+    let mut pdf = Vec::new();
+    pdf.extend_from_slice(b"%PDF-1.4\n");
+    let mut offsets = vec![0usize];
+    for object in &objects {
+        offsets.push(pdf.len());
+        pdf.extend_from_slice(object.as_bytes());
+    }
+
+    let xref_offset = pdf.len();
+    pdf.extend_from_slice(format!("xref\n0 {}\n", objects.len() + 1).as_bytes());
+    pdf.extend_from_slice(b"0000000000 65535 f \n");
+    for offset in offsets.iter().skip(1) {
+        pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend_from_slice(
+        format!(
+            "trailer << /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
+            objects.len() + 1,
+            xref_offset
+        )
+        .as_bytes(),
+    );
+
+    pdf
 }
 
 pub fn render_page_svg(page: &PageLayout, options: &LayoutOptions) -> String {
@@ -161,8 +235,12 @@ fn page_object_id(index: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use tex_layout::{LayoutOptions, layout_text};
+    use tex_render_model::{
+        DrawOp, FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape, PageDisplayList,
+        Point, PositionedTextRun, SourceProvenance,
+    };
 
-    use super::{render_page_svg, render_pdf, render_single_page_pdf};
+    use super::{render_display_list_pdf, render_page_svg, render_pdf, render_single_page_pdf};
 
     #[test]
     fn emits_valid_pdf_header_and_trailer() {
@@ -235,5 +313,67 @@ mod tests {
         assert!(svg.starts_with("<svg "));
         assert!(svg.contains("&amp;"));
         assert!(svg.contains("<text "));
+    }
+
+    #[test]
+    fn renders_display_list_text_runs_as_pdf_text() {
+        let pdf = render_display_list_pdf(&[PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::TextRun(PositionedTextRun {
+                origin: Point { x: 72.0, y: 72.0 },
+                text: "Hello display list".to_string(),
+                font: FontRequest {
+                    family: FontFamilyRequest::Serif,
+                    series: FontSeries::Regular,
+                    shape: FontShape::Upright,
+                    size_pt: 11.0,
+                    role: FontRole::Body,
+                },
+                size_pt: 11.0,
+                approximate_advance_pt: 99.0,
+                glyphs: None,
+                clusters: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        }]);
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(text.starts_with("%PDF-1.4"));
+        assert!(text.contains("/Count 1"));
+        assert!(text.contains("/F1 11 Tf 1 0 0 1 72 720 Tm (Hello display list) Tj"));
+    }
+
+    #[test]
+    fn display_list_pdf_escapes_text_runs() {
+        let pdf = render_display_list_pdf(&[PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::TextRun(PositionedTextRun {
+                origin: Point { x: 72.0, y: 72.0 },
+                text: r#"hello (pdf) \ display"#.to_string(),
+                font: FontRequest {
+                    family: FontFamilyRequest::Serif,
+                    series: FontSeries::Regular,
+                    shape: FontShape::Upright,
+                    size_pt: 11.0,
+                    role: FontRole::Body,
+                },
+                size_pt: 11.0,
+                approximate_advance_pt: 99.0,
+                glyphs: None,
+                clusters: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        }]);
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(text.contains(r#"(hello \(pdf\) \\ display) Tj"#));
     }
 }

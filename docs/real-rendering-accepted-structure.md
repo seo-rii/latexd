@@ -55,6 +55,8 @@ The next implementation step has started with a narrow display-list spike:
 - `glyphs` and `clusters` remain absent by design;
 - compact integration goldens now cover `RenderEvent -> DocumentIr ->
   PageDisplayList`;
+- `tex-pdf` can render text-only `PageDisplayList` pages into searchable PDF
+  text operations without consuming `DocumentIr` directly;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:

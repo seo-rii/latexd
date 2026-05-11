@@ -1334,6 +1334,7 @@ name = "tex-pdf"
 version = "0.1.0"
 dependencies = [
  "tex-layout",
+ "tex-render-model",
 ]
 
 [[package]]

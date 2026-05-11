@@ -3,6 +3,7 @@ use std::{env, fs, path::Path};
 use latexd::compiler::capture_internal_render_ir;
 use tex_aux::SemanticAux;
 use tex_layout::{PageDisplayListOptions, build_page_display_lists};
+use tex_pdf::render_display_list_pdf;
 use tex_render_model::DrawOp;
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole};
 
@@ -46,6 +47,10 @@ fn compact_render_ir_capture_matches_goldens() {
             DrawOp::TextRun(run) if run.text == "A Paper" && run.glyphs.is_none()
         )
     }));
+    let pdf = render_display_list_pdf(&display_lists);
+    let pdf_text = String::from_utf8_lossy(&pdf);
+    assert!(pdf_text.starts_with("%PDF-1.4"));
+    assert!(pdf_text.contains("(A Paper) Tj"));
 }
 
 #[test]

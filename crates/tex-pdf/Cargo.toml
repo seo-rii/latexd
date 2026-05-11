@@ -6,4 +6,4 @@ license.workspace = true
 
 [dependencies]
 tex-layout = { path = "../tex-layout" }
-
+tex-render-model = { path = "../tex-render-model" }
