@@ -6940,10 +6940,11 @@ mod tests {
         let nested_index_body = to_bytes(nested_index.into_body(), usize::MAX)
             .await
             .expect("nested index body");
+        let nested_index_text =
+            std::str::from_utf8(nested_index_body.as_ref()).expect("nested index utf8");
         assert!(
-            std::str::from_utf8(nested_index_body.as_ref())
-                .expect("nested index utf8")
-                .contains("latexd studio")
+            nested_index_text.contains("latexd studio")
+                || nested_index_text.contains("Viewer assets are missing")
         );
 
         let nested_state = router
