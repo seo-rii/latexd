@@ -75,7 +75,32 @@ pub fn render_single_page_pdf(page: &PageLayout, options: &LayoutOptions) -> Vec
 
 pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
     let mut objects = Vec::new();
-    objects.push("1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n".to_string());
+    let mut destination_entries = Vec::new();
+    for (index, page) in pages.iter().enumerate() {
+        for op in &page.ops {
+            if let DrawOp::NamedDestination(destination) = op {
+                destination_entries.push(format!(
+                    "({}) [{} 0 R /XYZ {} {} null]",
+                    escape_pdf_text(&destination.name),
+                    page_object_id(index),
+                    destination.point.x,
+                    page.height_pt - destination.point.y
+                ));
+            }
+        }
+    }
+    let names = if destination_entries.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " /Names << /Dests << /Names [{}] >> >>",
+            destination_entries.join(" ")
+        )
+    };
+    objects.push(format!(
+        "1 0 obj << /Type /Catalog /Pages 2 0 R{} >> endobj\n",
+        names
+    ));
     objects.push(format!(
         "2 0 obj << /Type /Pages /Kids [{}] /Count {} >> endobj\n",
         pages
@@ -342,6 +367,16 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                     escape_xml_text(&link.target)
                 ));
             }
+            DrawOp::NamedDestination(destination) => {
+                body.push_str(&format!(
+                    "<g data-destination-name=\"{}\" data-destination-x=\"{}\" data-destination-y=\"{}\"><circle cx=\"{}\" cy=\"{}\" r=\"3\" fill=\"#dc2626\"/></g>",
+                    escape_xml_text(&destination.name),
+                    destination.point.x,
+                    destination.point.y,
+                    destination.point.x,
+                    destination.point.y
+                ));
+            }
             _ => {}
         }
     }
@@ -442,8 +477,8 @@ fn page_object_id(index: usize) -> usize {
 mod tests {
     use tex_layout::{LayoutOptions, layout_text};
     use tex_render_model::{
-        DrawOp, ExpansionFrame, FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape,
-        LinkAnnotation, PageDisplayList, Point, PositionedTextRun, ProvenanceSpan, Rect,
+        Destination, DrawOp, ExpansionFrame, FontFamilyRequest, FontRequest, FontRole, FontSeries,
+        FontShape, LinkAnnotation, PageDisplayList, Point, PositionedTextRun, ProvenanceSpan, Rect,
         SourceProvenance, SourceSpan, SourceSpanRole,
     };
 
@@ -697,5 +732,31 @@ mod tests {
         assert!(pdf_text.contains("/URI (https://example.com/a?b=1&c=2)"));
         assert!(svg.contains("<a href=\"https://example.com/a?b=1&amp;c=2\">"));
         assert!(svg.contains("data-link-target=\"https://example.com/a?b=1&amp;c=2\""));
+    }
+
+    #[test]
+    fn renders_display_list_named_destinations_to_pdf_and_svg() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::NamedDestination(Destination {
+                name: "sec:intro&more".to_string(),
+                point: Point { x: 72.0, y: 72.0 },
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf(&[page.clone()]);
+        let pdf_text = String::from_utf8_lossy(&pdf);
+        let svg = render_display_list_svg(&page);
+
+        assert!(pdf_text.contains("/Names << /Dests << /Names ["));
+        assert!(pdf_text.contains("(sec:intro&more) [5 0 R /XYZ 72 720 null]"));
+        assert!(svg.contains("data-destination-name=\"sec:intro&amp;more\""));
+        assert!(svg.contains("data-destination-x=\"72\""));
+        assert!(svg.contains("data-destination-y=\"72\""));
+        assert!(svg.contains("<circle cx=\"72\" cy=\"72\" r=\"3\" fill=\"#dc2626\"/>"));
     }
 }

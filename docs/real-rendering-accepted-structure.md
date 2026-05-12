@@ -66,6 +66,8 @@ The next implementation step has started with a narrow display-list spike:
   simple `Rule` rectangles;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
+- display-list PDF/SVG debug rendering now exposes `NamedDestination`
+  operations through PDF named destinations and SVG destination markers;
 - display-list SVG text elements include primary source attributes plus related
   source roles and span identifiers for source-sync inspection;
 - display-list SVG text elements also include bounded expansion stack depth,
