@@ -178,14 +178,33 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                     tex_render_model::FontShape::Upright => "normal",
                     tex_render_model::FontShape::Italic => "italic",
                 };
+                let mut source_attrs = String::new();
+                match &run.source.primary {
+                    tex_render_model::ProvenanceSpan::File(span) => {
+                        source_attrs.push_str(&format!(
+                            " data-source-kind=\"file\" data-source-path=\"{}\" data-source-start-utf8=\"{}\" data-source-end-utf8=\"{}\"",
+                            escape_xml_text(span.path.as_str()),
+                            span.start_utf8,
+                            span.end_utf8
+                        ));
+                    }
+                    tex_render_model::ProvenanceSpan::Generated(span) => {
+                        source_attrs.push_str(&format!(
+                            " data-source-kind=\"generated\" data-source-generated-id=\"{}\" data-source-description=\"{}\"",
+                            escape_xml_text(&span.stable_id),
+                            escape_xml_text(&span.description)
+                        ));
+                    }
+                }
                 body.push_str(&format!(
-                    "<text x=\"{}\" y=\"{}\" font-family=\"{}\" font-size=\"{}\" font-weight=\"{}\" font-style=\"{}\">{}</text>",
+                    "<text x=\"{}\" y=\"{}\" font-family=\"{}\" font-size=\"{}\" font-weight=\"{}\" font-style=\"{}\"{}>{}</text>",
                     run.origin.x,
                     run.origin.y,
                     escape_xml_text(family),
                     run.size_pt,
                     weight,
                     style,
+                    source_attrs,
                     escape_xml_text(&run.text)
                 ));
             }
@@ -482,6 +501,10 @@ mod tests {
         );
         assert!(svg.contains("font-weight=\"700\""));
         assert!(svg.contains("font-style=\"italic\""));
+        assert!(svg.contains("data-source-kind=\"file\""));
+        assert!(svg.contains("data-source-path=\"main.tex\""));
+        assert!(svg.contains("data-source-start-utf8=\"0\""));
+        assert!(svg.contains("data-source-end-utf8=\"10\""));
         assert!(svg.contains("Rule &amp; text"));
     }
 }

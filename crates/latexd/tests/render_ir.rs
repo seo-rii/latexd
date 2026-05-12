@@ -150,7 +150,7 @@ fn compact_render_ir_capture_writes_debug_artifacts() {
     assert!(
         fs::read_to_string(&paths.display_list_svgs[0])
             .expect("display list svg")
-            .contains("<text ")
+            .contains("data-source-path=\"main.tex\"")
     );
     assert!(
         fs::read(paths.display_list_pdf)
