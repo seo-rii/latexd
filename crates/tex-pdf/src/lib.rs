@@ -124,6 +124,21 @@ pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
         let mut annotation_refs = Vec::new();
         for op in &page.ops {
             match op {
+                DrawOp::Save => {
+                    stream.push_str("q ");
+                }
+                DrawOp::Restore => {
+                    stream.push_str("Q ");
+                }
+                DrawOp::ClipRect(rect) => {
+                    stream.push_str(&format!(
+                        "{} {} {} {} re W n ",
+                        rect.x,
+                        page.height_pt - rect.y - rect.height,
+                        rect.width,
+                        rect.height
+                    ));
+                }
                 DrawOp::TextRun(run) => {
                     stream.push_str("BT ");
                     stream.push_str(&format!("/F1 {} Tf ", run.size_pt));
@@ -208,8 +223,40 @@ pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
 
 pub fn render_display_list_svg(page: &PageDisplayList) -> String {
     let mut body = String::new();
+    let mut clip_index = 0usize;
+    let mut svg_group_stack = Vec::new();
     for op in &page.ops {
         match op {
+            DrawOp::Save => {
+                body.push_str("<g>");
+                svg_group_stack.push(true);
+            }
+            DrawOp::Restore => {
+                while let Some(is_save_group) = svg_group_stack.pop() {
+                    body.push_str("</g>");
+                    if is_save_group {
+                        break;
+                    }
+                }
+            }
+            DrawOp::ClipRect(rect) => {
+                let clip_id = format!("clip-{clip_index}");
+                clip_index += 1;
+                body.push_str(&format!(
+                    "<defs><clipPath id=\"{}\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/></clipPath></defs><g clip-path=\"url(#{})\" data-clip-rect=\"{},{},{},{}\">",
+                    clip_id,
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height,
+                    clip_id,
+                    rect.x,
+                    rect.y,
+                    rect.width,
+                    rect.height
+                ));
+                svg_group_stack.push(false);
+            }
             DrawOp::TextRun(run) => {
                 let family = match &run.font.family {
                     tex_render_model::FontFamilyRequest::Serif => "serif",
@@ -379,6 +426,9 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
             }
             _ => {}
         }
+    }
+    while svg_group_stack.pop().is_some() {
+        body.push_str("</g>");
     }
 
     format!(
@@ -701,6 +751,57 @@ mod tests {
         assert!(svg.contains("data-source-expansion-calls=\"file:main.tex:40:50\""));
         assert!(svg.contains("data-source-expansion-definitions=\"file:macros.tex:3:13\""));
         assert!(svg.contains("Rule &amp; text"));
+    }
+
+    #[test]
+    fn renders_display_list_clip_scope_to_pdf_and_svg() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![
+                DrawOp::Save,
+                DrawOp::ClipRect(Rect {
+                    x: 72.0,
+                    y: 80.0,
+                    width: 100.0,
+                    height: 40.0,
+                }),
+                DrawOp::TextRun(PositionedTextRun {
+                    origin: Point { x: 72.0, y: 96.0 },
+                    text: "Clipped text".to_string(),
+                    font: FontRequest {
+                        family: FontFamilyRequest::Serif,
+                        series: FontSeries::Regular,
+                        shape: FontShape::Upright,
+                        size_pt: 10.0,
+                        role: FontRole::Body,
+                    },
+                    size_pt: 10.0,
+                    approximate_advance_pt: 60.0,
+                    glyphs: None,
+                    clusters: None,
+                    source: SourceProvenance::file("main.tex", 0, 12),
+                }),
+                DrawOp::Restore,
+            ],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf(&[page.clone()]);
+        let pdf_text = String::from_utf8_lossy(&pdf);
+        let svg = render_display_list_svg(&page);
+
+        assert!(pdf_text.contains("q 72 672 100 40 re W n BT"));
+        assert!(pdf_text.contains("(Clipped text) Tj ET Q"));
+        assert!(
+            svg.contains(
+                "<clipPath id=\"clip-0\"><rect x=\"72\" y=\"80\" width=\"100\" height=\"40\"/></clipPath>"
+            )
+        );
+        assert!(svg.contains("<g clip-path=\"url(#clip-0)\" data-clip-rect=\"72,80,100,40\">"));
+        assert!(svg.contains("Clipped text"));
+        assert!(svg.contains("</g></g>"));
     }
 
     #[test]
