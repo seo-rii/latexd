@@ -247,6 +247,49 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                         escape_xml_text(&spans)
                     ));
                 }
+                if !run.source.expansion_stack.is_empty() {
+                    let span_descriptor = |span: &tex_render_model::ProvenanceSpan| match span {
+                        tex_render_model::ProvenanceSpan::File(span) => format!(
+                            "file:{}:{}:{}",
+                            span.path.as_str(),
+                            span.start_utf8,
+                            span.end_utf8
+                        ),
+                        tex_render_model::ProvenanceSpan::Generated(span) => {
+                            format!("generated:{}:{}", span.stable_id, span.description)
+                        }
+                    };
+                    let commands = run
+                        .source
+                        .expansion_stack
+                        .iter()
+                        .filter_map(|frame| frame.command_name.as_deref())
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    let calls = run
+                        .source
+                        .expansion_stack
+                        .iter()
+                        .map(|frame| span_descriptor(&frame.call_span))
+                        .collect::<Vec<_>>()
+                        .join(";");
+                    let definitions = run
+                        .source
+                        .expansion_stack
+                        .iter()
+                        .filter_map(|frame| frame.definition_span.as_ref())
+                        .map(span_descriptor)
+                        .collect::<Vec<_>>()
+                        .join(";");
+                    source_attrs.push_str(&format!(
+                        " data-source-expansion-depth=\"{}\" data-source-expansion-truncated=\"{}\" data-source-expansion-commands=\"{}\" data-source-expansion-calls=\"{}\" data-source-expansion-definitions=\"{}\"",
+                        run.source.expansion_stack.len(),
+                        run.source.expansion_stack_truncated,
+                        escape_xml_text(&commands),
+                        escape_xml_text(&calls),
+                        escape_xml_text(&definitions)
+                    ));
+                }
                 body.push_str(&format!(
                     "<text x=\"{}\" y=\"{}\" font-family=\"{}\" font-size=\"{}\" font-weight=\"{}\" font-style=\"{}\"{}>{}</text>",
                     run.origin.x,
@@ -365,9 +408,9 @@ fn page_object_id(index: usize) -> usize {
 mod tests {
     use tex_layout::{LayoutOptions, layout_text};
     use tex_render_model::{
-        DrawOp, FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape, PageDisplayList,
-        Point, PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan,
-        SourceSpanRole,
+        DrawOp, ExpansionFrame, FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape,
+        PageDisplayList, Point, PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance,
+        SourceSpan, SourceSpanRole,
     };
 
     use super::{
@@ -537,14 +580,28 @@ mod tests {
                     approximate_advance_pt: 60.0,
                     glyphs: None,
                     clusters: None,
-                    source: SourceProvenance::file("main.tex", 0, 10).with_related(
-                        SourceSpanRole::MetadataDefinition,
-                        ProvenanceSpan::File(SourceSpan {
-                            path: "main.tex".into(),
-                            start_utf8: 20,
-                            end_utf8: 30,
+                    source: SourceProvenance::file("main.tex", 0, 10)
+                        .with_related(
+                            SourceSpanRole::MetadataDefinition,
+                            ProvenanceSpan::File(SourceSpan {
+                                path: "main.tex".into(),
+                                start_utf8: 20,
+                                end_utf8: 30,
+                            }),
+                        )
+                        .with_expansion_frame(ExpansionFrame {
+                            call_span: ProvenanceSpan::File(SourceSpan {
+                                path: "main.tex".into(),
+                                start_utf8: 40,
+                                end_utf8: 50,
+                            }),
+                            definition_span: Some(ProvenanceSpan::File(SourceSpan {
+                                path: "macros.tex".into(),
+                                start_utf8: 3,
+                                end_utf8: 13,
+                            })),
+                            command_name: Some("mysection".to_string()),
                         }),
-                    ),
                 }),
             ],
             source_spans: Vec::new(),
@@ -569,6 +626,11 @@ mod tests {
         assert!(
             svg.contains("data-source-related-spans=\"metadata_definition:file:main.tex:20:30\"")
         );
+        assert!(svg.contains("data-source-expansion-depth=\"1\""));
+        assert!(svg.contains("data-source-expansion-truncated=\"false\""));
+        assert!(svg.contains("data-source-expansion-commands=\"mysection\""));
+        assert!(svg.contains("data-source-expansion-calls=\"file:main.tex:40:50\""));
+        assert!(svg.contains("data-source-expansion-definitions=\"file:macros.tex:3:13\""));
         assert!(svg.contains("Rule &amp; text"));
     }
 }

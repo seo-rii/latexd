@@ -160,7 +160,31 @@ fn compact_render_ir_capture_writes_debug_artifacts() {
     );
 }
 
+#[test]
+fn macro_heading_display_list_svg_preserves_expansion_provenance() {
+    let capture =
+        capture_internal_render_ir("main.tex", MACRO_SECTION_SOURCE, &SemanticAux::default());
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let output_dir = Utf8PathBuf::from_path_buf(tempdir.path().join("render-artifacts"))
+        .expect("utf8 temp path");
+
+    let paths = capture
+        .write_debug_artifacts(&output_dir)
+        .expect("write debug artifacts");
+    let display_list_svg =
+        fs::read_to_string(&paths.display_list_svgs[0]).expect("display list svg");
+
+    assert!(display_list_svg.contains(">Intro</text>"));
+    assert!(display_list_svg.contains("data-source-expansion-depth=\"1\""));
+    assert!(display_list_svg.contains("data-source-expansion-commands=\"mysection\""));
+    assert!(display_list_svg.contains("data-source-expansion-calls=\"file:main.tex:"));
+    assert!(display_list_svg.contains("data-source-expansion-definitions=\"file:main.tex:"));
+}
+
 const COMPACT_SOURCE: &str = r"\title{A Paper}\author{Ada Lovelace}\date{May 1843}\begin{document}\maketitle\begin{abstract}Short abstract.\end{abstract}\section{Intro}Hello \cite{key}.\[x^2\]\begin{thebibliography}{1}\bibitem{key} Author. Title.\end{thebibliography}\begin{unknownenv}Fallback text.\end{unknownenv}\end{document}";
+
+const MACRO_SECTION_SOURCE: &str =
+    r"\newcommand{\mysection}[1]{\section{#1}}\begin{document}\mysection{Intro}\end{document}";
 
 fn assert_or_update_golden(relative_path: &str, actual: &str) {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path);

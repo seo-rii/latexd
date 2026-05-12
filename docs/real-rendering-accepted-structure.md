@@ -66,6 +66,9 @@ The next implementation step has started with a narrow display-list spike:
   simple `Rule` rectangles;
 - display-list SVG text elements include primary source attributes plus related
   source roles and span identifiers for source-sync inspection;
+- display-list SVG text elements also include bounded expansion stack depth,
+  command names, call spans, and definition spans for macro provenance
+  inspection;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:
