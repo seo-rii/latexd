@@ -64,6 +64,8 @@ The next implementation step has started with a narrow display-list spike:
   and `display-list.pdf` into a debug artifact directory;
 - display-list PDF/SVG debug rendering now supports positioned text runs and
   simple `Rule` rectangles;
+- display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
+  as PDF link annotations and SVG clickable rectangles;
 - display-list SVG text elements include primary source attributes plus related
   source roles and span identifiers for source-sync inspection;
 - display-list SVG text elements also include bounded expansion stack depth,

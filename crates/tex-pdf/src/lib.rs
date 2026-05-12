@@ -90,10 +90,13 @@ pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
         "3 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n".to_string(),
     );
 
+    let mut annotation_objects = Vec::new();
+    let mut next_annotation_object_id = 4 + pages.len() * 2;
     for (index, page) in pages.iter().enumerate() {
         let content_id = content_object_id(index);
         let page_id = page_object_id(index);
         let mut stream = String::new();
+        let mut annotation_refs = Vec::new();
         for op in &page.ops {
             match op {
                 DrawOp::TextRun(run) => {
@@ -117,6 +120,19 @@ pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
                         rect.height
                     ));
                 }
+                DrawOp::LinkAnnotation(link) => {
+                    let annotation_id = next_annotation_object_id;
+                    next_annotation_object_id += 1;
+                    annotation_refs.push(format!("{annotation_id} 0 R"));
+                    annotation_objects.push(format!(
+                        "{annotation_id} 0 obj << /Type /Annot /Subtype /Link /Rect [{} {} {} {}] /Border [0 0 0] /A << /S /URI /URI ({}) >> >> endobj\n",
+                        link.rect.x,
+                        page.height_pt - link.rect.y - link.rect.height,
+                        link.rect.x + link.rect.width,
+                        page.height_pt - link.rect.y,
+                        escape_pdf_text(&link.target)
+                    ));
+                }
                 _ => {}
             }
         }
@@ -125,12 +141,19 @@ pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
             stream.len(),
             stream
         ));
+        let annotations = if annotation_refs.is_empty() {
+            String::new()
+        } else {
+            format!(" /Annots [{}]", annotation_refs.join(" "))
+        };
         objects.push(format!(
-            "{page_id} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << /F1 3 0 R >> >> /Contents {content_id} 0 R >> endobj\n",
+            "{page_id} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << /F1 3 0 R >> >> /Contents {content_id} 0 R{} >> endobj\n",
             page.width_pt,
-            page.height_pt
+            page.height_pt,
+            annotations
         ));
     }
+    objects.extend(annotation_objects);
 
     let mut pdf = Vec::new();
     pdf.extend_from_slice(b"%PDF-1.4\n");
@@ -308,6 +331,17 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                     rect.x, rect.y, rect.width, rect.height
                 ));
             }
+            DrawOp::LinkAnnotation(link) => {
+                body.push_str(&format!(
+                    "<a href=\"{}\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"#1d4ed8\" stroke-width=\"1\" data-link-target=\"{}\"/></a>",
+                    escape_xml_text(&link.target),
+                    link.rect.x,
+                    link.rect.y,
+                    link.rect.width,
+                    link.rect.height,
+                    escape_xml_text(&link.target)
+                ));
+            }
             _ => {}
         }
     }
@@ -409,8 +443,8 @@ mod tests {
     use tex_layout::{LayoutOptions, layout_text};
     use tex_render_model::{
         DrawOp, ExpansionFrame, FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape,
-        PageDisplayList, Point, PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance,
-        SourceSpan, SourceSpanRole,
+        LinkAnnotation, PageDisplayList, Point, PositionedTextRun, ProvenanceSpan, Rect,
+        SourceProvenance, SourceSpan, SourceSpanRole,
     };
 
     use super::{
@@ -632,5 +666,36 @@ mod tests {
         assert!(svg.contains("data-source-expansion-calls=\"file:main.tex:40:50\""));
         assert!(svg.contains("data-source-expansion-definitions=\"file:macros.tex:3:13\""));
         assert!(svg.contains("Rule &amp; text"));
+    }
+
+    #[test]
+    fn renders_display_list_link_annotations_to_pdf_and_svg() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::LinkAnnotation(LinkAnnotation {
+                rect: Rect {
+                    x: 72.0,
+                    y: 72.0,
+                    width: 80.0,
+                    height: 12.0,
+                },
+                target: "https://example.com/a?b=1&c=2".to_string(),
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf(&[page.clone()]);
+        let pdf_text = String::from_utf8_lossy(&pdf);
+        let svg = render_display_list_svg(&page);
+
+        assert!(pdf_text.contains("/Annots [6 0 R]"));
+        assert!(pdf_text.contains("/Subtype /Link"));
+        assert!(pdf_text.contains("/Rect [72 708 152 720]"));
+        assert!(pdf_text.contains("/URI (https://example.com/a?b=1&c=2)"));
+        assert!(svg.contains("<a href=\"https://example.com/a?b=1&amp;c=2\">"));
+        assert!(svg.contains("data-link-target=\"https://example.com/a?b=1&amp;c=2\""));
     }
 }
