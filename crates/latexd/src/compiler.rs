@@ -28,7 +28,7 @@ use tex_checkpoint::{
 };
 use tex_pdf::{
     PAGE_FONT_SIZE_PT, PAGE_LINE_HEIGHT_PT, PAGE_TEXT_LEFT_PT, PAGE_TEXT_TOP_PT,
-    render_display_list_pdf, render_page_svg, render_single_page_pdf,
+    render_display_list_pdf, render_display_list_svg, render_page_svg, render_single_page_pdf,
 };
 use tex_render_model::{AuxView, DocumentIr, PageDisplayList, RenderEventStream, to_pretty_json};
 use tex_tokens::ControlSequenceInterner;
@@ -86,6 +86,7 @@ pub struct InternalRenderArtifactPaths {
     pub events: Utf8PathBuf,
     pub document_ir: Utf8PathBuf,
     pub page_display_list: Utf8PathBuf,
+    pub display_list_svgs: Vec<Utf8PathBuf>,
     pub display_list_pdf: Utf8PathBuf,
 }
 
@@ -103,6 +104,12 @@ impl InternalRenderIrCapture {
             events: output_dir.join("events.json"),
             document_ir: output_dir.join("document-ir.json"),
             page_display_list: output_dir.join("page-display-list.json"),
+            display_list_svgs: self
+                .page_display_lists
+                .iter()
+                .enumerate()
+                .map(|(index, _)| output_dir.join(format!("display-list-page-{index}.svg")))
+                .collect(),
             display_list_pdf: output_dir.join("display-list.pdf"),
         };
 
@@ -125,6 +132,10 @@ impl InternalRenderIrCapture {
                 .context("failed to serialize page display-list artifact")?,
         )
         .with_context(|| format!("failed to write {}", paths.page_display_list))?;
+        for (page, path) in self.page_display_lists.iter().zip(&paths.display_list_svgs) {
+            fs::write(path.as_std_path(), render_display_list_svg(page))
+                .with_context(|| format!("failed to write {path}"))?;
+        }
         fs::write(paths.display_list_pdf.as_std_path(), &self.display_list_pdf)
             .with_context(|| format!("failed to write {}", paths.display_list_pdf))?;
 

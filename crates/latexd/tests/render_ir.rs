@@ -146,6 +146,12 @@ fn compact_render_ir_capture_writes_debug_artifacts() {
             .expect("display list json")
             .contains("\"kind\": \"text_run\"")
     );
+    assert_eq!(paths.display_list_svgs.len(), 1);
+    assert!(
+        fs::read_to_string(&paths.display_list_svgs[0])
+            .expect("display list svg")
+            .contains("<text ")
+    );
     assert!(
         fs::read(paths.display_list_pdf)
             .expect("display list pdf")

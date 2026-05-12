@@ -60,8 +60,10 @@ The next implementation step has started with a narrow display-list spike:
 - `latexd` internal captures now return the derived text-only
   `PageDisplayList` pages and display-list PDF bytes as debug/test artifacts;
 - the same capture can write `legacy-output.txt`, `events.json`,
-  `document-ir.json`, `page-display-list.json`, and `display-list.pdf` into a
-  debug artifact directory;
+  `document-ir.json`, `page-display-list.json`, `display-list-page-{n}.svg`,
+  and `display-list.pdf` into a debug artifact directory;
+- display-list PDF/SVG debug rendering now supports positioned text runs and
+  simple `Rule` rectangles;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:
@@ -805,7 +807,7 @@ Acceptance:
 - event/IR/display-list/PDF artifacts can be written for debugging;
 - compact smoke fixture has event, IR, and display-list goldens.
 - debug artifact writing covers legacy text, event JSON, IR JSON, display-list
-  JSON, and text-only display-list PDF bytes.
+  JSON, per-page display-list SVG, and text-only display-list PDF bytes.
 
 ## Recommended Compact Fixture
 

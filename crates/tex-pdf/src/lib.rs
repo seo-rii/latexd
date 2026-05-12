@@ -95,17 +95,29 @@ pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
         let page_id = page_object_id(index);
         let mut stream = String::new();
         for op in &page.ops {
-            if let DrawOp::TextRun(run) = op {
-                stream.push_str("BT ");
-                stream.push_str(&format!("/F1 {} Tf ", run.size_pt));
-                stream.push_str(&format!(
-                    "1 0 0 1 {} {} Tm ",
-                    run.origin.x,
-                    page.height_pt - run.origin.y
-                ));
-                stream.push('(');
-                stream.push_str(&escape_pdf_text(&run.text));
-                stream.push_str(") Tj ET ");
+            match op {
+                DrawOp::TextRun(run) => {
+                    stream.push_str("BT ");
+                    stream.push_str(&format!("/F1 {} Tf ", run.size_pt));
+                    stream.push_str(&format!(
+                        "1 0 0 1 {} {} Tm ",
+                        run.origin.x,
+                        page.height_pt - run.origin.y
+                    ));
+                    stream.push('(');
+                    stream.push_str(&escape_pdf_text(&run.text));
+                    stream.push_str(") Tj ET ");
+                }
+                DrawOp::Rule(rect) => {
+                    stream.push_str(&format!(
+                        "q {} {} {} {} re f Q ",
+                        rect.x,
+                        page.height_pt - rect.y - rect.height,
+                        rect.width,
+                        rect.height
+                    ));
+                }
+                _ => {}
             }
         }
         objects.push(format!(
@@ -144,6 +156,53 @@ pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
     );
 
     pdf
+}
+
+pub fn render_display_list_svg(page: &PageDisplayList) -> String {
+    let mut body = String::new();
+    for op in &page.ops {
+        match op {
+            DrawOp::TextRun(run) => {
+                let family = match &run.font.family {
+                    tex_render_model::FontFamilyRequest::Serif => "serif",
+                    tex_render_model::FontFamilyRequest::Sans => "sans-serif",
+                    tex_render_model::FontFamilyRequest::Mono => "monospace",
+                    tex_render_model::FontFamilyRequest::Math => "serif",
+                    tex_render_model::FontFamilyRequest::Named(name) => name.as_str(),
+                };
+                let weight = match run.font.series {
+                    tex_render_model::FontSeries::Regular => "400",
+                    tex_render_model::FontSeries::Bold => "700",
+                };
+                let style = match run.font.shape {
+                    tex_render_model::FontShape::Upright => "normal",
+                    tex_render_model::FontShape::Italic => "italic",
+                };
+                body.push_str(&format!(
+                    "<text x=\"{}\" y=\"{}\" font-family=\"{}\" font-size=\"{}\" font-weight=\"{}\" font-style=\"{}\">{}</text>",
+                    run.origin.x,
+                    run.origin.y,
+                    escape_xml_text(family),
+                    run.size_pt,
+                    weight,
+                    style,
+                    escape_xml_text(&run.text)
+                ));
+            }
+            DrawOp::Rule(rect) => {
+                body.push_str(&format!(
+                    "<rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"black\"/>",
+                    rect.x, rect.y, rect.width, rect.height
+                ));
+            }
+            _ => {}
+        }
+    }
+
+    format!(
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{}\" height=\"{}\" viewBox=\"0 0 {} {}\"><rect width=\"100%\" height=\"100%\" fill=\"white\"/>{}</svg>",
+        page.width_pt, page.height_pt, page.width_pt, page.height_pt, body
+    )
 }
 
 pub fn render_page_svg(page: &PageLayout, options: &LayoutOptions) -> String {
@@ -237,10 +296,13 @@ mod tests {
     use tex_layout::{LayoutOptions, layout_text};
     use tex_render_model::{
         DrawOp, FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape, PageDisplayList,
-        Point, PositionedTextRun, SourceProvenance,
+        Point, PositionedTextRun, Rect, SourceProvenance,
     };
 
-    use super::{render_display_list_pdf, render_page_svg, render_pdf, render_single_page_pdf};
+    use super::{
+        render_display_list_pdf, render_display_list_svg, render_page_svg, render_pdf,
+        render_single_page_pdf,
+    };
 
     #[test]
     fn emits_valid_pdf_header_and_trailer() {
@@ -375,5 +437,51 @@ mod tests {
         let text = String::from_utf8_lossy(&pdf);
 
         assert!(text.contains(r#"(hello \(pdf\) \\ display) Tj"#));
+    }
+
+    #[test]
+    fn renders_display_list_rules_to_pdf_and_svg() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![
+                DrawOp::Rule(Rect {
+                    x: 72.0,
+                    y: 90.0,
+                    width: 144.0,
+                    height: 2.0,
+                }),
+                DrawOp::TextRun(PositionedTextRun {
+                    origin: Point { x: 72.0, y: 72.0 },
+                    text: "Rule & text".to_string(),
+                    font: FontRequest {
+                        family: FontFamilyRequest::Serif,
+                        series: FontSeries::Bold,
+                        shape: FontShape::Italic,
+                        size_pt: 11.0,
+                        role: FontRole::Body,
+                    },
+                    size_pt: 11.0,
+                    approximate_advance_pt: 60.0,
+                    glyphs: None,
+                    clusters: None,
+                    source: SourceProvenance::file("main.tex", 0, 10),
+                }),
+            ],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf(&[page.clone()]);
+        let pdf_text = String::from_utf8_lossy(&pdf);
+        let svg = render_display_list_svg(&page);
+
+        assert!(pdf_text.contains("q 72 700 144 2 re f Q"));
+        assert!(
+            svg.contains("<rect x=\"72\" y=\"90\" width=\"144\" height=\"2\" fill=\"black\"/>")
+        );
+        assert!(svg.contains("font-weight=\"700\""));
+        assert!(svg.contains("font-style=\"italic\""));
+        assert!(svg.contains("Rule &amp; text"));
     }
 }
