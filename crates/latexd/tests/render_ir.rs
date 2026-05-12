@@ -151,6 +151,7 @@ fn compact_render_ir_capture_writes_debug_artifacts() {
         fs::read_to_string(&paths.display_list_svgs[0]).expect("display list svg");
     assert!(display_list_svg.contains("data-source-path=\"main.tex\""));
     assert!(display_list_svg.contains("data-source-related-roles=\""));
+    assert!(display_list_svg.contains("data-source-related-spans=\""));
     assert!(display_list_svg.contains("metadata_definition"));
     assert!(
         fs::read(paths.display_list_pdf)

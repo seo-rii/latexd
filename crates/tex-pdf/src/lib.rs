@@ -197,31 +197,54 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                     }
                 }
                 if !run.source.related.is_empty() {
+                    let role_name = |role| match role {
+                        tex_render_model::SourceSpanRole::Invocation => "invocation",
+                        tex_render_model::SourceSpanRole::Argument => "argument",
+                        tex_render_model::SourceSpanRole::ArgumentContent => "argument_content",
+                        tex_render_model::SourceSpanRole::Definition => "definition",
+                        tex_render_model::SourceSpanRole::EmitSite => "emit_site",
+                        tex_render_model::SourceSpanRole::CitationKey => "citation_key",
+                        tex_render_model::SourceSpanRole::MetadataDefinition => {
+                            "metadata_definition"
+                        }
+                        tex_render_model::SourceSpanRole::SyntheticNumbering => {
+                            "synthetic_numbering"
+                        }
+                        tex_render_model::SourceSpanRole::FallbackSource => "fallback_source",
+                    };
                     let roles = run
                         .source
                         .related
                         .iter()
-                        .map(|related| match related.role {
-                            tex_render_model::SourceSpanRole::Invocation => "invocation",
-                            tex_render_model::SourceSpanRole::Argument => "argument",
-                            tex_render_model::SourceSpanRole::ArgumentContent => "argument_content",
-                            tex_render_model::SourceSpanRole::Definition => "definition",
-                            tex_render_model::SourceSpanRole::EmitSite => "emit_site",
-                            tex_render_model::SourceSpanRole::CitationKey => "citation_key",
-                            tex_render_model::SourceSpanRole::MetadataDefinition => {
-                                "metadata_definition"
-                            }
-                            tex_render_model::SourceSpanRole::SyntheticNumbering => {
-                                "synthetic_numbering"
-                            }
-                            tex_render_model::SourceSpanRole::FallbackSource => "fallback_source",
-                        })
+                        .map(|related| role_name(related.role))
                         .collect::<Vec<_>>()
                         .join(",");
+                    let spans = run
+                        .source
+                        .related
+                        .iter()
+                        .map(|related| match &related.span {
+                            tex_render_model::ProvenanceSpan::File(span) => format!(
+                                "{}:file:{}:{}:{}",
+                                role_name(related.role),
+                                span.path.as_str(),
+                                span.start_utf8,
+                                span.end_utf8
+                            ),
+                            tex_render_model::ProvenanceSpan::Generated(span) => format!(
+                                "{}:generated:{}:{}",
+                                role_name(related.role),
+                                span.stable_id,
+                                span.description
+                            ),
+                        })
+                        .collect::<Vec<_>>()
+                        .join(";");
                     source_attrs.push_str(&format!(
-                        " data-source-related-count=\"{}\" data-source-related-roles=\"{}\"",
+                        " data-source-related-count=\"{}\" data-source-related-roles=\"{}\" data-source-related-spans=\"{}\"",
                         run.source.related.len(),
-                        escape_xml_text(&roles)
+                        escape_xml_text(&roles),
+                        escape_xml_text(&spans)
                     ));
                 }
                 body.push_str(&format!(
@@ -543,6 +566,9 @@ mod tests {
         assert!(svg.contains("data-source-end-utf8=\"10\""));
         assert!(svg.contains("data-source-related-count=\"1\""));
         assert!(svg.contains("data-source-related-roles=\"metadata_definition\""));
+        assert!(
+            svg.contains("data-source-related-spans=\"metadata_definition:file:main.tex:20:30\"")
+        );
         assert!(svg.contains("Rule &amp; text"));
     }
 }
