@@ -147,11 +147,11 @@ fn compact_render_ir_capture_writes_debug_artifacts() {
             .contains("\"kind\": \"text_run\"")
     );
     assert_eq!(paths.display_list_svgs.len(), 1);
-    assert!(
-        fs::read_to_string(&paths.display_list_svgs[0])
-            .expect("display list svg")
-            .contains("data-source-path=\"main.tex\"")
-    );
+    let display_list_svg =
+        fs::read_to_string(&paths.display_list_svgs[0]).expect("display list svg");
+    assert!(display_list_svg.contains("data-source-path=\"main.tex\""));
+    assert!(display_list_svg.contains("data-source-related-roles=\""));
+    assert!(display_list_svg.contains("metadata_definition"));
     assert!(
         fs::read(paths.display_list_pdf)
             .expect("display list pdf")

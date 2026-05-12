@@ -64,8 +64,8 @@ The next implementation step has started with a narrow display-list spike:
   and `display-list.pdf` into a debug artifact directory;
 - display-list PDF/SVG debug rendering now supports positioned text runs and
   simple `Rule` rectangles;
-- display-list SVG text elements include primary source provenance attributes
-  for source-sync inspection;
+- display-list SVG text elements include primary and related source provenance
+  attributes for source-sync inspection;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:

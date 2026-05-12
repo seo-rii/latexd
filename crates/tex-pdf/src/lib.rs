@@ -196,6 +196,34 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                         ));
                     }
                 }
+                if !run.source.related.is_empty() {
+                    let roles = run
+                        .source
+                        .related
+                        .iter()
+                        .map(|related| match related.role {
+                            tex_render_model::SourceSpanRole::Invocation => "invocation",
+                            tex_render_model::SourceSpanRole::Argument => "argument",
+                            tex_render_model::SourceSpanRole::ArgumentContent => "argument_content",
+                            tex_render_model::SourceSpanRole::Definition => "definition",
+                            tex_render_model::SourceSpanRole::EmitSite => "emit_site",
+                            tex_render_model::SourceSpanRole::CitationKey => "citation_key",
+                            tex_render_model::SourceSpanRole::MetadataDefinition => {
+                                "metadata_definition"
+                            }
+                            tex_render_model::SourceSpanRole::SyntheticNumbering => {
+                                "synthetic_numbering"
+                            }
+                            tex_render_model::SourceSpanRole::FallbackSource => "fallback_source",
+                        })
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    source_attrs.push_str(&format!(
+                        " data-source-related-count=\"{}\" data-source-related-roles=\"{}\"",
+                        run.source.related.len(),
+                        escape_xml_text(&roles)
+                    ));
+                }
                 body.push_str(&format!(
                     "<text x=\"{}\" y=\"{}\" font-family=\"{}\" font-size=\"{}\" font-weight=\"{}\" font-style=\"{}\"{}>{}</text>",
                     run.origin.x,
@@ -315,7 +343,8 @@ mod tests {
     use tex_layout::{LayoutOptions, layout_text};
     use tex_render_model::{
         DrawOp, FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape, PageDisplayList,
-        Point, PositionedTextRun, Rect, SourceProvenance,
+        Point, PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan,
+        SourceSpanRole,
     };
 
     use super::{
@@ -485,7 +514,14 @@ mod tests {
                     approximate_advance_pt: 60.0,
                     glyphs: None,
                     clusters: None,
-                    source: SourceProvenance::file("main.tex", 0, 10),
+                    source: SourceProvenance::file("main.tex", 0, 10).with_related(
+                        SourceSpanRole::MetadataDefinition,
+                        ProvenanceSpan::File(SourceSpan {
+                            path: "main.tex".into(),
+                            start_utf8: 20,
+                            end_utf8: 30,
+                        }),
+                    ),
                 }),
             ],
             source_spans: Vec::new(),
@@ -505,6 +541,8 @@ mod tests {
         assert!(svg.contains("data-source-path=\"main.tex\""));
         assert!(svg.contains("data-source-start-utf8=\"0\""));
         assert!(svg.contains("data-source-end-utf8=\"10\""));
+        assert!(svg.contains("data-source-related-count=\"1\""));
+        assert!(svg.contains("data-source-related-roles=\"metadata_definition\""));
         assert!(svg.contains("Rule &amp; text"));
     }
 }
