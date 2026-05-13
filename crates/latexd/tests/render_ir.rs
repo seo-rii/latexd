@@ -2,7 +2,7 @@ use std::{env, fs, path::Path};
 
 use camino::Utf8PathBuf;
 use latexd::compiler::capture_internal_render_ir;
-use tex_aux::SemanticAux;
+use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{CitationStyleHint, DrawOp, to_pretty_json};
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole};
 
@@ -455,6 +455,71 @@ fn reference_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn aux_resolved_references_and_citations_survive_ir_and_display_list() {
+    let mut aux = SemanticAux::default();
+    aux.labels.push(SemanticLabel {
+        key: "sec:intro".to_string(),
+        number: "1".to_string(),
+        page: 1,
+        file: Utf8PathBuf::from("main.tex"),
+        offset_utf8: 0,
+    });
+    aux.bibliography.push(BibliographyEntry {
+        key: "key".to_string(),
+        text: "Author. Title.".to_string(),
+        label: Some("7".to_string()),
+        file: Utf8PathBuf::from("refs.bbl"),
+    });
+
+    let capture = capture_internal_render_ir("main.tex", AUX_RESOLUTION_SOURCE, &aux);
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Reference(reference)
+                if reference.keys == vec!["sec:intro".to_string()]
+                    && reference.resolved_target.as_deref() == Some("1")
+                    && reference.display_text == "1"
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Citation(citation)
+                if citation.keys == vec!["key".to_string()]
+                    && citation.resolved_label.as_deref() == Some("[7]")
+                    && citation.display_text == "[7]"
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("See 1 and [7]."));
+    assert!(!extracted_text.contains("sec:intro"));
+    assert!(!extracted_text.contains("key."));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("See 1 and [7]."));
+    assert!(!display_list_text.contains("sec:intro"));
+}
+
+#[test]
 fn label_definition_capture_survives_ir_without_visible_key() {
     let capture = capture_internal_render_ir("main.tex", LABEL_SOURCE, &SemanticAux::default());
 
@@ -564,6 +629,9 @@ const CITATION_VARIANTS_SOURCE: &str = r"\begin{document}\citep[see][p.~3]{alpha
 
 const REFERENCE_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \eqref{eq:main}; \cref{fig:a,tab:b}.\end{document}";
+
+const AUX_RESOLUTION_SOURCE: &str =
+    r"\begin{document}See \ref{sec:intro} and \cite{key}.\end{document}";
 
 const LABEL_SOURCE: &str =
     r"\begin{document}\section{Intro}\label{sec:intro}See \ref{sec:intro}.\end{document}";

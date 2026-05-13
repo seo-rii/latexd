@@ -1685,6 +1685,7 @@ impl<'i> Vm<'i> {
         }
         let mut pending_word = String::new();
         let mut saw_space = false;
+        let mut emitted_any = false;
         for ch in source[start..end].chars() {
             if ch.is_whitespace() {
                 if !pending_word.is_empty() {
@@ -1694,6 +1695,7 @@ impl<'i> Vm<'i> {
                         }),
                         SourceProvenance::file(source_path.to_owned(), start as u32, end as u32),
                     );
+                    emitted_any = true;
                 }
                 saw_space = true;
                 continue;
@@ -1705,6 +1707,7 @@ impl<'i> Vm<'i> {
                     }),
                     SourceProvenance::file(source_path.to_owned(), start as u32, end as u32),
                 );
+                emitted_any = true;
                 saw_space = false;
             }
             pending_word.push(ch);
@@ -1712,6 +1715,13 @@ impl<'i> Vm<'i> {
         if !pending_word.is_empty() {
             self.emit_render_event(
                 RenderEvent::Text(TextEvent { text: pending_word }),
+                SourceProvenance::file(source_path.to_owned(), start as u32, end as u32),
+            );
+        } else if saw_space && emitted_any {
+            self.emit_render_event(
+                RenderEvent::Space(SpaceEvent {
+                    kind: SpaceKind::Interword,
+                }),
                 SourceProvenance::file(source_path.to_owned(), start as u32, end as u32),
             );
         }

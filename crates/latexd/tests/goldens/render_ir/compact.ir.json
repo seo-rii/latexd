@@ -167,6 +167,21 @@
           }
         },
         {
+          "kind": "space",
+          "source": {
+            "primary": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 137,
+              "end_utf8": 143
+            },
+            "related": [],
+            "expansion_stack": [],
+            "generated_by": "source",
+            "expansion_stack_truncated": false
+          }
+        },
+        {
           "kind": "citation",
           "keys": [
             "key"

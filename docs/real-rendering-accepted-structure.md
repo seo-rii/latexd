@@ -88,6 +88,10 @@ The next implementation step has started with a narrow display-list spike:
   unresolved references as placeholders instead of leaking raw label keys;
 - VM render-event capture now emits `LabelDefinition` events for `\label{...}`,
   and `DocumentIr` preserves labels as invisible metadata rather than body text;
+- `SemanticAux`-backed citation labels and reference targets now have latexd
+  integration coverage through `RenderEvent -> DocumentIr -> PageDisplayList`;
+- VM text capture preserves trailing interword spaces before migrated inline
+  commands so citations/references do not merge into preceding words;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`

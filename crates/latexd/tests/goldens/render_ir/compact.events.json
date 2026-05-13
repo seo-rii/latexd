@@ -275,6 +275,30 @@
     },
     {
       "event": {
+        "kind": "space",
+        "space_kind": "interword"
+      },
+      "meta": {
+        "event_id": 12,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 137,
+            "end_utf8": 143
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        },
+        "mode_hint": "unknown",
+        "confidence": "high",
+        "producer": "command"
+      }
+    },
+    {
+      "event": {
         "kind": "inline_citation",
         "keys": [
           "key"
@@ -283,7 +307,7 @@
         "style_hint": "numeric"
       },
       "meta": {
-        "event_id": 12,
+        "event_id": 13,
         "source": {
           "primary": {
             "kind": "file",
@@ -307,7 +331,7 @@
         "text": "."
       },
       "meta": {
-        "event_id": 13,
+        "event_id": 14,
         "source": {
           "primary": {
             "kind": "file",
@@ -331,7 +355,7 @@
         "raw_source": "x^2"
       },
       "meta": {
-        "event_id": 14,
+        "event_id": 15,
         "source": {
           "primary": {
             "kind": "file",
@@ -357,7 +381,7 @@
         }
       },
       "meta": {
-        "event_id": 15,
+        "event_id": 16,
         "source": {
           "primary": {
             "kind": "file",
@@ -382,7 +406,7 @@
         "text": "Author. Title."
       },
       "meta": {
-        "event_id": 16,
+        "event_id": 17,
         "source": {
           "primary": {
             "kind": "file",
@@ -408,7 +432,7 @@
         }
       },
       "meta": {
-        "event_id": 17,
+        "event_id": 18,
         "source": {
           "primary": {
             "kind": "file",
@@ -436,7 +460,7 @@
         "truncated": false
       },
       "meta": {
-        "event_id": 18,
+        "event_id": 19,
         "source": {
           "primary": {
             "kind": "file",

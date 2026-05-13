@@ -1,6 +1,6 @@
 [
   {
-    "page_id": "d34d90d16e5086b499891c9344303295d862401baa9c413028444cc00193fea6",
+    "page_id": "67c300be69bbbad27ea753e037f93f47f99e5a2266433905b4bd9752424ab7cd",
     "width_pt": 612.0,
     "height_pt": 792.0,
     "ops": [
@@ -239,7 +239,7 @@
           "x": 72.0,
           "y": 170.0
         },
-        "text": "Hello[?].",
+        "text": "Hello [?].",
         "font": {
           "family": "serif",
           "series": "regular",
@@ -248,7 +248,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 49.5,
+        "approximate_advance_pt": 55.0,
         "source": {
           "primary": {
             "kind": "file",
@@ -402,6 +402,6 @@
         "end_utf8": 284
       }
     ],
-    "content_hash": "1e5bdfeba76c7011e99dcb172bebde76f61ce167ee0e0cc533db33fe4870de50"
+    "content_hash": "45de8dfdd0dbbdb40c38db65806eb91aaf20d383274d28d31c3048b7bb1ce794"
   }
 ]
