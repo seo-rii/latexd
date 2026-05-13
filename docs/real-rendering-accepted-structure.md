@@ -92,6 +92,9 @@ The next implementation step has started with a narrow display-list spike:
   integration coverage through `RenderEvent -> DocumentIr -> PageDisplayList`;
 - VM text capture preserves trailing interword spaces before migrated inline
   commands so citations/references do not merge into preceding words;
+- `PageDisplayList` text generation preserves inline node provenance by
+  emitting positioned text runs for citation, reference, math, and fallback
+  segments instead of flattening an entire paragraph under the block source;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`

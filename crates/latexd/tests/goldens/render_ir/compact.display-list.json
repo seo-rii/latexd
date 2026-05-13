@@ -181,7 +181,7 @@
           "x": 72.0,
           "y": 128.0
         },
-        "text": "Short abstract.",
+        "text": "Short",
         "font": {
           "family": "serif",
           "series": "regular",
@@ -190,13 +190,71 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 82.5,
+        "approximate_advance_pt": 27.5,
         "source": {
           "primary": {
             "kind": "file",
             "path": "main.tex",
-            "start_utf8": 77,
-            "end_utf8": 93
+            "start_utf8": 93,
+            "end_utf8": 108
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      },
+      {
+        "kind": "text_run",
+        "origin": {
+          "x": 99.5,
+          "y": 128.0
+        },
+        "text": " ",
+        "font": {
+          "family": "serif",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0,
+          "role": "body"
+        },
+        "size_pt": 11.0,
+        "approximate_advance_pt": 5.5,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 93,
+            "end_utf8": 108
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      },
+      {
+        "kind": "text_run",
+        "origin": {
+          "x": 105.0,
+          "y": 128.0
+        },
+        "text": "abstract.",
+        "font": {
+          "family": "serif",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0,
+          "role": "body"
+        },
+        "size_pt": 11.0,
+        "approximate_advance_pt": 49.5,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 93,
+            "end_utf8": 108
           },
           "related": [],
           "expansion_stack": [],
@@ -239,7 +297,7 @@
           "x": 72.0,
           "y": 170.0
         },
-        "text": "Hello [?].",
+        "text": "Hello",
         "font": {
           "family": "serif",
           "series": "regular",
@@ -248,13 +306,100 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 55.0,
+        "approximate_advance_pt": 27.5,
         "source": {
           "primary": {
             "kind": "file",
             "path": "main.tex",
             "start_utf8": 137,
             "end_utf8": 143
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      },
+      {
+        "kind": "text_run",
+        "origin": {
+          "x": 99.5,
+          "y": 170.0
+        },
+        "text": " ",
+        "font": {
+          "family": "serif",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0,
+          "role": "body"
+        },
+        "size_pt": 11.0,
+        "approximate_advance_pt": 5.5,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 137,
+            "end_utf8": 143
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      },
+      {
+        "kind": "text_run",
+        "origin": {
+          "x": 105.0,
+          "y": 170.0
+        },
+        "text": "[?]",
+        "font": {
+          "family": "serif",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0,
+          "role": "body"
+        },
+        "size_pt": 11.0,
+        "approximate_advance_pt": 16.5,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 149,
+            "end_utf8": 152
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      },
+      {
+        "kind": "text_run",
+        "origin": {
+          "x": 121.5,
+          "y": 170.0
+        },
+        "text": ".",
+        "font": {
+          "family": "serif",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0,
+          "role": "body"
+        },
+        "size_pt": 11.0,
+        "approximate_advance_pt": 5.5,
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 153,
+            "end_utf8": 154
           },
           "related": [],
           "expansion_stack": [],
@@ -373,8 +518,8 @@
       },
       {
         "path": "main.tex",
-        "start_utf8": 77,
-        "end_utf8": 93
+        "start_utf8": 93,
+        "end_utf8": 108
       },
       {
         "path": "main.tex",
@@ -385,6 +530,16 @@
         "path": "main.tex",
         "start_utf8": 137,
         "end_utf8": 143
+      },
+      {
+        "path": "main.tex",
+        "start_utf8": 149,
+        "end_utf8": 152
+      },
+      {
+        "path": "main.tex",
+        "start_utf8": 153,
+        "end_utf8": 154
       },
       {
         "path": "main.tex",

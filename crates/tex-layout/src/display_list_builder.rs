@@ -43,8 +43,14 @@ struct PendingPage {
     text: String,
 }
 
-struct LogicalTextRun {
+#[derive(Clone)]
+struct LogicalTextSegment {
     text: String,
+    source: SourceProvenance,
+}
+
+struct LogicalTextRun {
+    segments: Vec<LogicalTextSegment>,
     source: SourceProvenance,
     font: FontRequest,
     size_pt: f32,
@@ -96,6 +102,55 @@ pub fn build_page_display_lists(
         size_pt: options.body_font_size_pt,
         role: FontRole::Math,
     };
+    let inline_segments = |content: &[InlineNode]| {
+        let mut segments = Vec::new();
+        for node in content {
+            match node {
+                InlineNode::Text { text, source } => {
+                    segments.push(LogicalTextSegment {
+                        text: text.clone(),
+                        source: source.clone(),
+                    });
+                }
+                InlineNode::Space { source } => {
+                    segments.push(LogicalTextSegment {
+                        text: " ".to_string(),
+                        source: source.clone(),
+                    });
+                }
+                InlineNode::Citation(citation) => {
+                    segments.push(LogicalTextSegment {
+                        text: citation.display_text.clone(),
+                        source: citation.source.clone(),
+                    });
+                }
+                InlineNode::Reference(reference) => {
+                    segments.push(LogicalTextSegment {
+                        text: reference.display_text.clone(),
+                        source: reference.source.clone(),
+                    });
+                }
+                InlineNode::InlineMath {
+                    raw_source, source, ..
+                } => {
+                    segments.push(LogicalTextSegment {
+                        text: raw_source.clone(),
+                        source: source.clone(),
+                    });
+                }
+                InlineNode::RawFallback(fallback) => {
+                    segments.push(LogicalTextSegment {
+                        text: fallback
+                            .normalized_visible_text
+                            .clone()
+                            .unwrap_or_else(|| fallback.source_excerpt.clone()),
+                        source: fallback.source.clone(),
+                    });
+                }
+            }
+        }
+        segments
+    };
 
     let mut logical_items = Vec::new();
     for block in &document_ir.blocks {
@@ -103,7 +158,10 @@ pub fn build_page_display_lists(
             IrBlock::TitleBlock(block) => {
                 if let Some(title) = &block.title {
                     logical_items.push(LogicalItem::Text(LogicalTextRun {
-                        text: title.clone(),
+                        segments: vec![LogicalTextSegment {
+                            text: title.clone(),
+                            source: block.source.clone(),
+                        }],
                         source: block.source.clone(),
                         font: title_font.clone(),
                         size_pt: options.title_font_size_pt,
@@ -112,7 +170,10 @@ pub fn build_page_display_lists(
                 }
                 for author in &block.authors {
                     logical_items.push(LogicalItem::Text(LogicalTextRun {
-                        text: author.clone(),
+                        segments: vec![LogicalTextSegment {
+                            text: author.clone(),
+                            source: block.source.clone(),
+                        }],
                         source: block.source.clone(),
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
@@ -121,7 +182,10 @@ pub fn build_page_display_lists(
                 }
                 if let Some(date) = &block.date {
                     logical_items.push(LogicalItem::Text(LogicalTextRun {
-                        text: date.clone(),
+                        segments: vec![LogicalTextSegment {
+                            text: date.clone(),
+                            source: block.source.clone(),
+                        }],
                         source: block.source.clone(),
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
@@ -130,27 +194,8 @@ pub fn build_page_display_lists(
                 }
             }
             IrBlock::Abstract(block) => {
-                let mut text = String::new();
-                for node in &block.content {
-                    match node {
-                        InlineNode::Text { text: value, .. } => text.push_str(value),
-                        InlineNode::Space { .. } => text.push(' '),
-                        InlineNode::Citation(citation) => text.push_str(&citation.display_text),
-                        InlineNode::Reference(reference) => {
-                            text.push_str(&reference.display_text);
-                        }
-                        InlineNode::InlineMath { raw_source, .. } => text.push_str(raw_source),
-                        InlineNode::RawFallback(fallback) => {
-                            if let Some(visible) = &fallback.normalized_visible_text {
-                                text.push_str(visible);
-                            } else {
-                                text.push_str(&fallback.source_excerpt);
-                            }
-                        }
-                    }
-                }
                 logical_items.push(LogicalItem::Text(LogicalTextRun {
-                    text,
+                    segments: inline_segments(&block.content),
                     source: block.source.clone(),
                     font: body_font.clone(),
                     size_pt: options.body_font_size_pt,
@@ -158,27 +203,8 @@ pub fn build_page_display_lists(
                 }));
             }
             IrBlock::Heading(block) => {
-                let mut text = String::new();
-                for node in &block.content {
-                    match node {
-                        InlineNode::Text { text: value, .. } => text.push_str(value),
-                        InlineNode::Space { .. } => text.push(' '),
-                        InlineNode::Citation(citation) => text.push_str(&citation.display_text),
-                        InlineNode::Reference(reference) => {
-                            text.push_str(&reference.display_text);
-                        }
-                        InlineNode::InlineMath { raw_source, .. } => text.push_str(raw_source),
-                        InlineNode::RawFallback(fallback) => {
-                            if let Some(visible) = &fallback.normalized_visible_text {
-                                text.push_str(visible);
-                            } else {
-                                text.push_str(&fallback.source_excerpt);
-                            }
-                        }
-                    }
-                }
                 logical_items.push(LogicalItem::Text(LogicalTextRun {
-                    text,
+                    segments: inline_segments(&block.content),
                     source: block.source.clone(),
                     font: heading_font.clone(),
                     size_pt: options.heading_font_size_pt,
@@ -186,27 +212,8 @@ pub fn build_page_display_lists(
                 }));
             }
             IrBlock::Paragraph(block) => {
-                let mut text = String::new();
-                for node in &block.content {
-                    match node {
-                        InlineNode::Text { text: value, .. } => text.push_str(value),
-                        InlineNode::Space { .. } => text.push(' '),
-                        InlineNode::Citation(citation) => text.push_str(&citation.display_text),
-                        InlineNode::Reference(reference) => {
-                            text.push_str(&reference.display_text);
-                        }
-                        InlineNode::InlineMath { raw_source, .. } => text.push_str(raw_source),
-                        InlineNode::RawFallback(fallback) => {
-                            if let Some(visible) = &fallback.normalized_visible_text {
-                                text.push_str(visible);
-                            } else {
-                                text.push_str(&fallback.source_excerpt);
-                            }
-                        }
-                    }
-                }
                 logical_items.push(LogicalItem::Text(LogicalTextRun {
-                    text,
+                    segments: inline_segments(&block.content),
                     source: block.source.clone(),
                     font: body_font.clone(),
                     size_pt: options.body_font_size_pt,
@@ -215,7 +222,10 @@ pub fn build_page_display_lists(
             }
             IrBlock::DisplayMath(block) => {
                 logical_items.push(LogicalItem::Text(LogicalTextRun {
-                    text: block.raw_source.clone(),
+                    segments: vec![LogicalTextSegment {
+                        text: block.raw_source.clone(),
+                        source: block.source.clone(),
+                    }],
                     source: block.source.clone(),
                     font: math_font.clone(),
                     size_pt: options.body_font_size_pt,
@@ -231,7 +241,10 @@ pub fn build_page_display_lists(
                         item.content.clone()
                     };
                     logical_items.push(LogicalItem::Text(LogicalTextRun {
-                        text,
+                        segments: vec![LogicalTextSegment {
+                            text,
+                            source: item.source.clone(),
+                        }],
                         source: item.source.clone(),
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
@@ -240,7 +253,7 @@ pub fn build_page_display_lists(
                 }
                 if items.is_empty() {
                     logical_items.push(LogicalItem::Text(LogicalTextRun {
-                        text: String::new(),
+                        segments: Vec::new(),
                         source: source.clone(),
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
@@ -259,10 +272,13 @@ pub fn build_page_display_lists(
             }
             IrBlock::RawFallback(block) => {
                 logical_items.push(LogicalItem::Text(LogicalTextRun {
-                    text: block
-                        .normalized_visible_text
-                        .clone()
-                        .unwrap_or_else(|| block.source_excerpt.clone()),
+                    segments: vec![LogicalTextSegment {
+                        text: block
+                            .normalized_visible_text
+                            .clone()
+                            .unwrap_or_else(|| block.source_excerpt.clone()),
+                        source: block.source.clone(),
+                    }],
                     source: block.source.clone(),
                     font: body_font.clone(),
                     size_pt: options.body_font_size_pt,
@@ -301,42 +317,94 @@ pub fn build_page_display_lists(
     };
     let mut page_index = 0usize;
     let mut y = options.margin_top_pt;
+    let record_source_spans = |source: &SourceProvenance, source_spans: &mut Vec<SourceSpan>| {
+        if let ProvenanceSpan::File(span) = &source.primary {
+            if !source_spans.contains(span) {
+                source_spans.push(span.clone());
+            }
+        }
+        for related in &source.related {
+            if let ProvenanceSpan::File(span) = &related.span {
+                if !source_spans.contains(span) {
+                    source_spans.push(span.clone());
+                }
+            }
+        }
+    };
 
     for logical in logical_items {
         match logical {
             LogicalItem::Text(logical) => {
                 let mut wrapped_lines = Vec::new();
-                for raw_line in logical.text.lines() {
-                    if raw_line.trim().is_empty() {
-                        wrapped_lines.push(String::new());
-                        continue;
-                    }
-                    let mut current = String::new();
-                    for word in raw_line.split_whitespace() {
-                        let candidate_len = if current.is_empty() {
-                            word.len()
-                        } else {
-                            current.len() + 1 + word.len()
-                        };
-                        if candidate_len > options.max_chars_per_line && !current.is_empty() {
-                            wrapped_lines.push(current);
-                            current = word.to_string();
-                        } else {
-                            if !current.is_empty() {
-                                current.push(' ');
+                let mut current_line = Vec::new();
+                let mut current_len = 0usize;
+                let max_chars_per_line = options.max_chars_per_line.max(1);
+                let push_segment_text =
+                    |mut text: &str,
+                     source: &SourceProvenance,
+                     current_line: &mut Vec<LogicalTextSegment>,
+                     current_len: &mut usize,
+                     wrapped_lines: &mut Vec<Vec<LogicalTextSegment>>| {
+                        while !text.is_empty() {
+                            let remaining_line_chars =
+                                max_chars_per_line.saturating_sub(*current_len);
+                            let take_chars = remaining_line_chars.max(1).min(text.chars().count());
+                            let split_byte = if take_chars == text.chars().count() {
+                                text.len()
+                            } else {
+                                text.char_indices()
+                                    .nth(take_chars)
+                                    .map(|(index, _)| index)
+                                    .unwrap_or(text.len())
+                            };
+                            let chunk = &text[..split_byte];
+                            if !chunk.is_empty() {
+                                current_line.push(LogicalTextSegment {
+                                    text: chunk.to_string(),
+                                    source: source.clone(),
+                                });
+                                *current_len += take_chars;
                             }
-                            current.push_str(word);
+                            text = &text[split_byte..];
+                            if *current_len >= max_chars_per_line {
+                                wrapped_lines.push(std::mem::take(current_line));
+                                *current_len = 0;
+                            }
+                        }
+                    };
+
+                for segment in &logical.segments {
+                    let mut remaining = segment.text.as_str();
+                    while !remaining.is_empty() {
+                        if let Some(newline_index) = remaining.find('\n') {
+                            let before_newline = &remaining[..newline_index];
+                            push_segment_text(
+                                before_newline,
+                                &segment.source,
+                                &mut current_line,
+                                &mut current_len,
+                                &mut wrapped_lines,
+                            );
+                            wrapped_lines.push(std::mem::take(&mut current_line));
+                            current_len = 0;
+                            remaining = &remaining[newline_index + 1..];
+                        } else {
+                            push_segment_text(
+                                remaining,
+                                &segment.source,
+                                &mut current_line,
+                                &mut current_len,
+                                &mut wrapped_lines,
+                            );
+                            remaining = "";
                         }
                     }
-                    if !current.is_empty() {
-                        wrapped_lines.push(current);
-                    }
                 }
-                if wrapped_lines.is_empty() {
-                    wrapped_lines.push(logical.text);
+                if !current_line.is_empty() || wrapped_lines.is_empty() {
+                    wrapped_lines.push(current_line);
                 }
 
-                for line in wrapped_lines {
+                for line_segments in wrapped_lines {
                     if y + options.line_height_pt
                         > options.page_height_pt - options.margin_bottom_pt
                         && !pending.ops.is_empty()
@@ -354,32 +422,47 @@ pub fn build_page_display_lists(
                     if !pending.text.is_empty() {
                         pending.text.push('\n');
                     }
-                    pending.text.push_str(&line);
-                    if let ProvenanceSpan::File(span) = &logical.source.primary {
-                        if !pending.source_spans.contains(span) {
-                            pending.source_spans.push(span.clone());
-                        }
+                    let line_text = line_segments
+                        .iter()
+                        .map(|segment| segment.text.as_str())
+                        .collect::<String>();
+                    pending.text.push_str(&line_text);
+
+                    if line_segments.is_empty() {
+                        record_source_spans(&logical.source, &mut pending.source_spans);
+                        pending.ops.push(DrawOp::TextRun(PositionedTextRun {
+                            origin: Point {
+                                x: options.margin_left_pt,
+                                y,
+                            },
+                            text: String::new(),
+                            font: logical.font.clone(),
+                            size_pt: logical.size_pt,
+                            approximate_advance_pt: 0.0,
+                            glyphs: None,
+                            clusters: None,
+                            source: logical.source.clone(),
+                        }));
+                        y += options.line_height_pt;
+                        continue;
                     }
-                    for related in &logical.source.related {
-                        if let ProvenanceSpan::File(span) = &related.span {
-                            if !pending.source_spans.contains(span) {
-                                pending.source_spans.push(span.clone());
-                            }
-                        }
+
+                    let mut x = options.margin_left_pt;
+                    for segment in line_segments {
+                        record_source_spans(&segment.source, &mut pending.source_spans);
+                        let advance = segment.text.chars().count() as f32 * logical.size_pt * 0.5;
+                        pending.ops.push(DrawOp::TextRun(PositionedTextRun {
+                            origin: Point { x, y },
+                            text: segment.text,
+                            font: logical.font.clone(),
+                            size_pt: logical.size_pt,
+                            approximate_advance_pt: advance,
+                            glyphs: None,
+                            clusters: None,
+                            source: segment.source,
+                        }));
+                        x += advance;
                     }
-                    pending.ops.push(DrawOp::TextRun(PositionedTextRun {
-                        origin: Point {
-                            x: options.margin_left_pt,
-                            y,
-                        },
-                        text: line.clone(),
-                        font: logical.font.clone(),
-                        size_pt: logical.size_pt,
-                        approximate_advance_pt: line.chars().count() as f32 * logical.size_pt * 0.5,
-                        glyphs: None,
-                        clusters: None,
-                        source: logical.source.clone(),
-                    }));
                     y += options.line_height_pt;
                 }
                 y += logical.gap_after_pt;
@@ -483,8 +566,8 @@ pub fn build_page_display_lists(
 #[cfg(test)]
 mod tests {
     use tex_render_model::{
-        DocumentIr, DrawOp, GraphicBlock, InlineNode, IrBlock, ParagraphBlock, SourceProvenance,
-        TitleBlock,
+        CitationInline, CitationStyleHint, DocumentIr, DrawOp, GraphicBlock, InlineNode, IrBlock,
+        ParagraphBlock, ReferenceInline, SourceProvenance, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists};
@@ -525,6 +608,73 @@ mod tests {
         assert_eq!(text_runs[1].text, "Ada Lovelace");
         assert_eq!(text_runs[2].text, "Hello world");
         assert_eq!(display_lists[0].source_spans.len(), 1);
+    }
+
+    #[test]
+    fn preserves_inline_node_sources_in_text_runs() {
+        let text_source = SourceProvenance::file("main.tex", 0, 4);
+        let reference_source = SourceProvenance::file("main.tex", 9, 18);
+        let citation_source = SourceProvenance::file("main.tex", 30, 33);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![
+                    InlineNode::Text {
+                        text: "See ".to_string(),
+                        source: text_source,
+                    },
+                    InlineNode::Reference(ReferenceInline {
+                        keys: vec!["sec:intro".to_string()],
+                        command: "ref".to_string(),
+                        resolved_target: Some("1".to_string()),
+                        display_text: "1".to_string(),
+                        source: reference_source,
+                    }),
+                    InlineNode::Text {
+                        text: " and ".to_string(),
+                        source: SourceProvenance::file("main.tex", 19, 24),
+                    },
+                    InlineNode::Citation(CitationInline {
+                        keys: vec!["key".to_string()],
+                        style_hint: CitationStyleHint::Parenthetical,
+                        resolved_label: Some("[7]".to_string()),
+                        display_text: "[7]".to_string(),
+                        source: citation_source,
+                    }),
+                    InlineNode::Text {
+                        text: ".".to_string(),
+                        source: SourceProvenance::file("main.tex", 35, 36),
+                    },
+                ],
+                source: SourceProvenance::file("main.tex", 0, 36),
+            })]),
+            PageDisplayListOptions::default(),
+        );
+
+        let text_runs = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(text_runs.iter().any(|run| {
+            run.text == "1"
+                && matches!(
+                    &run.source.primary,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.start_utf8 == 9 && span.end_utf8 == 18
+                )
+        }));
+        assert!(text_runs.iter().any(|run| {
+            run.text == "[7]"
+                && matches!(
+                    &run.source.primary,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.start_utf8 == 30 && span.end_utf8 == 33
+                )
+        }));
     }
 
     #[test]

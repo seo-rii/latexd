@@ -514,9 +514,37 @@ fn aux_resolved_references_and_citations_survive_ir_and_display_list() {
             _ => None,
         })
         .collect::<Vec<_>>()
-        .join("\n");
+        .join("");
     assert!(display_list_text.contains("See 1 and [7]."));
     assert!(!display_list_text.contains("sec:intro"));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::TextRun(run)
+                if run.text == "1"
+                    && matches!(
+                        &run.source.primary,
+                        ProvenanceSpan::File(span)
+                            if &AUX_RESOLUTION_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "sec:intro"
+                    )
+        )
+    }));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::TextRun(run)
+                if run.text == "[7]"
+                    && matches!(
+                        &run.source.primary,
+                        ProvenanceSpan::File(span)
+                            if &AUX_RESOLUTION_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "key"
+                    )
+        )
+    }));
 }
 
 #[test]
