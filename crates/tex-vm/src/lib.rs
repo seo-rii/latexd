@@ -7,11 +7,11 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 use tex_lexer::{CatCodeTable, Lexer, lex_plain};
 use tex_render_model::{
-    BeginBlockEvent, BibliographyItemEvent, BlockKind, CitationStyleHint, EventId, ExpansionFrame,
-    FallbackReason, FlushTitleBlockEvent, HeadingEvent, InlineCitationEvent, MathSourceEvent,
-    MetadataField, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent,
-    RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent, SourceProvenance, SourceSpan,
-    SpaceEvent, SpaceKind, TextEvent,
+    BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint, EventId,
+    ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
+    InlineCitationEvent, MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason,
+    ProvenanceSpan, RawFallbackEvent, RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent,
+    SourceProvenance, SourceSpan, SpaceEvent, SpaceKind, TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -1068,6 +1068,99 @@ impl<'i> Vm<'i> {
                                     ),
                                 );
                             }
+                            "figure" | "table" if in_document => {
+                                let block = if environment == "figure" {
+                                    BlockKind::Figure
+                                } else {
+                                    BlockKind::Table
+                                };
+                                self.emit_render_event(
+                                    RenderEvent::BeginBlock(BeginBlockEvent {
+                                        block: block.clone(),
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        command_start as u32,
+                                        index as u32,
+                                    ),
+                                );
+                                let end_marker = format!("\\end{{{environment}}}");
+                                if let Some(relative_end) = source[index..].find(&end_marker) {
+                                    let body_start = index;
+                                    let body_end = index + relative_end;
+                                    let raw_end = body_end + end_marker.len();
+                                    let mut body_index = body_start;
+                                    while body_index < body_end {
+                                        let Some(relative_command) =
+                                            source[body_index..body_end].find('\\')
+                                        else {
+                                            break;
+                                        };
+                                        let body_command_start = body_index + relative_command;
+                                        let mut body_command_index = body_command_start + 1;
+                                        if body_command_index >= body_end {
+                                            break;
+                                        }
+                                        let body_command = if source.as_bytes()[body_command_index]
+                                            .is_ascii_alphabetic()
+                                            || source.as_bytes()[body_command_index] == b'@'
+                                        {
+                                            let start = body_command_index;
+                                            while body_command_index < body_end
+                                                && (source.as_bytes()[body_command_index]
+                                                    .is_ascii_alphabetic()
+                                                    || source.as_bytes()[body_command_index]
+                                                        == b'@')
+                                            {
+                                                body_command_index += 1;
+                                            }
+                                            &source[start..body_command_index]
+                                        } else {
+                                            let start = body_command_index;
+                                            body_command_index += 1;
+                                            &source[start..body_command_index]
+                                        };
+                                        match body_command {
+                                            "includegraphics" => {
+                                                if let Some(after) = self
+                                                    .capture_includegraphics_event(
+                                                        source_path,
+                                                        source,
+                                                        body_command_start,
+                                                        body_command_index,
+                                                        body_end,
+                                                    )
+                                                {
+                                                    body_index = after;
+                                                    continue;
+                                                }
+                                            }
+                                            "caption" => {
+                                                if let Some(after) = self.capture_caption_event(
+                                                    source_path,
+                                                    source,
+                                                    body_command_index,
+                                                    body_end,
+                                                ) {
+                                                    body_index = after;
+                                                    continue;
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                        body_index = body_command_index;
+                                    }
+                                    self.emit_render_event(
+                                        RenderEvent::EndBlock(BeginBlockEvent { block }),
+                                        SourceProvenance::file(
+                                            source_path.to_owned(),
+                                            body_end as u32,
+                                            raw_end as u32,
+                                        ),
+                                    );
+                                    index = raw_end;
+                                }
+                            }
                             other if in_document => {
                                 let end_marker = format!("\\end{{{other}}}");
                                 if let Some(relative_end) = source[index..].find(&end_marker) {
@@ -1188,6 +1281,24 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
+                "includegraphics" if in_document => {
+                    if let Some(after) = self.capture_includegraphics_event(
+                        source_path,
+                        source,
+                        command_start,
+                        index,
+                        source.len(),
+                    ) {
+                        index = after;
+                    }
+                }
+                "caption" if in_document => {
+                    if let Some(after) =
+                        self.capture_caption_event(source_path, source, index, source.len())
+                    {
+                        index = after;
+                    }
+                }
                 "[" if in_document => {
                     if let Some(relative_end) = source[index..].find("\\]") {
                         let math_start = index;
@@ -1293,6 +1404,74 @@ impl<'i> Vm<'i> {
             text_start = index;
         }
         self.capture_text_events(source_path, source, text_start, source.len(), in_document);
+    }
+
+    fn capture_includegraphics_event(
+        &mut self,
+        source_path: &Utf8Path,
+        source: &str,
+        command_start: usize,
+        argument_index: usize,
+        limit: usize,
+    ) -> Option<usize> {
+        let mut argument_index = skip_ascii_whitespace(source, argument_index);
+        let mut options = None;
+        if let Some((value, _, _, after)) = read_bracket_source_argument(source, argument_index) {
+            if after > limit {
+                return None;
+            }
+            options = Some(normalize_latex_text(value));
+            argument_index = after;
+        }
+        let Some((path, _, _, after)) = read_braced_source_argument(source, argument_index) else {
+            return None;
+        };
+        if after > limit {
+            return None;
+        }
+        self.emit_render_event(
+            RenderEvent::GraphicRef(GraphicRefEvent {
+                path: normalize_latex_text(path),
+                options,
+            }),
+            SourceProvenance::file(source_path.to_owned(), command_start as u32, after as u32),
+        );
+        Some(after)
+    }
+
+    fn capture_caption_event(
+        &mut self,
+        source_path: &Utf8Path,
+        source: &str,
+        argument_index: usize,
+        limit: usize,
+    ) -> Option<usize> {
+        let mut argument_index = skip_ascii_whitespace(source, argument_index);
+        if let Some((_, _, _, after)) = read_bracket_source_argument(source, argument_index) {
+            if after > limit {
+                return None;
+            }
+            argument_index = after;
+        }
+        let Some((caption, content_start, content_end, after)) =
+            read_braced_source_argument(source, argument_index)
+        else {
+            return None;
+        };
+        if after > limit {
+            return None;
+        }
+        self.emit_render_event(
+            RenderEvent::Caption(CaptionEvent {
+                text: normalize_latex_text(caption),
+            }),
+            SourceProvenance::file(
+                source_path.to_owned(),
+                content_start as u32,
+                content_end as u32,
+            ),
+        );
+        Some(after)
     }
 
     fn capture_text_events(
@@ -11472,6 +11651,36 @@ Fallback text.
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("unknownenv")
                     && fallback.normalized_visible_text.as_deref() == Some("Fallback text.")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_graphics_and_captions() {
+        let source = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Figure
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.options.as_deref() == Some("width=5cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Plot caption."
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("figure")
         )));
     }
 

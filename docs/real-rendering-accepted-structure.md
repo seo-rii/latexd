@@ -70,6 +70,8 @@ The next implementation step has started with a narrow display-list spike:
   bounded debug placeholders with asset references, not embedded graphics;
 - `GraphicRef` and `Caption` events now survive semantic recovery as `Graphic`
   IR blocks and derive `Image` display-list operations with caption text;
+- VM render-event capture now emits `GraphicRef`/`Caption` events for
+  `\includegraphics` and `\caption`, including inside `figure`/`table` blocks;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`

@@ -115,6 +115,34 @@ fn compact_ir_contains_expected_first_batch_structures() {
 }
 
 #[test]
+fn graphic_render_ir_capture_derives_display_list_image() {
+    let capture = capture_internal_render_ir("main.tex", GRAPHIC_SOURCE, &SemanticAux::default());
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Graphic(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.caption.as_deref() == Some("Plot caption.")
+        )
+    }));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.pdf"
+        )
+    }));
+    assert!(
+        capture.page_display_lists[0]
+            .ops
+            .iter()
+            .any(|op| { matches!(op, DrawOp::TextRun(run) if run.text == "Plot caption.") })
+    );
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+    assert!(pdf_text.contains("[image: figures/plot.pdf]"));
+}
+
+#[test]
 fn compact_render_ir_capture_writes_debug_artifacts() {
     let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
     let tempdir = tempfile::tempdir().expect("tempdir");
@@ -181,6 +209,8 @@ fn macro_heading_display_list_svg_preserves_expansion_provenance() {
 }
 
 const COMPACT_SOURCE: &str = r"\title{A Paper}\author{Ada Lovelace}\date{May 1843}\begin{document}\maketitle\begin{abstract}Short abstract.\end{abstract}\section{Intro}Hello \cite{key}.\[x^2\]\begin{thebibliography}{1}\bibitem{key} Author. Title.\end{thebibliography}\begin{unknownenv}Fallback text.\end{unknownenv}\end{document}";
+
+const GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\end{figure}\end{document}";
 
 const MACRO_SECTION_SOURCE: &str =
     r"\newcommand{\mysection}[1]{\section{#1}}\begin{document}\mysection{Intro}\end{document}";
