@@ -1,6 +1,6 @@
 use tex_render_model::{
     AbstractBlock, AuxView, BibliographyBlock, BibliographyItemIr, CitationInline, DocumentIr,
-    GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr, MetadataField,
+    GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr, LinkInline, MetadataField,
     ParagraphBlock, ReferenceInline, RenderEvent, RenderEventEnvelope, RenderEventStream,
     SourceProvenance, SourceSpanRole, TitleBlock,
 };
@@ -184,6 +184,16 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         envelope,
                     );
                 }
+                RenderEvent::InlineLink(event) => {
+                    self.push_inline(
+                        InlineNode::Link(LinkInline {
+                            target: event.target.clone(),
+                            display_text: event.text.clone(),
+                            source: envelope.meta.source.clone(),
+                        }),
+                        envelope,
+                    );
+                }
                 RenderEvent::LabelDefinition(event) => {
                     self.labels.push(LabelDefinitionIr {
                         key: event.key.clone(),
@@ -311,8 +321,8 @@ mod tests {
     use tex_render_model::{
         BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationLabel,
         CitationStyleHint, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
-        InlineCitationEvent, InlineReferenceEvent, IrBlock, LabelDefinitionEvent, LabelTargetView,
-        MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason,
+        InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, IrBlock, LabelDefinitionEvent,
+        LabelTargetView, MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason,
         RawFallbackEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
         SetDocumentMetadataEvent, SourceProvenance, TextEvent,
     };
@@ -483,6 +493,35 @@ mod tests {
         );
 
         assert_eq!(ir.extracted_text(), "(2.1)");
+    }
+
+    #[test]
+    fn inline_links_preserve_display_text_and_target() {
+        let stream = RenderEventStream::new(
+            Some("link".to_string()),
+            vec![RenderEventEnvelope::new(
+                1,
+                RenderEvent::InlineLink(InlineLinkEvent {
+                    target: "https://example.test/paper".to_string(),
+                    text: "paper link".to_string(),
+                    command: "href".to_string(),
+                }),
+                SourceProvenance::file("main.tex", 0, 12),
+            )],
+        );
+        let ir = build_document_ir(&stream, &());
+
+        assert_eq!(ir.extracted_text(), "paper link");
+        assert!(matches!(
+            ir.blocks.as_slice(),
+            [IrBlock::Paragraph(paragraph)]
+                if matches!(
+                    paragraph.content.as_slice(),
+                    [tex_render_model::InlineNode::Link(link)]
+                        if link.target == "https://example.test/paper"
+                            && link.display_text == "paper link"
+                )
+        ));
     }
 
     #[test]

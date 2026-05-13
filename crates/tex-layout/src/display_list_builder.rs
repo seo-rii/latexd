@@ -1,7 +1,7 @@
 use tex_render_model::{
     BibliographyBlock, DocumentIr, DrawOp, FontFamilyRequest, FontRequest, FontRole, FontSeries,
-    FontShape, InlineNode, IrBlock, PageDisplayList, Point, PositionedImage, PositionedTextRun,
-    ProvenanceSpan, Rect, SourceProvenance, SourceSpan,
+    FontShape, InlineNode, IrBlock, LinkAnnotation, PageDisplayList, Point, PositionedImage,
+    PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -47,6 +47,7 @@ struct PendingPage {
 struct LogicalTextSegment {
     text: String,
     source: SourceProvenance,
+    link_target: Option<String>,
 }
 
 struct LogicalTextRun {
@@ -110,24 +111,35 @@ pub fn build_page_display_lists(
                     segments.push(LogicalTextSegment {
                         text: text.clone(),
                         source: source.clone(),
+                        link_target: None,
                     });
                 }
                 InlineNode::Space { source } => {
                     segments.push(LogicalTextSegment {
                         text: " ".to_string(),
                         source: source.clone(),
+                        link_target: None,
                     });
                 }
                 InlineNode::Citation(citation) => {
                     segments.push(LogicalTextSegment {
                         text: citation.display_text.clone(),
                         source: citation.source.clone(),
+                        link_target: None,
                     });
                 }
                 InlineNode::Reference(reference) => {
                     segments.push(LogicalTextSegment {
                         text: reference.display_text.clone(),
                         source: reference.source.clone(),
+                        link_target: None,
+                    });
+                }
+                InlineNode::Link(link) => {
+                    segments.push(LogicalTextSegment {
+                        text: link.display_text.clone(),
+                        source: link.source.clone(),
+                        link_target: Some(link.target.clone()),
                     });
                 }
                 InlineNode::InlineMath {
@@ -136,6 +148,7 @@ pub fn build_page_display_lists(
                     segments.push(LogicalTextSegment {
                         text: raw_source.clone(),
                         source: source.clone(),
+                        link_target: None,
                     });
                 }
                 InlineNode::RawFallback(fallback) => {
@@ -145,6 +158,7 @@ pub fn build_page_display_lists(
                             .clone()
                             .unwrap_or_else(|| fallback.source_excerpt.clone()),
                         source: fallback.source.clone(),
+                        link_target: None,
                     });
                 }
             }
@@ -161,6 +175,7 @@ pub fn build_page_display_lists(
                         segments: vec![LogicalTextSegment {
                             text: title.clone(),
                             source: block.source.clone(),
+                            link_target: None,
                         }],
                         source: block.source.clone(),
                         font: title_font.clone(),
@@ -173,6 +188,7 @@ pub fn build_page_display_lists(
                         segments: vec![LogicalTextSegment {
                             text: author.clone(),
                             source: block.source.clone(),
+                            link_target: None,
                         }],
                         source: block.source.clone(),
                         font: body_font.clone(),
@@ -185,6 +201,7 @@ pub fn build_page_display_lists(
                         segments: vec![LogicalTextSegment {
                             text: date.clone(),
                             source: block.source.clone(),
+                            link_target: None,
                         }],
                         source: block.source.clone(),
                         font: body_font.clone(),
@@ -225,6 +242,7 @@ pub fn build_page_display_lists(
                     segments: vec![LogicalTextSegment {
                         text: block.raw_source.clone(),
                         source: block.source.clone(),
+                        link_target: None,
                     }],
                     source: block.source.clone(),
                     font: math_font.clone(),
@@ -244,6 +262,7 @@ pub fn build_page_display_lists(
                         segments: vec![LogicalTextSegment {
                             text,
                             source: item.source.clone(),
+                            link_target: None,
                         }],
                         source: item.source.clone(),
                         font: body_font.clone(),
@@ -278,6 +297,7 @@ pub fn build_page_display_lists(
                             .clone()
                             .unwrap_or_else(|| block.source_excerpt.clone()),
                         source: block.source.clone(),
+                        link_target: None,
                     }],
                     source: block.source.clone(),
                     font: body_font.clone(),
@@ -342,6 +362,7 @@ pub fn build_page_display_lists(
                 let push_segment_text =
                     |mut text: &str,
                      source: &SourceProvenance,
+                     link_target: Option<&str>,
                      current_line: &mut Vec<LogicalTextSegment>,
                      current_len: &mut usize,
                      wrapped_lines: &mut Vec<Vec<LogicalTextSegment>>| {
@@ -362,6 +383,7 @@ pub fn build_page_display_lists(
                                 current_line.push(LogicalTextSegment {
                                     text: chunk.to_string(),
                                     source: source.clone(),
+                                    link_target: link_target.map(ToOwned::to_owned),
                                 });
                                 *current_len += take_chars;
                             }
@@ -381,6 +403,7 @@ pub fn build_page_display_lists(
                             push_segment_text(
                                 before_newline,
                                 &segment.source,
+                                segment.link_target.as_deref(),
                                 &mut current_line,
                                 &mut current_len,
                                 &mut wrapped_lines,
@@ -392,6 +415,7 @@ pub fn build_page_display_lists(
                             push_segment_text(
                                 remaining,
                                 &segment.source,
+                                segment.link_target.as_deref(),
                                 &mut current_line,
                                 &mut current_len,
                                 &mut wrapped_lines,
@@ -451,6 +475,7 @@ pub fn build_page_display_lists(
                     for segment in line_segments {
                         record_source_spans(&segment.source, &mut pending.source_spans);
                         let advance = segment.text.chars().count() as f32 * logical.size_pt * 0.5;
+                        let source = segment.source;
                         pending.ops.push(DrawOp::TextRun(PositionedTextRun {
                             origin: Point { x, y },
                             text: segment.text,
@@ -459,8 +484,20 @@ pub fn build_page_display_lists(
                             approximate_advance_pt: advance,
                             glyphs: None,
                             clusters: None,
-                            source: segment.source,
+                            source: source.clone(),
                         }));
+                        if let Some(target) = segment.link_target {
+                            pending.ops.push(DrawOp::LinkAnnotation(LinkAnnotation {
+                                rect: Rect {
+                                    x,
+                                    y: (y - logical.size_pt).max(0.0),
+                                    width: advance,
+                                    height: options.line_height_pt,
+                                },
+                                target,
+                                source,
+                            }));
+                        }
                         x += advance;
                     }
                     y += options.line_height_pt;
@@ -567,7 +604,7 @@ pub fn build_page_display_lists(
 mod tests {
     use tex_render_model::{
         CitationInline, CitationStyleHint, DocumentIr, DrawOp, GraphicBlock, InlineNode, IrBlock,
-        ParagraphBlock, ReferenceInline, SourceProvenance, TitleBlock,
+        LinkInline, ParagraphBlock, ReferenceInline, SourceProvenance, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists};
@@ -674,6 +711,42 @@ mod tests {
                     tex_render_model::ProvenanceSpan::File(span)
                         if span.start_utf8 == 30 && span.end_utf8 == 33
                 )
+        }));
+    }
+
+    #[test]
+    fn derives_link_annotations_from_link_inline_nodes() {
+        let link_source = SourceProvenance::file("main.tex", 6, 16);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Link(LinkInline {
+                    target: "https://example.test/paper".to_string(),
+                    display_text: "paper link".to_string(),
+                    source: link_source,
+                })],
+                source: SourceProvenance::file("main.tex", 0, 16),
+            })]),
+            PageDisplayListOptions::default(),
+        );
+
+        assert!(display_lists[0].ops.iter().any(|op| {
+            matches!(
+                op,
+                DrawOp::TextRun(run) if run.text == "paper link"
+            )
+        }));
+        assert!(display_lists[0].ops.iter().any(|op| {
+            matches!(
+                op,
+                DrawOp::LinkAnnotation(link)
+                    if link.target == "https://example.test/paper"
+                        && link.rect.width > 0.0
+                        && matches!(
+                            &link.source.primary,
+                            tex_render_model::ProvenanceSpan::File(span)
+                                if span.start_utf8 == 6 && span.end_utf8 == 16
+                        )
+            )
         }));
     }
 

@@ -16,16 +16,16 @@ pub use display_list::{
 pub use events::{
     BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, EventId, EventMeta,
     EventProducer, FallbackReason, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
-    InlineCitationEvent, InlineReferenceEvent, LabelDefinitionEvent, MathSourceEvent,
-    MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent,
-    RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
-    SetDocumentMetadataEvent, SpaceEvent, SpaceKind, TextEvent,
+    InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
+    MathSourceEvent, MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason,
+    RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
+    SemanticConfidence, SetDocumentMetadataEvent, SpaceEvent, SpaceKind, TextEvent,
 };
 pub use golden::{from_pretty_json, to_pretty_json};
 pub use ir::{
     AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, DisplayMathBlock,
-    DocumentIr, GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr, ParagraphBlock,
-    RawFallbackIr, ReferenceInline, TitleBlock,
+    DocumentIr, GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr, LinkInline,
+    ParagraphBlock, RawFallbackIr, ReferenceInline, TitleBlock,
 };
 pub use provenance::{
     ExpansionFrame, GeneratedBy, GeneratedSpan, MAX_EXPANSION_FRAMES_IN_EVENT, ProvenanceSpan,

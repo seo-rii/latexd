@@ -95,6 +95,9 @@ The next implementation step has started with a narrow display-list spike:
 - `PageDisplayList` text generation preserves inline node provenance by
   emitting positioned text runs for citation, reference, math, and fallback
   segments instead of flattening an entire paragraph under the block source;
+- `\href` and `\url` now survive as inline link events, `Link` IR nodes, text
+  runs, and `LinkAnnotation` display-list operations without leaking hidden
+  `\href` targets into visible body text;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`

@@ -9,10 +9,10 @@ use tex_lexer::{CatCodeTable, Lexer, lex_plain};
 use tex_render_model::{
     BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint, EventId,
     ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
-    InlineCitationEvent, InlineReferenceEvent, LabelDefinitionEvent, MathSourceEvent,
-    MetadataField, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent,
-    RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent, SourceProvenance, SourceSpan,
-    SpaceEvent, SpaceKind, TextEvent,
+    InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
+    MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan,
+    RawFallbackEvent, RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent, SourceProvenance,
+    SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind, TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -1427,6 +1427,59 @@ impl<'i> Vm<'i> {
                                     .filter(|key| !key.is_empty())
                                     .map(ToOwned::to_owned)
                                     .collect(),
+                                command: command.to_string(),
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                content_start as u32,
+                                content_end as u32,
+                            ),
+                        );
+                        index = after;
+                    }
+                }
+                "href" if in_document => {
+                    index = skip_ascii_whitespace(source, index);
+                    if let Some((target, target_start, target_end, after_target)) =
+                        read_braced_source_argument(source, index)
+                    {
+                        let after_target = skip_ascii_whitespace(source, after_target);
+                        if let Some((text, content_start, content_end, after)) =
+                            read_braced_source_argument(source, after_target)
+                        {
+                            self.emit_render_event(
+                                RenderEvent::InlineLink(InlineLinkEvent {
+                                    target: target.trim().to_string(),
+                                    text: normalize_latex_text(text),
+                                    command: command.to_string(),
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    content_start as u32,
+                                    content_end as u32,
+                                )
+                                .with_related(
+                                    SourceSpanRole::Argument,
+                                    ProvenanceSpan::File(SourceSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: target_start as u32,
+                                        end_utf8: target_end as u32,
+                                    }),
+                                ),
+                            );
+                            index = after;
+                        }
+                    }
+                }
+                "url" if in_document => {
+                    index = skip_ascii_whitespace(source, index);
+                    if let Some((target, content_start, content_end, after)) =
+                        read_braced_source_argument(source, index)
+                    {
+                        self.emit_render_event(
+                            RenderEvent::InlineLink(InlineLinkEvent {
+                                target: target.trim().to_string(),
+                                text: normalize_latex_text(target),
                                 command: command.to_string(),
                             }),
                             SourceProvenance::file(
@@ -12107,6 +12160,42 @@ Fallback text.
             references[2].0.keys,
             vec!["fig:a".to_string(), "tab:b".to_string()]
         );
+    }
+
+    #[test]
+    fn render_event_capture_records_links_without_leaking_targets() {
+        let source = r"\begin{document}Read \href{https://example.test/paper}{paper link} and \url{https://example.test/raw}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let links = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineLink(link) => Some((link, &event.meta.source.primary)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(links.len(), 2);
+        assert_eq!(links[0].0.command, "href");
+        assert_eq!(links[0].0.target, "https://example.test/paper");
+        assert_eq!(links[0].0.text, "paper link");
+        assert!(matches!(
+            links[0].1,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "paper link"
+        ));
+        assert_eq!(links[1].0.command, "url");
+        assert_eq!(links[1].0.target, "https://example.test/raw");
+        assert_eq!(links[1].0.text, "https://example.test/raw");
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text.contains("https://example.test/paper")
+        )));
     }
 
     #[test]

@@ -455,6 +455,69 @@ fn reference_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn link_capture_survives_ir_and_display_list_annotations() {
+    let capture = capture_internal_render_ir("main.tex", LINK_SOURCE, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Link(link)
+                if link.target == "https://example.test/paper"
+                    && link.display_text == "paper link"
+                    && matches!(
+                        &link.source.primary,
+                        ProvenanceSpan::File(span)
+                            if &LINK_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "paper link"
+                    )
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Link(link)
+                if link.target == "https://example.test/raw"
+                    && link.display_text == "https://example.test/raw"
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Read paper link and https://example.test/raw."));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::LinkAnnotation(link)
+                if link.target == "https://example.test/paper" && link.rect.width > 0.0
+        )
+    }));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::LinkAnnotation(link)
+                if link.target == "https://example.test/raw" && link.rect.width > 0.0
+        )
+    }));
+    assert!(!display_list_text.contains("https://example.test/paper"));
+}
+
+#[test]
 fn aux_resolved_references_and_citations_survive_ir_and_display_list() {
     let mut aux = SemanticAux::default();
     aux.labels.push(SemanticLabel {
@@ -657,6 +720,8 @@ const CITATION_VARIANTS_SOURCE: &str = r"\begin{document}\citep[see][p.~3]{alpha
 
 const REFERENCE_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \eqref{eq:main}; \cref{fig:a,tab:b}.\end{document}";
+
+const LINK_SOURCE: &str = r"\begin{document}Read \href{https://example.test/paper}{paper link} and \url{https://example.test/raw}.\end{document}";
 
 const AUX_RESOLUTION_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \cite{key}.\end{document}";
