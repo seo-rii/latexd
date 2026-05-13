@@ -9,9 +9,9 @@ use tex_lexer::{CatCodeTable, Lexer, lex_plain};
 use tex_render_model::{
     BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint, EventId,
     ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
-    InlineCitationEvent, MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason,
-    ProvenanceSpan, RawFallbackEvent, RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent,
-    SourceProvenance, SourceSpan, SpaceEvent, SpaceKind, TextEvent,
+    InlineCitationEvent, InlineReferenceEvent, MathSourceEvent, MetadataField, ParagraphBreakEvent,
+    ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent, RenderEvent, RenderEventEnvelope,
+    SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SpaceEvent, SpaceKind, TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -1401,6 +1401,32 @@ impl<'i> Vm<'i> {
                                     .collect(),
                                 command: command.to_string(),
                                 style_hint,
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                content_start as u32,
+                                content_end as u32,
+                            ),
+                        );
+                        index = after;
+                    }
+                }
+                "ref" | "eqref" | "pageref" | "autoref" | "nameref" | "cref" | "Cref"
+                    if in_document =>
+                {
+                    index = skip_ascii_whitespace(source, index);
+                    if let Some((keys, content_start, content_end, after)) =
+                        read_braced_source_argument(source, index)
+                    {
+                        self.emit_render_event(
+                            RenderEvent::InlineReference(InlineReferenceEvent {
+                                keys: keys
+                                    .split(',')
+                                    .map(str::trim)
+                                    .filter(|key| !key.is_empty())
+                                    .map(ToOwned::to_owned)
+                                    .collect(),
+                                command: command.to_string(),
                             }),
                             SourceProvenance::file(
                                 source_path.to_owned(),
@@ -12014,6 +12040,43 @@ Fallback text.
         assert_eq!(citations[3].0.command, "textcite");
         assert_eq!(citations[3].0.style_hint, CitationStyleHint::Textual);
         assert_eq!(citations[3].0.keys, vec!["epsilon".to_string()]);
+    }
+
+    #[test]
+    fn render_event_capture_records_references_without_leaking_keys() {
+        let source = r"\begin{document}See \ref{sec:intro} and \eqref{eq:main}; \cref{fig:a,tab:b}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let references = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineReference(reference) => {
+                    Some((reference, &event.meta.source.primary))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(references.len(), 3);
+        assert_eq!(references[0].0.command, "ref");
+        assert_eq!(references[0].0.keys, vec!["sec:intro".to_string()]);
+        assert!(matches!(
+            references[0].1,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "sec:intro"
+        ));
+        assert_eq!(references[1].0.command, "eqref");
+        assert_eq!(references[1].0.keys, vec!["eq:main".to_string()]);
+        assert_eq!(references[2].0.command, "cref");
+        assert_eq!(
+            references[2].0.keys,
+            vec!["fig:a".to_string(), "tab:b".to_string()]
+        );
     }
 
     #[test]

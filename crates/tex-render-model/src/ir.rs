@@ -48,6 +48,9 @@ impl DocumentIr {
                             InlineNode::Text { text: value, .. } => text.push_str(value),
                             InlineNode::Space { .. } => text.push(' '),
                             InlineNode::Citation(citation) => text.push_str(&citation.display_text),
+                            InlineNode::Reference(reference) => {
+                                text.push_str(&reference.display_text)
+                            }
                             InlineNode::InlineMath { raw_source, .. } => text.push_str(raw_source),
                             InlineNode::RawFallback(fallback) => {
                                 if let Some(visible) = &fallback.normalized_visible_text {
@@ -65,6 +68,9 @@ impl DocumentIr {
                             InlineNode::Text { text: value, .. } => text.push_str(value),
                             InlineNode::Space { .. } => text.push(' '),
                             InlineNode::Citation(citation) => text.push_str(&citation.display_text),
+                            InlineNode::Reference(reference) => {
+                                text.push_str(&reference.display_text)
+                            }
                             InlineNode::InlineMath { raw_source, .. } => text.push_str(raw_source),
                             InlineNode::RawFallback(fallback) => {
                                 if let Some(visible) = &fallback.normalized_visible_text {
@@ -82,6 +88,9 @@ impl DocumentIr {
                             InlineNode::Text { text: value, .. } => text.push_str(value),
                             InlineNode::Space { .. } => text.push(' '),
                             InlineNode::Citation(citation) => text.push_str(&citation.display_text),
+                            InlineNode::Reference(reference) => {
+                                text.push_str(&reference.display_text)
+                            }
                             InlineNode::InlineMath { raw_source, .. } => text.push_str(raw_source),
                             InlineNode::RawFallback(fallback) => {
                                 if let Some(visible) = &fallback.normalized_visible_text {
@@ -234,6 +243,7 @@ pub enum InlineNode {
         source: SourceProvenance,
     },
     Citation(CitationInline),
+    Reference(ReferenceInline),
     InlineMath {
         raw_source: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -249,6 +259,16 @@ pub struct CitationInline {
     pub style_hint: CitationStyleHint,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resolved_label: Option<String>,
+    pub display_text: String,
+    pub source: SourceProvenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReferenceInline {
+    pub keys: Vec<String>,
+    pub command: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolved_target: Option<String>,
     pub display_text: String,
     pub source: SourceProvenance,
 }

@@ -83,6 +83,9 @@ The next implementation step has started with a narrow display-list spike:
 - VM render-event capture now emits `InlineCitation` events for common natbib
   and biblatex citation variants such as `citep`, `citet`, `parencite`, and
   `textcite`, skipping optional pre/post notes and preserving citation keys;
+- VM render-event capture now emits `InlineReference` events for `ref`,
+  `eqref`, `pageref`, `autoref`, `nameref`, and `cref`/`Cref`, rendering
+  unresolved references as placeholders instead of leaking raw label keys;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`
@@ -255,6 +258,7 @@ pub enum RenderEvent {
     Heading(HeadingEvent),
 
     InlineCitation(InlineCitationEvent),
+    InlineReference(InlineReferenceEvent),
     BibliographyItem(BibliographyItemEvent),
 
     GraphicRef(GraphicRefEvent),

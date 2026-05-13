@@ -97,6 +97,7 @@ pub enum RenderEvent {
     EndBlock(BeginBlockEvent),
     Heading(HeadingEvent),
     InlineCitation(InlineCitationEvent),
+    InlineReference(InlineReferenceEvent),
     BibliographyItem(BibliographyItemEvent),
     GraphicRef(GraphicRefEvent),
     Caption(CaptionEvent),
@@ -183,6 +184,12 @@ pub struct InlineCitationEvent {
     pub keys: Vec<String>,
     pub command: String,
     pub style_hint: CitationStyleHint,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InlineReferenceEvent {
+    pub keys: Vec<String>,
+    pub command: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -136,6 +136,9 @@ pub fn build_page_display_lists(
                         InlineNode::Text { text: value, .. } => text.push_str(value),
                         InlineNode::Space { .. } => text.push(' '),
                         InlineNode::Citation(citation) => text.push_str(&citation.display_text),
+                        InlineNode::Reference(reference) => {
+                            text.push_str(&reference.display_text);
+                        }
                         InlineNode::InlineMath { raw_source, .. } => text.push_str(raw_source),
                         InlineNode::RawFallback(fallback) => {
                             if let Some(visible) = &fallback.normalized_visible_text {
@@ -161,6 +164,9 @@ pub fn build_page_display_lists(
                         InlineNode::Text { text: value, .. } => text.push_str(value),
                         InlineNode::Space { .. } => text.push(' '),
                         InlineNode::Citation(citation) => text.push_str(&citation.display_text),
+                        InlineNode::Reference(reference) => {
+                            text.push_str(&reference.display_text);
+                        }
                         InlineNode::InlineMath { raw_source, .. } => text.push_str(raw_source),
                         InlineNode::RawFallback(fallback) => {
                             if let Some(visible) = &fallback.normalized_visible_text {
@@ -186,6 +192,9 @@ pub fn build_page_display_lists(
                         InlineNode::Text { text: value, .. } => text.push_str(value),
                         InlineNode::Space { .. } => text.push(' '),
                         InlineNode::Citation(citation) => text.push_str(&citation.display_text),
+                        InlineNode::Reference(reference) => {
+                            text.push_str(&reference.display_text);
+                        }
                         InlineNode::InlineMath { raw_source, .. } => text.push_str(raw_source),
                         InlineNode::RawFallback(fallback) => {
                             if let Some(visible) = &fallback.normalized_visible_text {

@@ -1,7 +1,8 @@
 use tex_render_model::{
     AbstractBlock, AuxView, BibliographyBlock, BibliographyItemIr, CitationInline, DocumentIr,
-    GraphicBlock, HeadingBlock, InlineNode, IrBlock, MetadataField, ParagraphBlock, RenderEvent,
-    RenderEventEnvelope, RenderEventStream, SourceProvenance, SourceSpanRole, TitleBlock,
+    GraphicBlock, HeadingBlock, InlineNode, IrBlock, MetadataField, ParagraphBlock,
+    ReferenceInline, RenderEvent, RenderEventEnvelope, RenderEventStream, SourceProvenance,
+    SourceSpanRole, TitleBlock,
 };
 
 pub fn build_document_ir(stream: &RenderEventStream, aux: &impl AuxView) -> DocumentIr {
@@ -151,6 +152,36 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         envelope,
                     );
                 }
+                RenderEvent::InlineReference(event) => {
+                    let mut labels = Vec::new();
+                    for key in &event.keys {
+                        if let Some(target) = self.aux.label_target(key) {
+                            labels.push(target.number);
+                        }
+                    }
+                    let resolved_target = if labels.len() == event.keys.len() && !labels.is_empty()
+                    {
+                        Some(labels.join(","))
+                    } else {
+                        None
+                    };
+                    let display_text = match (event.command.as_str(), &resolved_target) {
+                        ("eqref", Some(target)) => format!("({target})"),
+                        ("eqref", None) => "(?)".to_string(),
+                        (_, Some(target)) => target.clone(),
+                        (_, None) => "[?]".to_string(),
+                    };
+                    self.push_inline(
+                        InlineNode::Reference(ReferenceInline {
+                            keys: event.keys.clone(),
+                            command: event.command.clone(),
+                            resolved_target,
+                            display_text,
+                            source: envelope.meta.source.clone(),
+                        }),
+                        envelope,
+                    );
+                }
                 RenderEvent::InlineMath(event) => {
                     self.push_inline(
                         InlineNode::InlineMath {
@@ -272,15 +303,17 @@ mod tests {
     use tex_render_model::{
         BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationLabel,
         CitationStyleHint, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
-        InlineCitationEvent, IrBlock, MathSourceEvent, MetadataField, ParagraphBreakEvent,
-        ParagraphBreakReason, RawFallbackEvent, RenderEvent, RenderEventEnvelope,
-        RenderEventStream, SetDocumentMetadataEvent, SourceProvenance, TextEvent,
+        InlineCitationEvent, InlineReferenceEvent, IrBlock, LabelTargetView, MathSourceEvent,
+        MetadataField, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RenderEvent,
+        RenderEventEnvelope, RenderEventStream, SetDocumentMetadataEvent, SourceProvenance,
+        TextEvent,
     };
 
     use super::build_document_ir;
 
     struct Labels {
         labels: BTreeMap<String, String>,
+        targets: BTreeMap<String, String>,
     }
 
     impl tex_render_model::AuxView for Labels {
@@ -297,8 +330,12 @@ mod tests {
             None
         }
 
-        fn label_target(&self, _key: &str) -> Option<tex_render_model::LabelTargetView> {
-            None
+        fn label_target(&self, key: &str) -> Option<LabelTargetView> {
+            self.targets.get(key).map(|number| LabelTargetView {
+                key: key.to_string(),
+                number: number.clone(),
+                page: None,
+            })
         }
     }
 
@@ -373,6 +410,7 @@ mod tests {
             &stream,
             &Labels {
                 labels: BTreeMap::new(),
+                targets: BTreeMap::new(),
             },
         );
 
@@ -408,10 +446,35 @@ mod tests {
                     ("alpha".to_string(), "1".to_string()),
                     ("beta".to_string(), "2".to_string()),
                 ]),
+                targets: BTreeMap::new(),
             },
         );
 
         assert_eq!(ir.extracted_text(), "[1,2]");
+    }
+
+    #[test]
+    fn references_resolve_through_aux_targets() {
+        let stream = RenderEventStream::new(
+            Some("reference".to_string()),
+            vec![RenderEventEnvelope::new(
+                1,
+                RenderEvent::InlineReference(InlineReferenceEvent {
+                    keys: vec!["eq:main".to_string()],
+                    command: "eqref".to_string(),
+                }),
+                SourceProvenance::file("main.tex", 0, 12),
+            )],
+        );
+        let ir = build_document_ir(
+            &stream,
+            &Labels {
+                labels: BTreeMap::new(),
+                targets: BTreeMap::from([("eq:main".to_string(), "2.1".to_string())]),
+            },
+        );
+
+        assert_eq!(ir.extracted_text(), "(2.1)");
     }
 
     #[test]
