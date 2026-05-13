@@ -1299,6 +1299,24 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
+                "(" if in_document => {
+                    if let Some(relative_end) = source[index..].find("\\)") {
+                        let math_start = index;
+                        let math_end = index + relative_end;
+                        self.emit_render_event(
+                            RenderEvent::InlineMath(MathSourceEvent {
+                                raw_source: normalize_latex_text(&source[math_start..math_end]),
+                                normalized_text: None,
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                math_start as u32,
+                                math_end as u32,
+                            ),
+                        );
+                        index = math_end + 2;
+                    }
+                }
                 "[" if in_document => {
                     if let Some(relative_end) = source[index..].find("\\]") {
                         let math_start = index;
@@ -11682,6 +11700,32 @@ Fallback text.
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("figure")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_records_inline_math() {
+        let source = r"\begin{document}Area \(x^2 + y^2\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math) if math.raw_source == "x^2 + y^2"
+        ));
+        assert!(matches!(
+            &inline_math.meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "x^2 + y^2"
+        ));
     }
 
     #[test]
