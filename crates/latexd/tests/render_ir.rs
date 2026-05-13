@@ -124,6 +124,7 @@ fn graphic_render_ir_capture_derives_display_list_image() {
             IrBlock::Graphic(graphic)
                 if graphic.path == "figures/plot.pdf"
                     && graphic.caption.as_deref() == Some("Plot caption.")
+                    && graphic.caption_source.is_some()
         )
     }));
     assert!(capture.page_display_lists[0].ops.iter().any(|op| {
@@ -132,12 +133,18 @@ fn graphic_render_ir_capture_derives_display_list_image() {
             DrawOp::Image(image) if image.asset_ref == "figures/plot.pdf"
         )
     }));
-    assert!(
-        capture.page_display_lists[0]
-            .ops
-            .iter()
-            .any(|op| { matches!(op, DrawOp::TextRun(run) if run.text == "Plot caption.") })
-    );
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::TextRun(run) if run.text == "Plot caption."
+                && matches!(
+                    &run.source.primary,
+                    ProvenanceSpan::File(span)
+                        if &GRAPHIC_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == "Plot caption."
+                )
+        )
+    }));
     let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
     assert!(pdf_text.contains("[image: figures/plot.pdf]"));
 }

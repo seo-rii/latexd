@@ -205,12 +205,14 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         path: event.path.clone(),
                         options: event.options.clone(),
                         caption: None,
+                        caption_source: None,
                         source: envelope.meta.source.clone(),
                     }));
                 }
                 RenderEvent::Caption(event) => {
                     if let Some(IrBlock::Graphic(block)) = self.blocks.last_mut() {
                         block.caption = Some(event.text.clone());
+                        block.caption_source = Some(envelope.meta.source.clone());
                     } else {
                         self.flush_paragraph();
                         self.blocks.push(IrBlock::Paragraph(ParagraphBlock {
@@ -467,6 +469,7 @@ mod tests {
                 if block.path == "figures/plot.pdf"
                     && block.options.as_deref() == Some("width=0.8\\linewidth")
                     && block.caption.as_deref() == Some("Plot caption.")
+                    && block.caption_source.is_some()
         ));
         assert_eq!(ir.extracted_text(), "Plot caption.");
     }

@@ -54,6 +54,7 @@ struct LogicalTextRun {
 struct LogicalImage {
     path: String,
     caption: Option<String>,
+    caption_source: Option<SourceProvenance>,
     source: SourceProvenance,
     gap_after_pt: f32,
 }
@@ -242,6 +243,7 @@ pub fn build_page_display_lists(
                 logical_items.push(LogicalItem::Image(LogicalImage {
                     path: block.path.clone(),
                     caption: block.caption.clone(),
+                    caption_source: block.caption_source.clone(),
                     source: block.source.clone(),
                     gap_after_pt: options.block_gap_pt,
                 }));
@@ -428,6 +430,15 @@ pub fn build_page_display_lists(
                         pending.text.push('\n');
                     }
                     pending.text.push_str(caption);
+                    let caption_source = logical
+                        .caption_source
+                        .clone()
+                        .unwrap_or_else(|| logical.source.clone());
+                    if let ProvenanceSpan::File(span) = &caption_source.primary {
+                        if !pending.source_spans.contains(span) {
+                            pending.source_spans.push(span.clone());
+                        }
+                    }
                     pending.ops.push(DrawOp::TextRun(PositionedTextRun {
                         origin: Point {
                             x: options.margin_left_pt,
@@ -441,7 +452,7 @@ pub fn build_page_display_lists(
                             * 0.5,
                         glyphs: None,
                         clusters: None,
-                        source: logical.source.clone(),
+                        source: caption_source,
                     }));
                     y += options.line_height_pt;
                 }
@@ -555,6 +566,7 @@ mod tests {
                 path: "figures/plot.pdf".to_string(),
                 options: Some("width=0.8\\linewidth".to_string()),
                 caption: Some("Plot caption.".to_string()),
+                caption_source: Some(SourceProvenance::file("main.tex", 25, 38)),
                 source,
             })]),
             PageDisplayListOptions::default(),
@@ -569,12 +581,17 @@ mod tests {
                     && image.rect.width == 468.0
             )
         }));
-        assert!(
-            display_lists[0]
-                .ops
-                .iter()
-                .any(|op| { matches!(op, DrawOp::TextRun(run) if run.text == "Plot caption.") })
-        );
-        assert_eq!(display_lists[0].source_spans.len(), 1);
+        assert!(display_lists[0].ops.iter().any(|op| {
+            matches!(
+                op,
+                DrawOp::TextRun(run) if run.text == "Plot caption."
+                    && matches!(
+                        &run.source.primary,
+                        tex_render_model::ProvenanceSpan::File(span)
+                            if span.start_utf8 == 25 && span.end_utf8 == 38
+                    )
+            )
+        }));
+        assert_eq!(display_lists[0].source_spans.len(), 2);
     }
 }

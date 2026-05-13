@@ -195,6 +195,8 @@ pub struct GraphicBlock {
     pub options: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caption: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption_source: Option<SourceProvenance>,
     pub source: SourceProvenance,
 }
 
