@@ -986,12 +986,16 @@ impl<'i> Vm<'i> {
                         );
                         let event = if delimiter_len == 2 {
                             RenderEvent::DisplayMath(MathSourceEvent {
-                                raw_source: normalize_latex_text(&source[math_start..math_end]),
+                                raw_source: normalize_latex_math_source(
+                                    &source[math_start..math_end],
+                                ),
                                 normalized_text: None,
                             })
                         } else {
                             RenderEvent::InlineMath(MathSourceEvent {
-                                raw_source: normalize_latex_text(&source[math_start..math_end]),
+                                raw_source: normalize_latex_math_source(
+                                    &source[math_start..math_end],
+                                ),
                                 normalized_text: None,
                             })
                         };
@@ -1125,6 +1129,31 @@ impl<'i> Vm<'i> {
                                         index as u32,
                                     ),
                                 );
+                            }
+                            "equation" | "equation*" | "displaymath" | "align" | "align*"
+                            | "gather" | "gather*" | "multline" | "multline*"
+                                if in_document =>
+                            {
+                                let end_marker = format!("\\end{{{environment}}}");
+                                if let Some(relative_end) = source[index..].find(&end_marker) {
+                                    let body_start = index;
+                                    let body_end = index + relative_end;
+                                    let raw_end = body_end + end_marker.len();
+                                    self.emit_render_event(
+                                        RenderEvent::DisplayMath(MathSourceEvent {
+                                            raw_source: normalize_latex_math_source(
+                                                &source[body_start..body_end],
+                                            ),
+                                            normalized_text: None,
+                                        }),
+                                        SourceProvenance::file(
+                                            source_path.to_owned(),
+                                            body_start as u32,
+                                            body_end as u32,
+                                        ),
+                                    );
+                                    index = raw_end;
+                                }
                             }
                             "figure" | "table" if in_document => {
                                 let block = if environment == "figure" {
@@ -1363,7 +1392,9 @@ impl<'i> Vm<'i> {
                         let math_end = index + relative_end;
                         self.emit_render_event(
                             RenderEvent::InlineMath(MathSourceEvent {
-                                raw_source: normalize_latex_text(&source[math_start..math_end]),
+                                raw_source: normalize_latex_math_source(
+                                    &source[math_start..math_end],
+                                ),
                                 normalized_text: None,
                             }),
                             SourceProvenance::file(
@@ -1381,7 +1412,9 @@ impl<'i> Vm<'i> {
                         let math_end = index + relative_end;
                         self.emit_render_event(
                             RenderEvent::DisplayMath(MathSourceEvent {
-                                raw_source: normalize_latex_text(&source[math_start..math_end]),
+                                raw_source: normalize_latex_math_source(
+                                    &source[math_start..math_end],
+                                ),
                                 normalized_text: None,
                             }),
                             SourceProvenance::file(
@@ -8194,6 +8227,10 @@ fn normalize_latex_text(source: &str) -> String {
     text.trim().to_string()
 }
 
+fn normalize_latex_math_source(source: &str) -> String {
+    source.trim().to_string()
+}
+
 fn render_roman_numeral(value: i32) -> String {
     if value <= 0 {
         return String::new();
@@ -11825,6 +11862,38 @@ Fallback text.
                 if span.path == Utf8PathBuf::from("main.tex")
                     && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "z^2"
         ));
+    }
+
+    #[test]
+    fn render_event_capture_records_math_environment() {
+        let source = r"\begin{document}\begin{equation}\frac{a}{b}\end{equation}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let display_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::DisplayMath(_)))
+            .expect("display math event");
+
+        assert!(matches!(
+            &display_math.event,
+            RenderEvent::DisplayMath(math) if math.raw_source == r"\frac{a}{b}"
+        ));
+        assert!(matches!(
+            &display_math.meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\frac{a}{b}"
+        ));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("equation")
+        )));
     }
 
     #[test]

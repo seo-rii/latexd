@@ -75,7 +75,8 @@ The next implementation step has started with a narrow display-list spike:
 - VM render-event capture now emits `GraphicRef`/`Caption` events for
   `\includegraphics` and `\caption`, including inside `figure`/`table` blocks;
 - VM render-event capture now emits `InlineMath` for `\(...\)`/`$...$` and
-  `DisplayMath` for `\[...\]`/`$$...$$`;
+  `DisplayMath` for `\[...\]`/`$$...$$` plus common display math environments
+  such as `equation`/`align`, preserving math commands in `raw_source`;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`

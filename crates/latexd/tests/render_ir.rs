@@ -246,6 +246,44 @@ fn dollar_math_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn math_environment_capture_survives_ir_and_display_list() {
+    let capture =
+        capture_internal_render_ir("main.tex", MATH_ENVIRONMENT_SOURCE, &SemanticAux::default());
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::DisplayMath(display)
+                if display.raw_source == r"\frac{a}{b}"
+                    && matches!(
+                        &display.source.primary,
+                        ProvenanceSpan::File(span)
+                            if &MATH_ENVIRONMENT_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\frac{a}{b}"
+                    )
+        )
+    }));
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("equation")
+        )
+    }));
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains(r"\frac{a}{b}"));
+}
+
+#[test]
 fn compact_render_ir_capture_writes_debug_artifacts() {
     let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
     let tempdir = tempfile::tempdir().expect("tempdir");
@@ -318,6 +356,9 @@ const GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1
 const INLINE_MATH_SOURCE: &str = r"\begin{document}Area \(x^2 + y^2\).\end{document}";
 
 const DOLLAR_MATH_SOURCE: &str = r"\begin{document}Area $x^2 + y^2$.$$z^2$$\end{document}";
+
+const MATH_ENVIRONMENT_SOURCE: &str =
+    r"\begin{document}\begin{equation}\frac{a}{b}\end{equation}\end{document}";
 
 const MACRO_SECTION_SOURCE: &str =
     r"\newcommand{\mysection}[1]{\section{#1}}\begin{document}\mysection{Intro}\end{document}";
