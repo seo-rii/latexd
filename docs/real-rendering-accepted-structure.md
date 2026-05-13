@@ -68,6 +68,8 @@ The next implementation step has started with a narrow display-list spike:
   simple `Rule` rectangles, and `Save`/`Restore` + `ClipRect` scopes;
 - display-list PDF/SVG debug rendering now exposes `Image` operations as
   bounded debug placeholders with asset references, not embedded graphics;
+- `GraphicRef` and `Caption` events now survive semantic recovery as `Graphic`
+  IR blocks and derive `Image` display-list operations with caption text;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`

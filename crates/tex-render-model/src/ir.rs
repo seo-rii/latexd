@@ -102,6 +102,11 @@ impl DocumentIr {
                         text.push_str(&item.content);
                     }
                 }
+                IrBlock::Graphic(block) => {
+                    if let Some(caption) = &block.caption {
+                        text.push_str(caption);
+                    }
+                }
                 IrBlock::RawFallback(block) => {
                     if let Some(visible) = &block.normalized_visible_text {
                         text.push_str(visible);
@@ -124,6 +129,7 @@ pub enum IrBlock {
     Paragraph(ParagraphBlock),
     DisplayMath(DisplayMathBlock),
     Bibliography(BibliographyBlock),
+    Graphic(GraphicBlock),
     RawFallback(RawFallbackIr),
 }
 
@@ -179,6 +185,16 @@ pub struct BibliographyItemIr {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     pub content: String,
+    pub source: SourceProvenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GraphicBlock {
+    pub path: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub options: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
     pub source: SourceProvenance,
 }
 

@@ -1,6 +1,6 @@
 use tex_render_model::{
     AbstractBlock, AuxView, BibliographyBlock, BibliographyItemIr, CitationInline, DocumentIr,
-    HeadingBlock, InlineNode, IrBlock, MetadataField, ParagraphBlock, RenderEvent,
+    GraphicBlock, HeadingBlock, InlineNode, IrBlock, MetadataField, ParagraphBlock, RenderEvent,
     RenderEventEnvelope, RenderEventStream, SourceProvenance, SourceSpanRole, TitleBlock,
 };
 
@@ -199,9 +199,30 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         ),
                     ));
                 }
-                RenderEvent::GraphicRef(_)
-                | RenderEvent::Caption(_)
-                | RenderEvent::Diagnostic(_) => {}
+                RenderEvent::GraphicRef(event) => {
+                    self.flush_paragraph();
+                    self.blocks.push(IrBlock::Graphic(GraphicBlock {
+                        path: event.path.clone(),
+                        options: event.options.clone(),
+                        caption: None,
+                        source: envelope.meta.source.clone(),
+                    }));
+                }
+                RenderEvent::Caption(event) => {
+                    if let Some(IrBlock::Graphic(block)) = self.blocks.last_mut() {
+                        block.caption = Some(event.text.clone());
+                    } else {
+                        self.flush_paragraph();
+                        self.blocks.push(IrBlock::Paragraph(ParagraphBlock {
+                            content: vec![InlineNode::Text {
+                                text: event.text.clone(),
+                                source: envelope.meta.source.clone(),
+                            }],
+                            source: envelope.meta.source.clone(),
+                        }));
+                    }
+                }
+                RenderEvent::Diagnostic(_) => {}
             }
         }
         self.flush_paragraph();
@@ -247,11 +268,11 @@ mod tests {
     use std::collections::BTreeMap;
 
     use tex_render_model::{
-        BeginBlockEvent, BibliographyItemEvent, BlockKind, CitationLabel, CitationStyleHint,
-        FlushTitleBlockEvent, HeadingEvent, InlineCitationEvent, MathSourceEvent, MetadataField,
-        ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RenderEvent,
-        RenderEventEnvelope, RenderEventStream, SetDocumentMetadataEvent, SourceProvenance,
-        TextEvent,
+        BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationLabel,
+        CitationStyleHint, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
+        InlineCitationEvent, IrBlock, MathSourceEvent, MetadataField, ParagraphBreakEvent,
+        ParagraphBreakReason, RawFallbackEvent, RenderEvent, RenderEventEnvelope,
+        RenderEventStream, SetDocumentMetadataEvent, SourceProvenance, TextEvent,
     };
 
     use super::build_document_ir;
@@ -414,5 +435,39 @@ mod tests {
         let ir = build_document_ir(&stream, &());
 
         assert_eq!(ir.extracted_text(), "Fallback text.");
+    }
+
+    #[test]
+    fn graphic_ref_and_caption_become_graphic_block() {
+        let stream = RenderEventStream::new(
+            Some("graphic".to_string()),
+            vec![
+                RenderEventEnvelope::new(
+                    1,
+                    RenderEvent::GraphicRef(GraphicRefEvent {
+                        path: "figures/plot.pdf".to_string(),
+                        options: Some("width=0.8\\linewidth".to_string()),
+                    }),
+                    SourceProvenance::file("main.tex", 0, 30),
+                ),
+                RenderEventEnvelope::new(
+                    2,
+                    RenderEvent::Caption(CaptionEvent {
+                        text: "Plot caption.".to_string(),
+                    }),
+                    SourceProvenance::file("main.tex", 31, 52),
+                ),
+            ],
+        );
+        let ir = build_document_ir(&stream, &());
+
+        assert!(matches!(
+            ir.blocks.as_slice(),
+            [IrBlock::Graphic(block)]
+                if block.path == "figures/plot.pdf"
+                    && block.options.as_deref() == Some("width=0.8\\linewidth")
+                    && block.caption.as_deref() == Some("Plot caption.")
+        ));
+        assert_eq!(ir.extracted_text(), "Plot caption.");
     }
 }

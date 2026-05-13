@@ -1,7 +1,7 @@
 use tex_render_model::{
     BibliographyBlock, DocumentIr, DrawOp, FontFamilyRequest, FontRequest, FontRole, FontSeries,
-    FontShape, InlineNode, IrBlock, PageDisplayList, Point, PositionedTextRun, ProvenanceSpan,
-    SourceProvenance, SourceSpan,
+    FontShape, InlineNode, IrBlock, PageDisplayList, Point, PositionedImage, PositionedTextRun,
+    ProvenanceSpan, Rect, SourceProvenance, SourceSpan,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -51,6 +51,18 @@ struct LogicalTextRun {
     gap_after_pt: f32,
 }
 
+struct LogicalImage {
+    path: String,
+    caption: Option<String>,
+    source: SourceProvenance,
+    gap_after_pt: f32,
+}
+
+enum LogicalItem {
+    Text(LogicalTextRun),
+    Image(LogicalImage),
+}
+
 pub fn build_page_display_lists(
     document_ir: &DocumentIr,
     options: PageDisplayListOptions,
@@ -84,36 +96,36 @@ pub fn build_page_display_lists(
         role: FontRole::Math,
     };
 
-    let mut logical_runs = Vec::new();
+    let mut logical_items = Vec::new();
     for block in &document_ir.blocks {
         match block {
             IrBlock::TitleBlock(block) => {
                 if let Some(title) = &block.title {
-                    logical_runs.push(LogicalTextRun {
+                    logical_items.push(LogicalItem::Text(LogicalTextRun {
                         text: title.clone(),
                         source: block.source.clone(),
                         font: title_font.clone(),
                         size_pt: options.title_font_size_pt,
                         gap_after_pt: options.block_gap_pt,
-                    });
+                    }));
                 }
                 for author in &block.authors {
-                    logical_runs.push(LogicalTextRun {
+                    logical_items.push(LogicalItem::Text(LogicalTextRun {
                         text: author.clone(),
                         source: block.source.clone(),
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
                         gap_after_pt: 0.0,
-                    });
+                    }));
                 }
                 if let Some(date) = &block.date {
-                    logical_runs.push(LogicalTextRun {
+                    logical_items.push(LogicalItem::Text(LogicalTextRun {
                         text: date.clone(),
                         source: block.source.clone(),
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
                         gap_after_pt: options.block_gap_pt,
-                    });
+                    }));
                 }
             }
             IrBlock::Abstract(block) => {
@@ -133,13 +145,13 @@ pub fn build_page_display_lists(
                         }
                     }
                 }
-                logical_runs.push(LogicalTextRun {
+                logical_items.push(LogicalItem::Text(LogicalTextRun {
                     text,
                     source: block.source.clone(),
                     font: body_font.clone(),
                     size_pt: options.body_font_size_pt,
                     gap_after_pt: options.block_gap_pt,
-                });
+                }));
             }
             IrBlock::Heading(block) => {
                 let mut text = String::new();
@@ -158,13 +170,13 @@ pub fn build_page_display_lists(
                         }
                     }
                 }
-                logical_runs.push(LogicalTextRun {
+                logical_items.push(LogicalItem::Text(LogicalTextRun {
                     text,
                     source: block.source.clone(),
                     font: heading_font.clone(),
                     size_pt: options.heading_font_size_pt,
                     gap_after_pt: options.block_gap_pt,
-                });
+                }));
             }
             IrBlock::Paragraph(block) => {
                 let mut text = String::new();
@@ -183,22 +195,22 @@ pub fn build_page_display_lists(
                         }
                     }
                 }
-                logical_runs.push(LogicalTextRun {
+                logical_items.push(LogicalItem::Text(LogicalTextRun {
                     text,
                     source: block.source.clone(),
                     font: body_font.clone(),
                     size_pt: options.body_font_size_pt,
                     gap_after_pt: options.block_gap_pt,
-                });
+                }));
             }
             IrBlock::DisplayMath(block) => {
-                logical_runs.push(LogicalTextRun {
+                logical_items.push(LogicalItem::Text(LogicalTextRun {
                     text: block.raw_source.clone(),
                     source: block.source.clone(),
                     font: math_font.clone(),
                     size_pt: options.body_font_size_pt,
                     gap_after_pt: options.block_gap_pt,
-                });
+                }));
             }
             IrBlock::Bibliography(block) => {
                 let BibliographyBlock { items, source } = block;
@@ -208,26 +220,34 @@ pub fn build_page_display_lists(
                     } else {
                         item.content.clone()
                     };
-                    logical_runs.push(LogicalTextRun {
+                    logical_items.push(LogicalItem::Text(LogicalTextRun {
                         text,
                         source: item.source.clone(),
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
                         gap_after_pt: 0.0,
-                    });
+                    }));
                 }
                 if items.is_empty() {
-                    logical_runs.push(LogicalTextRun {
+                    logical_items.push(LogicalItem::Text(LogicalTextRun {
                         text: String::new(),
                         source: source.clone(),
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
                         gap_after_pt: 0.0,
-                    });
+                    }));
                 }
             }
+            IrBlock::Graphic(block) => {
+                logical_items.push(LogicalItem::Image(LogicalImage {
+                    path: block.path.clone(),
+                    caption: block.caption.clone(),
+                    source: block.source.clone(),
+                    gap_after_pt: options.block_gap_pt,
+                }));
+            }
             IrBlock::RawFallback(block) => {
-                logical_runs.push(LogicalTextRun {
+                logical_items.push(LogicalItem::Text(LogicalTextRun {
                     text: block
                         .normalized_visible_text
                         .clone()
@@ -236,7 +256,7 @@ pub fn build_page_display_lists(
                     font: body_font.clone(),
                     size_pt: options.body_font_size_pt,
                     gap_after_pt: options.block_gap_pt,
-                });
+                }));
             }
         }
     }
@@ -271,84 +291,163 @@ pub fn build_page_display_lists(
     let mut page_index = 0usize;
     let mut y = options.margin_top_pt;
 
-    for logical in logical_runs {
-        let mut wrapped_lines = Vec::new();
-        for raw_line in logical.text.lines() {
-            if raw_line.trim().is_empty() {
-                wrapped_lines.push(String::new());
-                continue;
-            }
-            let mut current = String::new();
-            for word in raw_line.split_whitespace() {
-                let candidate_len = if current.is_empty() {
-                    word.len()
-                } else {
-                    current.len() + 1 + word.len()
-                };
-                if candidate_len > options.max_chars_per_line && !current.is_empty() {
-                    wrapped_lines.push(current);
-                    current = word.to_string();
-                } else {
-                    if !current.is_empty() {
-                        current.push(' ');
+    for logical in logical_items {
+        match logical {
+            LogicalItem::Text(logical) => {
+                let mut wrapped_lines = Vec::new();
+                for raw_line in logical.text.lines() {
+                    if raw_line.trim().is_empty() {
+                        wrapped_lines.push(String::new());
+                        continue;
                     }
-                    current.push_str(word);
+                    let mut current = String::new();
+                    for word in raw_line.split_whitespace() {
+                        let candidate_len = if current.is_empty() {
+                            word.len()
+                        } else {
+                            current.len() + 1 + word.len()
+                        };
+                        if candidate_len > options.max_chars_per_line && !current.is_empty() {
+                            wrapped_lines.push(current);
+                            current = word.to_string();
+                        } else {
+                            if !current.is_empty() {
+                                current.push(' ');
+                            }
+                            current.push_str(word);
+                        }
+                    }
+                    if !current.is_empty() {
+                        wrapped_lines.push(current);
+                    }
                 }
-            }
-            if !current.is_empty() {
-                wrapped_lines.push(current);
-            }
-        }
-        if wrapped_lines.is_empty() {
-            wrapped_lines.push(logical.text);
-        }
-
-        for line in wrapped_lines {
-            if y + options.line_height_pt > options.page_height_pt - options.margin_bottom_pt
-                && !pending.ops.is_empty()
-            {
-                finish_page(&mut pages, page_index, pending);
-                page_index += 1;
-                pending = PendingPage {
-                    ops: Vec::new(),
-                    source_spans: Vec::new(),
-                    text: String::new(),
-                };
-                y = options.margin_top_pt;
-            }
-
-            if !pending.text.is_empty() {
-                pending.text.push('\n');
-            }
-            pending.text.push_str(&line);
-            if let ProvenanceSpan::File(span) = &logical.source.primary {
-                if !pending.source_spans.contains(span) {
-                    pending.source_spans.push(span.clone());
+                if wrapped_lines.is_empty() {
+                    wrapped_lines.push(logical.text);
                 }
+
+                for line in wrapped_lines {
+                    if y + options.line_height_pt
+                        > options.page_height_pt - options.margin_bottom_pt
+                        && !pending.ops.is_empty()
+                    {
+                        finish_page(&mut pages, page_index, pending);
+                        page_index += 1;
+                        pending = PendingPage {
+                            ops: Vec::new(),
+                            source_spans: Vec::new(),
+                            text: String::new(),
+                        };
+                        y = options.margin_top_pt;
+                    }
+
+                    if !pending.text.is_empty() {
+                        pending.text.push('\n');
+                    }
+                    pending.text.push_str(&line);
+                    if let ProvenanceSpan::File(span) = &logical.source.primary {
+                        if !pending.source_spans.contains(span) {
+                            pending.source_spans.push(span.clone());
+                        }
+                    }
+                    for related in &logical.source.related {
+                        if let ProvenanceSpan::File(span) = &related.span {
+                            if !pending.source_spans.contains(span) {
+                                pending.source_spans.push(span.clone());
+                            }
+                        }
+                    }
+                    pending.ops.push(DrawOp::TextRun(PositionedTextRun {
+                        origin: Point {
+                            x: options.margin_left_pt,
+                            y,
+                        },
+                        text: line.clone(),
+                        font: logical.font.clone(),
+                        size_pt: logical.size_pt,
+                        approximate_advance_pt: line.chars().count() as f32 * logical.size_pt * 0.5,
+                        glyphs: None,
+                        clusters: None,
+                        source: logical.source.clone(),
+                    }));
+                    y += options.line_height_pt;
+                }
+                y += logical.gap_after_pt;
             }
-            for related in &logical.source.related {
-                if let ProvenanceSpan::File(span) = &related.span {
+            LogicalItem::Image(logical) => {
+                let image_width = options.page_width_pt - options.margin_left_pt * 2.0;
+                let image_height = options.line_height_pt * 6.0;
+                let required_height = image_height
+                    + if logical.caption.is_some() {
+                        options.line_height_pt
+                    } else {
+                        0.0
+                    };
+                if y + required_height > options.page_height_pt - options.margin_bottom_pt
+                    && !pending.ops.is_empty()
+                {
+                    finish_page(&mut pages, page_index, pending);
+                    page_index += 1;
+                    pending = PendingPage {
+                        ops: Vec::new(),
+                        source_spans: Vec::new(),
+                        text: String::new(),
+                    };
+                    y = options.margin_top_pt;
+                }
+
+                if !pending.text.is_empty() {
+                    pending.text.push('\n');
+                }
+                pending.text.push_str(&format!("[image: {}]", logical.path));
+                if let ProvenanceSpan::File(span) = &logical.source.primary {
                     if !pending.source_spans.contains(span) {
                         pending.source_spans.push(span.clone());
                     }
                 }
+                for related in &logical.source.related {
+                    if let ProvenanceSpan::File(span) = &related.span {
+                        if !pending.source_spans.contains(span) {
+                            pending.source_spans.push(span.clone());
+                        }
+                    }
+                }
+                pending.ops.push(DrawOp::Image(PositionedImage {
+                    rect: Rect {
+                        x: options.margin_left_pt,
+                        y,
+                        width: image_width,
+                        height: image_height,
+                    },
+                    asset_ref: logical.path.clone(),
+                    source: logical.source.clone(),
+                }));
+                y += image_height;
+
+                if let Some(caption) = &logical.caption {
+                    if !pending.text.is_empty() {
+                        pending.text.push('\n');
+                    }
+                    pending.text.push_str(caption);
+                    pending.ops.push(DrawOp::TextRun(PositionedTextRun {
+                        origin: Point {
+                            x: options.margin_left_pt,
+                            y,
+                        },
+                        text: caption.clone(),
+                        font: body_font.clone(),
+                        size_pt: options.body_font_size_pt,
+                        approximate_advance_pt: caption.chars().count() as f32
+                            * options.body_font_size_pt
+                            * 0.5,
+                        glyphs: None,
+                        clusters: None,
+                        source: logical.source.clone(),
+                    }));
+                    y += options.line_height_pt;
+                }
+                y += logical.gap_after_pt;
             }
-            pending.ops.push(DrawOp::TextRun(PositionedTextRun {
-                origin: Point {
-                    x: options.margin_left_pt,
-                    y,
-                },
-                text: line.clone(),
-                font: logical.font.clone(),
-                size_pt: logical.size_pt,
-                approximate_advance_pt: line.chars().count() as f32 * logical.size_pt * 0.5,
-                glyphs: None,
-                clusters: None,
-                source: logical.source.clone(),
-            }));
-            y += options.line_height_pt;
         }
-        y += logical.gap_after_pt;
     }
 
     if pending.ops.is_empty() && pages.is_empty() {
@@ -364,7 +463,8 @@ pub fn build_page_display_lists(
 #[cfg(test)]
 mod tests {
     use tex_render_model::{
-        DocumentIr, DrawOp, InlineNode, IrBlock, ParagraphBlock, SourceProvenance, TitleBlock,
+        DocumentIr, DrawOp, GraphicBlock, InlineNode, IrBlock, ParagraphBlock, SourceProvenance,
+        TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists};
@@ -445,5 +545,36 @@ mod tests {
         );
 
         assert_eq!(display_lists.len(), 2);
+    }
+
+    #[test]
+    fn builds_image_ops_from_graphic_blocks() {
+        let source = SourceProvenance::file("main.tex", 0, 24);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.pdf".to_string(),
+                options: Some("width=0.8\\linewidth".to_string()),
+                caption: Some("Plot caption.".to_string()),
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+
+        assert_eq!(display_lists.len(), 1);
+        assert!(display_lists[0].ops.iter().any(|op| {
+            matches!(
+                op,
+                DrawOp::Image(image) if image.asset_ref == "figures/plot.pdf"
+                    && image.rect.x == 72.0
+                    && image.rect.width == 468.0
+            )
+        }));
+        assert!(
+            display_lists[0]
+                .ops
+                .iter()
+                .any(|op| { matches!(op, DrawOp::TextRun(run) if run.text == "Plot caption.") })
+        );
+        assert_eq!(display_lists[0].source_spans.len(), 1);
     }
 }
