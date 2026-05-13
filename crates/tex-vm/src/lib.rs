@@ -950,6 +950,64 @@ impl<'i> Vm<'i> {
         let mut section_macros = HashMap::<String, (usize, usize)>::new();
         while index < bytes.len() {
             if bytes[index] != b'\\' {
+                if in_document && bytes[index] == b'$' {
+                    let delimiter_len = if index + 1 < bytes.len() && bytes[index + 1] == b'$' {
+                        2
+                    } else {
+                        1
+                    };
+                    let math_start = index + delimiter_len;
+                    let mut search_index = math_start;
+                    let mut math_end = None;
+                    while search_index < bytes.len() {
+                        if delimiter_len == 2 {
+                            if search_index + 1 < bytes.len()
+                                && bytes[search_index] == b'$'
+                                && bytes[search_index + 1] == b'$'
+                            {
+                                math_end = Some(search_index);
+                                break;
+                            }
+                        } else if bytes[search_index] == b'$'
+                            && (search_index == 0 || bytes[search_index - 1] != b'\\')
+                        {
+                            math_end = Some(search_index);
+                            break;
+                        }
+                        search_index += 1;
+                    }
+                    if let Some(math_end) = math_end {
+                        self.capture_text_events(
+                            source_path,
+                            source,
+                            text_start,
+                            index,
+                            in_document,
+                        );
+                        let event = if delimiter_len == 2 {
+                            RenderEvent::DisplayMath(MathSourceEvent {
+                                raw_source: normalize_latex_text(&source[math_start..math_end]),
+                                normalized_text: None,
+                            })
+                        } else {
+                            RenderEvent::InlineMath(MathSourceEvent {
+                                raw_source: normalize_latex_text(&source[math_start..math_end]),
+                                normalized_text: None,
+                            })
+                        };
+                        self.emit_render_event(
+                            event,
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                math_start as u32,
+                                math_end as u32,
+                            ),
+                        );
+                        index = math_end + delimiter_len;
+                        text_start = index;
+                        continue;
+                    }
+                }
                 index += 1;
                 continue;
             }
@@ -11725,6 +11783,47 @@ Fallback text.
             tex_render_model::ProvenanceSpan::File(span)
                 if span.path == Utf8PathBuf::from("main.tex")
                     && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "x^2 + y^2"
+        ));
+    }
+
+    #[test]
+    fn render_event_capture_records_dollar_math() {
+        let source = r"\begin{document}Area $x^2 + y^2$.$$z^2$$\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+        let display_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::DisplayMath(_)))
+            .expect("display math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math) if math.raw_source == "x^2 + y^2"
+        ));
+        assert!(matches!(
+            &inline_math.meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "x^2 + y^2"
+        ));
+        assert!(matches!(
+            &display_math.event,
+            RenderEvent::DisplayMath(math) if math.raw_source == "z^2"
+        ));
+        assert!(matches!(
+            &display_math.meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "z^2"
         ));
     }
 

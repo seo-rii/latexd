@@ -74,8 +74,8 @@ The next implementation step has started with a narrow display-list spike:
   provenance, and display-list caption text uses the caption source span;
 - VM render-event capture now emits `GraphicRef`/`Caption` events for
   `\includegraphics` and `\caption`, including inside `figure`/`table` blocks;
-- VM render-event capture now emits `InlineMath` for `\(...\)` and
-  `DisplayMath` for `\[...\]`;
+- VM render-event capture now emits `InlineMath` for `\(...\)`/`$...$` and
+  `DisplayMath` for `\[...\]`/`$$...$$`;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`

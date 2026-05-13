@@ -191,6 +191,61 @@ fn inline_math_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn dollar_math_capture_survives_ir_and_display_list() {
+    let capture =
+        capture_internal_render_ir("main.tex", DOLLAR_MATH_SOURCE, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath { raw_source, source, .. }
+                if raw_source == "x^2 + y^2"
+                    && matches!(
+                        &source.primary,
+                        ProvenanceSpan::File(span)
+                            if &DOLLAR_MATH_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "x^2 + y^2"
+                    )
+        )
+    }));
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::DisplayMath(display)
+                if display.raw_source == "z^2"
+                    && matches!(
+                        &display.source.primary,
+                        ProvenanceSpan::File(span)
+                            if &DOLLAR_MATH_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "z^2"
+                    )
+        )
+    }));
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("x^2 + y^2"));
+    assert!(display_list_text.contains("z^2"));
+}
+
+#[test]
 fn compact_render_ir_capture_writes_debug_artifacts() {
     let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
     let tempdir = tempfile::tempdir().expect("tempdir");
@@ -261,6 +316,8 @@ const COMPACT_SOURCE: &str = r"\title{A Paper}\author{Ada Lovelace}\date{May 184
 const GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\end{figure}\end{document}";
 
 const INLINE_MATH_SOURCE: &str = r"\begin{document}Area \(x^2 + y^2\).\end{document}";
+
+const DOLLAR_MATH_SOURCE: &str = r"\begin{document}Area $x^2 + y^2$.$$z^2$$\end{document}";
 
 const MACRO_SECTION_SOURCE: &str =
     r"\newcommand{\mysection}[1]{\section{#1}}\begin{document}\mysection{Intro}\end{document}";
