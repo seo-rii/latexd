@@ -3,17 +3,16 @@ use std::{env, fs, path::Path};
 use camino::Utf8PathBuf;
 use latexd::compiler::capture_internal_render_ir;
 use tex_aux::SemanticAux;
-use tex_render_model::DrawOp;
+use tex_render_model::{DrawOp, to_pretty_json};
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole};
 
 #[test]
 fn compact_render_ir_capture_matches_goldens() {
     let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
 
-    let event_json = serde_json::to_string_pretty(&capture.events).expect("event json");
-    let ir_json = serde_json::to_string_pretty(&capture.document_ir).expect("ir json");
-    let display_list_json =
-        serde_json::to_string_pretty(&capture.page_display_lists).expect("display list json");
+    let event_json = to_pretty_json(&capture.events).expect("event json");
+    let ir_json = to_pretty_json(&capture.document_ir).expect("ir json");
+    let display_list_json = to_pretty_json(&capture.page_display_lists).expect("display list json");
 
     assert_or_update_golden("tests/goldens/render_ir/compact.events.json", &event_json);
     assert_or_update_golden("tests/goldens/render_ir/compact.ir.json", &ir_json);
@@ -190,7 +189,7 @@ fn assert_or_update_golden(relative_path: &str, actual: &str) {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path);
     if env::var_os("LATEXD_UPDATE_GOLDENS").is_some() {
         fs::create_dir_all(path.parent().expect("golden parent")).expect("create golden dir");
-        fs::write(&path, format!("{actual}\n")).expect("write golden");
+        fs::write(&path, actual).expect("write golden");
         return;
     }
 

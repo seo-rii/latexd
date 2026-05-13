@@ -55,6 +55,8 @@ The next implementation step has started with a narrow display-list spike:
 - `glyphs` and `clusters` remain absent by design;
 - compact integration goldens now cover `RenderEvent -> DocumentIr ->
   PageDisplayList`;
+- compact event/IR/display-list goldens use the same `to_pretty_json` helper as
+  debug artifact writing;
 - `tex-pdf` can render text-only `PageDisplayList` pages into searchable PDF
   text operations without consuming `DocumentIr` directly;
 - `latexd` internal captures now return the derived text-only
