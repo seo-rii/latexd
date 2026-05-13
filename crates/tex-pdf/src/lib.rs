@@ -160,6 +160,28 @@ pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
                         rect.height
                     ));
                 }
+                DrawOp::Image(image) => {
+                    stream.push_str(&format!(
+                        "q 0.92 g {} {} {} {} re f 0 G {} {} {} {} re S Q ",
+                        image.rect.x,
+                        page.height_pt - image.rect.y - image.rect.height,
+                        image.rect.width,
+                        image.rect.height,
+                        image.rect.x,
+                        page.height_pt - image.rect.y - image.rect.height,
+                        image.rect.width,
+                        image.rect.height
+                    ));
+                    stream.push_str("BT /F1 8 Tf ");
+                    stream.push_str(&format!(
+                        "1 0 0 1 {} {} Tm ",
+                        image.rect.x + 4.0,
+                        page.height_pt - image.rect.y - image.rect.height / 2.0
+                    ));
+                    stream.push('(');
+                    stream.push_str(&escape_pdf_text(&format!("[image: {}]", image.asset_ref)));
+                    stream.push_str(") Tj ET ");
+                }
                 DrawOp::LinkAnnotation(link) => {
                     let annotation_id = next_annotation_object_id;
                     next_annotation_object_id += 1;
@@ -403,6 +425,19 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                     rect.x, rect.y, rect.width, rect.height
                 ));
             }
+            DrawOp::Image(image) => {
+                body.push_str(&format!(
+                    "<g data-image-asset-ref=\"{}\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
+                    escape_xml_text(&image.asset_ref),
+                    image.rect.x,
+                    image.rect.y,
+                    image.rect.width,
+                    image.rect.height,
+                    image.rect.x + 4.0,
+                    image.rect.y + image.rect.height / 2.0,
+                    escape_xml_text(&format!("[image: {}]", image.asset_ref))
+                ));
+            }
             DrawOp::LinkAnnotation(link) => {
                 body.push_str(&format!(
                     "<a href=\"{}\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"#1d4ed8\" stroke-width=\"1\" data-link-target=\"{}\"/></a>",
@@ -424,7 +459,6 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                     destination.point.y
                 ));
             }
-            _ => {}
         }
     }
     while svg_group_stack.pop().is_some() {
@@ -528,8 +562,8 @@ mod tests {
     use tex_layout::{LayoutOptions, layout_text};
     use tex_render_model::{
         Destination, DrawOp, ExpansionFrame, FontFamilyRequest, FontRequest, FontRole, FontSeries,
-        FontShape, LinkAnnotation, PageDisplayList, Point, PositionedTextRun, ProvenanceSpan, Rect,
-        SourceProvenance, SourceSpan, SourceSpanRole,
+        FontShape, LinkAnnotation, PageDisplayList, Point, PositionedImage, PositionedTextRun,
+        ProvenanceSpan, Rect, SourceProvenance, SourceSpan, SourceSpanRole,
     };
 
     use super::{
@@ -802,6 +836,41 @@ mod tests {
         assert!(svg.contains("<g clip-path=\"url(#clip-0)\" data-clip-rect=\"72,80,100,40\">"));
         assert!(svg.contains("Clipped text"));
         assert!(svg.contains("</g></g>"));
+    }
+
+    #[test]
+    fn renders_display_list_images_to_pdf_and_svg_debug_placeholders() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/a(b)&c.pdf".to_string(),
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf(&[page.clone()]);
+        let pdf_text = String::from_utf8_lossy(&pdf);
+        let svg = render_display_list_svg(&page);
+
+        assert!(pdf_text.contains("q 0.92 g 72 642 144 72 re f 0 G 72 642 144 72 re S Q"));
+        assert!(
+            pdf_text
+                .contains(r#"BT /F1 8 Tf 1 0 0 1 76 678 Tm ([image: figures/a\(b\)&c.pdf]) Tj ET"#)
+        );
+        assert!(svg.contains("data-image-asset-ref=\"figures/a(b)&amp;c.pdf\""));
+        assert!(
+            svg.contains("<rect x=\"72\" y=\"78\" width=\"144\" height=\"72\" fill=\"#e5e7eb\"")
+        );
+        assert!(svg.contains("[image: figures/a(b)&amp;c.pdf]"));
     }
 
     #[test]

@@ -64,6 +64,8 @@ The next implementation step has started with a narrow display-list spike:
   and `display-list.pdf` into a debug artifact directory;
 - display-list PDF/SVG debug rendering now supports positioned text runs,
   simple `Rule` rectangles, and `Save`/`Restore` + `ClipRect` scopes;
+- display-list PDF/SVG debug rendering now exposes `Image` operations as
+  bounded debug placeholders with asset references, not embedded graphics;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`
