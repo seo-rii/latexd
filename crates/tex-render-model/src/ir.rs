@@ -7,13 +7,20 @@ pub const DOCUMENT_IR_SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DocumentIr {
     pub schema_version: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<LabelDefinitionIr>,
     pub blocks: Vec<IrBlock>,
 }
 
 impl DocumentIr {
     pub fn new(blocks: Vec<IrBlock>) -> Self {
+        Self::with_labels(blocks, Vec::new())
+    }
+
+    pub fn with_labels(blocks: Vec<IrBlock>, labels: Vec<LabelDefinitionIr>) -> Self {
         Self {
             schema_version: DOCUMENT_IR_SCHEMA_VERSION,
+            labels,
             blocks,
         }
     }
@@ -230,6 +237,12 @@ impl RawFallbackIr {
             source,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LabelDefinitionIr {
+    pub key: String,
+    pub source: SourceProvenance,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

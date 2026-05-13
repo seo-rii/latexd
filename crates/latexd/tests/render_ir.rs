@@ -455,6 +455,33 @@ fn reference_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn label_definition_capture_survives_ir_without_visible_key() {
+    let capture = capture_internal_render_ir("main.tex", LABEL_SOURCE, &SemanticAux::default());
+
+    assert_eq!(capture.document_ir.labels.len(), 1);
+    assert_eq!(capture.document_ir.labels[0].key, "sec:intro");
+    assert!(matches!(
+        &capture.document_ir.labels[0].source.primary,
+        ProvenanceSpan::File(span)
+            if &LABEL_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize] == "sec:intro"
+    ));
+    assert!(!capture.document_ir.extracted_text().contains("sec:intro"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("Intro"));
+    assert!(display_list_text.contains("[?]"));
+    assert!(!display_list_text.contains("sec:intro"));
+}
+
+#[test]
 fn compact_render_ir_capture_writes_debug_artifacts() {
     let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
     let tempdir = tempfile::tempdir().expect("tempdir");
@@ -537,6 +564,9 @@ const CITATION_VARIANTS_SOURCE: &str = r"\begin{document}\citep[see][p.~3]{alpha
 
 const REFERENCE_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \eqref{eq:main}; \cref{fig:a,tab:b}.\end{document}";
+
+const LABEL_SOURCE: &str =
+    r"\begin{document}\section{Intro}\label{sec:intro}See \ref{sec:intro}.\end{document}";
 
 const MACRO_SECTION_SOURCE: &str =
     r"\newcommand{\mysection}[1]{\section{#1}}\begin{document}\mysection{Intro}\end{document}";

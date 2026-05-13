@@ -1,8 +1,8 @@
 use tex_render_model::{
     AbstractBlock, AuxView, BibliographyBlock, BibliographyItemIr, CitationInline, DocumentIr,
-    GraphicBlock, HeadingBlock, InlineNode, IrBlock, MetadataField, ParagraphBlock,
-    ReferenceInline, RenderEvent, RenderEventEnvelope, RenderEventStream, SourceProvenance,
-    SourceSpanRole, TitleBlock,
+    GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr, MetadataField,
+    ParagraphBlock, ReferenceInline, RenderEvent, RenderEventEnvelope, RenderEventStream,
+    SourceProvenance, SourceSpanRole, TitleBlock,
 };
 
 pub fn build_document_ir(stream: &RenderEventStream, aux: &impl AuxView) -> DocumentIr {
@@ -12,6 +12,7 @@ pub fn build_document_ir(stream: &RenderEventStream, aux: &impl AuxView) -> Docu
 pub struct DocumentIrBuilder<'a, A: AuxView> {
     aux: &'a A,
     blocks: Vec<IrBlock>,
+    labels: Vec<LabelDefinitionIr>,
     paragraph: Vec<InlineNode>,
     paragraph_source: Option<SourceProvenance>,
     abstract_content: Option<(Vec<InlineNode>, SourceProvenance)>,
@@ -27,6 +28,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
         Self {
             aux,
             blocks: Vec::new(),
+            labels: Vec::new(),
             paragraph: Vec::new(),
             paragraph_source: None,
             abstract_content: None,
@@ -182,6 +184,12 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         envelope,
                     );
                 }
+                RenderEvent::LabelDefinition(event) => {
+                    self.labels.push(LabelDefinitionIr {
+                        key: event.key.clone(),
+                        source: envelope.meta.source.clone(),
+                    });
+                }
                 RenderEvent::InlineMath(event) => {
                     self.push_inline(
                         InlineNode::InlineMath {
@@ -267,7 +275,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             self.blocks
                 .push(IrBlock::Bibliography(BibliographyBlock { items, source }));
         }
-        DocumentIr::new(self.blocks)
+        DocumentIr::with_labels(self.blocks, self.labels)
     }
 
     fn push_inline(&mut self, node: InlineNode, envelope: &RenderEventEnvelope) {
@@ -303,10 +311,10 @@ mod tests {
     use tex_render_model::{
         BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationLabel,
         CitationStyleHint, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
-        InlineCitationEvent, InlineReferenceEvent, IrBlock, LabelTargetView, MathSourceEvent,
-        MetadataField, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RenderEvent,
-        RenderEventEnvelope, RenderEventStream, SetDocumentMetadataEvent, SourceProvenance,
-        TextEvent,
+        InlineCitationEvent, InlineReferenceEvent, IrBlock, LabelDefinitionEvent, LabelTargetView,
+        MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason,
+        RawFallbackEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
+        SetDocumentMetadataEvent, SourceProvenance, TextEvent,
     };
 
     use super::build_document_ir;
@@ -475,6 +483,36 @@ mod tests {
         );
 
         assert_eq!(ir.extracted_text(), "(2.1)");
+    }
+
+    #[test]
+    fn label_definitions_are_invisible_ir_metadata() {
+        let stream = RenderEventStream::new(
+            Some("label".to_string()),
+            vec![
+                RenderEventEnvelope::new(
+                    1,
+                    RenderEvent::Text(TextEvent {
+                        text: "Intro".to_string(),
+                    }),
+                    SourceProvenance::file("main.tex", 0, 5),
+                ),
+                RenderEventEnvelope::new(
+                    2,
+                    RenderEvent::LabelDefinition(LabelDefinitionEvent {
+                        key: "sec:intro".to_string(),
+                        command: "label".to_string(),
+                    }),
+                    SourceProvenance::file("main.tex", 12, 21),
+                ),
+            ],
+        );
+        let ir = build_document_ir(&stream, &());
+
+        assert_eq!(ir.labels.len(), 1);
+        assert_eq!(ir.labels[0].key, "sec:intro");
+        assert_eq!(ir.extracted_text(), "Intro");
+        assert!(!ir.extracted_text().contains("sec:intro"));
     }
 
     #[test]

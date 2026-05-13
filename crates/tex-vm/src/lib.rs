@@ -9,9 +9,10 @@ use tex_lexer::{CatCodeTable, Lexer, lex_plain};
 use tex_render_model::{
     BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint, EventId,
     ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
-    InlineCitationEvent, InlineReferenceEvent, MathSourceEvent, MetadataField, ParagraphBreakEvent,
-    ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent, RenderEvent, RenderEventEnvelope,
-    SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SpaceEvent, SpaceKind, TextEvent,
+    InlineCitationEvent, InlineReferenceEvent, LabelDefinitionEvent, MathSourceEvent,
+    MetadataField, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent,
+    RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent, SourceProvenance, SourceSpan,
+    SpaceEvent, SpaceKind, TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -1426,6 +1427,25 @@ impl<'i> Vm<'i> {
                                     .filter(|key| !key.is_empty())
                                     .map(ToOwned::to_owned)
                                     .collect(),
+                                command: command.to_string(),
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                content_start as u32,
+                                content_end as u32,
+                            ),
+                        );
+                        index = after;
+                    }
+                }
+                "label" if in_document => {
+                    index = skip_ascii_whitespace(source, index);
+                    if let Some((key, content_start, content_end, after)) =
+                        read_braced_source_argument(source, index)
+                    {
+                        self.emit_render_event(
+                            RenderEvent::LabelDefinition(LabelDefinitionEvent {
+                                key: key.trim().to_string(),
                                 command: command.to_string(),
                             }),
                             SourceProvenance::file(
@@ -12077,6 +12097,38 @@ Fallback text.
             references[2].0.keys,
             vec!["fig:a".to_string(), "tab:b".to_string()]
         );
+    }
+
+    #[test]
+    fn render_event_capture_records_label_definitions_without_text() {
+        let source =
+            r"\begin{document}\section{Intro}\label{sec:intro}See \ref{sec:intro}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let label = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::LabelDefinition(_)))
+            .expect("label definition event");
+
+        assert!(matches!(
+            &label.event,
+            RenderEvent::LabelDefinition(label)
+                if label.key == "sec:intro" && label.command == "label"
+        ));
+        assert!(matches!(
+            &label.meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "sec:intro"
+        ));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text.contains("sec:intro")
+        )));
     }
 
     #[test]

@@ -22,7 +22,7 @@ shaping, external asset conversion, or a real page builder in this batch.
 
 ## Current Implementation Status
 
-As of 2026-05-11, the first implementation batch is complete:
+As of 2026-05-13, the first implementation batch is complete:
 
 - `tex-render-model` owns shared provenance, event, IR, display-list skeleton,
   `AuxView`, and JSON golden helper types.
@@ -86,6 +86,8 @@ The next implementation step has started with a narrow display-list spike:
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, and `cref`/`Cref`, rendering
   unresolved references as placeholders instead of leaking raw label keys;
+- VM render-event capture now emits `LabelDefinition` events for `\label{...}`,
+  and `DocumentIr` preserves labels as invisible metadata rather than body text;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`
@@ -259,6 +261,7 @@ pub enum RenderEvent {
 
     InlineCitation(InlineCitationEvent),
     InlineReference(InlineReferenceEvent),
+    LabelDefinition(LabelDefinitionEvent),
     BibliographyItem(BibliographyItemEvent),
 
     GraphicRef(GraphicRefEvent),
