@@ -3,7 +3,7 @@ use std::{env, fs, path::Path};
 use camino::Utf8PathBuf;
 use latexd::compiler::capture_internal_render_ir;
 use tex_aux::SemanticAux;
-use tex_render_model::{DrawOp, to_pretty_json};
+use tex_render_model::{CitationStyleHint, DrawOp, to_pretty_json};
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole};
 
 #[test]
@@ -341,6 +341,65 @@ fn heading_level_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn citation_variant_capture_survives_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        CITATION_VARIANTS_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let citations = paragraph
+        .content
+        .iter()
+        .filter_map(|node| match node {
+            InlineNode::Citation(citation) => Some(citation),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(citations.len(), 4);
+    assert_eq!(
+        citations[0].keys,
+        vec!["alpha".to_string(), "beta".to_string()]
+    );
+    assert_eq!(citations[0].style_hint, CitationStyleHint::Parenthetical);
+    assert_eq!(citations[0].display_text, "[?]");
+    assert!(matches!(
+        &citations[0].source.primary,
+        ProvenanceSpan::File(span)
+            if &CITATION_VARIANTS_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                == "alpha,beta"
+    ));
+    assert_eq!(citations[1].keys, vec!["gamma".to_string()]);
+    assert_eq!(citations[1].style_hint, CitationStyleHint::Textual);
+    assert_eq!(citations[2].keys, vec!["delta".to_string()]);
+    assert_eq!(citations[2].style_hint, CitationStyleHint::Parenthetical);
+    assert_eq!(citations[3].keys, vec!["epsilon".to_string()]);
+    assert_eq!(citations[3].style_hint, CitationStyleHint::Textual);
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("[?]"));
+    assert!(!display_list_text.contains("alpha"));
+    assert!(!display_list_text.contains("epsilon"));
+}
+
+#[test]
 fn compact_render_ir_capture_writes_debug_artifacts() {
     let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
     let tempdir = tempfile::tempdir().expect("tempdir");
@@ -418,6 +477,8 @@ const MATH_ENVIRONMENT_SOURCE: &str =
     r"\begin{document}\begin{equation}\frac{a}{b}\end{equation}\end{document}";
 
 const HEADING_LEVEL_SOURCE: &str = r"\begin{document}\section[Short]{Long Section}\subsection*{Methods}\subsubsection{Details}\paragraph{Sketch}\end{document}";
+
+const CITATION_VARIANTS_SOURCE: &str = r"\begin{document}\citep[see][p.~3]{alpha,beta}\citet*{gamma}\parencite{delta}\textcite{epsilon}\end{document}";
 
 const MACRO_SECTION_SOURCE: &str =
     r"\newcommand{\mysection}[1]{\section{#1}}\begin{document}\mysection{Intro}\end{document}";

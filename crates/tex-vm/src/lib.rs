@@ -1362,7 +1362,32 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
-                "cite" if in_document => {
+                "cite" | "citet" | "Citet" | "citep" | "Citep" | "citealt" | "citealp"
+                | "citeauthor" | "citeyear" | "citeyearpar" | "parencite" | "Parencite"
+                | "textcite" | "Textcite" | "autocite" | "Autocite" | "footcite" | "supercite"
+                    if in_document =>
+                {
+                    let style_hint = match command {
+                        "citet" | "Citet" | "citealt" | "citeauthor" | "citeyear" | "textcite"
+                        | "Textcite" => CitationStyleHint::Textual,
+                        "citep" | "Citep" | "citealp" | "citeyearpar" | "parencite"
+                        | "Parencite" | "autocite" | "Autocite" => CitationStyleHint::Parenthetical,
+                        "footcite" | "supercite" => CitationStyleHint::Unknown,
+                        _ => CitationStyleHint::Numeric,
+                    };
+                    index = skip_ascii_whitespace(source, index);
+                    if source[index..].starts_with('*') {
+                        index += 1;
+                    }
+                    loop {
+                        index = skip_ascii_whitespace(source, index);
+                        let Some((_, _, _, after_option)) =
+                            read_bracket_source_argument(source, index)
+                        else {
+                            break;
+                        };
+                        index = after_option;
+                    }
                     if let Some((keys, content_start, content_end, after)) =
                         read_braced_source_argument(source, index)
                     {
@@ -1374,8 +1399,8 @@ impl<'i> Vm<'i> {
                                     .filter(|key| !key.is_empty())
                                     .map(ToOwned::to_owned)
                                     .collect(),
-                                command: "cite".to_string(),
-                                style_hint: CitationStyleHint::Numeric,
+                                command: command.to_string(),
+                                style_hint,
                             }),
                             SourceProvenance::file(
                                 source_path.to_owned(),
@@ -8315,7 +8340,7 @@ pub fn compile_format_snapshot(interner: &mut ControlSequenceInterner, source: &
 mod tests {
     use camino::{Utf8Path, Utf8PathBuf};
     use serde_json::json;
-    use tex_render_model::{BlockKind, MetadataField, RenderEvent};
+    use tex_render_model::{BlockKind, CitationStyleHint, MetadataField, RenderEvent};
     use tex_tokens::ControlSequenceInterner;
 
     use super::{
@@ -11946,6 +11971,49 @@ Fallback text.
         assert_eq!(headings[2].0.text, "Details");
         assert_eq!(headings[3].0.level, 4);
         assert_eq!(headings[3].0.text, "Sketch");
+    }
+
+    #[test]
+    fn render_event_capture_records_citation_variants() {
+        let source = r"\begin{document}\citep[see][p.~3]{alpha,beta}\citet*{gamma}\parencite{delta}\textcite{epsilon}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let citations = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineCitation(citation) => {
+                    Some((citation, &event.meta.source.primary))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(citations.len(), 4);
+        assert_eq!(citations[0].0.command, "citep");
+        assert_eq!(citations[0].0.style_hint, CitationStyleHint::Parenthetical);
+        assert_eq!(
+            citations[0].0.keys,
+            vec!["alpha".to_string(), "beta".to_string()]
+        );
+        assert!(matches!(
+            citations[0].1,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "alpha,beta"
+        ));
+        assert_eq!(citations[1].0.command, "citet");
+        assert_eq!(citations[1].0.style_hint, CitationStyleHint::Textual);
+        assert_eq!(citations[1].0.keys, vec!["gamma".to_string()]);
+        assert_eq!(citations[2].0.command, "parencite");
+        assert_eq!(citations[2].0.style_hint, CitationStyleHint::Parenthetical);
+        assert_eq!(citations[2].0.keys, vec!["delta".to_string()]);
+        assert_eq!(citations[3].0.command, "textcite");
+        assert_eq!(citations[3].0.style_hint, CitationStyleHint::Textual);
+        assert_eq!(citations[3].0.keys, vec!["epsilon".to_string()]);
     }
 
     #[test]

@@ -80,6 +80,9 @@ The next implementation step has started with a narrow display-list spike:
 - VM render-event capture now emits `Heading` levels for `part`/`chapter`,
   `section`, `subsection`, `subsubsection`, `paragraph`, and `subparagraph`,
   preserving the long title span when an optional short title is present;
+- VM render-event capture now emits `InlineCitation` events for common natbib
+  and biblatex citation variants such as `citep`, `citet`, `parencite`, and
+  `textcite`, skipping optional pre/post notes and preserving citation keys;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`
