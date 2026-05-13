@@ -284,6 +284,63 @@ fn math_environment_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn heading_level_capture_survives_ir_and_display_list() {
+    let capture =
+        capture_internal_render_ir("main.tex", HEADING_LEVEL_SOURCE, &SemanticAux::default());
+    let headings = capture
+        .document_ir
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            IrBlock::Heading(heading) => Some(heading),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(headings.len(), 4);
+    assert_eq!(headings[0].level, 1);
+    assert!(matches!(
+        &headings[0].content[0],
+        InlineNode::Text { text, .. } if text == "Long Section"
+    ));
+    assert!(matches!(
+        &headings[0].source.primary,
+        ProvenanceSpan::File(span)
+            if &HEADING_LEVEL_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                == "Long Section"
+    ));
+    assert_eq!(headings[1].level, 2);
+    assert!(matches!(
+        &headings[1].content[0],
+        InlineNode::Text { text, .. } if text == "Methods"
+    ));
+    assert_eq!(headings[2].level, 3);
+    assert!(matches!(
+        &headings[2].content[0],
+        InlineNode::Text { text, .. } if text == "Details"
+    ));
+    assert_eq!(headings[3].level, 4);
+    assert!(matches!(
+        &headings[3].content[0],
+        InlineNode::Text { text, .. } if text == "Sketch"
+    ));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("Long Section"));
+    assert!(display_list_text.contains("Methods"));
+    assert!(display_list_text.contains("Details"));
+    assert!(display_list_text.contains("Sketch"));
+}
+
+#[test]
 fn compact_render_ir_capture_writes_debug_artifacts() {
     let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
     let tempdir = tempfile::tempdir().expect("tempdir");
@@ -359,6 +416,8 @@ const DOLLAR_MATH_SOURCE: &str = r"\begin{document}Area $x^2 + y^2$.$$z^2$$\end{
 
 const MATH_ENVIRONMENT_SOURCE: &str =
     r"\begin{document}\begin{equation}\frac{a}{b}\end{equation}\end{document}";
+
+const HEADING_LEVEL_SOURCE: &str = r"\begin{document}\section[Short]{Long Section}\subsection*{Methods}\subsubsection{Details}\paragraph{Sketch}\end{document}";
 
 const MACRO_SECTION_SOURCE: &str =
     r"\newcommand{\mysection}[1]{\section{#1}}\begin{document}\mysection{Intro}\end{document}";

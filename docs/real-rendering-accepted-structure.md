@@ -77,6 +77,9 @@ The next implementation step has started with a narrow display-list spike:
 - VM render-event capture now emits `InlineMath` for `\(...\)`/`$...$` and
   `DisplayMath` for `\[...\]`/`$$...$$` plus common display math environments
   such as `equation`/`align`, preserving math commands in `raw_source`;
+- VM render-event capture now emits `Heading` levels for `part`/`chapter`,
+  `section`, `subsection`, `subsubsection`, `paragraph`, and `subparagraph`,
+  preserving the long title span when an optional short title is present;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`

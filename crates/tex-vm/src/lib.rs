@@ -1321,17 +1321,35 @@ impl<'i> Vm<'i> {
                         }
                     }
                 }
-                "section" if in_document => {
+                "part" | "chapter" | "section" | "subsection" | "subsubsection" | "paragraph"
+                | "subparagraph"
+                    if in_document =>
+                {
+                    let level = match command {
+                        "part" | "chapter" => 0,
+                        "section" => 1,
+                        "subsection" => 2,
+                        "subsubsection" => 3,
+                        "paragraph" => 4,
+                        "subparagraph" => 5,
+                        _ => unreachable!(),
+                    };
                     index = skip_ascii_whitespace(source, index);
                     if source[index..].starts_with('*') {
                         index += 1;
+                        index = skip_ascii_whitespace(source, index);
+                    }
+                    if let Some((_, _, _, after_short_title)) =
+                        read_bracket_source_argument(source, index)
+                    {
+                        index = skip_ascii_whitespace(source, after_short_title);
                     }
                     if let Some((heading, content_start, content_end, after)) =
                         read_braced_source_argument(source, index)
                     {
                         self.emit_render_event(
                             RenderEvent::Heading(HeadingEvent {
-                                level: 1,
+                                level,
                                 text: normalize_latex_text(heading),
                                 number: None,
                             }),
@@ -11894,6 +11912,40 @@ Fallback text.
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("equation")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_records_heading_levels_and_long_titles() {
+        let source = r"\begin{document}\section[Short]{Long Section}\subsection*{Methods}\subsubsection{Details}\paragraph{Sketch}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let headings = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Heading(heading) => Some((heading, &event.meta.source.primary)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(headings.len(), 4);
+        assert_eq!(headings[0].0.level, 1);
+        assert_eq!(headings[0].0.text, "Long Section");
+        assert!(matches!(
+            headings[0].1,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "Long Section"
+        ));
+        assert_eq!(headings[1].0.level, 2);
+        assert_eq!(headings[1].0.text, "Methods");
+        assert_eq!(headings[2].0.level, 3);
+        assert_eq!(headings[2].0.text, "Details");
+        assert_eq!(headings[3].0.level, 4);
+        assert_eq!(headings[3].0.text, "Sketch");
     }
 
     #[test]
