@@ -76,6 +76,52 @@ fn compact_title_ir_preserves_emit_and_metadata_provenance() {
                         && &COMPACT_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize] == "A Paper"
             )
     }));
+    assert!(matches!(
+        title.title_source.as_ref().map(|source| &source.primary),
+        Some(ProvenanceSpan::File(span))
+            if span.path.as_str() == "main.tex"
+                && &COMPACT_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize] == "A Paper"
+    ));
+    assert!(
+        title
+            .title_source
+            .as_ref()
+            .is_some_and(|source| source.related.iter().any(|related| {
+                related.role == SourceSpanRole::EmitSite
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if &COMPACT_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "\\maketitle"
+                    )
+            }))
+    );
+    assert!(matches!(
+        title.author_sources.first().map(|source| &source.primary),
+        Some(ProvenanceSpan::File(span))
+            if span.path.as_str() == "main.tex"
+                && &COMPACT_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                    == "Ada Lovelace"
+    ));
+    assert!(matches!(
+        title.date_source.as_ref().map(|source| &source.primary),
+        Some(ProvenanceSpan::File(span))
+            if span.path.as_str() == "main.tex"
+                && &COMPACT_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize] == "May 1843"
+    ));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::TextRun(run)
+                if run.text == "A Paper"
+                    && matches!(
+                        &run.source.primary,
+                        ProvenanceSpan::File(span)
+                            if &COMPACT_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "A Paper"
+                    )
+        )
+    }));
 }
 
 #[test]
@@ -735,7 +781,7 @@ fn compact_render_ir_capture_writes_debug_artifacts() {
     assert!(display_list_svg.contains("data-source-path=\"main.tex\""));
     assert!(display_list_svg.contains("data-source-related-roles=\""));
     assert!(display_list_svg.contains("data-source-related-spans=\""));
-    assert!(display_list_svg.contains("metadata_definition"));
+    assert!(display_list_svg.contains("emit_site"));
     assert!(
         fs::read(paths.display_list_pdf)
             .expect("display list pdf")

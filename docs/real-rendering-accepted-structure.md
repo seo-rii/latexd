@@ -95,6 +95,9 @@ The next implementation step has started with a narrow display-list spike:
 - `PageDisplayList` text generation preserves inline node provenance by
   emitting positioned text runs for citation, reference, math, and fallback
   segments instead of flattening an entire paragraph under the block source;
+- `TitleBlock` now keeps field-level provenance for title, author, and date
+  values so display-list text runs can point to the original metadata
+  definitions while the block emission still points to `\maketitle`;
 - `\href` and `\url` now survive as inline link events, `Link` IR nodes, text
   runs, and `LinkAnnotation` display-list operations without leaking hidden
   `\href` targets into visible body text;

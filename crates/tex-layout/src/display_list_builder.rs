@@ -171,39 +171,52 @@ pub fn build_page_display_lists(
         match block {
             IrBlock::TitleBlock(block) => {
                 if let Some(title) = &block.title {
+                    let source = block
+                        .title_source
+                        .clone()
+                        .unwrap_or_else(|| block.source.clone());
                     logical_items.push(LogicalItem::Text(LogicalTextRun {
                         segments: vec![LogicalTextSegment {
                             text: title.clone(),
-                            source: block.source.clone(),
+                            source: source.clone(),
                             link_target: None,
                         }],
-                        source: block.source.clone(),
+                        source,
                         font: title_font.clone(),
                         size_pt: options.title_font_size_pt,
                         gap_after_pt: options.block_gap_pt,
                     }));
                 }
-                for author in &block.authors {
+                for (index, author) in block.authors.iter().enumerate() {
+                    let source = block
+                        .author_sources
+                        .get(index)
+                        .cloned()
+                        .unwrap_or_else(|| block.source.clone());
                     logical_items.push(LogicalItem::Text(LogicalTextRun {
                         segments: vec![LogicalTextSegment {
                             text: author.clone(),
-                            source: block.source.clone(),
+                            source: source.clone(),
                             link_target: None,
                         }],
-                        source: block.source.clone(),
+                        source,
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
                         gap_after_pt: 0.0,
                     }));
                 }
                 if let Some(date) = &block.date {
+                    let source = block
+                        .date_source
+                        .clone()
+                        .unwrap_or_else(|| block.source.clone());
                     logical_items.push(LogicalItem::Text(LogicalTextRun {
                         segments: vec![LogicalTextSegment {
                             text: date.clone(),
-                            source: block.source.clone(),
+                            source: source.clone(),
                             link_target: None,
                         }],
-                        source: block.source.clone(),
+                        source,
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
                         gap_after_pt: options.block_gap_pt,
@@ -616,8 +629,11 @@ mod tests {
             &DocumentIr::new(vec![
                 IrBlock::TitleBlock(TitleBlock {
                     title: Some("A Paper".to_string()),
+                    title_source: None,
                     authors: vec!["Ada Lovelace".to_string()],
+                    author_sources: Vec::new(),
                     date: None,
+                    date_source: None,
                     source: source.clone(),
                 }),
                 IrBlock::Paragraph(ParagraphBlock {
@@ -707,10 +723,54 @@ mod tests {
         assert!(text_runs.iter().any(|run| {
             run.text == "[7]"
                 && matches!(
-                    &run.source.primary,
-                    tex_render_model::ProvenanceSpan::File(span)
-                        if span.start_utf8 == 30 && span.end_utf8 == 33
+                        &run.source.primary,
+                        tex_render_model::ProvenanceSpan::File(span)
+                            if span.start_utf8 == 30 && span.end_utf8 == 33
                 )
+        }));
+    }
+
+    #[test]
+    fn uses_title_field_sources_for_text_runs() {
+        let block_source = SourceProvenance::file("main.tex", 40, 50);
+        let title_source = SourceProvenance::file("main.tex", 7, 14);
+        let author_source = SourceProvenance::file("main.tex", 24, 36);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::TitleBlock(TitleBlock {
+                title: Some("A Paper".to_string()),
+                title_source: Some(title_source),
+                authors: vec!["Ada Lovelace".to_string()],
+                author_sources: vec![author_source],
+                date: None,
+                date_source: None,
+                source: block_source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+
+        assert!(display_lists[0].ops.iter().any(|op| {
+            matches!(
+                op,
+                DrawOp::TextRun(run)
+                    if run.text == "A Paper"
+                        && matches!(
+                            &run.source.primary,
+                            tex_render_model::ProvenanceSpan::File(span)
+                                if span.start_utf8 == 7 && span.end_utf8 == 14
+                        )
+            )
+        }));
+        assert!(display_lists[0].ops.iter().any(|op| {
+            matches!(
+                op,
+                DrawOp::TextRun(run)
+                    if run.text == "Ada Lovelace"
+                        && matches!(
+                            &run.source.primary,
+                            tex_render_model::ProvenanceSpan::File(span)
+                                if span.start_utf8 == 24 && span.end_utf8 == 36
+                        )
+            )
         }));
     }
 

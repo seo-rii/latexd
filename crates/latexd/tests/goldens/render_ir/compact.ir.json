@@ -4,10 +4,78 @@
     {
       "kind": "title_block",
       "title": "A Paper",
+      "title_source": {
+        "primary": {
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 7,
+          "end_utf8": 14
+        },
+        "related": [
+          {
+            "role": "emit_site",
+            "span": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 67,
+              "end_utf8": 77
+            }
+          }
+        ],
+        "expansion_stack": [],
+        "generated_by": "source",
+        "expansion_stack_truncated": false
+      },
       "authors": [
         "Ada Lovelace"
       ],
+      "author_sources": [
+        {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 23,
+            "end_utf8": 35
+          },
+          "related": [
+            {
+              "role": "emit_site",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 67,
+                "end_utf8": 77
+              }
+            }
+          ],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      ],
       "date": "May 1843",
+      "date_source": {
+        "primary": {
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 42,
+          "end_utf8": 50
+        },
+        "related": [
+          {
+            "role": "emit_site",
+            "span": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 67,
+              "end_utf8": 77
+            }
+          }
+        ],
+        "expansion_stack": [],
+        "generated_by": "source",
+        "expansion_stack_truncated": false
+      },
       "source": {
         "primary": {
           "kind": "file",

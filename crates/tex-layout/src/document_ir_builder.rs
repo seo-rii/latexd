@@ -17,9 +17,9 @@ pub struct DocumentIrBuilder<'a, A: AuxView> {
     paragraph_source: Option<SourceProvenance>,
     abstract_content: Option<(Vec<InlineNode>, SourceProvenance)>,
     bibliography_items: Option<(Vec<BibliographyItemIr>, SourceProvenance)>,
-    title: Option<String>,
-    authors: Vec<String>,
-    date: Option<String>,
+    title: Option<(String, SourceProvenance)>,
+    authors: Vec<(String, SourceProvenance)>,
+    date: Option<(String, SourceProvenance)>,
     metadata_sources: Vec<SourceProvenance>,
 }
 
@@ -45,31 +45,57 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             match &envelope.event {
                 RenderEvent::SetDocumentMetadata(event) => match event.field {
                     MetadataField::Title => {
-                        self.title = Some(event.value.clone());
+                        self.title = Some((event.value.clone(), envelope.meta.source.clone()));
                         self.metadata_sources.push(envelope.meta.source.clone());
                     }
                     MetadataField::Author => {
-                        self.authors.push(event.value.clone());
+                        self.authors
+                            .push((event.value.clone(), envelope.meta.source.clone()));
                         self.metadata_sources.push(envelope.meta.source.clone());
                     }
                     MetadataField::Date => {
-                        self.date = Some(event.value.clone());
+                        self.date = Some((event.value.clone(), envelope.meta.source.clone()));
                         self.metadata_sources.push(envelope.meta.source.clone());
                     }
                 },
                 RenderEvent::FlushTitleBlock(_) => {
                     self.flush_paragraph();
                     let mut source = envelope.meta.source.clone();
+                    let emit_span = source.primary.clone();
                     for metadata_source in std::mem::take(&mut self.metadata_sources) {
                         source = source.with_related(
                             SourceSpanRole::MetadataDefinition,
                             metadata_source.primary,
                         );
                     }
+                    let title = self.title.take();
+                    let title_source = title.as_ref().map(|(_, source)| {
+                        source
+                            .clone()
+                            .with_related(SourceSpanRole::EmitSite, emit_span.clone())
+                    });
+                    let authors = std::mem::take(&mut self.authors);
+                    let author_sources = authors
+                        .iter()
+                        .map(|(_, source)| {
+                            source
+                                .clone()
+                                .with_related(SourceSpanRole::EmitSite, emit_span.clone())
+                        })
+                        .collect::<Vec<_>>();
+                    let date = self.date.take();
+                    let date_source = date.as_ref().map(|(_, source)| {
+                        source
+                            .clone()
+                            .with_related(SourceSpanRole::EmitSite, emit_span.clone())
+                    });
                     self.blocks.push(IrBlock::TitleBlock(TitleBlock {
-                        title: self.title.take(),
-                        authors: std::mem::take(&mut self.authors),
-                        date: self.date.take(),
+                        title: title.map(|(value, _)| value),
+                        title_source,
+                        authors: authors.into_iter().map(|(value, _)| value).collect(),
+                        author_sources,
+                        date: date.map(|(value, _)| value),
+                        date_source,
                         source,
                     }));
                 }
@@ -441,6 +467,42 @@ mod tests {
         assert!(text.contains("Hello[?]"));
         assert!(text.contains("Author. Title."));
         assert!(!text.contains("key."));
+        let title_block = ir
+            .blocks
+            .iter()
+            .find_map(|block| match block {
+                IrBlock::TitleBlock(title) => Some(title),
+                _ => None,
+            })
+            .expect("title block");
+        assert!(matches!(
+            title_block.title_source.as_ref().map(|source| &source.primary),
+            Some(tex_render_model::ProvenanceSpan::File(span))
+                if span.start_utf8 == 1 && span.end_utf8 == 2
+        ));
+        assert!(
+            title_block
+                .title_source
+                .as_ref()
+                .is_some_and(|source| source.related.iter().any(|related| {
+                    related.role == tex_render_model::SourceSpanRole::EmitSite
+                        && matches!(
+                            &related.span,
+                            tex_render_model::ProvenanceSpan::File(span)
+                                if span.start_utf8 == 3 && span.end_utf8 == 4
+                        )
+                }))
+        );
+        assert!(matches!(
+            title_block.author_sources.first().map(|source| &source.primary),
+            Some(tex_render_model::ProvenanceSpan::File(span))
+                if span.start_utf8 == 2 && span.end_utf8 == 3
+        ));
+        assert!(matches!(
+            &title_block.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.start_utf8 == 3 && span.end_utf8 == 4
+        ));
     }
 
     #[test]

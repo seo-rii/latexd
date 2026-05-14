@@ -156,10 +156,16 @@ pub enum IrBlock {
 pub struct TitleBlock {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_source: Option<SourceProvenance>,
     #[serde(default)]
     pub authors: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub author_sources: Vec<SourceProvenance>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub date: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub date_source: Option<SourceProvenance>,
     pub source: SourceProvenance,
 }
 
