@@ -796,6 +796,48 @@ fn nonbreaking_tilde_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn tabular_fallback_capture_uses_normalized_visible_text() {
+    let capture =
+        capture_internal_render_ir("main.tex", TABULAR_FALLBACK_SOURCE, &SemanticAux::default());
+    let fallback = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("tabular") =>
+            {
+                Some(fallback)
+            }
+            _ => None,
+        })
+        .expect("tabular fallback");
+
+    assert_eq!(
+        fallback.normalized_visible_text.as_deref(),
+        Some("Alpha | Beta ; Gamma | Delta")
+    );
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Alpha | Beta ; Gamma | Delta"));
+    assert!(!extracted_text.contains("&"));
+    assert!(!extracted_text.contains("ll"));
+    assert!(!extracted_text.contains("hline"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Alpha | Beta ; Gamma | Delta"));
+    assert!(!display_list_text.contains("&"));
+    assert!(!display_list_text.contains("hline"));
+}
+
+#[test]
 fn list_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir("main.tex", LIST_SOURCE, &SemanticAux::default());
     let lists = capture
@@ -1144,6 +1186,8 @@ const ESCAPED_VISIBLE_SOURCE: &str =
 
 const NONBREAKING_TILDE_SOURCE: &str =
     r"\begin{document}Figure~1 references Related~Work.\section{Related~Work}\end{document}";
+
+const TABULAR_FALLBACK_SOURCE: &str = r"\begin{document}\begin{tabular}{ll}Alpha & Beta \\ Gamma & \textbf{Delta} \\\hline\end{tabular}\end{document}";
 
 const LIST_SOURCE: &str = r"\begin{document}\begin{itemize}\item First \cite{key}\item[Custom] Second\end{itemize}\begin{enumerate}\item One\item Two\end{enumerate}\begin{description}\item[Term] Meaning \cite{key}\item[Other] More\end{description}\end{document}";
 

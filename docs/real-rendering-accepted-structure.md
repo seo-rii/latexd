@@ -119,6 +119,9 @@ The next implementation step has started with a narrow display-list spike:
 - simple text environments such as `quote`, `quotation`, and `center` now
   survive as structured environment block events and IR blocks instead of
   falling back to unsupported-environment raw text;
+- unsupported `tabular`-style environments now normalize column specs, cell
+  separators, row breaks, and common rule commands into readable fallback text
+  instead of leaking raw table syntax into extracted/display-list text;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`

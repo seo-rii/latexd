@@ -1288,6 +1288,149 @@ impl<'i> Vm<'i> {
                                     let body_start = index;
                                     let body_end = index + relative_end;
                                     let raw_end = body_end + end_marker.len();
+                                    let body_source = &source[body_start..body_end];
+                                    let normalized_visible_text =
+                                        if matches!(other, "array" | "tabular" | "tabular*") {
+                                            let mut table_body_start =
+                                                skip_ascii_whitespace(body_source, 0);
+                                            if other == "tabular*" {
+                                                if let Some((_, _, _, after)) =
+                                                    read_braced_source_argument(
+                                                        body_source,
+                                                        table_body_start,
+                                                    )
+                                                {
+                                                    table_body_start = after;
+                                                }
+                                                table_body_start = skip_ascii_whitespace(
+                                                    body_source,
+                                                    table_body_start,
+                                                );
+                                            }
+                                            if let Some((_, _, _, after)) =
+                                                read_bracket_source_argument(
+                                                    body_source,
+                                                    table_body_start,
+                                                )
+                                            {
+                                                table_body_start = after;
+                                            }
+                                            if let Some((_, _, _, after)) =
+                                                read_braced_source_argument(
+                                                    body_source,
+                                                    table_body_start,
+                                                )
+                                            {
+                                                table_body_start = after;
+                                            }
+                                            table_body_start = skip_ascii_whitespace(
+                                                body_source,
+                                                table_body_start,
+                                            );
+
+                                            let table_body = &body_source[table_body_start..];
+                                            let mut rewritten = String::new();
+                                            let mut table_index = 0usize;
+                                            while table_index < table_body.len() {
+                                                let byte = table_body.as_bytes()[table_index];
+                                                match byte {
+                                                    b'&' => {
+                                                        rewritten.push_str(" | ");
+                                                        table_index += 1;
+                                                    }
+                                                    b'\\' => {
+                                                        if table_body
+                                                            .as_bytes()
+                                                            .get(table_index + 1)
+                                                            .copied()
+                                                            == Some(b'\\')
+                                                        {
+                                                            rewritten.push_str(" ; ");
+                                                            table_index += 2;
+                                                            if let Some((_, _, _, after)) =
+                                                                read_bracket_source_argument(
+                                                                    table_body,
+                                                                    table_index,
+                                                                )
+                                                            {
+                                                                table_index = after;
+                                                            }
+                                                            continue;
+                                                        }
+                                                        let command_start = table_index + 1;
+                                                        let mut command_end = command_start;
+                                                        while command_end < table_body.len()
+                                                            && (table_body.as_bytes()[command_end]
+                                                                .is_ascii_alphabetic()
+                                                                || table_body.as_bytes()
+                                                                    [command_end]
+                                                                    == b'@')
+                                                        {
+                                                            command_end += 1;
+                                                        }
+                                                        let command =
+                                                            &table_body[command_start..command_end];
+                                                        match command {
+                                                            "tabularnewline" => {
+                                                                rewritten.push_str(" ; ");
+                                                                table_index = command_end;
+                                                                if let Some((_, _, _, after)) =
+                                                                    read_bracket_source_argument(
+                                                                        table_body,
+                                                                        table_index,
+                                                                    )
+                                                                {
+                                                                    table_index = after;
+                                                                }
+                                                            }
+                                                            "hline" | "toprule" | "midrule"
+                                                            | "bottomrule" => {
+                                                                table_index = command_end;
+                                                            }
+                                                            "cline" | "cmidrule" => {
+                                                                table_index = command_end;
+                                                                if let Some((_, _, _, after)) =
+                                                                    read_bracket_source_argument(
+                                                                        table_body,
+                                                                        table_index,
+                                                                    )
+                                                                {
+                                                                    table_index = after;
+                                                                }
+                                                                if let Some((_, _, _, after)) =
+                                                                    read_braced_source_argument(
+                                                                        table_body,
+                                                                        table_index,
+                                                                    )
+                                                                {
+                                                                    table_index = after;
+                                                                }
+                                                            }
+                                                            _ => {
+                                                                rewritten.push('\\');
+                                                                rewritten.push_str(command);
+                                                                table_index = command_end;
+                                                            }
+                                                        }
+                                                    }
+                                                    _ => {
+                                                        let ch = table_body[table_index..]
+                                                            .chars()
+                                                            .next()
+                                                            .expect("char at byte index");
+                                                        rewritten.push(ch);
+                                                        table_index += ch.len_utf8();
+                                                    }
+                                                }
+                                            }
+
+                                            normalize_latex_text(&rewritten)
+                                                .trim_end_matches(';')
+                                                .trim_end()
+                                                .to_string()
+                                        } else {
+                                            normalize_latex_text(body_source)
+                                        };
                                     self.emit_render_event(
                                         RenderEvent::RawFallback(RawFallbackEvent {
                                             source_excerpt: source[command_start..raw_end]
@@ -1295,9 +1438,7 @@ impl<'i> Vm<'i> {
                                                 .take(2048)
                                                 .collect(),
                                             expanded_text: None,
-                                            normalized_visible_text: Some(normalize_latex_text(
-                                                &source[body_start..body_end],
-                                            )),
+                                            normalized_visible_text: Some(normalized_visible_text),
                                             environment: Some(other.to_string()),
                                             reason: FallbackReason::UnsupportedEnvironment,
                                             source_hash: None,
@@ -12125,6 +12266,34 @@ Fallback text.
                 if fallback.environment.as_deref() == Some("unknownenv")
                     && fallback.normalized_visible_text.as_deref() == Some("Fallback text.")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_tabular_fallback_text() {
+        let source = r"\begin{document}\begin{tabular}{ll}Alpha & Beta \\ Gamma & \textbf{Delta} \\\hline\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible, "Alpha | Beta ; Gamma | Delta");
+        assert!(!visible.contains("&"));
+        assert!(!visible.contains("ll"));
+        assert!(!visible.contains("hline"));
+        assert!(!visible.contains("textbf"));
     }
 
     #[test]
