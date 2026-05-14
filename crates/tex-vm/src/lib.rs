@@ -1491,6 +1491,24 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
+                "nolinkurl" | "path" | "detokenize" if in_document => {
+                    index = skip_ascii_whitespace(source, index);
+                    if let Some((text, content_start, content_end, after)) =
+                        read_braced_source_argument(source, index)
+                    {
+                        self.emit_render_event(
+                            RenderEvent::Text(TextEvent {
+                                text: text.trim().to_string(),
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                content_start as u32,
+                                content_end as u32,
+                            ),
+                        );
+                        index = after;
+                    }
+                }
                 "label" if in_document => {
                     index = skip_ascii_whitespace(source, index);
                     if let Some((key, content_start, content_end, after)) =
@@ -12196,6 +12214,51 @@ Fallback text.
             &event.event,
             RenderEvent::Text(text) if text.text.contains("https://example.test/paper")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_records_url_text_wrappers_without_link_annotations() {
+        let source = r"\begin{document}Use \nolinkurl{https://example.test/paper} at \path{/tmp/archive} via \detokenize{\foo+*}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let text_events = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some((&text.text, &event.meta.source.primary)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(text_events.iter().any(|(text, span)| {
+            text.as_str() == "https://example.test/paper"
+                && matches!(
+                    span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "https://example.test/paper"
+                )
+        }));
+        assert!(
+            text_events
+                .iter()
+                .any(|(text, _)| text.as_str() == "/tmp/archive")
+        );
+        assert!(
+            text_events
+                .iter()
+                .any(|(text, _)| text.as_str() == r"\foo+*")
+        );
+        assert!(
+            !outcome
+                .render_events
+                .iter()
+                .any(|event| matches!(&event.event, RenderEvent::InlineLink(_)))
+        );
     }
 
     #[test]

@@ -98,6 +98,9 @@ The next implementation step has started with a narrow display-list spike:
 - `\href` and `\url` now survive as inline link events, `Link` IR nodes, text
   runs, and `LinkAnnotation` display-list operations without leaking hidden
   `\href` targets into visible body text;
+- non-link text wrappers such as `\nolinkurl`, `\path`, and `\detokenize`
+  now survive as visible text events and IR text nodes without creating link
+  annotations;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`
