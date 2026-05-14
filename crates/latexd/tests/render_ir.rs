@@ -863,6 +863,61 @@ fn nested_text_wrapper_link_capture_survives_ir_without_hidden_targets() {
 }
 
 #[test]
+fn nested_text_wrapper_math_capture_survives_ir_without_raw_delimiters() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        NESTED_TEXT_WRAPPER_MATH_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath { raw_source, .. } if raw_source == "x^2"
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath { raw_source, .. } if raw_source == "y^2"
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(
+        extracted_text.contains("Nested area x^2 and y^2 text."),
+        "{extracted_text}"
+    );
+    assert!(!extracted_text.contains("$x^2$"));
+    assert!(!extracted_text.contains(r"\(y^2\)"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("Nested area x^2 and y^2 text."),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("$x^2$"));
+    assert!(!display_list_text.contains(r"\(y^2\)"));
+}
+
+#[test]
 fn escaped_visible_character_capture_survives_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", ESCAPED_VISIBLE_SOURCE, &SemanticAux::default());
@@ -1372,6 +1427,9 @@ const NESTED_TEXT_WRAPPER_SOURCE: &str =
     r"\begin{document}Nested \emph{important \cite{key} and \ref{sec:intro}} text.\end{document}";
 
 const NESTED_TEXT_WRAPPER_LINK_SOURCE: &str = r"\begin{document}Nested \emph{read \href{https://hidden.test}{paper} and \url{https://shown.test}}.\end{document}";
+
+const NESTED_TEXT_WRAPPER_MATH_SOURCE: &str =
+    r"\begin{document}Nested \emph{area $x^2$ and \(y^2\)} text.\end{document}";
 
 const ESCAPED_VISIBLE_SOURCE: &str =
     r"\begin{document}50\% A\&B costs \$5\_0 \#1 \{x\} A\ B.\end{document}";

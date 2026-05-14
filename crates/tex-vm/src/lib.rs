@@ -1726,10 +1726,74 @@ impl<'i> Vm<'i> {
                     if let Some((text, content_start, content_end, after)) =
                         read_braced_source_argument(source, index)
                     {
-                        if text.contains('\\') {
+                        if text.contains('\\') || text.contains('$') {
                             let mut inner_index = content_start;
                             let mut inner_text_start = content_start;
                             while inner_index < content_end {
+                                if bytes[inner_index] == b'$' {
+                                    let delimiter_len = if inner_index + 1 < content_end
+                                        && bytes[inner_index + 1] == b'$'
+                                    {
+                                        2
+                                    } else {
+                                        1
+                                    };
+                                    let math_start = inner_index + delimiter_len;
+                                    let mut search_index = math_start;
+                                    let mut math_end = None;
+                                    while search_index < content_end {
+                                        if delimiter_len == 2 {
+                                            if search_index + 1 < content_end
+                                                && bytes[search_index] == b'$'
+                                                && bytes[search_index + 1] == b'$'
+                                            {
+                                                math_end = Some(search_index);
+                                                break;
+                                            }
+                                        } else if bytes[search_index] == b'$'
+                                            && bytes[search_index - 1] != b'\\'
+                                        {
+                                            math_end = Some(search_index);
+                                            break;
+                                        }
+                                        search_index += 1;
+                                    }
+                                    if let Some(math_end) = math_end {
+                                        self.capture_text_events(
+                                            source_path,
+                                            source,
+                                            inner_text_start,
+                                            inner_index,
+                                            true,
+                                        );
+                                        let event = if delimiter_len == 2 {
+                                            RenderEvent::DisplayMath(MathSourceEvent {
+                                                raw_source: normalize_latex_math_source(
+                                                    &source[math_start..math_end],
+                                                ),
+                                                normalized_text: None,
+                                            })
+                                        } else {
+                                            RenderEvent::InlineMath(MathSourceEvent {
+                                                raw_source: normalize_latex_math_source(
+                                                    &source[math_start..math_end],
+                                                ),
+                                                normalized_text: None,
+                                            })
+                                        };
+                                        self.emit_render_event(
+                                            event,
+                                            SourceProvenance::file(
+                                                source_path.to_owned(),
+                                                math_start as u32,
+                                                math_end as u32,
+                                            ),
+                                        );
+                                        inner_index = math_end + delimiter_len;
+                                        inner_text_start = inner_index;
+                                        continue;
+                                    }
+                                }
                                 if bytes[inner_index] != b'\\' {
                                     inner_index += 1;
                                     continue;
@@ -1763,6 +1827,50 @@ impl<'i> Vm<'i> {
                                     &source[start..inner_index]
                                 };
                                 match inner_command {
+                                    "(" => {
+                                        if let Some(relative_end) =
+                                            source[inner_index..content_end].find("\\)")
+                                        {
+                                            let math_start = inner_index;
+                                            let math_end = inner_index + relative_end;
+                                            self.emit_render_event(
+                                                RenderEvent::InlineMath(MathSourceEvent {
+                                                    raw_source: normalize_latex_math_source(
+                                                        &source[math_start..math_end],
+                                                    ),
+                                                    normalized_text: None,
+                                                }),
+                                                SourceProvenance::file(
+                                                    source_path.to_owned(),
+                                                    math_start as u32,
+                                                    math_end as u32,
+                                                ),
+                                            );
+                                            inner_index = math_end + 2;
+                                        }
+                                    }
+                                    "[" => {
+                                        if let Some(relative_end) =
+                                            source[inner_index..content_end].find("\\]")
+                                        {
+                                            let math_start = inner_index;
+                                            let math_end = inner_index + relative_end;
+                                            self.emit_render_event(
+                                                RenderEvent::DisplayMath(MathSourceEvent {
+                                                    raw_source: normalize_latex_math_source(
+                                                        &source[math_start..math_end],
+                                                    ),
+                                                    normalized_text: None,
+                                                }),
+                                                SourceProvenance::file(
+                                                    source_path.to_owned(),
+                                                    math_start as u32,
+                                                    math_end as u32,
+                                                ),
+                                            );
+                                            inner_index = math_end + 2;
+                                        }
+                                    }
                                     "cite" | "citet" | "Citet" | "citep" | "Citep" | "citealt"
                                     | "citealp" | "citeauthor" | "citeyear" | "citeyearpar"
                                     | "parencite" | "Parencite" | "textcite" | "Textcite"
@@ -13058,6 +13166,43 @@ Fallback text.
         assert!(visible_text.contains("."));
         assert!(!visible_text.contains("https://hidden.test"));
         assert!(!visible_text.contains("{paper}"));
+    }
+
+    #[test]
+    fn render_event_capture_records_nested_text_wrapper_inline_math() {
+        let source = r"\begin{document}Nested \emph{area $x^2$ and \(y^2\)} text.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let math = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineMath(math) => Some(math.raw_source.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(math.contains(&"x^2"));
+        assert!(math.contains(&"y^2"));
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("Nested area "));
+        assert!(visible_text.contains(" and "));
+        assert!(visible_text.contains(" text."));
+        assert!(!visible_text.contains("$x^2$"));
+        assert!(!visible_text.contains(r"\(y^2\)"));
     }
 
     #[test]
