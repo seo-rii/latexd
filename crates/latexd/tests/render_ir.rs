@@ -738,7 +738,7 @@ fn list_capture_survives_ir_and_display_list() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(lists.len(), 2);
+    assert_eq!(lists.len(), 3);
     assert_eq!(lists[0].kind, ListKind::Unordered);
     assert_eq!(lists[0].items.len(), 2);
     assert_eq!(lists[0].items[0].marker, "-");
@@ -759,11 +759,22 @@ fn list_capture_survives_ir_and_display_list() {
     assert_eq!(lists[1].items.len(), 2);
     assert_eq!(lists[1].items[0].marker, "1.");
     assert_eq!(lists[1].items[1].marker, "2.");
+    assert_eq!(lists[2].kind, ListKind::Description);
+    assert_eq!(lists[2].items.len(), 2);
+    assert_eq!(lists[2].items[0].marker, "Term");
+    assert!(lists[2].items[0].content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Citation(citation)
+                if citation.keys == vec!["key".to_string()] && citation.display_text == "[?]"
+        )
+    }));
 
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("- First [?]"));
     assert!(extracted_text.contains("Custom Second"));
     assert!(extracted_text.contains("1. One"));
+    assert!(extracted_text.contains("Term Meaning [?]"));
     assert!(!extracted_text.contains("key"));
 
     let display_list_text = capture.page_display_lists[0]
@@ -779,6 +790,7 @@ fn list_capture_survives_ir_and_display_list() {
     assert!(display_list_text.contains("Custom Second"));
     assert!(display_list_text.contains("1. One"));
     assert!(display_list_text.contains("2. Two"));
+    assert!(display_list_text.contains("Term Meaning [?]"));
 }
 
 #[test]
@@ -1057,7 +1069,7 @@ const URL_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Use \nolinkurl{https://e
 
 const TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Styled \emph{important} and \textbf{bold text} with \texttt{code_path}.\end{document}";
 
-const LIST_SOURCE: &str = r"\begin{document}\begin{itemize}\item First \cite{key}\item[Custom] Second\end{itemize}\begin{enumerate}\item One\item Two\end{enumerate}\end{document}";
+const LIST_SOURCE: &str = r"\begin{document}\begin{itemize}\item First \cite{key}\item[Custom] Second\end{itemize}\begin{enumerate}\item One\item Two\end{enumerate}\begin{description}\item[Term] Meaning \cite{key}\item[Other] More\end{description}\end{document}";
 
 const SIMPLE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{quote}Quoted \cite{key}.\end{quote}\begin{center}Centered text.\end{center}\end{document}";
 

@@ -417,6 +417,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             let marker = marker_hint.unwrap_or_else(|| match kind {
                 ListKind::Unordered => "-".to_string(),
                 ListKind::Ordered => format!("{}.", items.len() + 1),
+                ListKind::Description => String::new(),
             });
             items.push(ListItemIr {
                 marker,

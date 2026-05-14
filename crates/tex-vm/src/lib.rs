@@ -1132,11 +1132,12 @@ impl<'i> Vm<'i> {
                                     ),
                                 );
                             }
-                            "itemize" | "enumerate" if in_document => {
-                                let kind = if environment == "itemize" {
-                                    ListKind::Unordered
-                                } else {
-                                    ListKind::Ordered
+                            "itemize" | "enumerate" | "description" if in_document => {
+                                let kind = match environment {
+                                    "itemize" => ListKind::Unordered,
+                                    "enumerate" => ListKind::Ordered,
+                                    "description" => ListKind::Description,
+                                    _ => unreachable!(),
                                 };
                                 self.emit_render_event(
                                     RenderEvent::BeginBlock(BeginBlockEvent {
@@ -1350,11 +1351,12 @@ impl<'i> Vm<'i> {
                                     ),
                                 );
                             }
-                            "itemize" | "enumerate" if in_document => {
-                                let kind = if environment == "itemize" {
-                                    ListKind::Unordered
-                                } else {
-                                    ListKind::Ordered
+                            "itemize" | "enumerate" | "description" if in_document => {
+                                let kind = match environment {
+                                    "itemize" => ListKind::Unordered,
+                                    "enumerate" => ListKind::Ordered,
+                                    "description" => ListKind::Description,
+                                    _ => unreachable!(),
                                 };
                                 self.emit_render_event(
                                     RenderEvent::EndBlock(BeginBlockEvent {
@@ -12481,7 +12483,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_list_items_without_losing_inline_events() {
-        let source = r"\begin{document}\begin{itemize}\item First \cite{key}\item[Custom] Second\end{itemize}\begin{enumerate}\item One\item Two\end{enumerate}\end{document}";
+        let source = r"\begin{document}\begin{itemize}\item First \cite{key}\item[Custom] Second\end{itemize}\begin{enumerate}\item One\item Two\end{enumerate}\begin{description}\item[Term] Meaning \cite{key}\item[Other] More\end{description}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -12508,6 +12510,16 @@ Fallback text.
                 })
             )
         }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::List {
+                        list_kind: ListKind::Description
+                    }
+                })
+            )
+        }));
         let items = outcome
             .render_events
             .iter()
@@ -12516,7 +12528,7 @@ Fallback text.
                 _ => None,
             })
             .collect::<Vec<_>>();
-        assert_eq!(items.len(), 4);
+        assert_eq!(items.len(), 6);
         assert_eq!(items[0].0.marker, None);
         assert_eq!(items[1].0.marker.as_deref(), Some("Custom"));
         assert!(matches!(
@@ -12526,6 +12538,7 @@ Fallback text.
                     && &source[span.start_utf8 as usize..span.end_utf8 as usize]
                         == r"\item[Custom]"
         ));
+        assert_eq!(items[4].0.marker.as_deref(), Some("Term"));
         assert!(outcome.render_events.iter().any(|event| {
             matches!(
                 &event.event,

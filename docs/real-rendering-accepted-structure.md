@@ -109,9 +109,9 @@ The next implementation step has started with a narrow display-list spike:
 - simple one-argument text wrappers such as `\emph`, `\textbf`, `\textit`,
   and `\texttt` now preserve their visible text without leaking raw braces
   into the event stream or derived IR;
-- `itemize` and `enumerate` now survive as list block events, `List` IR
-  blocks, and display-list text runs with default or explicit item markers
-  while preserving inline events inside list item content;
+- `itemize`, `enumerate`, and `description` now survive as list block events,
+  `List` IR blocks, and display-list text runs with default or explicit item
+  markers while preserving inline events inside list item content;
 - simple text environments such as `quote`, `quotation`, and `center` now
   survive as structured environment block events and IR blocks instead of
   falling back to unsupported-environment raw text;

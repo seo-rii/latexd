@@ -180,6 +180,7 @@ pub enum BlockKind {
 pub enum ListKind {
     Unordered,
     Ordered,
+    Description,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
