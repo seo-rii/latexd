@@ -109,6 +109,10 @@ The next implementation step has started with a narrow display-list spike:
 - simple one-argument text wrappers such as `\emph`, `\textbf`, `\textit`,
   and `\texttt` now preserve their visible text without leaking raw braces
   into the event stream or derived IR;
+- text wrappers now preserve nested migrated inline citation/reference events
+  such as `\emph{...\cite{...}}` and `\textbf{...\ref{...}}`, so derived IR
+  and display-list text use placeholders/resolved labels instead of leaking raw
+  keys or wrapper braces;
 - escaped visible characters such as `\%`, `\&`, `\$`, `\_`, `\#`, `\{`,
   and `\}` now survive as text events instead of disappearing during capture;
 - nonbreaking `~` spaces now survive as explicit visible spaces in event

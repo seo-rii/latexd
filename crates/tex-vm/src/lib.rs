@@ -1725,18 +1725,200 @@ impl<'i> Vm<'i> {
                     index = skip_ascii_whitespace(source, index);
                     if let Some((text, content_start, content_end, after)) =
                         read_braced_source_argument(source, index)
-                        && !text.contains('\\')
                     {
-                        self.emit_render_event(
-                            RenderEvent::Text(TextEvent {
-                                text: normalize_latex_text(text),
-                            }),
-                            SourceProvenance::file(
-                                source_path.to_owned(),
-                                content_start as u32,
-                                content_end as u32,
-                            ),
-                        );
+                        if text.contains('\\') {
+                            let mut inner_index = content_start;
+                            let mut inner_text_start = content_start;
+                            while inner_index < content_end {
+                                if bytes[inner_index] != b'\\' {
+                                    inner_index += 1;
+                                    continue;
+                                }
+                                self.capture_text_events(
+                                    source_path,
+                                    source,
+                                    inner_text_start,
+                                    inner_index,
+                                    true,
+                                );
+                                let inner_command_start = inner_index;
+                                inner_index += 1;
+                                if inner_index >= content_end {
+                                    break;
+                                }
+                                let inner_command = if bytes[inner_index].is_ascii_alphabetic()
+                                    || bytes[inner_index] == b'@'
+                                {
+                                    let start = inner_index;
+                                    while inner_index < content_end
+                                        && (bytes[inner_index].is_ascii_alphabetic()
+                                            || bytes[inner_index] == b'@')
+                                    {
+                                        inner_index += 1;
+                                    }
+                                    &source[start..inner_index]
+                                } else {
+                                    let start = inner_index;
+                                    inner_index += 1;
+                                    &source[start..inner_index]
+                                };
+                                match inner_command {
+                                    "cite" | "citet" | "Citet" | "citep" | "Citep" | "citealt"
+                                    | "citealp" | "citeauthor" | "citeyear" | "citeyearpar"
+                                    | "parencite" | "Parencite" | "textcite" | "Textcite"
+                                    | "autocite" | "Autocite" | "footcite" | "supercite" => {
+                                        let style_hint = match inner_command {
+                                            "citet" | "Citet" | "citealt" | "citeauthor"
+                                            | "citeyear" | "textcite" | "Textcite" => {
+                                                CitationStyleHint::Textual
+                                            }
+                                            "citep" | "Citep" | "citealp" | "citeyearpar"
+                                            | "parencite" | "Parencite" | "autocite"
+                                            | "Autocite" => CitationStyleHint::Parenthetical,
+                                            "footcite" | "supercite" => CitationStyleHint::Unknown,
+                                            _ => CitationStyleHint::Numeric,
+                                        };
+                                        let mut argument_index =
+                                            skip_ascii_whitespace(source, inner_index);
+                                        if argument_index < content_end
+                                            && source[argument_index..].starts_with('*')
+                                        {
+                                            argument_index += 1;
+                                        }
+                                        loop {
+                                            argument_index =
+                                                skip_ascii_whitespace(source, argument_index);
+                                            let Some((_, _, _, after_option)) =
+                                                read_bracket_source_argument(
+                                                    source,
+                                                    argument_index,
+                                                )
+                                            else {
+                                                break;
+                                            };
+                                            if after_option > content_end {
+                                                break;
+                                            }
+                                            argument_index = after_option;
+                                        }
+                                        if let Some((keys, key_start, key_end, command_after)) =
+                                            read_braced_source_argument(source, argument_index)
+                                            && command_after <= content_end
+                                        {
+                                            self.emit_render_event(
+                                                RenderEvent::InlineCitation(InlineCitationEvent {
+                                                    keys: keys
+                                                        .split(',')
+                                                        .map(str::trim)
+                                                        .filter(|key| !key.is_empty())
+                                                        .map(ToOwned::to_owned)
+                                                        .collect(),
+                                                    command: inner_command.to_string(),
+                                                    style_hint,
+                                                }),
+                                                SourceProvenance::file(
+                                                    source_path.to_owned(),
+                                                    key_start as u32,
+                                                    key_end as u32,
+                                                ),
+                                            );
+                                            inner_index = command_after;
+                                        }
+                                    }
+                                    "ref" | "eqref" | "pageref" | "autoref" | "nameref"
+                                    | "cref" | "Cref" => {
+                                        let argument_index =
+                                            skip_ascii_whitespace(source, inner_index);
+                                        if let Some((keys, key_start, key_end, command_after)) =
+                                            read_braced_source_argument(source, argument_index)
+                                            && command_after <= content_end
+                                        {
+                                            self.emit_render_event(
+                                                RenderEvent::InlineReference(
+                                                    InlineReferenceEvent {
+                                                        keys: keys
+                                                            .split(',')
+                                                            .map(str::trim)
+                                                            .filter(|key| !key.is_empty())
+                                                            .map(ToOwned::to_owned)
+                                                            .collect(),
+                                                        command: inner_command.to_string(),
+                                                    },
+                                                ),
+                                                SourceProvenance::file(
+                                                    source_path.to_owned(),
+                                                    key_start as u32,
+                                                    key_end as u32,
+                                                ),
+                                            );
+                                            inner_index = command_after;
+                                        }
+                                    }
+                                    "%" | "&" | "$" | "#" | "_" | "{" | "}" => {
+                                        self.emit_render_event(
+                                            RenderEvent::Text(TextEvent {
+                                                text: inner_command.to_string(),
+                                            }),
+                                            SourceProvenance::file(
+                                                source_path.to_owned(),
+                                                inner_command_start as u32,
+                                                inner_index as u32,
+                                            ),
+                                        );
+                                    }
+                                    " " => {
+                                        self.emit_render_event(
+                                            RenderEvent::Space(SpaceEvent {
+                                                kind: SpaceKind::Explicit,
+                                            }),
+                                            SourceProvenance::file(
+                                                source_path.to_owned(),
+                                                inner_command_start as u32,
+                                                inner_index as u32,
+                                            ),
+                                        );
+                                    }
+                                    "\\" => {
+                                        self.emit_render_event(
+                                            RenderEvent::LineBreak(LineBreakEvent {
+                                                reason: LineBreakReason::Explicit,
+                                            }),
+                                            SourceProvenance::file(
+                                                source_path.to_owned(),
+                                                inner_command_start as u32,
+                                                inner_index as u32,
+                                            ),
+                                        );
+                                        if let Some((_, _, _, command_after)) =
+                                            read_bracket_source_argument(source, inner_index)
+                                            && command_after <= content_end
+                                        {
+                                            inner_index = command_after;
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                                inner_text_start = inner_index;
+                            }
+                            self.capture_text_events(
+                                source_path,
+                                source,
+                                inner_text_start,
+                                content_end,
+                                true,
+                            );
+                        } else {
+                            self.emit_render_event(
+                                RenderEvent::Text(TextEvent {
+                                    text: normalize_latex_text(text),
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    content_start as u32,
+                                    content_end as u32,
+                                ),
+                            );
+                        }
                         index = after;
                     }
                 }
@@ -12702,6 +12884,44 @@ Fallback text.
                 .iter()
                 .any(|(text, _)| text.contains('{') || text.contains('}'))
         );
+    }
+
+    #[test]
+    fn render_event_capture_records_nested_text_wrapper_inline_events() {
+        let source = r"\begin{document}Nested \emph{important \cite{key} and \ref{sec:intro}} text.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineCitation(citation) if citation.keys == vec!["key".to_string()]
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineReference(reference)
+                if reference.keys == vec!["sec:intro".to_string()]
+        )));
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("Nested "));
+        assert!(visible_text.contains("important "));
+        assert!(visible_text.contains(" and "));
+        assert!(visible_text.contains(" text."));
+        assert!(!visible_text.contains("{important"));
+        assert!(!visible_text.contains("key"));
+        assert!(!visible_text.contains("sec:intro"));
     }
 
     #[test]
