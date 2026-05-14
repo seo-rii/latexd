@@ -10,10 +10,10 @@ use tex_render_model::{
     BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint, EventId,
     ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
     InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
-    ListItemEvent, ListKind, MathSourceEvent, MetadataField, ParagraphBreakEvent,
-    ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent, RenderEvent, RenderEventEnvelope,
-    SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
-    TextEvent,
+    LineBreakEvent, LineBreakReason, ListItemEvent, ListKind, MathSourceEvent, MetadataField,
+    ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent, RenderEvent,
+    RenderEventEnvelope, SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole,
+    SpaceEvent, SpaceKind, TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -1763,6 +1763,21 @@ impl<'i> Vm<'i> {
                             index as u32,
                         ),
                     );
+                }
+                "\\" if in_document => {
+                    self.emit_render_event(
+                        RenderEvent::LineBreak(LineBreakEvent {
+                            reason: LineBreakReason::Explicit,
+                        }),
+                        SourceProvenance::file(
+                            source_path.to_owned(),
+                            command_start as u32,
+                            index as u32,
+                        ),
+                    );
+                    if let Some((_, _, _, after)) = read_bracket_source_argument(source, index) {
+                        index = after;
+                    }
                 }
                 "label" if in_document => {
                     index = skip_ascii_whitespace(source, index);
@@ -12756,6 +12771,31 @@ Fallback text.
                     _ => false,
                 })
         );
+    }
+
+    #[test]
+    fn render_event_capture_records_explicit_line_breaks() {
+        let source = r"\begin{document}First line\\Second line.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(
+            outcome
+                .render_events
+                .iter()
+                .any(|event| matches!(&event.event, RenderEvent::LineBreak(_)))
+        );
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text == "First"
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text == "Second"
+        )));
     }
 
     #[test]

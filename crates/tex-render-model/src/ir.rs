@@ -54,6 +54,7 @@ impl DocumentIr {
                         match node {
                             InlineNode::Text { text: value, .. } => text.push_str(value),
                             InlineNode::Space { .. } => text.push(' '),
+                            InlineNode::LineBreak { .. } => text.push('\n'),
                             InlineNode::Citation(citation) => text.push_str(&citation.display_text),
                             InlineNode::Reference(reference) => {
                                 text.push_str(&reference.display_text)
@@ -75,6 +76,7 @@ impl DocumentIr {
                         match node {
                             InlineNode::Text { text: value, .. } => text.push_str(value),
                             InlineNode::Space { .. } => text.push(' '),
+                            InlineNode::LineBreak { .. } => text.push('\n'),
                             InlineNode::Citation(citation) => text.push_str(&citation.display_text),
                             InlineNode::Reference(reference) => {
                                 text.push_str(&reference.display_text)
@@ -96,6 +98,7 @@ impl DocumentIr {
                         match node {
                             InlineNode::Text { text: value, .. } => text.push_str(value),
                             InlineNode::Space { .. } => text.push(' '),
+                            InlineNode::LineBreak { .. } => text.push('\n'),
                             InlineNode::Citation(citation) => text.push_str(&citation.display_text),
                             InlineNode::Reference(reference) => {
                                 text.push_str(&reference.display_text)
@@ -117,6 +120,7 @@ impl DocumentIr {
                         match node {
                             InlineNode::Text { text: value, .. } => text.push_str(value),
                             InlineNode::Space { .. } => text.push(' '),
+                            InlineNode::LineBreak { .. } => text.push('\n'),
                             InlineNode::Citation(citation) => text.push_str(&citation.display_text),
                             InlineNode::Reference(reference) => {
                                 text.push_str(&reference.display_text)
@@ -144,6 +148,7 @@ impl DocumentIr {
                             match node {
                                 InlineNode::Text { text: value, .. } => text.push_str(value),
                                 InlineNode::Space { .. } => text.push(' '),
+                                InlineNode::LineBreak { .. } => text.push('\n'),
                                 InlineNode::Citation(citation) => {
                                     text.push_str(&citation.display_text)
                                 }
@@ -338,6 +343,9 @@ pub enum InlineNode {
         source: SourceProvenance,
     },
     Space {
+        source: SourceProvenance,
+    },
+    LineBreak {
         source: SourceProvenance,
     },
     Citation(CitationInline),

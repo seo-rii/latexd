@@ -113,6 +113,8 @@ The next implementation step has started with a narrow display-list spike:
   and `\}` now survive as text events instead of disappearing during capture;
 - nonbreaking `~` spaces now survive as explicit visible spaces in event
   capture and normalized text instead of leaking literal tildes into IR text;
+- explicit `\\` line breaks now survive as `LineBreak` events, IR inline nodes,
+  and display-list line advances rather than silently merging adjacent text;
 - `itemize`, `enumerate`, and `description` now survive as list block events,
   `List` IR blocks, and display-list text runs with default or explicit item
   markers while preserving inline events inside list item content;

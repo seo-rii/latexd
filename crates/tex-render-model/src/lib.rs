@@ -17,10 +17,10 @@ pub use events::{
     BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, EventId, EventMeta,
     EventProducer, FallbackReason, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
     InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
-    ListItemEvent, ListKind, MathSourceEvent, MetadataField, ModeHint, ParagraphBreakEvent,
-    ParagraphBreakReason, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent,
-    RenderEventEnvelope, RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent,
-    SpaceEvent, SpaceKind, TextEvent,
+    LineBreakEvent, LineBreakReason, ListItemEvent, ListKind, MathSourceEvent, MetadataField,
+    ModeHint, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RenderDiagnosticEvent,
+    RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
+    SetDocumentMetadataEvent, SpaceEvent, SpaceKind, TextEvent,
 };
 pub use golden::{from_pretty_json, to_pretty_json};
 pub use ir::{

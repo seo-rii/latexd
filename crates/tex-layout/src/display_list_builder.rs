@@ -121,6 +121,13 @@ pub fn build_page_display_lists(
                         link_target: None,
                     });
                 }
+                InlineNode::LineBreak { source } => {
+                    segments.push(LogicalTextSegment {
+                        text: "\n".to_string(),
+                        source: source.clone(),
+                        link_target: None,
+                    });
+                }
                 InlineNode::Citation(citation) => {
                     segments.push(LogicalTextSegment {
                         text: citation.display_text.clone(),

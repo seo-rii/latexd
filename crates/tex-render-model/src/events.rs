@@ -90,6 +90,7 @@ pub enum EventProducer {
 pub enum RenderEvent {
     Text(TextEvent),
     Space(SpaceEvent),
+    LineBreak(LineBreakEvent),
     ParagraphBreak(ParagraphBreakEvent),
     SetDocumentMetadata(SetDocumentMetadataEvent),
     FlushTitleBlock(FlushTitleBlockEvent),
@@ -125,6 +126,17 @@ pub struct SpaceEvent {
 #[serde(rename_all = "snake_case")]
 pub enum SpaceKind {
     Interword,
+    Explicit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineBreakEvent {
+    pub reason: LineBreakReason,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LineBreakReason {
     Explicit,
 }
 

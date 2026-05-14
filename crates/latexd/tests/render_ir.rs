@@ -796,6 +796,56 @@ fn nonbreaking_tilde_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn linebreak_capture_survives_ir_and_display_list() {
+    let capture = capture_internal_render_ir("main.tex", LINEBREAK_SOURCE, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(
+        paragraph
+            .content
+            .iter()
+            .any(|node| matches!(node, InlineNode::LineBreak { .. })),
+        "missing explicit line break IR node"
+    );
+    assert!(
+        capture
+            .document_ir
+            .extracted_text()
+            .contains("First line\nSecond line.")
+    );
+
+    let text_runs = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) if !run.text.is_empty() => Some(run),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let first_y = text_runs
+        .iter()
+        .find(|run| run.text == "First")
+        .expect("first line run")
+        .origin
+        .y;
+    let second_y = text_runs
+        .iter()
+        .find(|run| run.text == "Second")
+        .expect("second line run")
+        .origin
+        .y;
+    assert!(second_y > first_y);
+}
+
+#[test]
 fn tabular_fallback_capture_uses_normalized_visible_text() {
     let capture =
         capture_internal_render_ir("main.tex", TABULAR_FALLBACK_SOURCE, &SemanticAux::default());
@@ -1186,6 +1236,8 @@ const ESCAPED_VISIBLE_SOURCE: &str =
 
 const NONBREAKING_TILDE_SOURCE: &str =
     r"\begin{document}Figure~1 references Related~Work.\section{Related~Work}\end{document}";
+
+const LINEBREAK_SOURCE: &str = r"\begin{document}First line\\Second line.\end{document}";
 
 const TABULAR_FALLBACK_SOURCE: &str = r"\begin{document}\begin{tabular}{ll}Alpha & Beta \\ Gamma & \textbf{Delta} \\\hline\end{tabular}\end{document}";
 

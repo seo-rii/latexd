@@ -204,6 +204,14 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         envelope,
                     );
                 }
+                RenderEvent::LineBreak(_) => {
+                    self.push_inline(
+                        InlineNode::LineBreak {
+                            source: envelope.meta.source.clone(),
+                        },
+                        envelope,
+                    );
+                }
                 RenderEvent::InlineCitation(event) => {
                     let mut labels = Vec::new();
                     for key in &event.keys {
