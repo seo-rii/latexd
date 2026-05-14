@@ -106,6 +106,9 @@ The next implementation step has started with a narrow display-list spike:
   now survive as visible text events and IR text nodes without creating link
   annotations; URL-like wrappers support both braced and delimiter-form
   arguments where LaTeX commonly permits them;
+- simple one-argument text wrappers such as `\emph`, `\textbf`, `\textit`,
+  and `\texttt` now preserve their visible text without leaking raw braces
+  into the event stream or derived IR;
 - `itemize` and `enumerate` now survive as list block events, `List` IR
   blocks, and display-list text runs with default or explicit item markers
   while preserving inline events inside list item content;
