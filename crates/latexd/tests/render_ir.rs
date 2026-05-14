@@ -535,6 +535,20 @@ fn link_capture_survives_ir_and_display_list_annotations() {
                     && link.display_text == "https://example.test/raw"
         )
     }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Link(link)
+                if link.target == "https://example.test/delimited"
+                    && link.display_text == "https://example.test/delimited"
+                    && matches!(
+                        &link.source.primary,
+                        ProvenanceSpan::File(span)
+                            if &LINK_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "https://example.test/delimited"
+                    )
+        )
+    }));
 
     let display_list_text = capture.page_display_lists[0]
         .ops
@@ -545,7 +559,9 @@ fn link_capture_survives_ir_and_display_list_annotations() {
         })
         .collect::<Vec<_>>()
         .join("");
-    assert!(display_list_text.contains("Read paper link and https://example.test/raw."));
+    assert!(display_list_text.contains(
+        "Read paper link, https://example.test/raw, and https://example.test/delimited."
+    ));
     assert!(capture.page_display_lists[0].ops.iter().any(|op| {
         matches!(
             op,
@@ -558,6 +574,13 @@ fn link_capture_survives_ir_and_display_list_annotations() {
             op,
             DrawOp::LinkAnnotation(link)
                 if link.target == "https://example.test/raw" && link.rect.width > 0.0
+        )
+    }));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::LinkAnnotation(link)
+                if link.target == "https://example.test/delimited" && link.rect.width > 0.0
         )
     }));
     assert!(!display_list_text.contains("https://example.test/paper"));
@@ -600,6 +623,26 @@ fn url_text_wrapper_capture_survives_ir_without_link_annotations() {
     assert!(paragraph.content.iter().any(|node| {
         matches!(
             node,
+            InlineNode::Text { text, source }
+                if text == "https://example.test/delimited"
+                    && matches!(
+                        &source.primary,
+                        ProvenanceSpan::File(span)
+                            if &URL_TEXT_WRAPPER_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "https://example.test/delimited"
+                    )
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Text { text, .. } if text == "/var/tmp"
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
             InlineNode::Text { text, .. } if text == r"\foo+*"
         )
     }));
@@ -613,9 +656,9 @@ fn url_text_wrapper_capture_survives_ir_without_link_annotations() {
         })
         .collect::<Vec<_>>()
         .join("");
-    assert!(
-        display_list_text.contains(r"Use https://example.test/paper at /tmp/archive via \foo+*.")
-    );
+    assert!(display_list_text.contains(
+        r"Use https://example.test/paper, https://example.test/delimited, at /tmp/archive and /var/tmp via \foo+*."
+    ));
     assert!(
         !capture.page_display_lists[0]
             .ops
@@ -828,9 +871,9 @@ const CITATION_VARIANTS_SOURCE: &str = r"\begin{document}\citep[see][p.~3]{alpha
 const REFERENCE_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \eqref{eq:main}; \cref{fig:a,tab:b}.\end{document}";
 
-const LINK_SOURCE: &str = r"\begin{document}Read \href{https://example.test/paper}{paper link} and \url{https://example.test/raw}.\end{document}";
+const LINK_SOURCE: &str = r"\begin{document}Read \href{https://example.test/paper}{paper link}, \url{https://example.test/raw}, and \url|https://example.test/delimited|.\end{document}";
 
-const URL_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Use \nolinkurl{https://example.test/paper} at \path{/tmp/archive} via \detokenize{\foo+*}.\end{document}";
+const URL_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Use \nolinkurl{https://example.test/paper}, \nolinkurl|https://example.test/delimited|, at \path{/tmp/archive} and \path|/var/tmp| via \detokenize{\foo+*}.\end{document}";
 
 const AUX_RESOLUTION_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \cite{key}.\end{document}";

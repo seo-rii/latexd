@@ -100,10 +100,12 @@ The next implementation step has started with a narrow display-list spike:
   definitions while the block emission still points to `\maketitle`;
 - `\href` and `\url` now survive as inline link events, `Link` IR nodes, text
   runs, and `LinkAnnotation` display-list operations without leaking hidden
-  `\href` targets into visible body text;
+  `\href` targets into visible body text; `\url` supports both braced and
+  delimiter-form arguments in event capture;
 - non-link text wrappers such as `\nolinkurl`, `\path`, and `\detokenize`
   now survive as visible text events and IR text nodes without creating link
-  annotations;
+  annotations; URL-like wrappers support both braced and delimiter-form
+  arguments where LaTeX commonly permits them;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`

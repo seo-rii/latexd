@@ -1474,12 +1474,12 @@ impl<'i> Vm<'i> {
                 "url" if in_document => {
                     index = skip_ascii_whitespace(source, index);
                     if let Some((target, content_start, content_end, after)) =
-                        read_braced_source_argument(source, index)
+                        read_url_like_source_argument(source, index)
                     {
                         self.emit_render_event(
                             RenderEvent::InlineLink(InlineLinkEvent {
                                 target: target.trim().to_string(),
-                                text: normalize_latex_text(target),
+                                text: target.trim().to_string(),
                                 command: command.to_string(),
                             }),
                             SourceProvenance::file(
@@ -1493,9 +1493,12 @@ impl<'i> Vm<'i> {
                 }
                 "nolinkurl" | "path" | "detokenize" if in_document => {
                     index = skip_ascii_whitespace(source, index);
-                    if let Some((text, content_start, content_end, after)) =
+                    let argument = if command == "detokenize" {
                         read_braced_source_argument(source, index)
-                    {
+                    } else {
+                        read_url_like_source_argument(source, index)
+                    };
+                    if let Some((text, content_start, content_end, after)) = argument {
                         self.emit_render_event(
                             RenderEvent::Text(TextEvent {
                                 text: text.trim().to_string(),
@@ -8321,6 +8324,48 @@ fn read_bracket_source_argument(source: &str, index: usize) -> Option<(&str, usi
     read_delimited_source_argument(source, index, b'[', b']')
 }
 
+fn read_url_like_source_argument(
+    source: &str,
+    index: usize,
+) -> Option<(&str, usize, usize, usize)> {
+    let cursor = skip_ascii_whitespace(source, index);
+    if source.as_bytes().get(cursor).copied()? == b'{' {
+        return read_braced_source_argument(source, cursor);
+    }
+    read_single_byte_delimited_source_argument(source, cursor)
+}
+
+fn read_single_byte_delimited_source_argument(
+    source: &str,
+    index: usize,
+) -> Option<(&str, usize, usize, usize)> {
+    let bytes = source.as_bytes();
+    let delimiter = bytes.get(index).copied()?;
+    if delimiter.is_ascii_alphanumeric()
+        || delimiter.is_ascii_whitespace()
+        || delimiter == b'\\'
+        || delimiter == b'{'
+        || delimiter == b'}'
+    {
+        return None;
+    }
+
+    let content_start = index + 1;
+    let mut cursor = content_start;
+    while cursor < bytes.len() {
+        if bytes[cursor] == delimiter {
+            return Some((
+                &source[content_start..cursor],
+                content_start,
+                cursor,
+                cursor + 1,
+            ));
+        }
+        cursor += 1;
+    }
+    None
+}
+
 fn read_delimited_source_argument(
     source: &str,
     index: usize,
@@ -12182,7 +12227,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_links_without_leaking_targets() {
-        let source = r"\begin{document}Read \href{https://example.test/paper}{paper link} and \url{https://example.test/raw}.\end{document}";
+        let source = r"\begin{document}Read \href{https://example.test/paper}{paper link}, \url{https://example.test/raw}, and \url|https://example.test/delimited|.\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -12197,7 +12242,7 @@ Fallback text.
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(links.len(), 2);
+        assert_eq!(links.len(), 3);
         assert_eq!(links[0].0.command, "href");
         assert_eq!(links[0].0.target, "https://example.test/paper");
         assert_eq!(links[0].0.text, "paper link");
@@ -12210,6 +12255,16 @@ Fallback text.
         assert_eq!(links[1].0.command, "url");
         assert_eq!(links[1].0.target, "https://example.test/raw");
         assert_eq!(links[1].0.text, "https://example.test/raw");
+        assert_eq!(links[2].0.command, "url");
+        assert_eq!(links[2].0.target, "https://example.test/delimited");
+        assert_eq!(links[2].0.text, "https://example.test/delimited");
+        assert!(matches!(
+            links[2].1,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == "https://example.test/delimited"
+        ));
         assert!(!outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Text(text) if text.text.contains("https://example.test/paper")
@@ -12218,7 +12273,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_url_text_wrappers_without_link_annotations() {
-        let source = r"\begin{document}Use \nolinkurl{https://example.test/paper} at \path{/tmp/archive} via \detokenize{\foo+*}.\end{document}";
+        let source = r"\begin{document}Use \nolinkurl{https://example.test/paper}, \nolinkurl|https://example.test/delimited|, at \path{/tmp/archive} and \path|/var/tmp| via \detokenize{\foo+*}.\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -12247,6 +12302,21 @@ Fallback text.
             text_events
                 .iter()
                 .any(|(text, _)| text.as_str() == "/tmp/archive")
+        );
+        assert!(text_events.iter().any(|(text, span)| {
+            text.as_str() == "https://example.test/delimited"
+                && matches!(
+                    span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "https://example.test/delimited"
+                )
+        }));
+        assert!(
+            text_events
+                .iter()
+                .any(|(text, _)| text.as_str() == "/var/tmp")
         );
         assert!(
             text_events
