@@ -113,6 +113,9 @@ The next implementation step has started with a narrow display-list spike:
   such as `\emph{...\cite{...}}` and `\textbf{...\ref{...}}`, so derived IR
   and display-list text use placeholders/resolved labels instead of leaking raw
   keys or wrapper braces;
+- text wrappers also preserve nested `\href`/`\url` events and URL-like text
+  wrappers, keeping hidden link targets out of visible text while still
+  deriving display-list link annotations;
 - escaped visible characters such as `\%`, `\&`, `\$`, `\_`, `\#`, `\{`,
   and `\}` now survive as text events instead of disappearing during capture;
 - nonbreaking `~` spaces now survive as explicit visible spaces in event

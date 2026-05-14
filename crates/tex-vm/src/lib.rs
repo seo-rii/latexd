@@ -1854,6 +1854,99 @@ impl<'i> Vm<'i> {
                                             inner_index = command_after;
                                         }
                                     }
+                                    "href" => {
+                                        let target_index =
+                                            skip_ascii_whitespace(source, inner_index);
+                                        if let Some((
+                                            target,
+                                            target_start,
+                                            target_end,
+                                            after_target,
+                                        )) = read_braced_source_argument(source, target_index)
+                                            && after_target <= content_end
+                                        {
+                                            let text_index =
+                                                skip_ascii_whitespace(source, after_target);
+                                            if let Some((text, text_start, text_end, command_after)) =
+                                                read_braced_source_argument(source, text_index)
+                                                && command_after <= content_end
+                                            {
+                                                self.emit_render_event(
+                                                    RenderEvent::InlineLink(InlineLinkEvent {
+                                                        target: target.trim().to_string(),
+                                                        text: normalize_latex_text(text),
+                                                        command: inner_command.to_string(),
+                                                    }),
+                                                    SourceProvenance::file(
+                                                        source_path.to_owned(),
+                                                        text_start as u32,
+                                                        text_end as u32,
+                                                    )
+                                                    .with_related(
+                                                        SourceSpanRole::Argument,
+                                                        ProvenanceSpan::File(SourceSpan {
+                                                            path: source_path.to_owned(),
+                                                            start_utf8: target_start as u32,
+                                                            end_utf8: target_end as u32,
+                                                        }),
+                                                    ),
+                                                );
+                                                inner_index = command_after;
+                                            }
+                                        }
+                                    }
+                                    "url" => {
+                                        let argument_index =
+                                            skip_ascii_whitespace(source, inner_index);
+                                        if let Some((
+                                            target,
+                                            target_start,
+                                            target_end,
+                                            command_after,
+                                        )) =
+                                            read_url_like_source_argument(source, argument_index)
+                                            && command_after <= content_end
+                                        {
+                                            self.emit_render_event(
+                                                RenderEvent::InlineLink(InlineLinkEvent {
+                                                    target: target.trim().to_string(),
+                                                    text: target.trim().to_string(),
+                                                    command: inner_command.to_string(),
+                                                }),
+                                                SourceProvenance::file(
+                                                    source_path.to_owned(),
+                                                    target_start as u32,
+                                                    target_end as u32,
+                                                ),
+                                            );
+                                            inner_index = command_after;
+                                        }
+                                    }
+                                    "nolinkurl" | "path" | "detokenize" => {
+                                        let argument_index =
+                                            skip_ascii_whitespace(source, inner_index);
+                                        let argument = if inner_command == "detokenize" {
+                                            read_braced_source_argument(source, argument_index)
+                                        } else {
+                                            read_url_like_source_argument(source, argument_index)
+                                        };
+                                        if let Some((text, text_start, text_end, command_after)) =
+                                            argument
+                                            && command_after <= content_end
+                                        {
+                                            self.emit_render_event(
+                                                RenderEvent::Text(TextEvent {
+                                                    text: text.trim().to_string(),
+                                                }),
+                                                SourceProvenance::file(
+                                                    source_path.to_owned(),
+                                                    text_start as u32,
+                                                    text_end as u32,
+                                                ),
+                                            );
+                                            inner_index = command_after;
+                                        }
+                                    }
                                     "%" | "&" | "$" | "#" | "_" | "{" | "}" => {
                                         self.emit_render_event(
                                             RenderEvent::Text(TextEvent {
@@ -12922,6 +13015,49 @@ Fallback text.
         assert!(!visible_text.contains("{important"));
         assert!(!visible_text.contains("key"));
         assert!(!visible_text.contains("sec:intro"));
+    }
+
+    #[test]
+    fn render_event_capture_records_nested_text_wrapper_links() {
+        let source = r"\begin{document}Nested \emph{read \href{https://hidden.test}{paper} and \url{https://shown.test}}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let links = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineLink(link) => Some(link),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(links.iter().any(|link| {
+            link.target == "https://hidden.test" && link.text == "paper" && link.command == "href"
+        }));
+        assert!(links.iter().any(|link| {
+            link.target == "https://shown.test"
+                && link.text == "https://shown.test"
+                && link.command == "url"
+        }));
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("Nested read "));
+        assert!(visible_text.contains(" and "));
+        assert!(visible_text.contains("."));
+        assert!(!visible_text.contains("https://hidden.test"));
+        assert!(!visible_text.contains("{paper}"));
     }
 
     #[test]

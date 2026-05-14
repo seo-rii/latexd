@@ -790,6 +790,79 @@ fn nested_text_wrapper_capture_survives_ir_without_raw_keys() {
 }
 
 #[test]
+fn nested_text_wrapper_link_capture_survives_ir_without_hidden_targets() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        NESTED_TEXT_WRAPPER_LINK_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Link(link)
+                if link.target == "https://hidden.test" && link.display_text == "paper"
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Link(link)
+                if link.target == "https://shown.test"
+                    && link.display_text == "https://shown.test"
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(
+        extracted_text.contains("Nested read paper and https://shown.test."),
+        "{extracted_text}"
+    );
+    assert!(!extracted_text.contains("https://hidden.test"));
+    assert!(!extracted_text.contains(r"\href"));
+    assert!(!extracted_text.contains("{paper}"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("Nested read paper and https://shown.test."),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("https://hidden.test"));
+    assert!(!display_list_text.contains(r"\href"));
+    assert!(!display_list_text.contains("{paper}"));
+
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::LinkAnnotation(link) if link.target == "https://hidden.test"
+        )
+    }));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::LinkAnnotation(link) if link.target == "https://shown.test"
+        )
+    }));
+}
+
+#[test]
 fn escaped_visible_character_capture_survives_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", ESCAPED_VISIBLE_SOURCE, &SemanticAux::default());
@@ -1297,6 +1370,8 @@ const TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Styled \emph{important} and 
 
 const NESTED_TEXT_WRAPPER_SOURCE: &str =
     r"\begin{document}Nested \emph{important \cite{key} and \ref{sec:intro}} text.\end{document}";
+
+const NESTED_TEXT_WRAPPER_LINK_SOURCE: &str = r"\begin{document}Nested \emph{read \href{https://hidden.test}{paper} and \url{https://shown.test}}.\end{document}";
 
 const ESCAPED_VISIBLE_SOURCE: &str =
     r"\begin{document}50\% A\&B costs \$5\_0 \#1 \{x\} A\ B.\end{document}";
