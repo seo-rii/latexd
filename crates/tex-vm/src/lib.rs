@@ -1149,6 +1149,20 @@ impl<'i> Vm<'i> {
                                     ),
                                 );
                             }
+                            "quote" | "quotation" | "center" if in_document => {
+                                self.emit_render_event(
+                                    RenderEvent::BeginBlock(BeginBlockEvent {
+                                        block: BlockKind::Environment {
+                                            name: environment.to_string(),
+                                        },
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        command_start as u32,
+                                        index as u32,
+                                    ),
+                                );
+                            }
                             "equation" | "equation*" | "displaymath" | "align" | "align*"
                             | "gather" | "gather*" | "multline" | "multline*"
                                 if in_document =>
@@ -1345,6 +1359,20 @@ impl<'i> Vm<'i> {
                                 self.emit_render_event(
                                     RenderEvent::EndBlock(BeginBlockEvent {
                                         block: BlockKind::List { list_kind: kind },
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        command_start as u32,
+                                        index as u32,
+                                    ),
+                                );
+                            }
+                            "quote" | "quotation" | "center" if in_document => {
+                                self.emit_render_event(
+                                    RenderEvent::EndBlock(BeginBlockEvent {
+                                        block: BlockKind::Environment {
+                                            name: environment.to_string(),
+                                        },
                                     }),
                                     SourceProvenance::file(
                                         source_path.to_owned(),
@@ -12505,6 +12533,51 @@ Fallback text.
                     if citation.keys == vec!["key".to_string()]
             )
         }));
+    }
+
+    #[test]
+    fn render_event_capture_records_simple_environment_blocks_without_fallback() {
+        let source = r"\begin{document}\begin{quote}Quoted \cite{key}.\end{quote}\begin{center}Centered text.\end{center}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let environment_begins = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::Environment { name },
+                }) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let environment_ends = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::EndBlock(BeginBlockEvent {
+                    block: BlockKind::Environment { name },
+                }) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(environment_begins, vec!["quote", "center"]);
+        assert_eq!(environment_ends, vec!["quote", "center"]);
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::InlineCitation(citation)
+                    if citation.keys == vec!["key".to_string()]
+            )
+        }));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if matches!(fallback.environment.as_deref(), Some("quote" | "center"))
+        )));
     }
 
     #[test]

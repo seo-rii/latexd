@@ -25,8 +25,9 @@ pub use events::{
 pub use golden::{from_pretty_json, to_pretty_json};
 pub use ir::{
     AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, DisplayMathBlock,
-    DocumentIr, GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr, LinkInline,
-    ListBlock, ListItemIr, ParagraphBlock, RawFallbackIr, ReferenceInline, TitleBlock,
+    DocumentIr, EnvironmentBlock, GraphicBlock, HeadingBlock, InlineNode, IrBlock,
+    LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ParagraphBlock, RawFallbackIr,
+    ReferenceInline, TitleBlock,
 };
 pub use provenance::{
     ExpansionFrame, GeneratedBy, GeneratedSpan, MAX_EXPANSION_FRAMES_IN_EVENT, ProvenanceSpan,

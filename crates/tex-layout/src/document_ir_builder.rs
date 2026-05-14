@@ -1,8 +1,9 @@
 use tex_render_model::{
     AbstractBlock, AuxView, BibliographyBlock, BibliographyItemIr, CitationInline, DocumentIr,
-    GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr, LinkInline, ListBlock,
-    ListItemIr, ListKind, MetadataField, ParagraphBlock, ReferenceInline, RenderEvent,
-    RenderEventEnvelope, RenderEventStream, SourceProvenance, SourceSpanRole, TitleBlock,
+    EnvironmentBlock, GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr,
+    LinkInline, ListBlock, ListItemIr, ListKind, MetadataField, ParagraphBlock, ReferenceInline,
+    RenderEvent, RenderEventEnvelope, RenderEventStream, SourceProvenance, SourceSpanRole,
+    TitleBlock,
 };
 
 pub fn build_document_ir(stream: &RenderEventStream, aux: &impl AuxView) -> DocumentIr {
@@ -16,6 +17,7 @@ pub struct DocumentIrBuilder<'a, A: AuxView> {
     paragraph: Vec<InlineNode>,
     paragraph_source: Option<SourceProvenance>,
     abstract_content: Option<(Vec<InlineNode>, SourceProvenance)>,
+    environment_content: Option<(String, Vec<InlineNode>, SourceProvenance)>,
     bibliography_items: Option<(Vec<BibliographyItemIr>, SourceProvenance)>,
     list: Option<(ListKind, Vec<ListItemIr>, SourceProvenance)>,
     list_item: Option<(Vec<InlineNode>, SourceProvenance, Option<String>)>,
@@ -34,6 +36,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             paragraph: Vec::new(),
             paragraph_source: None,
             abstract_content: None,
+            environment_content: None,
             bibliography_items: None,
             list: None,
             list_item: None,
@@ -119,6 +122,17 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                 Some((*list_kind, Vec::new(), envelope.meta.source.clone()));
                             self.list_item = None;
                         }
+                        tex_render_model::BlockKind::Environment { name } => {
+                            if let Some((name, content, source)) = self.environment_content.take() {
+                                self.blocks.push(IrBlock::Environment(EnvironmentBlock {
+                                    name,
+                                    content,
+                                    source,
+                                }));
+                            }
+                            self.environment_content =
+                                Some((name.clone(), Vec::new(), envelope.meta.source.clone()));
+                        }
                         _ => {}
                     }
                 }
@@ -141,6 +155,20 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             self.blocks.push(IrBlock::List(ListBlock {
                                 kind,
                                 items,
+                                source,
+                            }));
+                        }
+                    }
+                    tex_render_model::BlockKind::Environment { name } => {
+                        if let Some((open_name, content, source)) = self.environment_content.take()
+                        {
+                            self.blocks.push(IrBlock::Environment(EnvironmentBlock {
+                                name: if open_name == *name {
+                                    open_name
+                                } else {
+                                    name.clone()
+                                },
+                                content,
                                 source,
                             }));
                         }
@@ -337,6 +365,13 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             self.blocks
                 .push(IrBlock::Abstract(AbstractBlock { content, source }));
         }
+        if let Some((name, content, source)) = self.environment_content.take() {
+            self.blocks.push(IrBlock::Environment(EnvironmentBlock {
+                name,
+                content,
+                source,
+            }));
+        }
         if let Some((items, source)) = self.bibliography_items.take() {
             self.blocks
                 .push(IrBlock::Bibliography(BibliographyBlock { items, source }));
@@ -361,6 +396,10 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             if content.is_empty() && matches!(node, InlineNode::Space { .. }) {
                 return;
             }
+            content.push(node);
+            return;
+        }
+        if let Some((_, content, _)) = &mut self.environment_content {
             content.push(node);
             return;
         }

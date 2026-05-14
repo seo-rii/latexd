@@ -782,6 +782,72 @@ fn list_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn simple_environment_capture_survives_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        SIMPLE_ENVIRONMENT_SOURCE,
+        &SemanticAux::default(),
+    );
+    let environments = capture
+        .document_ir
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            IrBlock::Environment(environment) => Some(environment),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(environments.len(), 2);
+    assert_eq!(environments[0].name, "quote");
+    assert!(environments[0].content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Citation(citation)
+                if citation.keys == vec!["key".to_string()] && citation.display_text == "[?]"
+        )
+    }));
+    assert!(matches!(
+        &environments[0].source.primary,
+        ProvenanceSpan::File(span)
+            if &SIMPLE_ENVIRONMENT_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                == r"\begin{quote}"
+    ));
+    assert_eq!(environments[1].name, "center");
+    assert!(environments[1].content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Text { text, .. } if text == "Centered"
+        )
+    }));
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if matches!(fallback.environment.as_deref(), Some("quote" | "center"))
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Quoted [?]."));
+    assert!(extracted_text.contains("Centered text."));
+    assert!(!extracted_text.contains("key"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Quoted [?]."));
+    assert!(display_list_text.contains("Centered text."));
+    assert!(!display_list_text.contains("key"));
+}
+
+#[test]
 fn aux_resolved_references_and_citations_survive_ir_and_display_list() {
     let mut aux = SemanticAux::default();
     aux.labels.push(SemanticLabel {
@@ -992,6 +1058,8 @@ const URL_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Use \nolinkurl{https://e
 const TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Styled \emph{important} and \textbf{bold text} with \texttt{code_path}.\end{document}";
 
 const LIST_SOURCE: &str = r"\begin{document}\begin{itemize}\item First \cite{key}\item[Custom] Second\end{itemize}\begin{enumerate}\item One\item Two\end{enumerate}\end{document}";
+
+const SIMPLE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{quote}Quoted \cite{key}.\end{quote}\begin{center}Centered text.\end{center}\end{document}";
 
 const AUX_RESOLUTION_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \cite{key}.\end{document}";

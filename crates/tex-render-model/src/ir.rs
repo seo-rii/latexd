@@ -112,6 +112,27 @@ impl DocumentIr {
                         }
                     }
                 }
+                IrBlock::Environment(block) => {
+                    for node in &block.content {
+                        match node {
+                            InlineNode::Text { text: value, .. } => text.push_str(value),
+                            InlineNode::Space { .. } => text.push(' '),
+                            InlineNode::Citation(citation) => text.push_str(&citation.display_text),
+                            InlineNode::Reference(reference) => {
+                                text.push_str(&reference.display_text)
+                            }
+                            InlineNode::Link(link) => text.push_str(&link.display_text),
+                            InlineNode::InlineMath { raw_source, .. } => text.push_str(raw_source),
+                            InlineNode::RawFallback(fallback) => {
+                                if let Some(visible) = &fallback.normalized_visible_text {
+                                    text.push_str(visible);
+                                } else {
+                                    text.push_str(&fallback.source_excerpt);
+                                }
+                            }
+                        }
+                    }
+                }
                 IrBlock::List(block) => {
                     for (index, item) in block.items.iter().enumerate() {
                         if index > 0 {
@@ -178,6 +199,7 @@ pub enum IrBlock {
     Abstract(AbstractBlock),
     Heading(HeadingBlock),
     Paragraph(ParagraphBlock),
+    Environment(EnvironmentBlock),
     List(ListBlock),
     DisplayMath(DisplayMathBlock),
     Bibliography(BibliographyBlock),
@@ -219,6 +241,13 @@ pub struct HeadingBlock {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParagraphBlock {
+    pub content: Vec<InlineNode>,
+    pub source: SourceProvenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnvironmentBlock {
+    pub name: String,
     pub content: Vec<InlineNode>,
     pub source: SourceProvenance,
 }

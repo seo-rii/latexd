@@ -250,6 +250,15 @@ pub fn build_page_display_lists(
                     gap_after_pt: options.block_gap_pt,
                 }));
             }
+            IrBlock::Environment(block) => {
+                logical_items.push(LogicalItem::Text(LogicalTextRun {
+                    segments: inline_segments(&block.content),
+                    source: block.source.clone(),
+                    font: body_font.clone(),
+                    size_pt: options.body_font_size_pt,
+                    gap_after_pt: options.block_gap_pt,
+                }));
+            }
             IrBlock::List(block) => {
                 for (index, item) in block.items.iter().enumerate() {
                     let mut segments = vec![LogicalTextSegment {

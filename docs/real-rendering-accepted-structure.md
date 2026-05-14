@@ -112,6 +112,9 @@ The next implementation step has started with a narrow display-list spike:
 - `itemize` and `enumerate` now survive as list block events, `List` IR
   blocks, and display-list text runs with default or explicit item markers
   while preserving inline events inside list item content;
+- simple text environments such as `quote`, `quotation`, and `center` now
+  survive as structured environment block events and IR blocks instead of
+  falling back to unsupported-environment raw text;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`
