@@ -111,6 +111,8 @@ The next implementation step has started with a narrow display-list spike:
   into the event stream or derived IR;
 - escaped visible characters such as `\%`, `\&`, `\$`, `\_`, `\#`, `\{`,
   and `\}` now survive as text events instead of disappearing during capture;
+- nonbreaking `~` spaces now survive as explicit visible spaces in event
+  capture and normalized text instead of leaking literal tildes into IR text;
 - `itemize`, `enumerate`, and `description` now survive as list block events,
   `List` IR blocks, and display-list text runs with default or explicit item
   markers while preserving inline events inside list item content;

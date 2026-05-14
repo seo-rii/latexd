@@ -1886,10 +1886,17 @@ impl<'i> Vm<'i> {
             return;
         }
         let mut pending_word = String::new();
-        let mut saw_space = false;
+        let mut pending_space = None;
         let mut emitted_any = false;
         for ch in source[start..end].chars() {
-            if ch.is_whitespace() {
+            let space_kind = if ch.is_whitespace() {
+                Some(SpaceKind::Interword)
+            } else if ch == '~' {
+                Some(SpaceKind::Explicit)
+            } else {
+                None
+            };
+            if let Some(space_kind) = space_kind {
                 if !pending_word.is_empty() {
                     self.emit_render_event(
                         RenderEvent::Text(TextEvent {
@@ -1899,18 +1906,20 @@ impl<'i> Vm<'i> {
                     );
                     emitted_any = true;
                 }
-                saw_space = true;
+                pending_space = match (pending_space, space_kind) {
+                    (Some(SpaceKind::Explicit), _) | (_, SpaceKind::Explicit) => {
+                        Some(SpaceKind::Explicit)
+                    }
+                    _ => Some(SpaceKind::Interword),
+                };
                 continue;
             }
-            if saw_space {
+            if let Some(space_kind) = pending_space.take() {
                 self.emit_render_event(
-                    RenderEvent::Space(SpaceEvent {
-                        kind: SpaceKind::Interword,
-                    }),
+                    RenderEvent::Space(SpaceEvent { kind: space_kind }),
                     SourceProvenance::file(source_path.to_owned(), start as u32, end as u32),
                 );
                 emitted_any = true;
-                saw_space = false;
             }
             pending_word.push(ch);
         }
@@ -1919,11 +1928,11 @@ impl<'i> Vm<'i> {
                 RenderEvent::Text(TextEvent { text: pending_word }),
                 SourceProvenance::file(source_path.to_owned(), start as u32, end as u32),
             );
-        } else if saw_space && emitted_any {
+        } else if let Some(space_kind) = pending_space
+            && emitted_any
+        {
             self.emit_render_event(
-                RenderEvent::Space(SpaceEvent {
-                    kind: SpaceKind::Interword,
-                }),
+                RenderEvent::Space(SpaceEvent { kind: space_kind }),
                 SourceProvenance::file(source_path.to_owned(), start as u32, end as u32),
             );
         }
@@ -8553,6 +8562,11 @@ fn normalize_latex_text(source: &str) -> String {
                 in_command = true;
             }
             '{' | '}' | '[' | ']' => {}
+            '~' => {
+                if !text.is_empty() {
+                    previous_space = true;
+                }
+            }
             ch if ch.is_whitespace() => {
                 if !text.is_empty() {
                     previous_space = true;
@@ -8641,8 +8655,8 @@ mod tests {
     use camino::{Utf8Path, Utf8PathBuf};
     use serde_json::json;
     use tex_render_model::{
-        BeginBlockEvent, BlockKind, CitationStyleHint, ListKind, MetadataField, RenderEvent,
-        SpaceKind,
+        BeginBlockEvent, BlockKind, CitationStyleHint, HeadingEvent, ListKind, MetadataField,
+        RenderEvent, SpaceKind,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -12544,6 +12558,35 @@ Fallback text.
             &event.event,
             RenderEvent::Space(space) if space.kind == SpaceKind::Explicit
         )));
+    }
+
+    #[test]
+    fn render_event_capture_records_nonbreaking_tilde_as_explicit_space() {
+        let source = r"\begin{document}Figure~1 and \section{Related~Work}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Space(space) if space.kind == SpaceKind::Explicit
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Heading(HeadingEvent { text, .. }) if text == "Related Work"
+        )));
+        assert!(
+            !outcome
+                .render_events
+                .iter()
+                .any(|event| match &event.event {
+                    RenderEvent::Text(text) => text.text.contains('~'),
+                    RenderEvent::Heading(heading) => heading.text.contains('~'),
+                    _ => false,
+                })
+        );
     }
 
     #[test]

@@ -769,6 +769,33 @@ fn escaped_visible_character_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn nonbreaking_tilde_capture_survives_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        NONBREAKING_TILDE_SOURCE,
+        &SemanticAux::default(),
+    );
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Figure 1 references Related Work."));
+    assert!(extracted_text.contains("Related Work"));
+    assert!(!extracted_text.contains('~'));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Figure 1 references Related Work."));
+    assert!(display_list_text.contains("Related Work"));
+    assert!(!display_list_text.contains('~'));
+}
+
+#[test]
 fn list_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir("main.tex", LIST_SOURCE, &SemanticAux::default());
     let lists = capture
@@ -1114,6 +1141,9 @@ const TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Styled \emph{important} and 
 
 const ESCAPED_VISIBLE_SOURCE: &str =
     r"\begin{document}50\% A\&B costs \$5\_0 \#1 \{x\} A\ B.\end{document}";
+
+const NONBREAKING_TILDE_SOURCE: &str =
+    r"\begin{document}Figure~1 references Related~Work.\section{Related~Work}\end{document}";
 
 const LIST_SOURCE: &str = r"\begin{document}\begin{itemize}\item First \cite{key}\item[Custom] Second\end{itemize}\begin{enumerate}\item One\item Two\end{enumerate}\begin{description}\item[Term] Meaning \cite{key}\item[Other] More\end{description}\end{document}";
 
