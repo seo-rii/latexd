@@ -100,6 +100,7 @@ pub enum RenderEvent {
     InlineReference(InlineReferenceEvent),
     InlineLink(InlineLinkEvent),
     LabelDefinition(LabelDefinitionEvent),
+    ListItem(ListItemEvent),
     BibliographyItem(BibliographyItemEvent),
     GraphicRef(GraphicRefEvent),
     Caption(CaptionEvent),
@@ -170,7 +171,15 @@ pub enum BlockKind {
     Bibliography,
     Figure,
     Table,
+    List { list_kind: ListKind },
     Environment { name: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ListKind {
+    Unordered,
+    Ordered,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -205,6 +214,12 @@ pub struct InlineLinkEvent {
 pub struct LabelDefinitionEvent {
     pub key: String,
     pub command: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListItemEvent {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub marker: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

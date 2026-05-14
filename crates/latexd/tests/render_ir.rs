@@ -3,7 +3,7 @@ use std::{env, fs, path::Path};
 use camino::Utf8PathBuf;
 use latexd::compiler::capture_internal_render_ir;
 use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
-use tex_render_model::{CitationStyleHint, DrawOp, to_pretty_json};
+use tex_render_model::{CitationStyleHint, DrawOp, ListKind, to_pretty_json};
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole};
 
 #[test]
@@ -668,6 +668,62 @@ fn url_text_wrapper_capture_survives_ir_without_link_annotations() {
 }
 
 #[test]
+fn list_capture_survives_ir_and_display_list() {
+    let capture = capture_internal_render_ir("main.tex", LIST_SOURCE, &SemanticAux::default());
+    let lists = capture
+        .document_ir
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            IrBlock::List(list) => Some(list),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(lists.len(), 2);
+    assert_eq!(lists[0].kind, ListKind::Unordered);
+    assert_eq!(lists[0].items.len(), 2);
+    assert_eq!(lists[0].items[0].marker, "-");
+    assert!(lists[0].items[0].content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Citation(citation)
+                if citation.keys == vec!["key".to_string()] && citation.display_text == "[?]"
+        )
+    }));
+    assert_eq!(lists[0].items[1].marker, "Custom");
+    assert!(matches!(
+        &lists[0].items[1].source.primary,
+        ProvenanceSpan::File(span)
+            if &LIST_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize] == r"\item[Custom]"
+    ));
+    assert_eq!(lists[1].kind, ListKind::Ordered);
+    assert_eq!(lists[1].items.len(), 2);
+    assert_eq!(lists[1].items[0].marker, "1.");
+    assert_eq!(lists[1].items[1].marker, "2.");
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("- First [?]"));
+    assert!(extracted_text.contains("Custom Second"));
+    assert!(extracted_text.contains("1. One"));
+    assert!(!extracted_text.contains("key"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("- First [?]"));
+    assert!(display_list_text.contains("Custom Second"));
+    assert!(display_list_text.contains("1. One"));
+    assert!(display_list_text.contains("2. Two"));
+}
+
+#[test]
 fn aux_resolved_references_and_citations_survive_ir_and_display_list() {
     let mut aux = SemanticAux::default();
     aux.labels.push(SemanticLabel {
@@ -874,6 +930,8 @@ const REFERENCE_SOURCE: &str =
 const LINK_SOURCE: &str = r"\begin{document}Read \href{https://example.test/paper}{paper link}, \url{https://example.test/raw}, and \url|https://example.test/delimited|.\end{document}";
 
 const URL_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Use \nolinkurl{https://example.test/paper}, \nolinkurl|https://example.test/delimited|, at \path{/tmp/archive} and \path|/var/tmp| via \detokenize{\foo+*}.\end{document}";
+
+const LIST_SOURCE: &str = r"\begin{document}\begin{itemize}\item First \cite{key}\item[Custom] Second\end{itemize}\begin{enumerate}\item One\item Two\end{enumerate}\end{document}";
 
 const AUX_RESOLUTION_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \cite{key}.\end{document}";

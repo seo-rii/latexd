@@ -10,9 +10,10 @@ use tex_render_model::{
     BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint, EventId,
     ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
     InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
-    MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan,
-    RawFallbackEvent, RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent, SourceProvenance,
-    SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind, TextEvent,
+    ListItemEvent, ListKind, MathSourceEvent, MetadataField, ParagraphBreakEvent,
+    ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent, RenderEvent, RenderEventEnvelope,
+    SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
+    TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -1131,6 +1132,23 @@ impl<'i> Vm<'i> {
                                     ),
                                 );
                             }
+                            "itemize" | "enumerate" if in_document => {
+                                let kind = if environment == "itemize" {
+                                    ListKind::Unordered
+                                } else {
+                                    ListKind::Ordered
+                                };
+                                self.emit_render_event(
+                                    RenderEvent::BeginBlock(BeginBlockEvent {
+                                        block: BlockKind::List { list_kind: kind },
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        command_start as u32,
+                                        index as u32,
+                                    ),
+                                );
+                            }
                             "equation" | "equation*" | "displaymath" | "align" | "align*"
                             | "gather" | "gather*" | "multline" | "multline*"
                                 if in_document =>
@@ -1310,6 +1328,23 @@ impl<'i> Vm<'i> {
                                 self.emit_render_event(
                                     RenderEvent::EndBlock(BeginBlockEvent {
                                         block: BlockKind::Bibliography,
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        command_start as u32,
+                                        index as u32,
+                                    ),
+                                );
+                            }
+                            "itemize" | "enumerate" if in_document => {
+                                let kind = if environment == "itemize" {
+                                    ListKind::Unordered
+                                } else {
+                                    ListKind::Ordered
+                                };
+                                self.emit_render_event(
+                                    RenderEvent::EndBlock(BeginBlockEvent {
+                                        block: BlockKind::List { list_kind: kind },
                                     }),
                                     SourceProvenance::file(
                                         source_path.to_owned(),
@@ -1548,6 +1583,23 @@ impl<'i> Vm<'i> {
                     {
                         index = after;
                     }
+                }
+                "item" if in_document => {
+                    let mut marker = None;
+                    index = skip_ascii_whitespace(source, index);
+                    if let Some((label, _, _, after)) = read_bracket_source_argument(source, index)
+                    {
+                        marker = Some(normalize_latex_text(label));
+                        index = after;
+                    }
+                    self.emit_render_event(
+                        RenderEvent::ListItem(ListItemEvent { marker }),
+                        SourceProvenance::file(
+                            source_path.to_owned(),
+                            command_start as u32,
+                            index as u32,
+                        ),
+                    );
                 }
                 "(" if in_document => {
                     if let Some(relative_end) = source[index..].find("\\)") {
@@ -8512,7 +8564,9 @@ pub fn compile_format_snapshot(interner: &mut ControlSequenceInterner, source: &
 mod tests {
     use camino::{Utf8Path, Utf8PathBuf};
     use serde_json::json;
-    use tex_render_model::{BlockKind, CitationStyleHint, MetadataField, RenderEvent};
+    use tex_render_model::{
+        BeginBlockEvent, BlockKind, CitationStyleHint, ListKind, MetadataField, RenderEvent,
+    };
     use tex_tokens::ControlSequenceInterner;
 
     use super::{
@@ -12329,6 +12383,62 @@ Fallback text.
                 .iter()
                 .any(|event| matches!(&event.event, RenderEvent::InlineLink(_)))
         );
+    }
+
+    #[test]
+    fn render_event_capture_records_list_items_without_losing_inline_events() {
+        let source = r"\begin{document}\begin{itemize}\item First \cite{key}\item[Custom] Second\end{itemize}\begin{enumerate}\item One\item Two\end{enumerate}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::List {
+                        list_kind: ListKind::Unordered
+                    }
+                })
+            )
+        }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::List {
+                        list_kind: ListKind::Ordered
+                    }
+                })
+            )
+        }));
+        let items = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::ListItem(item) => Some((item, &event.meta.source.primary)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(items.len(), 4);
+        assert_eq!(items[0].0.marker, None);
+        assert_eq!(items[1].0.marker.as_deref(), Some("Custom"));
+        assert!(matches!(
+            items[1].1,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\item[Custom]"
+        ));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::InlineCitation(citation)
+                    if citation.keys == vec!["key".to_string()]
+            )
+        }));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{CitationStyleHint, RawFallbackEvent, SourceProvenance};
+use crate::{CitationStyleHint, ListKind, RawFallbackEvent, SourceProvenance};
 
 pub const DOCUMENT_IR_SCHEMA_VERSION: u32 = 1;
 
@@ -112,6 +112,38 @@ impl DocumentIr {
                         }
                     }
                 }
+                IrBlock::List(block) => {
+                    for (index, item) in block.items.iter().enumerate() {
+                        if index > 0 {
+                            text.push('\n');
+                        }
+                        text.push_str(&item.marker);
+                        text.push(' ');
+                        for node in &item.content {
+                            match node {
+                                InlineNode::Text { text: value, .. } => text.push_str(value),
+                                InlineNode::Space { .. } => text.push(' '),
+                                InlineNode::Citation(citation) => {
+                                    text.push_str(&citation.display_text)
+                                }
+                                InlineNode::Reference(reference) => {
+                                    text.push_str(&reference.display_text)
+                                }
+                                InlineNode::Link(link) => text.push_str(&link.display_text),
+                                InlineNode::InlineMath { raw_source, .. } => {
+                                    text.push_str(raw_source)
+                                }
+                                InlineNode::RawFallback(fallback) => {
+                                    if let Some(visible) = &fallback.normalized_visible_text {
+                                        text.push_str(visible);
+                                    } else {
+                                        text.push_str(&fallback.source_excerpt);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 IrBlock::DisplayMath(block) => text.push_str(&block.raw_source),
                 IrBlock::Bibliography(block) => {
                     for (index, item) in block.items.iter().enumerate() {
@@ -146,6 +178,7 @@ pub enum IrBlock {
     Abstract(AbstractBlock),
     Heading(HeadingBlock),
     Paragraph(ParagraphBlock),
+    List(ListBlock),
     DisplayMath(DisplayMathBlock),
     Bibliography(BibliographyBlock),
     Graphic(GraphicBlock),
@@ -186,6 +219,20 @@ pub struct HeadingBlock {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ParagraphBlock {
+    pub content: Vec<InlineNode>,
+    pub source: SourceProvenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListBlock {
+    pub kind: ListKind,
+    pub items: Vec<ListItemIr>,
+    pub source: SourceProvenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListItemIr {
+    pub marker: String,
     pub content: Vec<InlineNode>,
     pub source: SourceProvenance,
 }

@@ -1,8 +1,8 @@
 use tex_render_model::{
     AbstractBlock, AuxView, BibliographyBlock, BibliographyItemIr, CitationInline, DocumentIr,
-    GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr, LinkInline, MetadataField,
-    ParagraphBlock, ReferenceInline, RenderEvent, RenderEventEnvelope, RenderEventStream,
-    SourceProvenance, SourceSpanRole, TitleBlock,
+    GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr, LinkInline, ListBlock,
+    ListItemIr, ListKind, MetadataField, ParagraphBlock, ReferenceInline, RenderEvent,
+    RenderEventEnvelope, RenderEventStream, SourceProvenance, SourceSpanRole, TitleBlock,
 };
 
 pub fn build_document_ir(stream: &RenderEventStream, aux: &impl AuxView) -> DocumentIr {
@@ -17,6 +17,8 @@ pub struct DocumentIrBuilder<'a, A: AuxView> {
     paragraph_source: Option<SourceProvenance>,
     abstract_content: Option<(Vec<InlineNode>, SourceProvenance)>,
     bibliography_items: Option<(Vec<BibliographyItemIr>, SourceProvenance)>,
+    list: Option<(ListKind, Vec<ListItemIr>, SourceProvenance)>,
+    list_item: Option<(Vec<InlineNode>, SourceProvenance, Option<String>)>,
     title: Option<(String, SourceProvenance)>,
     authors: Vec<(String, SourceProvenance)>,
     date: Option<(String, SourceProvenance)>,
@@ -33,6 +35,8 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             paragraph_source: None,
             abstract_content: None,
             bibliography_items: None,
+            list: None,
+            list_item: None,
             title: None,
             authors: Vec::new(),
             date: None,
@@ -110,6 +114,11 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             self.bibliography_items =
                                 Some((Vec::new(), envelope.meta.source.clone()));
                         }
+                        tex_render_model::BlockKind::List { list_kind } => {
+                            self.list =
+                                Some((*list_kind, Vec::new(), envelope.meta.source.clone()));
+                            self.list_item = None;
+                        }
                         _ => {}
                     }
                 }
@@ -124,6 +133,16 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         if let Some((items, source)) = self.bibliography_items.take() {
                             self.blocks
                                 .push(IrBlock::Bibliography(BibliographyBlock { items, source }));
+                        }
+                    }
+                    tex_render_model::BlockKind::List { .. } => {
+                        self.flush_list_item();
+                        if let Some((kind, items, source)) = self.list.take() {
+                            self.blocks.push(IrBlock::List(ListBlock {
+                                kind,
+                                items,
+                                source,
+                            }));
                         }
                     }
                     _ => {}
@@ -226,6 +245,16 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         source: envelope.meta.source.clone(),
                     });
                 }
+                RenderEvent::ListItem(event) => {
+                    self.flush_list_item();
+                    if self.list.is_some() {
+                        self.list_item = Some((
+                            Vec::new(),
+                            envelope.meta.source.clone(),
+                            event.marker.clone(),
+                        ));
+                    }
+                }
                 RenderEvent::InlineMath(event) => {
                     self.push_inline(
                         InlineNode::InlineMath {
@@ -262,9 +291,10 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         }));
                     }
                 }
-                RenderEvent::ParagraphBreak(_) => {
+                RenderEvent::ParagraphBreak(_) if self.list_item.is_none() => {
                     self.flush_paragraph();
                 }
+                RenderEvent::ParagraphBreak(_) => {}
                 RenderEvent::RawFallback(event) => {
                     self.flush_paragraph();
                     self.blocks.push(IrBlock::RawFallback(
@@ -311,6 +341,14 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             self.blocks
                 .push(IrBlock::Bibliography(BibliographyBlock { items, source }));
         }
+        self.flush_list_item();
+        if let Some((kind, items, source)) = self.list.take() {
+            self.blocks.push(IrBlock::List(ListBlock {
+                kind,
+                items,
+                source,
+            }));
+        }
         DocumentIr::with_labels(self.blocks, self.labels)
     }
 
@@ -319,10 +357,34 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             content.push(node);
             return;
         }
+        if let Some((content, _, _)) = &mut self.list_item {
+            if content.is_empty() && matches!(node, InlineNode::Space { .. }) {
+                return;
+            }
+            content.push(node);
+            return;
+        }
         if self.paragraph_source.is_none() {
             self.paragraph_source = Some(envelope.meta.source.clone());
         }
         self.paragraph.push(node);
+    }
+
+    fn flush_list_item(&mut self) {
+        let Some((content, source, marker_hint)) = self.list_item.take() else {
+            return;
+        };
+        if let Some((kind, items, _)) = &mut self.list {
+            let marker = marker_hint.unwrap_or_else(|| match kind {
+                ListKind::Unordered => "-".to_string(),
+                ListKind::Ordered => format!("{}.", items.len() + 1),
+            });
+            items.push(ListItemIr {
+                marker,
+                content,
+                source,
+            });
+        }
     }
 
     fn flush_paragraph(&mut self) {

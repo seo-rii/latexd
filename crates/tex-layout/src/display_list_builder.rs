@@ -250,6 +250,36 @@ pub fn build_page_display_lists(
                     gap_after_pt: options.block_gap_pt,
                 }));
             }
+            IrBlock::List(block) => {
+                for (index, item) in block.items.iter().enumerate() {
+                    let mut segments = vec![LogicalTextSegment {
+                        text: format!("{} ", item.marker),
+                        source: item.source.clone(),
+                        link_target: None,
+                    }];
+                    segments.extend(inline_segments(&item.content));
+                    logical_items.push(LogicalItem::Text(LogicalTextRun {
+                        segments,
+                        source: item.source.clone(),
+                        font: body_font.clone(),
+                        size_pt: options.body_font_size_pt,
+                        gap_after_pt: if index + 1 == block.items.len() {
+                            options.block_gap_pt
+                        } else {
+                            0.0
+                        },
+                    }));
+                }
+                if block.items.is_empty() {
+                    logical_items.push(LogicalItem::Text(LogicalTextRun {
+                        segments: Vec::new(),
+                        source: block.source.clone(),
+                        font: body_font.clone(),
+                        size_pt: options.body_font_size_pt,
+                        gap_after_pt: options.block_gap_pt,
+                    }));
+                }
+            }
             IrBlock::DisplayMath(block) => {
                 logical_items.push(LogicalItem::Text(LogicalTextRun {
                     segments: vec![LogicalTextSegment {
