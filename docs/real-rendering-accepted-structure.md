@@ -109,6 +109,8 @@ The next implementation step has started with a narrow display-list spike:
 - simple one-argument text wrappers such as `\emph`, `\textbf`, `\textit`,
   and `\texttt` now preserve their visible text without leaking raw braces
   into the event stream or derived IR;
+- escaped visible characters such as `\%`, `\&`, `\$`, `\_`, `\#`, `\{`,
+  and `\}` now survive as text events instead of disappearing during capture;
 - `itemize`, `enumerate`, and `description` now survive as list block events,
   `List` IR blocks, and display-list text runs with default or explicit item
   markers while preserving inline events inside list item content;

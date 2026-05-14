@@ -726,6 +726,49 @@ fn text_wrapper_capture_survives_ir_without_raw_braces() {
 }
 
 #[test]
+fn escaped_visible_character_capture_survives_ir_and_display_list() {
+    let capture =
+        capture_internal_render_ir("main.tex", ESCAPED_VISIBLE_SOURCE, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    for expected in ["%", "&", "$", "_", "#", "{", "}"] {
+        assert!(
+            paragraph.content.iter().any(|node| {
+                matches!(
+                    node,
+                    InlineNode::Text { text, .. } if text == expected
+                )
+            }),
+            "missing escaped visible IR text node for {expected}"
+        );
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("50% A&B costs $5_0 #1 {x} A B."));
+    assert!(!extracted_text.contains(r"\%"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("50% A&B costs $5_0 #1 {x} A B."));
+    assert!(!display_list_text.contains(r"\%"));
+}
+
+#[test]
 fn list_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir("main.tex", LIST_SOURCE, &SemanticAux::default());
     let lists = capture
@@ -1068,6 +1111,9 @@ const LINK_SOURCE: &str = r"\begin{document}Read \href{https://example.test/pape
 const URL_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Use \nolinkurl{https://example.test/paper}, \nolinkurl|https://example.test/delimited|, at \path{/tmp/archive} and \path|/var/tmp| via \detokenize{\foo+*}.\end{document}";
 
 const TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Styled \emph{important} and \textbf{bold text} with \texttt{code_path}.\end{document}";
+
+const ESCAPED_VISIBLE_SOURCE: &str =
+    r"\begin{document}50\% A\&B costs \$5\_0 \#1 \{x\} A\ B.\end{document}";
 
 const LIST_SOURCE: &str = r"\begin{document}\begin{itemize}\item First \cite{key}\item[Custom] Second\end{itemize}\begin{enumerate}\item One\item Two\end{enumerate}\begin{description}\item[Term] Meaning \cite{key}\item[Other] More\end{description}\end{document}";
 

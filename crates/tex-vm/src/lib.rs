@@ -1599,6 +1599,30 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
+                "%" | "&" | "$" | "#" | "_" | "{" | "}" if in_document => {
+                    self.emit_render_event(
+                        RenderEvent::Text(TextEvent {
+                            text: command.to_string(),
+                        }),
+                        SourceProvenance::file(
+                            source_path.to_owned(),
+                            command_start as u32,
+                            index as u32,
+                        ),
+                    );
+                }
+                " " if in_document => {
+                    self.emit_render_event(
+                        RenderEvent::Space(SpaceEvent {
+                            kind: SpaceKind::Explicit,
+                        }),
+                        SourceProvenance::file(
+                            source_path.to_owned(),
+                            command_start as u32,
+                            index as u32,
+                        ),
+                    );
+                }
                 "label" if in_document => {
                     index = skip_ascii_whitespace(source, index);
                     if let Some((key, content_start, content_end, after)) =
@@ -8618,6 +8642,7 @@ mod tests {
     use serde_json::json;
     use tex_render_model::{
         BeginBlockEvent, BlockKind, CitationStyleHint, ListKind, MetadataField, RenderEvent,
+        SpaceKind,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -12479,6 +12504,46 @@ Fallback text.
                 .iter()
                 .any(|(text, _)| text.contains('{') || text.contains('}'))
         );
+    }
+
+    #[test]
+    fn render_event_capture_records_escaped_visible_characters() {
+        let source = r"\begin{document}50\% A\&B costs \$5\_0 \#1 \{x\} A\ B.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let text_events = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some((&text.text, &event.meta.source.primary)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        for expected in ["%", "&", "$", "_", "#", "{", "}"] {
+            assert!(
+                text_events
+                    .iter()
+                    .any(|(text, _)| text.as_str() == expected),
+                "missing escaped visible text event for {expected}"
+            );
+        }
+        assert!(text_events.iter().any(|(text, span)| {
+            text.as_str() == "%"
+                && matches!(
+                    span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize] == r"\%"
+                )
+        }));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Space(space) if space.kind == SpaceKind::Explicit
+        )));
     }
 
     #[test]
