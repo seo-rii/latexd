@@ -131,6 +131,9 @@ The next implementation step has started with a narrow display-list spike:
 - readable unknown commands inside text wrappers also preserve nested
   `\href`/`\url` link events and raw math sources, so hidden targets and math
   delimiters do not leak into visible IR/display-list text;
+- readable unknown commands inside text wrappers also preserve escaped visible
+  characters such as `\%`, `\&`, `\$`, `\_`, `\#`, `\{`, and `\}` instead of
+  dropping them while consuming the wrapper command argument;
 - escaped visible characters such as `\%`, `\&`, `\$`, `\_`, `\#`, `\{`,
   and `\}` now survive as text events instead of disappearing during capture;
 - nonbreaking `~` spaces now survive as explicit visible spaces in event

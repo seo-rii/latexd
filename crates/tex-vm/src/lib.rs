@@ -2223,6 +2223,8 @@ impl<'i> Vm<'i> {
                                                         argument_inner_index,
                                                         true,
                                                     );
+                                                    let argument_command_start =
+                                                        argument_inner_index;
                                                     argument_inner_index += 1;
                                                     if argument_inner_index >= text_end {
                                                         break;
@@ -2593,6 +2595,56 @@ impl<'i> Vm<'i> {
                                                                         visible_text_end as u32,
                                                                     ),
                                                                 );
+                                                                argument_inner_index =
+                                                                    command_after;
+                                                            }
+                                                        }
+                                                        "%" | "&" | "$" | "#" | "_" | "{" | "}" => {
+                                                            self.emit_render_event(
+                                                                RenderEvent::Text(TextEvent {
+                                                                    text: argument_command
+                                                                        .to_string(),
+                                                                }),
+                                                                SourceProvenance::file(
+                                                                    source_path.to_owned(),
+                                                                    argument_command_start as u32,
+                                                                    argument_inner_index as u32,
+                                                                ),
+                                                            );
+                                                        }
+                                                        " " => {
+                                                            self.emit_render_event(
+                                                                RenderEvent::Space(SpaceEvent {
+                                                                    kind: SpaceKind::Explicit,
+                                                                }),
+                                                                SourceProvenance::file(
+                                                                    source_path.to_owned(),
+                                                                    argument_command_start as u32,
+                                                                    argument_inner_index as u32,
+                                                                ),
+                                                            );
+                                                        }
+                                                        "\\" => {
+                                                            self.emit_render_event(
+                                                                RenderEvent::LineBreak(
+                                                                    LineBreakEvent {
+                                                                        reason:
+                                                                            LineBreakReason::Explicit,
+                                                                    },
+                                                                ),
+                                                                SourceProvenance::file(
+                                                                    source_path.to_owned(),
+                                                                    argument_command_start as u32,
+                                                                    argument_inner_index as u32,
+                                                                ),
+                                                            );
+                                                            if let Some((_, _, _, command_after)) =
+                                                                read_bracket_source_argument(
+                                                                    source,
+                                                                    argument_inner_index,
+                                                                )
+                                                                && command_after <= text_end
+                                                            {
                                                                 argument_inner_index =
                                                                     command_after;
                                                             }
@@ -13870,6 +13922,32 @@ Fallback text.
         assert!(!visible_text.contains("https://hidden.test"));
         assert!(!visible_text.contains("{paper}"));
         assert!(!visible_text.contains("$x^2$"));
+    }
+
+    #[test]
+    fn render_event_capture_records_nested_wrapper_unknown_command_escaped_visible_characters() {
+        let source = r"\begin{document}Nested \emph{before \unknowntext{50\% A\&B costs \$5\_0 \#1 \{x\}} after}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(visible_text.contains("Nested before 50% A&B costs $5_0 #1 {x} after."));
+        assert!(!visible_text.contains("unknowntext"));
+        assert!(!visible_text.contains(r"\%"));
+        assert!(!visible_text.contains(r"\&"));
+        assert!(!visible_text.contains(r"\{x\}"));
     }
 
     #[test]
