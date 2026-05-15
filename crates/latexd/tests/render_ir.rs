@@ -1191,6 +1191,39 @@ fn nested_text_wrapper_unknown_command_text_wrappers_survive_ir() {
 }
 
 #[test]
+fn nested_text_wrapper_unknown_command_nested_unknown_commands_survive_ir() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_SOURCE,
+        &SemanticAux::default(),
+    );
+    let expected_text = "Nested before outer inner text done after.";
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(expected_text), "{extracted_text}");
+    assert!(!extracted_text.contains("unknowntext"));
+    assert!(!extracted_text.contains("innerunknown"));
+    assert!(!extracted_text.contains("{inner text}"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains(expected_text),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("unknowntext"));
+    assert!(!display_list_text.contains("innerunknown"));
+    assert!(!display_list_text.contains("{inner text}"));
+}
+
+#[test]
 fn escaped_visible_character_capture_survives_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", ESCAPED_VISIBLE_SOURCE, &SemanticAux::default());
@@ -1717,6 +1750,8 @@ const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_LINK_MATH_SOURCE: &str = r"\begin{docu
 const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_ESCAPED_VISIBLE_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{50\% A\&B costs \$5\_0 \#1 \{x\}} after}.\end{document}";
 
 const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{outer \textbf{inner text} done} after}.\end{document}";
+
+const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{outer \innerunknown{inner text} done} after}.\end{document}";
 
 const ESCAPED_VISIBLE_SOURCE: &str =
     r"\begin{document}50\% A\&B costs \$5\_0 \#1 \{x\} A\ B.\end{document}";
