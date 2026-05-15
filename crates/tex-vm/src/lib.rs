@@ -1267,6 +1267,35 @@ impl<'i> Vm<'i> {
                                                     continue;
                                                 }
                                             }
+                                            "label" => {
+                                                let argument_index = skip_ascii_whitespace(
+                                                    source,
+                                                    body_command_index,
+                                                );
+                                                if let Some((key, key_start, key_end, after_label)) =
+                                                    read_braced_source_argument(
+                                                        source,
+                                                        argument_index,
+                                                    )
+                                                    && after_label <= body_end
+                                                {
+                                                    self.emit_render_event(
+                                                        RenderEvent::LabelDefinition(
+                                                            LabelDefinitionEvent {
+                                                                key: key.trim().to_string(),
+                                                                command: body_command.to_string(),
+                                                            },
+                                                        ),
+                                                        SourceProvenance::file(
+                                                            source_path.to_owned(),
+                                                            key_start as u32,
+                                                            key_end as u32,
+                                                        ),
+                                                    );
+                                                    body_index = after_label;
+                                                    continue;
+                                                }
+                                            }
                                             _ => {}
                                         }
                                         body_index = body_command_index;
@@ -13847,6 +13876,31 @@ Fallback text.
             &event.event,
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("figure")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_float_label_definitions() {
+        let source = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\label{fig:plot}\end{figure}\begin{table}\label{tab:data}\end{table}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let labels = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::LabelDefinition(label) => Some(label.key.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(labels.contains(&"fig:plot"));
+        assert!(labels.contains(&"tab:data"));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text.contains("fig:plot") || text.text.contains("tab:data")
         )));
     }
 

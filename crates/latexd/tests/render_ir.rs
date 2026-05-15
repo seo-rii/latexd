@@ -196,6 +196,49 @@ fn graphic_render_ir_capture_derives_display_list_image() {
 }
 
 #[test]
+fn float_label_definitions_survive_ir_without_visible_keys() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        FIGURE_TABLE_LABEL_SOURCE,
+        &SemanticAux::default(),
+    );
+    let label_keys = capture
+        .document_ir
+        .labels
+        .iter()
+        .map(|label| label.key.as_str())
+        .collect::<Vec<_>>();
+
+    assert!(label_keys.contains(&"fig:plot"));
+    assert!(label_keys.contains(&"tab:data"));
+    assert!(capture.document_ir.labels.iter().any(|label| {
+        matches!(
+            &label.source.primary,
+            ProvenanceSpan::File(span)
+                if &FIGURE_TABLE_LABEL_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                    == "fig:plot"
+        )
+    }));
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Plot caption."));
+    assert!(!extracted_text.contains("fig:plot"));
+    assert!(!extracted_text.contains("tab:data"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Plot caption."));
+    assert!(!display_list_text.contains("fig:plot"));
+    assert!(!display_list_text.contains("tab:data"));
+}
+
+#[test]
 fn inline_math_capture_survives_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", INLINE_MATH_SOURCE, &SemanticAux::default());
@@ -1981,6 +2024,8 @@ fn macro_heading_display_list_svg_preserves_expansion_provenance() {
 const COMPACT_SOURCE: &str = r"\title{A Paper}\author{Ada Lovelace}\date{May 1843}\begin{document}\maketitle\begin{abstract}Short abstract.\end{abstract}\section{Intro}Hello \cite{key}.\[x^2\]\begin{thebibliography}{1}\bibitem{key} Author. Title.\end{thebibliography}\begin{unknownenv}Fallback text.\end{unknownenv}\end{document}";
 
 const GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\end{figure}\end{document}";
+
+const FIGURE_TABLE_LABEL_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\label{fig:plot}\end{figure}\begin{table}\label{tab:data}\end{table}\end{document}";
 
 const INLINE_MATH_SOURCE: &str = r"\begin{document}Area \(x^2 + y^2\).\end{document}";
 

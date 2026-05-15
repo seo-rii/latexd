@@ -152,6 +152,9 @@ The next implementation step has started with a narrow display-list spike:
 - label definitions inside nested text wrappers, including readable nested
   unknown wrappers, now survive as `LabelDefinition` events/IR labels without
   leaking label keys into extracted or display-list text;
+- label definitions inside `figure` and `table` environment bodies now survive
+  the graphic/caption scan path without leaking float label keys into visible
+  text;
 - escaped visible characters such as `\%`, `\&`, `\$`, `\_`, `\#`, `\{`,
   and `\}` now survive as text events instead of disappearing during capture;
 - nonbreaking `~` spaces now survive as explicit visible spaces in event
