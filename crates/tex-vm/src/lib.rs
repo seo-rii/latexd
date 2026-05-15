@@ -2701,21 +2701,270 @@ impl<'i> Vm<'i> {
                                                                 source,
                                                                 argument_index,
                                                             ) && command_after <= text_end
-                                                                && !text.contains('\\')
-                                                                && !text.contains('$')
                                                             {
-                                                                self.emit_render_event(
-                                                                    RenderEvent::Text(TextEvent {
-                                                                        text: normalize_latex_text(
-                                                                            text,
+                                                                if text.contains('\\') {
+                                                                    let mut nested_index =
+                                                                        text_start;
+                                                                    let mut nested_text_start =
+                                                                        text_start;
+                                                                    let mut emitted_structured =
+                                                                        false;
+                                                                    while nested_index
+                                                                        < visible_text_end
+                                                                    {
+                                                                        if bytes[nested_index]
+                                                                            != b'\\'
+                                                                        {
+                                                                            nested_index += 1;
+                                                                            continue;
+                                                                        }
+                                                                        let nested_command_start =
+                                                                            nested_index;
+                                                                        nested_index += 1;
+                                                                        if nested_index
+                                                                            >= visible_text_end
+                                                                        {
+                                                                            break;
+                                                                        }
+                                                                        let nested_command = if bytes
+                                                                            [nested_index]
+                                                                            .is_ascii_alphabetic()
+                                                                            || bytes[nested_index]
+                                                                                == b'@'
+                                                                        {
+                                                                            let start =
+                                                                                nested_index;
+                                                                            while nested_index
+                                                                                < visible_text_end
+                                                                                && (bytes[nested_index]
+                                                                                    .is_ascii_alphabetic()
+                                                                                    || bytes[nested_index]
+                                                                                        == b'@')
+                                                                            {
+                                                                                nested_index +=
+                                                                                    1;
+                                                                            }
+                                                                            &source
+                                                                                [start
+                                                                                    ..nested_index]
+                                                                        } else {
+                                                                            let start =
+                                                                                nested_index;
+                                                                            nested_index += 1;
+                                                                            &source
+                                                                                [start
+                                                                                    ..nested_index]
+                                                                        };
+                                                                        let mut emitted_inline =
+                                                                            false;
+                                                                        match nested_command {
+                                                                            "cite" | "citet"
+                                                                            | "Citet" | "citep"
+                                                                            | "Citep"
+                                                                            | "citealt"
+                                                                            | "citealp"
+                                                                            | "citeauthor"
+                                                                            | "citeyear"
+                                                                            | "citeyearpar"
+                                                                            | "parencite"
+                                                                            | "Parencite"
+                                                                            | "textcite"
+                                                                            | "Textcite"
+                                                                            | "autocite"
+                                                                            | "Autocite"
+                                                                            | "footcite"
+                                                                            | "supercite" => {
+                                                                                let style_hint = match nested_command {
+                                                                                    "citet" | "Citet" | "citealt"
+                                                                                    | "citeauthor" | "citeyear"
+                                                                                    | "textcite" | "Textcite" => {
+                                                                                        CitationStyleHint::Textual
+                                                                                    }
+                                                                                    "citep" | "Citep" | "citealp"
+                                                                                    | "citeyearpar" | "parencite"
+                                                                                    | "Parencite" | "autocite"
+                                                                                    | "Autocite" => {
+                                                                                        CitationStyleHint::Parenthetical
+                                                                                    }
+                                                                                    "footcite" | "supercite" => {
+                                                                                        CitationStyleHint::Unknown
+                                                                                    }
+                                                                                    _ => CitationStyleHint::Numeric,
+                                                                                };
+                                                                                let mut citation_index =
+                                                                                    skip_ascii_whitespace(
+                                                                                        source,
+                                                                                        nested_index,
+                                                                                    );
+                                                                                if citation_index < visible_text_end
+                                                                                    && source[citation_index..]
+                                                                                        .starts_with('*')
+                                                                                {
+                                                                                    citation_index += 1;
+                                                                                }
+                                                                                loop {
+                                                                                    citation_index =
+                                                                                        skip_ascii_whitespace(
+                                                                                            source,
+                                                                                            citation_index,
+                                                                                        );
+                                                                                    let Some((
+                                                                                        _,
+                                                                                        _,
+                                                                                        _,
+                                                                                        after_option,
+                                                                                    )) = read_bracket_source_argument(
+                                                                                        source,
+                                                                                        citation_index,
+                                                                                    ) else {
+                                                                                        break;
+                                                                                    };
+                                                                                    if after_option > visible_text_end
+                                                                                    {
+                                                                                        break;
+                                                                                    }
+                                                                                    citation_index = after_option;
+                                                                                }
+                                                                                if let Some((
+                                                                                    keys,
+                                                                                    key_start,
+                                                                                    key_end,
+                                                                                    after_citation,
+                                                                                )) = read_braced_source_argument(
+                                                                                    source,
+                                                                                    citation_index,
+                                                                                ) && after_citation <= visible_text_end
+                                                                                {
+                                                                                    self.capture_text_events(
+                                                                                        source_path,
+                                                                                        source,
+                                                                                        nested_text_start,
+                                                                                        nested_command_start,
+                                                                                        true,
+                                                                                    );
+                                                                                    self.emit_render_event(
+                                                                                        RenderEvent::InlineCitation(
+                                                                                            InlineCitationEvent {
+                                                                                                keys: keys
+                                                                                                    .split(',')
+                                                                                                    .map(str::trim)
+                                                                                                    .filter(|key| !key.is_empty())
+                                                                                                    .map(ToOwned::to_owned)
+                                                                                                    .collect(),
+                                                                                                command: nested_command.to_string(),
+                                                                                                style_hint,
+                                                                                            },
+                                                                                        ),
+                                                                                        SourceProvenance::file(
+                                                                                            source_path.to_owned(),
+                                                                                            key_start as u32,
+                                                                                            key_end as u32,
+                                                                                        ),
+                                                                                    );
+                                                                                    nested_index = after_citation;
+                                                                                    nested_text_start = nested_index;
+                                                                                    emitted_inline = true;
+                                                                                }
+                                                                            }
+                                                                            "ref" | "eqref"
+                                                                            | "pageref"
+                                                                            | "autoref"
+                                                                            | "nameref"
+                                                                            | "cref" | "Cref" => {
+                                                                                let reference_index =
+                                                                                    skip_ascii_whitespace(
+                                                                                        source,
+                                                                                        nested_index,
+                                                                                    );
+                                                                                if let Some((
+                                                                                    keys,
+                                                                                    key_start,
+                                                                                    key_end,
+                                                                                    after_reference,
+                                                                                )) = read_braced_source_argument(
+                                                                                    source,
+                                                                                    reference_index,
+                                                                                ) && after_reference <= visible_text_end
+                                                                                {
+                                                                                    self.capture_text_events(
+                                                                                        source_path,
+                                                                                        source,
+                                                                                        nested_text_start,
+                                                                                        nested_command_start,
+                                                                                        true,
+                                                                                    );
+                                                                                    self.emit_render_event(
+                                                                                        RenderEvent::InlineReference(
+                                                                                            InlineReferenceEvent {
+                                                                                                keys: keys
+                                                                                                    .split(',')
+                                                                                                    .map(str::trim)
+                                                                                                    .filter(|key| !key.is_empty())
+                                                                                                    .map(ToOwned::to_owned)
+                                                                                                    .collect(),
+                                                                                                command: nested_command.to_string(),
+                                                                                            },
+                                                                                        ),
+                                                                                        SourceProvenance::file(
+                                                                                            source_path.to_owned(),
+                                                                                            key_start as u32,
+                                                                                            key_end as u32,
+                                                                                        ),
+                                                                                    );
+                                                                                    nested_index = after_reference;
+                                                                                    nested_text_start = nested_index;
+                                                                                    emitted_inline = true;
+                                                                                }
+                                                                            }
+                                                                            _ => {}
+                                                                        }
+                                                                        emitted_structured |=
+                                                                            emitted_inline;
+                                                                    }
+                                                                    if emitted_structured {
+                                                                        self.capture_text_events(
+                                                                            source_path,
+                                                                            source,
+                                                                            nested_text_start,
+                                                                            visible_text_end,
+                                                                            true,
+                                                                        );
+                                                                    } else {
+                                                                        self.emit_render_event(
+                                                                            RenderEvent::Text(
+                                                                                TextEvent {
+                                                                                    text:
+                                                                                        normalize_latex_text(
+                                                                                            text,
+                                                                                        ),
+                                                                                },
+                                                                            ),
+                                                                            SourceProvenance::file(
+                                                                                source_path
+                                                                                    .to_owned(),
+                                                                                text_start as u32,
+                                                                                visible_text_end
+                                                                                    as u32,
+                                                                            ),
+                                                                        );
+                                                                    }
+                                                                } else {
+                                                                    self.emit_render_event(
+                                                                        RenderEvent::Text(
+                                                                            TextEvent {
+                                                                                text: normalize_latex_text(
+                                                                                    text,
+                                                                                ),
+                                                                            },
                                                                         ),
-                                                                    }),
-                                                                    SourceProvenance::file(
-                                                                        source_path.to_owned(),
-                                                                        text_start as u32,
-                                                                        visible_text_end as u32,
-                                                                    ),
-                                                                );
+                                                                        SourceProvenance::file(
+                                                                            source_path.to_owned(),
+                                                                            text_start as u32,
+                                                                            visible_text_end
+                                                                                as u32,
+                                                                        ),
+                                                                    );
+                                                                }
                                                                 argument_inner_index =
                                                                     command_after;
                                                             }
@@ -14068,6 +14317,43 @@ Fallback text.
         assert!(!visible_text.contains("unknowntext"));
         assert!(!visible_text.contains("innerunknown"));
         assert!(!visible_text.contains("{inner text}"));
+    }
+
+    #[test]
+    fn render_event_capture_records_nested_wrapper_unknown_command_nested_unknown_inline_events() {
+        let source = r"\begin{document}Nested \emph{before \unknowntext{outer \innerunknown{see \cite{key} and \ref{sec:intro}} done} after}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineCitation(citation) if citation.keys == vec!["key".to_string()]
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineReference(reference)
+                if reference.keys == vec!["sec:intro".to_string()]
+        )));
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(visible_text.contains("Nested before outer see  and  done after."));
+        assert!(!visible_text.contains("unknowntext"));
+        assert!(!visible_text.contains("innerunknown"));
+        assert!(!visible_text.contains("key"));
+        assert!(!visible_text.contains("sec:intro"));
     }
 
     #[test]

@@ -140,6 +140,9 @@ The next implementation step has started with a narrow display-list spike:
 - readable unknown commands inside text wrappers also preserve readable nested
   one-argument unknown commands, so `\unknown{...\inner{...}}` keeps local
   visible text without leaking the inner command name or braces;
+- readable nested unknown commands inside text wrappers now preserve migrated
+  citation/reference events without leaking their raw keys or the nested
+  command's braced argument delimiters;
 - escaped visible characters such as `\%`, `\&`, `\$`, `\_`, `\#`, `\{`,
   and `\}` now survive as text events instead of disappearing during capture;
 - nonbreaking `~` spaces now survive as explicit visible spaces in event
