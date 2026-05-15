@@ -863,6 +863,43 @@ fn nested_text_wrapper_link_capture_survives_ir_without_hidden_targets() {
 }
 
 #[test]
+fn nested_text_wrapper_label_definition_survives_ir_without_visible_key() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        NESTED_TEXT_WRAPPER_LABEL_SOURCE,
+        &SemanticAux::default(),
+    );
+
+    assert_eq!(capture.document_ir.labels.len(), 1);
+    assert_eq!(capture.document_ir.labels[0].key, "sec:intro");
+    assert!(matches!(
+        &capture.document_ir.labels[0].source.primary,
+        ProvenanceSpan::File(span)
+            if &NESTED_TEXT_WRAPPER_LABEL_SOURCE
+                [span.start_utf8 as usize..span.end_utf8 as usize]
+                == "sec:intro"
+    ));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Nested Intro text."));
+    assert!(!extracted_text.contains("label"));
+    assert!(!extracted_text.contains("sec:intro"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Nested Intro text."));
+    assert!(!display_list_text.contains("label"));
+    assert!(!display_list_text.contains("sec:intro"));
+}
+
+#[test]
 fn nested_text_wrapper_math_capture_survives_ir_without_raw_delimiters() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -1415,6 +1452,51 @@ fn nested_text_wrapper_unknown_command_nested_unknown_url_text_wrappers_survive_
 }
 
 #[test]
+fn nested_text_wrapper_unknown_command_nested_unknown_label_survives_ir_without_visible_key() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_LABEL_SOURCE,
+        &SemanticAux::default(),
+    );
+
+    assert_eq!(capture.document_ir.labels.len(), 1);
+    assert_eq!(capture.document_ir.labels[0].key, "sec:intro");
+    assert!(matches!(
+        &capture.document_ir.labels[0].source.primary,
+        ProvenanceSpan::File(span)
+            if &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_LABEL_SOURCE
+                [span.start_utf8 as usize..span.end_utf8 as usize]
+                == "sec:intro"
+    ));
+
+    let expected_text = "Nested before outer Intro text done after.";
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(expected_text), "{extracted_text}");
+    assert!(!extracted_text.contains("unknowntext"));
+    assert!(!extracted_text.contains("innerunknown"));
+    assert!(!extracted_text.contains("label"));
+    assert!(!extracted_text.contains("sec:intro"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains(expected_text),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("unknowntext"));
+    assert!(!display_list_text.contains("innerunknown"));
+    assert!(!display_list_text.contains("label"));
+    assert!(!display_list_text.contains("sec:intro"));
+}
+
+#[test]
 fn escaped_visible_character_capture_survives_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", ESCAPED_VISIBLE_SOURCE, &SemanticAux::default());
@@ -1925,6 +2007,9 @@ const NESTED_TEXT_WRAPPER_SOURCE: &str =
 
 const NESTED_TEXT_WRAPPER_LINK_SOURCE: &str = r"\begin{document}Nested \emph{read \href{https://hidden.test}{paper} and \url{https://shown.test}}.\end{document}";
 
+const NESTED_TEXT_WRAPPER_LABEL_SOURCE: &str =
+    r"\begin{document}Nested \emph{Intro\label{sec:intro} text}.\end{document}";
+
 const NESTED_TEXT_WRAPPER_MATH_SOURCE: &str =
     r"\begin{document}Nested \emph{area $x^2$ and \(y^2\)} text.\end{document}";
 
@@ -1949,6 +2034,8 @@ const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_INLINE_SOURCE: &str = r
 const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_LINK_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{outer \innerunknown{see \href{https://hidden.test}{paper} and \url{https://shown.test}} done} after}.\end{document}";
 
 const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_URL_TEXT_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{outer \innerunknown{use \nolinkurl{https://visible.test/path}, \path|/tmp/archive|, and \detokenize{\foo+*}} done} after}.\end{document}";
+
+const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_LABEL_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{outer \innerunknown{Intro\label{sec:intro} text} done} after}.\end{document}";
 
 const ESCAPED_VISIBLE_SOURCE: &str =
     r"\begin{document}50\% A\&B costs \$5\_0 \#1 \{x\} A\ B.\end{document}";

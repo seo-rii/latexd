@@ -149,6 +149,9 @@ The next implementation step has started with a narrow display-list spike:
 - readable nested unknown commands inside text wrappers now preserve
   `\nolinkurl`/`\path`/`\detokenize` as visible text even when nested another
   level down, without turning them into link annotations;
+- label definitions inside nested text wrappers, including readable nested
+  unknown wrappers, now survive as `LabelDefinition` events/IR labels without
+  leaking label keys into extracted or display-list text;
 - escaped visible characters such as `\%`, `\&`, `\$`, `\_`, `\#`, `\{`,
   and `\}` now survive as text events instead of disappearing during capture;
 - nonbreaking `~` spaces now survive as explicit visible spaces in event

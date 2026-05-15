@@ -1962,6 +1962,29 @@ impl<'i> Vm<'i> {
                                             inner_index = command_after;
                                         }
                                     }
+                                    "label" => {
+                                        let argument_index =
+                                            skip_ascii_whitespace(source, inner_index);
+                                        if let Some((key, key_start, key_end, command_after)) =
+                                            read_braced_source_argument(source, argument_index)
+                                            && command_after <= content_end
+                                        {
+                                            self.emit_render_event(
+                                                RenderEvent::LabelDefinition(
+                                                    LabelDefinitionEvent {
+                                                        key: key.trim().to_string(),
+                                                        command: inner_command.to_string(),
+                                                    },
+                                                ),
+                                                SourceProvenance::file(
+                                                    source_path.to_owned(),
+                                                    key_start as u32,
+                                                    key_end as u32,
+                                                ),
+                                            );
+                                            inner_index = command_after;
+                                        }
+                                    }
                                     "href" => {
                                         let target_index =
                                             skip_ascii_whitespace(source, inner_index);
@@ -3078,6 +3101,47 @@ impl<'i> Vm<'i> {
                                                                                         ),
                                                                                     );
                                                                                     nested_index = after_reference;
+                                                                                    nested_text_start = nested_index;
+                                                                                    emitted_inline = true;
+                                                                                }
+                                                                            }
+                                                                            "label" => {
+                                                                                let label_index =
+                                                                                    skip_ascii_whitespace(
+                                                                                        source,
+                                                                                        nested_index,
+                                                                                    );
+                                                                                if let Some((
+                                                                                    key,
+                                                                                    key_start,
+                                                                                    key_end,
+                                                                                    after_label,
+                                                                                )) = read_braced_source_argument(
+                                                                                    source,
+                                                                                    label_index,
+                                                                                ) && after_label <= visible_text_end
+                                                                                {
+                                                                                    self.capture_text_events(
+                                                                                        source_path,
+                                                                                        source,
+                                                                                        nested_text_start,
+                                                                                        nested_command_start,
+                                                                                        true,
+                                                                                    );
+                                                                                    self.emit_render_event(
+                                                                                        RenderEvent::LabelDefinition(
+                                                                                            LabelDefinitionEvent {
+                                                                                                key: key.trim().to_string(),
+                                                                                                command: nested_command.to_string(),
+                                                                                            },
+                                                                                        ),
+                                                                                        SourceProvenance::file(
+                                                                                            source_path.to_owned(),
+                                                                                            key_start as u32,
+                                                                                            key_end as u32,
+                                                                                        ),
+                                                                                    );
+                                                                                    nested_index = after_label;
                                                                                     nested_text_start = nested_index;
                                                                                     emitted_inline = true;
                                                                                 }
@@ -14231,6 +14295,37 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_records_nested_text_wrapper_label_definitions() {
+        let source = r"\begin{document}Nested \emph{Intro\label{sec:intro} text}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::LabelDefinition(label)
+                if label.key == "sec:intro" && label.command == "label"
+        )));
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(visible_text.contains("Nested Intro text."));
+        assert!(!visible_text.contains("label"));
+        assert!(!visible_text.contains("sec:intro"));
+    }
+
+    #[test]
     fn render_event_capture_records_nested_text_wrapper_inline_math() {
         let source = r"\begin{document}Nested \emph{area $x^2$ and \(y^2\)} text.\end{document}";
         let mut interner = ControlSequenceInterner::new();
@@ -14601,6 +14696,39 @@ Fallback text.
         assert!(!visible_text.contains("nolinkurl"));
         assert!(!visible_text.contains("detokenize"));
         assert!(!visible_text.contains("{https://visible.test/path}"));
+    }
+
+    #[test]
+    fn render_event_capture_records_nested_unknown_label_definitions() {
+        let source = r"\begin{document}Nested \emph{before \unknowntext{outer \innerunknown{Intro\label{sec:intro} text} done} after}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::LabelDefinition(label)
+                if label.key == "sec:intro" && label.command == "label"
+        )));
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(visible_text.contains("Nested before outer Intro text done after."));
+        assert!(!visible_text.contains("unknowntext"));
+        assert!(!visible_text.contains("innerunknown"));
+        assert!(!visible_text.contains("label"));
+        assert!(!visible_text.contains("sec:intro"));
     }
 
     #[test]
