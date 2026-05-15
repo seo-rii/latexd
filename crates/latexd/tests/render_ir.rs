@@ -1355,6 +1355,66 @@ fn nested_text_wrapper_unknown_command_nested_unknown_links_survive_ir() {
 }
 
 #[test]
+fn nested_text_wrapper_unknown_command_nested_unknown_url_text_wrappers_survive_ir() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_URL_TEXT_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(
+        !paragraph
+            .content
+            .iter()
+            .any(|node| matches!(node, InlineNode::Link(_)))
+    );
+
+    let expected_text =
+        r"Nested before outer use https://visible.test/path, /tmp/archive, and \foo+* done after.";
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(expected_text), "{extracted_text}");
+    assert!(!extracted_text.contains("unknowntext"));
+    assert!(!extracted_text.contains("innerunknown"));
+    assert!(!extracted_text.contains("nolinkurl"));
+    assert!(!extracted_text.contains("detokenize"));
+    assert!(!extracted_text.contains("{https://visible.test/path}"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains(expected_text),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("unknowntext"));
+    assert!(!display_list_text.contains("innerunknown"));
+    assert!(!display_list_text.contains("nolinkurl"));
+    assert!(!display_list_text.contains("detokenize"));
+    assert!(!display_list_text.contains("{https://visible.test/path}"));
+    assert!(
+        !capture.page_display_lists[0]
+            .ops
+            .iter()
+            .any(|op| matches!(op, DrawOp::LinkAnnotation(_)))
+    );
+}
+
+#[test]
 fn escaped_visible_character_capture_survives_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", ESCAPED_VISIBLE_SOURCE, &SemanticAux::default());
@@ -1887,6 +1947,8 @@ const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_SOURCE: &str = r"\begin
 const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_INLINE_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{outer \innerunknown{see \cite{key} and \ref{sec:intro}} done} after}.\end{document}";
 
 const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_LINK_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{outer \innerunknown{see \href{https://hidden.test}{paper} and \url{https://shown.test}} done} after}.\end{document}";
+
+const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_URL_TEXT_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{outer \innerunknown{use \nolinkurl{https://visible.test/path}, \path|/tmp/archive|, and \detokenize{\foo+*}} done} after}.\end{document}";
 
 const ESCAPED_VISIBLE_SOURCE: &str =
     r"\begin{document}50\% A\&B costs \$5\_0 \#1 \{x\} A\ B.\end{document}";

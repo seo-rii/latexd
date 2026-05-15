@@ -146,6 +146,9 @@ The next implementation step has started with a narrow display-list spike:
 - readable nested unknown commands inside text wrappers now also preserve
   `\href`/`\url` link events, keeping hidden href targets out of visible
   extracted/display-list text while retaining link annotations;
+- readable nested unknown commands inside text wrappers now preserve
+  `\nolinkurl`/`\path`/`\detokenize` as visible text even when nested another
+  level down, without turning them into link annotations;
 - escaped visible characters such as `\%`, `\&`, `\$`, `\_`, `\#`, `\{`,
   and `\}` now survive as text events instead of disappearing during capture;
 - nonbreaking `~` spaces now survive as explicit visible spaces in event

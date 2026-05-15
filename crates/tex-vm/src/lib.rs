@@ -2976,6 +2976,62 @@ impl<'i> Vm<'i> {
                                                                                     emitted_inline = true;
                                                                                 }
                                                                             }
+                                                                            "nolinkurl"
+                                                                            | "path"
+                                                                            | "detokenize" => {
+                                                                                let argument_index =
+                                                                                    skip_ascii_whitespace(
+                                                                                        source,
+                                                                                        nested_index,
+                                                                                    );
+                                                                                let argument =
+                                                                                    if nested_command
+                                                                                        == "detokenize"
+                                                                                    {
+                                                                                        read_braced_source_argument(
+                                                                                            source,
+                                                                                            argument_index,
+                                                                                        )
+                                                                                    } else {
+                                                                                        read_url_like_source_argument(
+                                                                                            source,
+                                                                                            argument_index,
+                                                                                        )
+                                                                                    };
+                                                                                if let Some((
+                                                                                    text,
+                                                                                    text_start,
+                                                                                    text_end,
+                                                                                    after_text,
+                                                                                )) = argument
+                                                                                    && after_text <= visible_text_end
+                                                                                {
+                                                                                    self.capture_text_events(
+                                                                                        source_path,
+                                                                                        source,
+                                                                                        nested_text_start,
+                                                                                        nested_command_start,
+                                                                                        true,
+                                                                                    );
+                                                                                    self.emit_render_event(
+                                                                                        RenderEvent::Text(
+                                                                                            TextEvent {
+                                                                                                text: text
+                                                                                                    .trim()
+                                                                                                    .to_string(),
+                                                                                            },
+                                                                                        ),
+                                                                                        SourceProvenance::file(
+                                                                                            source_path.to_owned(),
+                                                                                            text_start as u32,
+                                                                                            text_end as u32,
+                                                                                        ),
+                                                                                    );
+                                                                                    nested_index = after_text;
+                                                                                    nested_text_start = nested_index;
+                                                                                    emitted_inline = true;
+                                                                                }
+                                                                            }
                                                                             "ref" | "eqref"
                                                                             | "pageref"
                                                                             | "autoref"
@@ -14508,6 +14564,43 @@ Fallback text.
         assert!(!visible_text.contains("innerunknown"));
         assert!(!visible_text.contains("https://hidden.test"));
         assert!(!visible_text.contains("{paper}"));
+    }
+
+    #[test]
+    fn render_event_capture_records_nested_unknown_url_text_wrappers() {
+        let source = r"\begin{document}Nested \emph{before \unknowntext{outer \innerunknown{use \nolinkurl{https://visible.test/path}, \path|/tmp/archive|, and \detokenize{\foo+*}} done} after}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(
+            !outcome
+                .render_events
+                .iter()
+                .any(|event| matches!(&event.event, RenderEvent::InlineLink(_)))
+        );
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(visible_text.contains(
+            r"Nested before outer use https://visible.test/path, /tmp/archive, and \foo+* done after."
+        ));
+        assert!(!visible_text.contains("unknowntext"));
+        assert!(!visible_text.contains("innerunknown"));
+        assert!(!visible_text.contains("nolinkurl"));
+        assert!(!visible_text.contains("detokenize"));
+        assert!(!visible_text.contains("{https://visible.test/path}"));
     }
 
     #[test]
