@@ -155,6 +155,8 @@ The next implementation step has started with a narrow display-list spike:
 - label definitions inside `figure` and `table` environment bodies now survive
   the graphic/caption scan path without leaking float label keys into visible
   text;
+- table captions now stay in table context and no longer overwrite the caption
+  on a preceding figure graphic during Document IR construction;
 - escaped visible characters such as `\%`, `\&`, `\$`, `\_`, `\#`, `\{`,
   and `\}` now survive as text events instead of disappearing during capture;
 - nonbreaking `~` spaces now survive as explicit visible spaces in event

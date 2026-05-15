@@ -21,6 +21,7 @@ pub struct DocumentIrBuilder<'a, A: AuxView> {
     bibliography_items: Option<(Vec<BibliographyItemIr>, SourceProvenance)>,
     list: Option<(ListKind, Vec<ListItemIr>, SourceProvenance)>,
     list_item: Option<(Vec<InlineNode>, SourceProvenance, Option<String>)>,
+    float_stack: Vec<tex_render_model::BlockKind>,
     title: Option<(String, SourceProvenance)>,
     authors: Vec<(String, SourceProvenance)>,
     date: Option<(String, SourceProvenance)>,
@@ -40,6 +41,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             bibliography_items: None,
             list: None,
             list_item: None,
+            float_stack: Vec::new(),
             title: None,
             authors: Vec::new(),
             date: None,
@@ -122,6 +124,10 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                 Some((*list_kind, Vec::new(), envelope.meta.source.clone()));
                             self.list_item = None;
                         }
+                        tex_render_model::BlockKind::Figure
+                        | tex_render_model::BlockKind::Table => {
+                            self.float_stack.push(event.block.clone());
+                        }
                         tex_render_model::BlockKind::Environment { name } => {
                             if let Some((name, content, source)) = self.environment_content.take() {
                                 self.blocks.push(IrBlock::Environment(EnvironmentBlock {
@@ -133,7 +139,6 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             self.environment_content =
                                 Some((name.clone(), Vec::new(), envelope.meta.source.clone()));
                         }
-                        _ => {}
                     }
                 }
                 RenderEvent::EndBlock(event) => match &event.block {
@@ -173,7 +178,17 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             }));
                         }
                     }
-                    _ => {}
+                    tex_render_model::BlockKind::Figure | tex_render_model::BlockKind::Table => {
+                        if self.float_stack.last() == Some(&event.block) {
+                            self.float_stack.pop();
+                        } else if let Some(position) = self
+                            .float_stack
+                            .iter()
+                            .rposition(|block| block == &event.block)
+                        {
+                            self.float_stack.remove(position);
+                        }
+                    }
                 },
                 RenderEvent::Heading(event) => {
                     self.flush_paragraph();
@@ -351,7 +366,11 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     }));
                 }
                 RenderEvent::Caption(event) => {
-                    if let Some(IrBlock::Graphic(block)) = self.blocks.last_mut() {
+                    if !matches!(
+                        self.float_stack.last(),
+                        Some(tex_render_model::BlockKind::Table)
+                    ) && let Some(IrBlock::Graphic(block)) = self.blocks.last_mut()
+                    {
                         block.caption = Some(event.text.clone());
                         block.caption_source = Some(envelope.meta.source.clone());
                     } else {
@@ -457,10 +476,10 @@ mod tests {
     use tex_render_model::{
         BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationLabel,
         CitationStyleHint, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
-        InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, IrBlock, LabelDefinitionEvent,
-        LabelTargetView, MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason,
-        RawFallbackEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
-        SetDocumentMetadataEvent, SourceProvenance, TextEvent,
+        InlineCitationEvent, InlineLinkEvent, InlineNode, InlineReferenceEvent, IrBlock,
+        LabelDefinitionEvent, LabelTargetView, MathSourceEvent, MetadataField, ParagraphBreakEvent,
+        ParagraphBreakReason, RawFallbackEvent, RenderEvent, RenderEventEnvelope,
+        RenderEventStream, SetDocumentMetadataEvent, SourceProvenance, TextEvent,
     };
 
     use super::build_document_ir;
@@ -784,5 +803,78 @@ mod tests {
                     && block.caption_source.is_some()
         ));
         assert_eq!(ir.extracted_text(), "Plot caption.");
+    }
+
+    #[test]
+    fn table_caption_does_not_overwrite_previous_graphic_caption() {
+        let stream = RenderEventStream::new(
+            Some("table-caption".to_string()),
+            vec![
+                RenderEventEnvelope::new(
+                    1,
+                    RenderEvent::BeginBlock(BeginBlockEvent {
+                        block: BlockKind::Figure,
+                    }),
+                    SourceProvenance::file("main.tex", 0, 14),
+                ),
+                RenderEventEnvelope::new(
+                    2,
+                    RenderEvent::GraphicRef(GraphicRefEvent {
+                        path: "figures/plot.pdf".to_string(),
+                        options: None,
+                    }),
+                    SourceProvenance::file("main.tex", 15, 45),
+                ),
+                RenderEventEnvelope::new(
+                    3,
+                    RenderEvent::Caption(CaptionEvent {
+                        text: "Plot caption.".to_string(),
+                    }),
+                    SourceProvenance::file("main.tex", 46, 67),
+                ),
+                RenderEventEnvelope::new(
+                    4,
+                    RenderEvent::EndBlock(BeginBlockEvent {
+                        block: BlockKind::Figure,
+                    }),
+                    SourceProvenance::file("main.tex", 68, 80),
+                ),
+                RenderEventEnvelope::new(
+                    5,
+                    RenderEvent::BeginBlock(BeginBlockEvent {
+                        block: BlockKind::Table,
+                    }),
+                    SourceProvenance::file("main.tex", 81, 94),
+                ),
+                RenderEventEnvelope::new(
+                    6,
+                    RenderEvent::Caption(CaptionEvent {
+                        text: "Table caption.".to_string(),
+                    }),
+                    SourceProvenance::file("main.tex", 95, 117),
+                ),
+                RenderEventEnvelope::new(
+                    7,
+                    RenderEvent::EndBlock(BeginBlockEvent {
+                        block: BlockKind::Table,
+                    }),
+                    SourceProvenance::file("main.tex", 118, 130),
+                ),
+            ],
+        );
+        let ir = build_document_ir(&stream, &());
+
+        assert!(matches!(
+            ir.blocks.as_slice(),
+            [IrBlock::Graphic(graphic), IrBlock::Paragraph(paragraph)]
+                if graphic.caption.as_deref() == Some("Plot caption.")
+                    && paragraph.content.iter().any(|node| {
+                        matches!(
+                            node,
+                            InlineNode::Text { text, .. } if text == "Table caption."
+                        )
+                    })
+        ));
+        assert_eq!(ir.extracted_text(), "Plot caption.\nTable caption.");
     }
 }

@@ -221,6 +221,7 @@ fn float_label_definitions_survive_ir_without_visible_keys() {
     }));
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("Plot caption."));
+    assert!(extracted_text.contains("Table caption."));
     assert!(!extracted_text.contains("fig:plot"));
     assert!(!extracted_text.contains("tab:data"));
 
@@ -234,6 +235,7 @@ fn float_label_definitions_survive_ir_without_visible_keys() {
         .collect::<Vec<_>>()
         .join("");
     assert!(display_list_text.contains("Plot caption."));
+    assert!(display_list_text.contains("Table caption."));
     assert!(!display_list_text.contains("fig:plot"));
     assert!(!display_list_text.contains("tab:data"));
 }
@@ -2025,7 +2027,7 @@ const COMPACT_SOURCE: &str = r"\title{A Paper}\author{Ada Lovelace}\date{May 184
 
 const GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\end{figure}\end{document}";
 
-const FIGURE_TABLE_LABEL_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\label{fig:plot}\end{figure}\begin{table}\label{tab:data}\end{table}\end{document}";
+const FIGURE_TABLE_LABEL_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\label{fig:plot}\end{figure}\begin{table}\caption{Table caption.}\label{tab:data}\end{table}\end{document}";
 
 const INLINE_MATH_SOURCE: &str = r"\begin{document}Area \(x^2 + y^2\).\end{document}";
 
