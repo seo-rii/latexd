@@ -143,6 +143,9 @@ The next implementation step has started with a narrow display-list spike:
 - readable nested unknown commands inside text wrappers now preserve migrated
   citation/reference events without leaking their raw keys or the nested
   command's braced argument delimiters;
+- readable nested unknown commands inside text wrappers now also preserve
+  `\href`/`\url` link events, keeping hidden href targets out of visible
+  extracted/display-list text while retaining link annotations;
 - escaped visible characters such as `\%`, `\&`, `\$`, `\_`, `\#`, `\{`,
   and `\}` now survive as text events instead of disappearing during capture;
 - nonbreaking `~` spaces now survive as explicit visible spaces in event
