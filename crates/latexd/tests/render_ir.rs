@@ -1044,6 +1044,85 @@ fn nested_text_wrapper_unknown_command_inline_events_survive_ir_without_raw_keys
 }
 
 #[test]
+fn nested_text_wrapper_unknown_command_links_and_math_survive_ir_without_raw_syntax() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_LINK_MATH_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Link(link)
+                if link.target == "https://hidden.test" && link.display_text == "paper"
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Link(link)
+                if link.target == "https://shown.test"
+                    && link.display_text == "https://shown.test"
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath { raw_source, .. } if raw_source == "x^2"
+        )
+    }));
+
+    let expected_text = "Nested before see paper, https://shown.test, and x^2 after.";
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(expected_text), "{extracted_text}");
+    assert!(!extracted_text.contains("unknowntext"));
+    assert!(!extracted_text.contains("https://hidden.test"));
+    assert!(!extracted_text.contains("{paper}"));
+    assert!(!extracted_text.contains("$x^2$"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains(expected_text),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("unknowntext"));
+    assert!(!display_list_text.contains("https://hidden.test"));
+    assert!(!display_list_text.contains("{paper}"));
+    assert!(!display_list_text.contains("$x^2$"));
+
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::LinkAnnotation(link) if link.target == "https://hidden.test"
+        )
+    }));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::LinkAnnotation(link) if link.target == "https://shown.test"
+        )
+    }));
+}
+
+#[test]
 fn escaped_visible_character_capture_survives_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", ESCAPED_VISIBLE_SOURCE, &SemanticAux::default());
@@ -1564,6 +1643,8 @@ const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_SOURCE: &str =
     r"\begin{document}Nested \emph{before \unknowntext{visible text} after}.\end{document}";
 
 const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_INLINE_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{see \cite{key} and \ref{sec:intro}} after}.\end{document}";
+
+const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_LINK_MATH_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{see \href{https://hidden.test}{paper}, \url{https://shown.test}, and $x^2$} after}.\end{document}";
 
 const ESCAPED_VISIBLE_SOURCE: &str =
     r"\begin{document}50\% A\&B costs \$5\_0 \#1 \{x\} A\ B.\end{document}";

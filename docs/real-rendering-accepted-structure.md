@@ -128,6 +128,9 @@ The next implementation step has started with a narrow display-list spike:
 - readable unknown commands inside text wrappers now also preserve nested
   citation/reference events, so `\emph{...\unknown{\cite{key}}}` reaches IR as
   structured citation/reference placeholders instead of raw keys or braces;
+- readable unknown commands inside text wrappers also preserve nested
+  `\href`/`\url` link events and raw math sources, so hidden targets and math
+  delimiters do not leak into visible IR/display-list text;
 - escaped visible characters such as `\%`, `\&`, `\$`, `\_`, `\#`, `\{`,
   and `\}` now survive as text events instead of disappearing during capture;
 - nonbreaking `~` spaces now survive as explicit visible spaces in event

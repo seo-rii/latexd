@@ -2132,6 +2132,86 @@ impl<'i> Vm<'i> {
                                                 let mut argument_inner_index = text_start;
                                                 let mut argument_text_start = text_start;
                                                 while argument_inner_index < text_end {
+                                                    if bytes[argument_inner_index] == b'$' {
+                                                        let delimiter_len =
+                                                            if argument_inner_index + 1 < text_end
+                                                                && bytes[argument_inner_index + 1]
+                                                                    == b'$'
+                                                            {
+                                                                2
+                                                            } else {
+                                                                1
+                                                            };
+                                                        let math_start =
+                                                            argument_inner_index + delimiter_len;
+                                                        let mut search_index = math_start;
+                                                        let mut math_end = None;
+                                                        while search_index < text_end {
+                                                            if delimiter_len == 2 {
+                                                                if search_index + 1 < text_end
+                                                                    && bytes[search_index] == b'$'
+                                                                    && bytes[search_index + 1]
+                                                                        == b'$'
+                                                                {
+                                                                    math_end = Some(search_index);
+                                                                    break;
+                                                                }
+                                                            } else if bytes[search_index] == b'$'
+                                                                && bytes[search_index - 1] != b'\\'
+                                                            {
+                                                                math_end = Some(search_index);
+                                                                break;
+                                                            }
+                                                            search_index += 1;
+                                                        }
+                                                        if let Some(math_end) = math_end {
+                                                            self.capture_text_events(
+                                                                source_path,
+                                                                source,
+                                                                argument_text_start,
+                                                                argument_inner_index,
+                                                                true,
+                                                            );
+                                                            let event = if delimiter_len == 2 {
+                                                                RenderEvent::DisplayMath(
+                                                                    MathSourceEvent {
+                                                                        raw_source:
+                                                                            normalize_latex_math_source(
+                                                                                &source
+                                                                                    [math_start
+                                                                                        ..math_end],
+                                                                            ),
+                                                                        normalized_text: None,
+                                                                    },
+                                                                )
+                                                            } else {
+                                                                RenderEvent::InlineMath(
+                                                                    MathSourceEvent {
+                                                                        raw_source:
+                                                                            normalize_latex_math_source(
+                                                                                &source
+                                                                                    [math_start
+                                                                                        ..math_end],
+                                                                            ),
+                                                                        normalized_text: None,
+                                                                    },
+                                                                )
+                                                            };
+                                                            self.emit_render_event(
+                                                                event,
+                                                                SourceProvenance::file(
+                                                                    source_path.to_owned(),
+                                                                    math_start as u32,
+                                                                    math_end as u32,
+                                                                ),
+                                                            );
+                                                            argument_inner_index =
+                                                                math_end + delimiter_len;
+                                                            argument_text_start =
+                                                                argument_inner_index;
+                                                            continue;
+                                                        }
+                                                    }
                                                     if bytes[argument_inner_index] != b'\\' {
                                                         argument_inner_index += 1;
                                                         continue;
@@ -2168,6 +2248,66 @@ impl<'i> Vm<'i> {
                                                         &source[start..argument_inner_index]
                                                     };
                                                     match argument_command {
+                                                        "(" => {
+                                                            if let Some(relative_end) = source
+                                                                [argument_inner_index..text_end]
+                                                                .find("\\)")
+                                                            {
+                                                                let math_start =
+                                                                    argument_inner_index;
+                                                                let math_end = argument_inner_index
+                                                                    + relative_end;
+                                                                self.emit_render_event(
+                                                                    RenderEvent::InlineMath(
+                                                                        MathSourceEvent {
+                                                                            raw_source:
+                                                                                normalize_latex_math_source(
+                                                                                    &source
+                                                                                        [math_start
+                                                                                            ..math_end],
+                                                                                ),
+                                                                            normalized_text: None,
+                                                                        },
+                                                                    ),
+                                                                    SourceProvenance::file(
+                                                                        source_path.to_owned(),
+                                                                        math_start as u32,
+                                                                        math_end as u32,
+                                                                    ),
+                                                                );
+                                                                argument_inner_index = math_end + 2;
+                                                            }
+                                                        }
+                                                        "[" => {
+                                                            if let Some(relative_end) = source
+                                                                [argument_inner_index..text_end]
+                                                                .find("\\]")
+                                                            {
+                                                                let math_start =
+                                                                    argument_inner_index;
+                                                                let math_end = argument_inner_index
+                                                                    + relative_end;
+                                                                self.emit_render_event(
+                                                                    RenderEvent::DisplayMath(
+                                                                        MathSourceEvent {
+                                                                            raw_source:
+                                                                                normalize_latex_math_source(
+                                                                                    &source
+                                                                                        [math_start
+                                                                                            ..math_end],
+                                                                                ),
+                                                                            normalized_text: None,
+                                                                        },
+                                                                    ),
+                                                                    SourceProvenance::file(
+                                                                        source_path.to_owned(),
+                                                                        math_start as u32,
+                                                                        math_end as u32,
+                                                                    ),
+                                                                );
+                                                                argument_inner_index = math_end + 2;
+                                                            }
+                                                        }
                                                         "cite" | "citet" | "Citet" | "citep"
                                                         | "Citep" | "citealt" | "citealp"
                                                         | "citeauthor" | "citeyear"
@@ -2297,6 +2437,160 @@ impl<'i> Vm<'i> {
                                                                         source_path.to_owned(),
                                                                         key_start as u32,
                                                                         key_end as u32,
+                                                                    ),
+                                                                );
+                                                                argument_inner_index =
+                                                                    command_after;
+                                                            }
+                                                        }
+                                                        "href" => {
+                                                            let target_index =
+                                                                skip_ascii_whitespace(
+                                                                    source,
+                                                                    argument_inner_index,
+                                                                );
+                                                            if let Some((
+                                                                target,
+                                                                target_start,
+                                                                target_end,
+                                                                after_target,
+                                                            )) = read_braced_source_argument(
+                                                                source,
+                                                                target_index,
+                                                            ) && after_target <= text_end
+                                                            {
+                                                                let text_index =
+                                                                    skip_ascii_whitespace(
+                                                                        source,
+                                                                        after_target,
+                                                                    );
+                                                                if let Some((
+                                                                    text,
+                                                                    text_start,
+                                                                    link_text_end,
+                                                                    command_after,
+                                                                )) = read_braced_source_argument(
+                                                                    source, text_index,
+                                                                ) && command_after <= text_end
+                                                                {
+                                                                    self.emit_render_event(
+                                                                        RenderEvent::InlineLink(
+                                                                            InlineLinkEvent {
+                                                                                target: target
+                                                                                    .trim()
+                                                                                    .to_string(),
+                                                                                text:
+                                                                                    normalize_latex_text(
+                                                                                        text,
+                                                                                    ),
+                                                                                command:
+                                                                                    argument_command
+                                                                                        .to_string(),
+                                                                            },
+                                                                        ),
+                                                                        SourceProvenance::file(
+                                                                            source_path.to_owned(),
+                                                                            text_start as u32,
+                                                                            link_text_end as u32,
+                                                                        )
+                                                                        .with_related(
+                                                                            SourceSpanRole::Argument,
+                                                                            ProvenanceSpan::File(
+                                                                                SourceSpan {
+                                                                                    path: source_path
+                                                                                        .to_owned(),
+                                                                                    start_utf8:
+                                                                                        target_start
+                                                                                            as u32,
+                                                                                    end_utf8:
+                                                                                        target_end
+                                                                                            as u32,
+                                                                                },
+                                                                            ),
+                                                                        ),
+                                                                    );
+                                                                    argument_inner_index =
+                                                                        command_after;
+                                                                }
+                                                            }
+                                                        }
+                                                        "url" => {
+                                                            let argument_index =
+                                                                skip_ascii_whitespace(
+                                                                    source,
+                                                                    argument_inner_index,
+                                                                );
+                                                            if let Some((
+                                                                target,
+                                                                target_start,
+                                                                target_end,
+                                                                command_after,
+                                                            )) = read_url_like_source_argument(
+                                                                source,
+                                                                argument_index,
+                                                            ) && command_after <= text_end
+                                                            {
+                                                                self.emit_render_event(
+                                                                    RenderEvent::InlineLink(
+                                                                        InlineLinkEvent {
+                                                                            target: target
+                                                                                .trim()
+                                                                                .to_string(),
+                                                                            text: target
+                                                                                .trim()
+                                                                                .to_string(),
+                                                                            command:
+                                                                                argument_command
+                                                                                    .to_string(),
+                                                                        },
+                                                                    ),
+                                                                    SourceProvenance::file(
+                                                                        source_path.to_owned(),
+                                                                        target_start as u32,
+                                                                        target_end as u32,
+                                                                    ),
+                                                                );
+                                                                argument_inner_index =
+                                                                    command_after;
+                                                            }
+                                                        }
+                                                        "nolinkurl" | "path" | "detokenize" => {
+                                                            let argument_index =
+                                                                skip_ascii_whitespace(
+                                                                    source,
+                                                                    argument_inner_index,
+                                                                );
+                                                            let argument = if argument_command
+                                                                == "detokenize"
+                                                            {
+                                                                read_braced_source_argument(
+                                                                    source,
+                                                                    argument_index,
+                                                                )
+                                                            } else {
+                                                                read_url_like_source_argument(
+                                                                    source,
+                                                                    argument_index,
+                                                                )
+                                                            };
+                                                            if let Some((
+                                                                text,
+                                                                text_start,
+                                                                visible_text_end,
+                                                                command_after,
+                                                            )) = argument
+                                                                && command_after <= text_end
+                                                            {
+                                                                self.emit_render_event(
+                                                                    RenderEvent::Text(TextEvent {
+                                                                        text: text
+                                                                            .trim()
+                                                                            .to_string(),
+                                                                    }),
+                                                                    SourceProvenance::file(
+                                                                        source_path.to_owned(),
+                                                                        text_start as u32,
+                                                                        visible_text_end as u32,
                                                                     ),
                                                                 );
                                                                 argument_inner_index =
@@ -13520,6 +13814,62 @@ Fallback text.
         assert!(!visible_text.contains("{see"));
         assert!(!visible_text.contains("key"));
         assert!(!visible_text.contains("sec:intro"));
+    }
+
+    #[test]
+    fn render_event_capture_records_nested_wrapper_unknown_command_links_and_math() {
+        let source = r"\begin{document}Nested \emph{before \unknowntext{see \href{https://hidden.test}{paper}, \url{https://shown.test}, and $x^2$} after}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let links = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineLink(link) => Some(link),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let math = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineMath(math) => Some(math.raw_source.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(links.iter().any(|link| {
+            link.target == "https://hidden.test" && link.text == "paper" && link.command == "href"
+        }));
+        assert!(links.iter().any(|link| {
+            link.target == "https://shown.test"
+                && link.text == "https://shown.test"
+                && link.command == "url"
+        }));
+        assert!(math.contains(&"x^2"));
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(visible_text.contains("Nested before see "));
+        assert!(visible_text.contains(", "));
+        assert!(visible_text.contains(" and "));
+        assert!(visible_text.contains(" after."));
+        assert!(!visible_text.contains("unknowntext"));
+        assert!(!visible_text.contains("https://hidden.test"));
+        assert!(!visible_text.contains("{paper}"));
+        assert!(!visible_text.contains("$x^2$"));
     }
 
     #[test]
