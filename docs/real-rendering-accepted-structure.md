@@ -119,6 +119,9 @@ The next implementation step has started with a narrow display-list spike:
 - text wrappers also preserve nested inline math delimiters such as
   `\emph{$x^2$}` and `\textbf{\(...\)}` as math events/IR nodes instead of
   leaking raw delimiter syntax into visible text;
+- text wrappers now preserve simple text-wrapper commands nested inside other
+  text wrappers, so `\emph{...\textbf{...}}` keeps visible text without exposing
+  inner wrapper braces;
 - escaped visible characters such as `\%`, `\&`, `\$`, `\_`, `\#`, `\{`,
   and `\}` now survive as text events instead of disappearing during capture;
 - nonbreaking `~` spaces now survive as explicit visible spaces in event

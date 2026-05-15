@@ -2055,6 +2055,30 @@ impl<'i> Vm<'i> {
                                             inner_index = command_after;
                                         }
                                     }
+                                    "emph" | "textbf" | "textit" | "texttt" | "textsc"
+                                    | "textrm" | "textsf" | "underline" | "mbox"
+                                    | "textsuperscript" | "textsubscript" => {
+                                        let argument_index =
+                                            skip_ascii_whitespace(source, inner_index);
+                                        if let Some((text, text_start, text_end, command_after)) =
+                                            read_braced_source_argument(source, argument_index)
+                                            && command_after <= content_end
+                                            && !text.contains('\\')
+                                            && !text.contains('$')
+                                        {
+                                            self.emit_render_event(
+                                                RenderEvent::Text(TextEvent {
+                                                    text: normalize_latex_text(text),
+                                                }),
+                                                SourceProvenance::file(
+                                                    source_path.to_owned(),
+                                                    text_start as u32,
+                                                    text_end as u32,
+                                                ),
+                                            );
+                                            inner_index = command_after;
+                                        }
+                                    }
                                     "%" | "&" | "$" | "#" | "_" | "{" | "}" => {
                                         self.emit_render_event(
                                             RenderEvent::Text(TextEvent {
@@ -13203,6 +13227,30 @@ Fallback text.
         assert!(visible_text.contains(" text."));
         assert!(!visible_text.contains("$x^2$"));
         assert!(!visible_text.contains(r"\(y^2\)"));
+    }
+
+    #[test]
+    fn render_event_capture_records_nested_text_wrappers_without_braces() {
+        let source = r"\begin{document}Nested \emph{outer \textbf{inner text} done}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(visible_text.contains("Nested outer inner text done."));
+        assert!(!visible_text.contains("{inner text}"));
+        assert!(!visible_text.contains("textbf"));
     }
 
     #[test]
