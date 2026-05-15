@@ -984,6 +984,66 @@ fn nested_text_wrapper_unknown_command_survives_ir_without_raw_braces() {
 }
 
 #[test]
+fn nested_text_wrapper_unknown_command_inline_events_survive_ir_without_raw_keys() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_INLINE_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Citation(citation) if citation.keys == vec!["key".to_string()]
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Reference(reference)
+                if reference.keys == vec!["sec:intro".to_string()]
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(
+        extracted_text.contains("Nested before see [?] and [?] after."),
+        "{extracted_text}"
+    );
+    assert!(!extracted_text.contains("unknowntext"));
+    assert!(!extracted_text.contains("{see"));
+    assert!(!extracted_text.contains("key"));
+    assert!(!extracted_text.contains("sec:intro"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("Nested before see [?] and [?] after."),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("unknowntext"));
+    assert!(!display_list_text.contains("{see"));
+    assert!(!display_list_text.contains("key"));
+    assert!(!display_list_text.contains("sec:intro"));
+}
+
+#[test]
 fn escaped_visible_character_capture_survives_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", ESCAPED_VISIBLE_SOURCE, &SemanticAux::default());
@@ -1502,6 +1562,8 @@ const NESTED_TEXT_WRAPPER_WRAPPER_SOURCE: &str =
 
 const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_SOURCE: &str =
     r"\begin{document}Nested \emph{before \unknowntext{visible text} after}.\end{document}";
+
+const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_INLINE_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{see \cite{key} and \ref{sec:intro}} after}.\end{document}";
 
 const ESCAPED_VISIBLE_SOURCE: &str =
     r"\begin{document}50\% A\&B costs \$5\_0 \#1 \{x\} A\ B.\end{document}";

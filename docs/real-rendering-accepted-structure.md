@@ -125,6 +125,9 @@ The next implementation step has started with a narrow display-list spike:
 - text wrappers now preserve readable one-argument unknown commands inside
   wrapper arguments, so `\emph{...\unknown{text}}` keeps normalized visible text
   instead of leaking command names or braces;
+- readable unknown commands inside text wrappers now also preserve nested
+  citation/reference events, so `\emph{...\unknown{\cite{key}}}` reaches IR as
+  structured citation/reference placeholders instead of raw keys or braces;
 - escaped visible characters such as `\%`, `\&`, `\$`, `\_`, `\#`, `\{`,
   and `\}` now survive as text events instead of disappearing during capture;
 - nonbreaking `~` spaces now survive as explicit visible spaces in event
