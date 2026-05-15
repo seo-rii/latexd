@@ -122,6 +122,9 @@ The next implementation step has started with a narrow display-list spike:
 - text wrappers now preserve simple text-wrapper commands nested inside other
   text wrappers, so `\emph{...\textbf{...}}` keeps visible text without exposing
   inner wrapper braces;
+- text wrappers now preserve readable one-argument unknown commands inside
+  wrapper arguments, so `\emph{...\unknown{text}}` keeps normalized visible text
+  instead of leaking command names or braces;
 - escaped visible characters such as `\%`, `\&`, `\$`, `\_`, `\#`, `\{`,
   and `\}` now survive as text events instead of disappearing during capture;
 - nonbreaking `~` spaces now survive as explicit visible spaces in event

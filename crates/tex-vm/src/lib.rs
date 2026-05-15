@@ -2121,7 +2121,28 @@ impl<'i> Vm<'i> {
                                             inner_index = command_after;
                                         }
                                     }
-                                    _ => {}
+                                    _ => {
+                                        let argument_index =
+                                            skip_ascii_whitespace(source, inner_index);
+                                        if let Some((text, text_start, text_end, command_after)) =
+                                            read_braced_source_argument(source, argument_index)
+                                            && command_after <= content_end
+                                            && !text.contains('\\')
+                                            && !text.contains('$')
+                                        {
+                                            self.emit_render_event(
+                                                RenderEvent::Text(TextEvent {
+                                                    text: normalize_latex_text(text),
+                                                }),
+                                                SourceProvenance::file(
+                                                    source_path.to_owned(),
+                                                    text_start as u32,
+                                                    text_end as u32,
+                                                ),
+                                            );
+                                            inner_index = command_after;
+                                        }
+                                    }
                                 }
                                 inner_text_start = inner_index;
                             }
@@ -13251,6 +13272,31 @@ Fallback text.
         assert!(visible_text.contains("Nested outer inner text done."));
         assert!(!visible_text.contains("{inner text}"));
         assert!(!visible_text.contains("textbf"));
+    }
+
+    #[test]
+    fn render_event_capture_records_nested_wrapper_readable_unknown_commands() {
+        let source =
+            r"\begin{document}Nested \emph{before \unknowntext{visible text} after}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(visible_text.contains("Nested before visible text after."));
+        assert!(!visible_text.contains("{visible text}"));
+        assert!(!visible_text.contains("unknowntext"));
     }
 
     #[test]
