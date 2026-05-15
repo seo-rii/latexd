@@ -5935,8 +5935,12 @@ mod tests {
         assert_eq!(snapshot.fallback_render_count, 0);
         assert_eq!(snapshot.fallback_tile_render_count, 0);
         assert!(snapshot.attached_revisions.is_empty());
+        let mut recent_events = snapshot.recent_events.clone();
+        for event in &mut recent_events {
+            event.duration_ms = None;
+        }
         assert_eq!(
-            snapshot.recent_events,
+            recent_events,
             vec![
                 RenderSessionEvent {
                     kind: RenderSessionEventKind::ActorFailure,
@@ -8922,18 +8926,20 @@ mod tests {
         assert_eq!(opened.page_output_end_utf8, None);
         assert_eq!(opened.item, None);
 
-        timeout(Duration::from_secs(2), async {
+        let lines = timeout(Duration::from_secs(2), async {
             loop {
                 if output_path.exists() {
-                    break;
+                    let captured = fs::read_to_string(&output_path).expect("captured args");
+                    let lines = captured.lines().map(ToOwned::to_owned).collect::<Vec<_>>();
+                    if lines.len() >= 6 {
+                        break lines;
+                    }
                 }
                 sleep(Duration::from_millis(20)).await;
             }
         })
         .await
         .expect("editor bridge execution");
-        let captured = fs::read_to_string(&output_path).expect("captured args");
-        let lines = captured.lines().collect::<Vec<_>>();
         assert_eq!(lines[0], root.as_str());
         assert_eq!(lines[1], root.join("main.tex").as_str());
         assert_eq!(lines[2], "3");
