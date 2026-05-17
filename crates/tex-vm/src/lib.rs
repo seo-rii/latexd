@@ -1655,7 +1655,7 @@ impl<'i> Vm<'i> {
                 | "subref" | "vref" | "Vref" | "vpageref" | "fullref" | "namecref"
                 | "labelcref" | "cpageref" | "Cpageref" | "autopageref" | "labelcpageref"
                 | "Fullref" | "titleref" | "Titleref" | "nameCref" | "lcnamecref" | "namecrefs"
-                | "nameCrefs" | "lcnamecrefs"
+                | "nameCrefs" | "lcnamecrefs" | "thmref" | "Thmref" | "subeqref"
                     if in_document =>
                 {
                     index = skip_ascii_whitespace(source, index);
@@ -2077,7 +2077,8 @@ impl<'i> Vm<'i> {
                                     | "fullref" | "namecref" | "labelcref" | "cpageref"
                                     | "Cpageref" | "autopageref" | "labelcpageref" | "Fullref"
                                     | "titleref" | "Titleref" | "nameCref" | "lcnamecref"
-                                    | "namecrefs" | "nameCrefs" | "lcnamecrefs" => {
+                                    | "namecrefs" | "nameCrefs" | "lcnamecrefs" | "thmref"
+                                    | "Thmref" | "subeqref" => {
                                         let argument_index =
                                             skip_ascii_whitespace(source, inner_index);
                                         if let Some((keys, key_start, key_end, command_after)) =
@@ -2617,7 +2618,8 @@ impl<'i> Vm<'i> {
                                                         | "Fullref" | "titleref" | "Titleref"
                                                         | "nameCref" | "lcnamecref"
                                                         | "namecrefs" | "nameCrefs"
-                                                        | "lcnamecrefs" => {
+                                                        | "lcnamecrefs" | "thmref" | "Thmref"
+                                                        | "subeqref" => {
                                                             let argument_index =
                                                                 skip_ascii_whitespace(
                                                                     source,
@@ -3332,7 +3334,10 @@ impl<'i> Vm<'i> {
                                                                             | "lcnamecref"
                                                                             | "namecrefs"
                                                                             | "nameCrefs"
-                                                                            | "lcnamecrefs" => {
+                                                                            | "lcnamecrefs"
+                                                                            | "thmref"
+                                                                            | "Thmref"
+                                                                            | "subeqref" => {
                                                                                 let reference_index =
                                                                                     skip_ascii_whitespace(
                                                                                         source,
@@ -10682,6 +10687,9 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 | "namecrefs"
                 | "nameCrefs"
                 | "lcnamecrefs"
+                | "thmref"
+                | "Thmref"
+                | "subeqref"
         );
         let is_range_reference = matches!(
             command,
@@ -14955,6 +14963,42 @@ Fallback text.
                     || text.text.contains("lem:b")
                     || text.text.contains("def:a")
                     || text.text.contains("def:b")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_theorem_references_without_leaking_keys() {
+        let source = r"\begin{document}See \thmref{thm:one}, \Thmref{thm:two}, and \subeqref{eq:part}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let references = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineReference(reference) => Some(reference),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let expected = [
+            ("thmref", "thm:one"),
+            ("Thmref", "thm:two"),
+            ("subeqref", "eq:part"),
+        ];
+        assert_eq!(references.len(), expected.len());
+        for (reference, (command, key)) in references.iter().zip(expected) {
+            assert_eq!(reference.command, command);
+            assert_eq!(reference.keys, vec![key.to_string()]);
+        }
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if text.text.contains("thm:one")
+                    || text.text.contains("thm:two")
+                    || text.text.contains("eq:part")
         )));
     }
 

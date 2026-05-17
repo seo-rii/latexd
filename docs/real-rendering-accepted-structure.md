@@ -98,6 +98,8 @@ The next implementation step has started with a narrow display-list spike:
   `labelcpageref`, `Fullref`, `titleref`/`Titleref`, `nameCref`,
   `lcnamecref`, `namecrefs`, `nameCrefs`, and `lcnamecrefs` also emit
   reference events and placeholder text without exposing labels;
+- theorem/subequation-style commands such as `thmref`, `Thmref`, and
+  `subeqref` also emit reference events instead of leaking labels;
 - range references such as `crefrange`/`Crefrange`,
   `cpagerefrange`/`Cpagerefrange`, `pagerefrange`, `vpagerefrange`,
   `vrefrange`, and `Vrefrange` now emit a single reference event with both

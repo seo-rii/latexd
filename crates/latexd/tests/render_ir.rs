@@ -1013,6 +1013,63 @@ fn reference_page_name_alias_capture_survives_ir_without_visible_keys() {
 }
 
 #[test]
+fn theorem_reference_capture_survives_ir_without_visible_keys() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        THEOREM_REFERENCE_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let references = paragraph
+        .content
+        .iter()
+        .filter_map(|node| match node {
+            InlineNode::Reference(reference) => Some(reference),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let expected = [
+        ("thmref", "thm:one"),
+        ("Thmref", "thm:two"),
+        ("subeqref", "eq:part"),
+    ];
+    assert_eq!(references.len(), expected.len());
+    for (reference, (command, key)) in references.iter().zip(expected) {
+        assert_eq!(reference.command, command);
+        assert_eq!(reference.keys, vec![key.to_string()]);
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("See [?], [?], and [?]."));
+    assert!(!extracted_text.contains("thm:one"));
+    assert!(!extracted_text.contains("thm:two"));
+    assert!(!extracted_text.contains("eq:part"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("See [?], [?], and [?]."));
+    assert!(!display_list_text.contains("thm:one"));
+    assert!(!display_list_text.contains("thm:two"));
+    assert!(!display_list_text.contains("eq:part"));
+}
+
+#[test]
 fn reference_range_capture_survives_ir_without_visible_keys() {
     let capture =
         capture_internal_render_ir("main.tex", REFERENCE_RANGE_SOURCE, &SemanticAux::default());
@@ -2823,6 +2880,8 @@ const STARRED_REFERENCE_SOURCE: &str = r"\begin{document}See \ref*{sec:intro}, \
 const REFERENCE_ALIAS_SOURCE: &str = r"\begin{document}See \subref{sub:a}, \vref{sec:intro}, \Vref{chap:main}, \vpageref{page:two}, \fullref{sec:full}, \namecref{thm:one}, and \labelcref{item:x}.\end{document}";
 
 const REFERENCE_PAGE_NAME_ALIAS_SOURCE: &str = r"\begin{document}See \cpageref{page:intro}, \Cpageref{sub:scope}, \autopageref{sec:auto}, \labelcpageref{eq:main}, \Fullref{sec:full}, \titleref{sec:title}, \Titleref{chap:title}, \nameCref{thm:upper}, \lcnamecref{sub:lower}, \namecrefs{thm:a,thm:b}, \nameCrefs{lem:a,lem:b}, and \lcnamecrefs{def:a,def:b}.\end{document}";
+
+const THEOREM_REFERENCE_SOURCE: &str = r"\begin{document}See \thmref{thm:one}, \Thmref{thm:two}, and \subeqref{eq:part}.\end{document}";
 
 const REFERENCE_RANGE_SOURCE: &str = r"\begin{document}See \crefrange{fig:a}{fig:b}, \Crefrange{sec:a}{sec:b}, \cpagerefrange{p:a}{p:b}, and \Cpagerefrange{app:a}{app:b}.\end{document}";
 
