@@ -1608,7 +1608,8 @@ impl<'i> Vm<'i> {
                 | "Citeauthor" | "Citeyear" | "Citeyearpar" | "citetitle" | "Citetitle"
                 | "citefullauthor" | "Citefullauthor" | "citedoi" | "citeeprint" | "citeisbn"
                 | "citeissn" | "citeurl" | "citenum" | "citedate" | "Citedate" | "citeurldate"
-                | "Citeurldate"
+                | "Citeurldate" | "onlinecite" | "smartcite" | "fullcite" | "footfullcite"
+                | "bibentry" | "citetalias" | "citepalias" | "Citetalias"
                     if in_document =>
                 {
                     let style_hint = match command {
@@ -1616,12 +1617,12 @@ impl<'i> Vm<'i> {
                         | "Textcite" | "Citeauthor" | "Citeyear" | "citetitle" | "Citetitle"
                         | "citefullauthor" | "Citefullauthor" | "citedoi" | "citeeprint"
                         | "citeisbn" | "citeissn" | "citeurl" | "citedate" | "Citedate"
-                        | "citeurldate" | "Citeurldate" => CitationStyleHint::Textual,
+                        | "citeurldate" | "Citeurldate" | "fullcite" | "bibentry"
+                        | "citetalias" | "Citetalias" => CitationStyleHint::Textual,
                         "citep" | "Citep" | "citealp" | "citeyearpar" | "Citeyearpar"
-                        | "parencite" | "Parencite" | "autocite" | "Autocite" => {
-                            CitationStyleHint::Parenthetical
-                        }
-                        "footcite" | "supercite" => CitationStyleHint::Unknown,
+                        | "parencite" | "Parencite" | "autocite" | "Autocite" | "smartcite"
+                        | "citepalias" => CitationStyleHint::Parenthetical,
+                        "footcite" | "supercite" | "footfullcite" => CitationStyleHint::Unknown,
                         _ => CitationStyleHint::Numeric,
                     };
                     index = skip_ascii_whitespace(source, index);
@@ -2027,7 +2028,9 @@ impl<'i> Vm<'i> {
                                     | "Citetitle" | "citefullauthor" | "Citefullauthor"
                                     | "citedoi" | "citeeprint" | "citeisbn" | "citeissn"
                                     | "citeurl" | "citenum" | "citedate" | "Citedate"
-                                    | "citeurldate" | "Citeurldate" => {
+                                    | "citeurldate" | "Citeurldate" | "onlinecite"
+                                    | "smartcite" | "fullcite" | "footfullcite" | "bibentry"
+                                    | "citetalias" | "citepalias" | "Citetalias" => {
                                         let style_hint = match inner_command {
                                             "citet" | "Citet" | "citealt" | "citeauthor"
                                             | "citeyear" | "textcite" | "Textcite"
@@ -2035,15 +2038,17 @@ impl<'i> Vm<'i> {
                                             | "Citetitle" | "citefullauthor" | "Citefullauthor"
                                             | "citedoi" | "citeeprint" | "citeisbn"
                                             | "citeissn" | "citeurl" | "citedate" | "Citedate"
-                                            | "citeurldate" | "Citeurldate" => {
+                                            | "citeurldate" | "Citeurldate" | "fullcite"
+                                            | "bibentry" | "citetalias" | "Citetalias" => {
                                                 CitationStyleHint::Textual
                                             }
                                             "citep" | "Citep" | "citealp" | "citeyearpar"
                                             | "Citeyearpar" | "parencite" | "Parencite"
-                                            | "autocite" | "Autocite" => {
-                                                CitationStyleHint::Parenthetical
+                                            | "autocite" | "Autocite" | "smartcite"
+                                            | "citepalias" => CitationStyleHint::Parenthetical,
+                                            "footcite" | "supercite" | "footfullcite" => {
+                                                CitationStyleHint::Unknown
                                             }
-                                            "footcite" | "supercite" => CitationStyleHint::Unknown,
                                             _ => CitationStyleHint::Numeric,
                                         };
                                         let mut argument_index =
@@ -2551,7 +2556,11 @@ impl<'i> Vm<'i> {
                                                         | "citedoi" | "citeeprint" | "citeisbn"
                                                         | "citeissn" | "citeurl" | "citenum"
                                                         | "citedate" | "Citedate"
-                                                        | "citeurldate" | "Citeurldate" => {
+                                                        | "citeurldate" | "Citeurldate"
+                                                        | "onlinecite" | "smartcite"
+                                                        | "fullcite" | "footfullcite"
+                                                        | "bibentry" | "citetalias"
+                                                        | "citepalias" | "Citetalias" => {
                                                             let style_hint = match argument_command
                                                             {
                                                                 "citet" | "Citet" | "citealt"
@@ -2564,13 +2573,16 @@ impl<'i> Vm<'i> {
                                                                 | "citeeprint" | "citeisbn"
                                                                 | "citeissn" | "citeurl"
                                                                 | "citedate" | "Citedate"
-                                                                | "citeurldate" | "Citeurldate" => {
+                                                                | "citeurldate" | "Citeurldate"
+                                                                | "fullcite" | "bibentry"
+                                                                | "citetalias" | "Citetalias" => {
                                                                     CitationStyleHint::Textual
                                                                 }
                                                                 "citep" | "Citep" | "citealp"
                                                                 | "citeyearpar" | "Citeyearpar"
                                                                 | "parencite" | "Parencite"
-                                                                | "autocite" | "Autocite" => {
+                                                                | "autocite" | "Autocite"
+                                                                | "smartcite" | "citepalias" => {
                                                                     CitationStyleHint::Parenthetical
                                                                 }
                                                                 "footcite" | "supercite" => {
@@ -3106,7 +3118,15 @@ impl<'i> Vm<'i> {
                                                                             | "citedate"
                                                                             | "Citedate"
                                                                             | "citeurldate"
-                                                                            | "Citeurldate" => {
+                                                                            | "Citeurldate"
+                                                                            | "onlinecite"
+                                                                            | "smartcite"
+                                                                            | "fullcite"
+                                                                            | "footfullcite"
+                                                                            | "bibentry"
+                                                                            | "citetalias"
+                                                                            | "citepalias"
+                                                                            | "Citetalias" => {
                                                                                 let style_hint = match nested_command {
                                                                                     "citet" | "Citet" | "citealt"
                                                                                     | "citeauthor" | "citeyear"
@@ -3118,16 +3138,19 @@ impl<'i> Vm<'i> {
                                                                                     | "citeisbn" | "citeissn"
                                                                                     | "citeurl" | "citedate"
                                                                                     | "Citedate" | "citeurldate"
-                                                                                    | "Citeurldate" => {
+                                                                                    | "Citeurldate" | "fullcite"
+                                                                                    | "bibentry" | "citetalias"
+                                                                                    | "Citetalias" => {
                                                                                         CitationStyleHint::Textual
                                                                                     }
                                                                                     "citep" | "Citep" | "citealp"
                                                                                     | "citeyearpar" | "Citeyearpar"
                                                                                     | "parencite" | "Parencite"
-                                                                                    | "autocite" | "Autocite" => {
+                                                                                    | "autocite" | "Autocite"
+                                                                                    | "smartcite" | "citepalias" => {
                                                                                         CitationStyleHint::Parenthetical
                                                                                     }
-                                                                                    "footcite" | "supercite" => {
+                                                                                    "footcite" | "supercite" | "footfullcite" => {
                                                                                         CitationStyleHint::Unknown
                                                                                     }
                                                                                     _ => CitationStyleHint::Numeric,
@@ -10736,6 +10759,14 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 | "Citedate"
                 | "citeurldate"
                 | "Citeurldate"
+                | "onlinecite"
+                | "smartcite"
+                | "fullcite"
+                | "footfullcite"
+                | "bibentry"
+                | "citetalias"
+                | "citepalias"
+                | "Citetalias"
         );
         let is_reference = matches!(
             command,
@@ -14962,6 +14993,53 @@ Fallback text.
                     || text.text.contains("capdate")
                     || text.text.contains("urldate")
                     || text.text.contains("capurldate")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_citation_entry_aliases_without_leaking_keys() {
+        let source = r"\begin{document}\onlinecite{online} \smartcite{smart} \fullcite{full} \footfullcite{footfull} \bibentry{entry} \citetalias{textalias} \citepalias{parenalias} \Citetalias{capalias}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let citations = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineCitation(citation) => Some(citation),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let expected = [
+            ("onlinecite", "online", CitationStyleHint::Numeric),
+            ("smartcite", "smart", CitationStyleHint::Parenthetical),
+            ("fullcite", "full", CitationStyleHint::Textual),
+            ("footfullcite", "footfull", CitationStyleHint::Unknown),
+            ("bibentry", "entry", CitationStyleHint::Textual),
+            ("citetalias", "textalias", CitationStyleHint::Textual),
+            ("citepalias", "parenalias", CitationStyleHint::Parenthetical),
+            ("Citetalias", "capalias", CitationStyleHint::Textual),
+        ];
+        assert_eq!(citations.len(), expected.len());
+        for (citation, (command, key, style_hint)) in citations.iter().zip(expected) {
+            assert_eq!(citation.command, command);
+            assert_eq!(citation.keys, vec![key.to_string()]);
+            assert_eq!(citation.style_hint, style_hint);
+        }
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if text.text.contains("online")
+                    || text.text.contains("smart")
+                    || text.text.contains("full")
+                    || text.text.contains("footfull")
+                    || text.text.contains("entry")
+                    || text.text.contains("textalias")
+                    || text.text.contains("parenalias")
+                    || text.text.contains("capalias")
         )));
     }
 

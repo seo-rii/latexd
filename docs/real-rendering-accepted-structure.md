@@ -96,6 +96,9 @@ The next implementation step has started with a narrow display-list spike:
 - identifier/date citation aliases such as `citedoi`, `citeeprint`,
   `citeisbn`, `citeissn`, `citeurl`, `citenum`, `citedate`/`Citedate`, and
   `citeurldate`/`Citeurldate` also emit citation events without exposing keys;
+- entry/alias citation commands such as `onlinecite`, `smartcite`,
+  `fullcite`, `footfullcite`, `bibentry`, `citetalias`, `citepalias`, and
+  `Citetalias` also emit citation events without exposing keys;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and
