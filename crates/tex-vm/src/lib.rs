@@ -10370,6 +10370,22 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 }
             }
         }
+        if matches!(command, "url" | "nolinkurl" | "path" | "detokenize") {
+            let argument_index = skip_ascii_whitespace(source, command_name_end);
+            let argument = if command == "detokenize" {
+                read_braced_source_argument(source, argument_index)
+            } else {
+                read_url_like_source_argument(source, argument_index)
+            };
+            if let Some((visible_text, _, _, command_after)) = argument {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                append_text(&mut text, visible_text.trim());
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
         if is_citation || is_reference {
             let mut argument_index = skip_ascii_whitespace(source, command_name_end);
             if argument_index < source.len() && source[argument_index..].starts_with('*') {
@@ -14108,6 +14124,34 @@ Fallback text.
         assert!(!caption_text.contains("https://hidden.test"));
         assert!(!caption_text.contains("href"));
         assert!(!caption_text.contains("key"));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_caption_url_like_wrappers() {
+        let source = r"\def\caption#1{#1}\begin{document}\begin{figure}\caption{Visit \url|https://shown.test/path| at \path|/tmp/archive| via \nolinkurl|https://visible.test/raw| and \detokenize{\foo+*}.}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let caption_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::Caption(caption) => Some(caption.text.as_str()),
+                _ => None,
+            })
+            .expect("caption event");
+
+        assert_eq!(
+            caption_text,
+            r"Visit https://shown.test/path at /tmp/archive via https://visible.test/raw and \foo+*."
+        );
+        assert!(!caption_text.contains('|'));
+        assert!(!caption_text.contains(r"\url"));
+        assert!(!caption_text.contains(r"\path"));
+        assert!(!caption_text.contains(r"\nolinkurl"));
+        assert!(!caption_text.contains(r"\detokenize"));
     }
 
     #[test]

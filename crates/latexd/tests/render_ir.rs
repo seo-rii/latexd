@@ -401,6 +401,41 @@ fn caption_href_targets_are_hidden_in_ir_and_display_list() {
 }
 
 #[test]
+fn caption_url_like_wrappers_are_normalized_in_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        CAPTION_URL_LIKE_WRAPPER_SOURCE,
+        &SemanticAux::default(),
+    );
+    let expected =
+        r"Visit https://shown.test/path at /tmp/archive via https://visible.test/raw and \foo+*.";
+    let extracted_text = capture.document_ir.extracted_text();
+
+    assert!(extracted_text.contains(expected), "{extracted_text}");
+    assert!(!extracted_text.contains('|'));
+    assert!(!extracted_text.contains(r"\url"));
+    assert!(!extracted_text.contains(r"\path"));
+    assert!(!extracted_text.contains(r"\nolinkurl"));
+    assert!(!extracted_text.contains(r"\detokenize"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    assert!(!display_list_text.contains('|'));
+    assert!(!display_list_text.contains(r"\url"));
+    assert!(!display_list_text.contains(r"\path"));
+    assert!(!display_list_text.contains(r"\nolinkurl"));
+    assert!(!display_list_text.contains(r"\detokenize"));
+}
+
+#[test]
 fn inline_math_capture_survives_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", INLINE_MATH_SOURCE, &SemanticAux::default());
@@ -2365,6 +2400,8 @@ const FIGURE_TABLE_LABEL_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\de
 const CAPTION_INLINE_KEY_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{See \cite{key} and \ref{sec:intro}.}\end{figure}\end{document}";
 
 const CAPTION_HREF_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Read \href{https://hidden.test}{paper} and \cite{key}.}\end{figure}\end{document}";
+
+const CAPTION_URL_LIKE_WRAPPER_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Visit \url|https://shown.test/path| at \path|/tmp/archive| via \nolinkurl|https://visible.test/raw| and \detokenize{\foo+*}.}\end{figure}\end{document}";
 
 const INLINE_MATH_SOURCE: &str = r"\begin{document}Area \(x^2 + y^2\).\end{document}";
 

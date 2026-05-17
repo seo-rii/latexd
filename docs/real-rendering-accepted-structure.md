@@ -120,6 +120,9 @@ The next implementation step has started with a narrow display-list spike:
 - structured text normalization for captions, headings, metadata, bibliography,
   and fallback text now treats nested `\href{target}{visible}` as visible text
   only, preventing hidden targets from being concatenated into rendered text;
+- the same structured text path now normalizes URL-like wrappers such as
+  `\url|...|`, `\path|...|`, `\nolinkurl|...|`, and `\detokenize{...}` as
+  wrapper-free visible text, preserving detokenized backslashes;
 - non-link text wrappers such as `\nolinkurl`, `\path`, and `\detokenize`
   now survive as visible text events and IR text nodes without creating link
   annotations; URL-like wrappers support both braced and delimiter-form
