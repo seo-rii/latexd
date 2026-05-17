@@ -74,6 +74,9 @@ The next implementation step has started with a narrow display-list spike:
   provenance, and display-list caption text uses the caption source span;
 - VM render-event capture now emits `GraphicRef`/`Caption` events for
   `\includegraphics` and `\caption`, including inside `figure`/`table` blocks;
+- captured caption text now redacts nested citation/reference commands to
+  placeholders instead of leaking raw citation keys or label keys into
+  `Graphic` IR captions and display-list text;
 - VM render-event capture now emits `InlineMath` for `\(...\)`/`$...$` and
   `DisplayMath` for `\[...\]`/`$$...$$` plus common display math environments
   such as `equation`/`align`, preserving math commands in `raw_source`;

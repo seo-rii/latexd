@@ -3555,10 +3555,116 @@ impl<'i> Vm<'i> {
         if after > limit {
             return None;
         }
+        let mut caption_text = String::new();
+        let mut chunk_start = content_start;
+        let mut scan_index = content_start;
+        let mut found_structured_inline = false;
+        while scan_index < content_end {
+            let Some(relative_command_start) = source[scan_index..content_end].find('\\') else {
+                break;
+            };
+            let command_start = scan_index + relative_command_start;
+            let command_name_start = command_start + 1;
+            if command_name_start >= content_end {
+                break;
+            }
+            let mut command_name_end = command_name_start;
+            for ch in source[command_name_start..content_end].chars() {
+                if ch.is_ascii_alphabetic() || ch == '@' {
+                    command_name_end += ch.len_utf8();
+                } else {
+                    break;
+                }
+            }
+            if command_name_end == command_name_start {
+                scan_index = command_name_start;
+                continue;
+            }
+            let command = &source[command_name_start..command_name_end];
+            let is_citation = matches!(
+                command,
+                "cite"
+                    | "citet"
+                    | "Citet"
+                    | "citep"
+                    | "Citep"
+                    | "citealt"
+                    | "citealp"
+                    | "citeauthor"
+                    | "citeyear"
+                    | "citeyearpar"
+                    | "parencite"
+                    | "Parencite"
+                    | "textcite"
+                    | "Textcite"
+                    | "autocite"
+                    | "Autocite"
+                    | "footcite"
+                    | "supercite"
+            );
+            let is_reference = matches!(
+                command,
+                "ref" | "eqref" | "pageref" | "autoref" | "nameref" | "cref" | "Cref"
+            );
+            if is_citation || is_reference {
+                let mut argument_index = skip_ascii_whitespace(source, command_name_end);
+                if argument_index < content_end && source[argument_index..].starts_with('*') {
+                    argument_index += 1;
+                }
+                if is_citation {
+                    loop {
+                        argument_index = skip_ascii_whitespace(source, argument_index);
+                        let Some((_, _, _, after_option)) =
+                            read_bracket_source_argument(source, argument_index)
+                        else {
+                            break;
+                        };
+                        if after_option > content_end {
+                            break;
+                        }
+                        argument_index = after_option;
+                    }
+                }
+                if let Some((_, _, _, command_after)) =
+                    read_braced_source_argument(source, argument_index)
+                    && command_after <= content_end
+                {
+                    let plain_text = normalize_latex_text(&source[chunk_start..command_start]);
+                    if !plain_text.is_empty() {
+                        if !caption_text.is_empty()
+                            && !plain_text.starts_with(['.', ',', ';', ':', '!', '?', ')', ']'])
+                        {
+                            caption_text.push(' ');
+                        }
+                        caption_text.push_str(&plain_text);
+                    }
+                    if !caption_text.is_empty() && !caption_text.ends_with([' ', '(', '[']) {
+                        caption_text.push(' ');
+                    }
+                    caption_text.push_str("[?]");
+                    found_structured_inline = true;
+                    chunk_start = command_after;
+                    scan_index = command_after;
+                    continue;
+                }
+            }
+            scan_index = command_name_end;
+        }
+        if found_structured_inline {
+            let plain_text = normalize_latex_text(&source[chunk_start..content_end]);
+            if !plain_text.is_empty() {
+                if !caption_text.is_empty()
+                    && !plain_text.starts_with(['.', ',', ';', ':', '!', '?', ')', ']'])
+                {
+                    caption_text.push(' ');
+                }
+                caption_text.push_str(&plain_text);
+            }
+        } else {
+            caption_text = normalize_latex_text(caption);
+        }
         self.emit_render_event(
-            RenderEvent::Caption(CaptionEvent {
-                text: normalize_latex_text(caption),
-            }),
+            RenderEvent::Caption(CaptionEvent { text: caption_text }),
             SourceProvenance::file(
                 source_path.to_owned(),
                 content_start as u32,
@@ -13877,6 +13983,30 @@ Fallback text.
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("figure")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_redacts_caption_citation_and_reference_keys() {
+        let source = r"\def\caption#1{#1}\begin{document}\begin{figure}\caption{See \cite{key} and \ref{sec:intro}.}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let caption_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::Caption(caption) => Some(caption.text.as_str()),
+                _ => None,
+            })
+            .expect("caption event");
+
+        assert_eq!(caption_text, "See [?] and [?].");
+        assert!(!caption_text.contains("key"));
+        assert!(!caption_text.contains("sec:intro"));
+        assert!(!caption_text.contains("cite"));
+        assert!(!caption_text.contains("ref"));
     }
 
     #[test]

@@ -241,6 +241,43 @@ fn float_label_definitions_survive_ir_without_visible_keys() {
 }
 
 #[test]
+fn caption_inline_keys_are_redacted_in_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        CAPTION_INLINE_KEY_SOURCE,
+        &SemanticAux::default(),
+    );
+    let extracted_text = capture.document_ir.extracted_text();
+
+    assert!(
+        extracted_text.contains("See [?] and [?]."),
+        "{extracted_text}"
+    );
+    assert!(!extracted_text.contains("key"));
+    assert!(!extracted_text.contains("sec:intro"));
+    assert!(!extracted_text.contains(r"\cite"));
+    assert!(!extracted_text.contains(r"\ref"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("See [?] and [?]."),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("key"));
+    assert!(!display_list_text.contains("sec:intro"));
+    assert!(!display_list_text.contains(r"\cite"));
+    assert!(!display_list_text.contains(r"\ref"));
+}
+
+#[test]
 fn inline_math_capture_survives_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", INLINE_MATH_SOURCE, &SemanticAux::default());
@@ -2028,6 +2065,8 @@ const COMPACT_SOURCE: &str = r"\title{A Paper}\author{Ada Lovelace}\date{May 184
 const GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\end{figure}\end{document}";
 
 const FIGURE_TABLE_LABEL_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\label{fig:plot}\end{figure}\begin{table}\caption{Table caption.}\label{tab:data}\end{table}\end{document}";
+
+const CAPTION_INLINE_KEY_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{See \cite{key} and \ref{sec:intro}.}\end{figure}\end{document}";
 
 const INLINE_MATH_SOURCE: &str = r"\begin{document}Area \(x^2 + y^2\).\end{document}";
 
