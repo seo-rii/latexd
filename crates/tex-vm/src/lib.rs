@@ -3435,7 +3435,9 @@ impl<'i> Vm<'i> {
                             RenderEvent::BibliographyItem(BibliographyItemEvent {
                                 key: key.trim().to_string(),
                                 label_hint,
-                                text: normalize_latex_text(&source[item_start..item_end]),
+                                text: normalize_latex_text_with_inline_placeholders(
+                                    &source[item_start..item_end],
+                                ),
                             }),
                             SourceProvenance::file(
                                 source_path.to_owned(),
@@ -13921,6 +13923,30 @@ Fallback text.
                 if fallback.environment.as_deref() == Some("unknownenv")
                     && fallback.normalized_visible_text.as_deref() == Some("Fallback text.")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_redacts_bibliography_item_citation_and_reference_keys() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{entry} See \cite{cited} and \ref{sec:intro}.\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .expect("bibliography item");
+
+        assert_eq!(item_text, "See [?] and [?].");
+        assert!(!item_text.contains("cited"));
+        assert!(!item_text.contains("sec:intro"));
+        assert!(!item_text.contains("cite"));
+        assert!(!item_text.contains("ref"));
     }
 
     #[test]

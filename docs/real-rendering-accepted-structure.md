@@ -96,6 +96,9 @@ The next implementation step has started with a narrow display-list spike:
   and `DocumentIr` preserves labels as invisible metadata rather than body text;
 - `SemanticAux`-backed citation labels and reference targets now have latexd
   integration coverage through `RenderEvent -> DocumentIr -> PageDisplayList`;
+- `BibliographyItem` text now uses inline citation/reference placeholder
+  redaction before becoming bibliography IR/display-list text, so bibliography
+  bodies do not leak nested citation or label keys;
 - VM text capture preserves trailing interword spaces before migrated inline
   commands so citations/references do not merge into preceding words;
 - `PageDisplayList` text generation preserves inline node provenance by
