@@ -1689,7 +1689,7 @@ impl<'i> Vm<'i> {
                             self.emit_render_event(
                                 RenderEvent::InlineLink(InlineLinkEvent {
                                     target: target.trim().to_string(),
-                                    text: normalize_latex_text(text),
+                                    text: normalize_latex_text_with_inline_placeholders(text),
                                     command: command.to_string(),
                                 }),
                                 SourceProvenance::file(
@@ -2038,7 +2038,10 @@ impl<'i> Vm<'i> {
                                                 self.emit_render_event(
                                                     RenderEvent::InlineLink(InlineLinkEvent {
                                                         target: target.trim().to_string(),
-                                                        text: normalize_latex_text(text),
+                                                        text:
+                                                            normalize_latex_text_with_inline_placeholders(
+                                                                text,
+                                                            ),
                                                         command: inner_command.to_string(),
                                                     }),
                                                     SourceProvenance::file(
@@ -2538,7 +2541,7 @@ impl<'i> Vm<'i> {
                                                                                     .trim()
                                                                                     .to_string(),
                                                                                 text:
-                                                                                    normalize_latex_text(
+                                                                                    normalize_latex_text_with_inline_placeholders(
                                                                                         text,
                                                                                     ),
                                                                                 command:
@@ -2964,7 +2967,7 @@ impl<'i> Vm<'i> {
                                                                                             RenderEvent::InlineLink(
                                                                                                 InlineLinkEvent {
                                                                                                     target: target.trim().to_string(),
-                                                                                                    text: normalize_latex_text(text),
+                                                                                                    text: normalize_latex_text_with_inline_placeholders(text),
                                                                                                     command: nested_command.to_string(),
                                                                                                 },
                                                                                             ),
@@ -14369,6 +14372,31 @@ Fallback text.
             &event.event,
             RenderEvent::Text(text) if text.text.contains("https://example.test/paper")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_redacts_link_text_citation_and_reference_keys() {
+        let source = r"\begin{document}Read \href{https://hidden.test}{see \cite{cited} and \ref{sec:intro}}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let link = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::InlineLink(link) => Some(link),
+                _ => None,
+            })
+            .expect("link event");
+
+        assert_eq!(link.target, "https://hidden.test");
+        assert_eq!(link.text, "see [?] and [?]");
+        assert!(!link.text.contains("cited"));
+        assert!(!link.text.contains("sec:intro"));
+        assert!(!link.text.contains("cite"));
+        assert!(!link.text.contains("ref"));
     }
 
     #[test]

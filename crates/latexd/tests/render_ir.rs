@@ -810,6 +810,68 @@ fn link_capture_survives_ir_and_display_list_annotations() {
 }
 
 #[test]
+fn link_text_inline_keys_are_redacted_in_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        LINK_TEXT_INLINE_KEY_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Link(link)
+                if link.target == "https://hidden.test"
+                    && link.display_text == "see [?] and [?]"
+        )
+    }));
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(
+        extracted_text.contains("Read see [?] and [?]."),
+        "{extracted_text}"
+    );
+    assert!(!extracted_text.contains("cited"));
+    assert!(!extracted_text.contains("sec:intro"));
+    assert!(!extracted_text.contains(r"\cite"));
+    assert!(!extracted_text.contains(r"\ref"));
+    assert!(!extracted_text.contains("https://hidden.test"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("Read see [?] and [?]."),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("cited"));
+    assert!(!display_list_text.contains("sec:intro"));
+    assert!(!display_list_text.contains(r"\cite"));
+    assert!(!display_list_text.contains(r"\ref"));
+    assert!(!display_list_text.contains("https://hidden.test"));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::LinkAnnotation(link) if link.target == "https://hidden.test"
+        )
+    }));
+}
+
+#[test]
 fn url_text_wrapper_capture_survives_ir_without_link_annotations() {
     let capture =
         capture_internal_render_ir("main.tex", URL_TEXT_WRAPPER_SOURCE, &SemanticAux::default());
@@ -2288,6 +2350,8 @@ const REFERENCE_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \eqref{eq:main}; \cref{fig:a,tab:b}.\end{document}";
 
 const LINK_SOURCE: &str = r"\begin{document}Read \href{https://example.test/paper}{paper link}, \url{https://example.test/raw}, and \url|https://example.test/delimited|.\end{document}";
+
+const LINK_TEXT_INLINE_KEY_SOURCE: &str = r"\begin{document}Read \href{https://hidden.test}{see \cite{cited} and \ref{sec:intro}}.\end{document}";
 
 const URL_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Use \nolinkurl{https://example.test/paper}, \nolinkurl|https://example.test/delimited|, at \path{/tmp/archive} and \path|/var/tmp| via \detokenize{\foo+*}.\end{document}";
 

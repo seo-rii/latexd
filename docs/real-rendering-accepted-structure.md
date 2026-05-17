@@ -114,6 +114,9 @@ The next implementation step has started with a narrow display-list spike:
   runs, and `LinkAnnotation` display-list operations without leaking hidden
   `\href` targets into visible body text; `\url` supports both braced and
   delimiter-form arguments in event capture;
+- `\href{target}{visible}` visible text now uses inline citation/reference
+  placeholder redaction, keeping the link target annotation while hiding raw
+  citation and label keys from extracted/display-list text;
 - non-link text wrappers such as `\nolinkurl`, `\path`, and `\detokenize`
   now survive as visible text events and IR text nodes without creating link
   annotations; URL-like wrappers support both braced and delimiter-form
