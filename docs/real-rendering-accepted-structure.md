@@ -90,8 +90,10 @@ The next implementation step has started with a narrow display-list spike:
   and biblatex citation variants such as `citep`, `citet`, `parencite`, and
   `textcite`, skipping optional pre/post notes and preserving citation keys;
 - VM render-event capture now emits `InlineReference` events for `ref`,
-  `eqref`, `pageref`, `autoref`, `nameref`, and `cref`/`Cref`, rendering
-  unresolved references as placeholders instead of leaking raw label keys;
+  `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
+  one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and
+  `labelcref`, rendering unresolved references as placeholders instead of
+  leaking raw label keys;
 - VM render-event capture now emits `LabelDefinition` events for `\label{...}`,
   and `DocumentIr` preserves labels as invisible metadata rather than body text;
 - `SemanticAux`-backed citation labels and reference targets now have latexd

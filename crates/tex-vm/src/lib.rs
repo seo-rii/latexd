@@ -1652,6 +1652,8 @@ impl<'i> Vm<'i> {
                     }
                 }
                 "ref" | "eqref" | "pageref" | "autoref" | "nameref" | "cref" | "Cref"
+                | "subref" | "vref" | "Vref" | "vpageref" | "fullref" | "namecref"
+                | "labelcref"
                     if in_document =>
                 {
                     index = skip_ascii_whitespace(source, index);
@@ -2033,7 +2035,8 @@ impl<'i> Vm<'i> {
                                         }
                                     }
                                     "ref" | "eqref" | "pageref" | "autoref" | "nameref"
-                                    | "cref" | "Cref" => {
+                                    | "cref" | "Cref" | "subref" | "vref" | "Vref" | "vpageref"
+                                    | "fullref" | "namecref" | "labelcref" => {
                                         let argument_index =
                                             skip_ascii_whitespace(source, inner_index);
                                         if let Some((keys, key_start, key_end, command_after)) =
@@ -2528,7 +2531,10 @@ impl<'i> Vm<'i> {
                                                             }
                                                         }
                                                         "ref" | "eqref" | "pageref" | "autoref"
-                                                        | "nameref" | "cref" | "Cref" => {
+                                                        | "nameref" | "cref" | "Cref"
+                                                        | "subref" | "vref" | "Vref"
+                                                        | "vpageref" | "fullref" | "namecref"
+                                                        | "labelcref" => {
                                                             let argument_index =
                                                                 skip_ascii_whitespace(
                                                                     source,
@@ -3161,7 +3167,13 @@ impl<'i> Vm<'i> {
                                                                             | "pageref"
                                                                             | "autoref"
                                                                             | "nameref"
-                                                                            | "cref" | "Cref" => {
+                                                                            | "cref" | "Cref"
+                                                                            | "subref" | "vref"
+                                                                            | "Vref"
+                                                                            | "vpageref"
+                                                                            | "fullref"
+                                                                            | "namecref"
+                                                                            | "labelcref" => {
                                                                                 let reference_index =
                                                                                     skip_ascii_whitespace(
                                                                                         source,
@@ -10416,7 +10428,20 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
         );
         let is_reference = matches!(
             command,
-            "ref" | "eqref" | "pageref" | "autoref" | "nameref" | "cref" | "Cref"
+            "ref"
+                | "eqref"
+                | "pageref"
+                | "autoref"
+                | "nameref"
+                | "cref"
+                | "Cref"
+                | "subref"
+                | "vref"
+                | "Vref"
+                | "vpageref"
+                | "fullref"
+                | "namecref"
+                | "labelcref"
         );
         if command == "href" {
             let target_index = skip_ascii_whitespace(source, command_name_end);
@@ -14549,6 +14574,51 @@ Fallback text.
                 if text.text.contains("sec:intro")
                     || text.text.contains("fig:plot")
                     || text.text.contains("tab:data")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_reference_aliases_without_leaking_keys() {
+        let source = r"\begin{document}See \subref{sub:a}, \vref{sec:intro}, \Vref{chap:main}, \vpageref{page:two}, \fullref{sec:full}, \namecref{thm:one}, and \labelcref{item:x}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let references = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineReference(reference) => Some(reference),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(references.len(), 7);
+        assert_eq!(references[0].command, "subref");
+        assert_eq!(references[0].keys, vec!["sub:a".to_string()]);
+        assert_eq!(references[1].command, "vref");
+        assert_eq!(references[1].keys, vec!["sec:intro".to_string()]);
+        assert_eq!(references[2].command, "Vref");
+        assert_eq!(references[2].keys, vec!["chap:main".to_string()]);
+        assert_eq!(references[3].command, "vpageref");
+        assert_eq!(references[3].keys, vec!["page:two".to_string()]);
+        assert_eq!(references[4].command, "fullref");
+        assert_eq!(references[4].keys, vec!["sec:full".to_string()]);
+        assert_eq!(references[5].command, "namecref");
+        assert_eq!(references[5].keys, vec!["thm:one".to_string()]);
+        assert_eq!(references[6].command, "labelcref");
+        assert_eq!(references[6].keys, vec!["item:x".to_string()]);
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if text.text.contains("sub:a")
+                    || text.text.contains("sec:intro")
+                    || text.text.contains("chap:main")
+                    || text.text.contains("page:two")
+                    || text.text.contains("sec:full")
+                    || text.text.contains("thm:one")
+                    || text.text.contains("item:x")
         )));
     }
 
