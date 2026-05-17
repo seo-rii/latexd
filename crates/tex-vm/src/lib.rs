@@ -1072,7 +1072,7 @@ impl<'i> Vm<'i> {
                         self.emit_render_event(
                             RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
                                 field,
-                                value: normalize_latex_text(value),
+                                value: normalize_latex_text_with_inline_placeholders(value),
                             }),
                             SourceProvenance::file(
                                 source_path.to_owned(),
@@ -15244,5 +15244,34 @@ Fallback text.
                 if span.path == Utf8PathBuf::from("main.tex")
                     && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "\\maketitle"
         ));
+    }
+
+    #[test]
+    fn render_event_capture_redacts_title_citation_and_reference_keys() {
+        let source =
+            r"\title{See \cite{key} and \ref{sec:intro}.}\begin{document}\maketitle\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let title_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::SetDocumentMetadata(metadata)
+                    if metadata.field == MetadataField::Title =>
+                {
+                    Some(metadata.value.as_str())
+                }
+                _ => None,
+            })
+            .expect("title metadata event");
+
+        assert_eq!(title_text, "See [?] and [?].");
+        assert!(!title_text.contains("key"));
+        assert!(!title_text.contains("sec:intro"));
+        assert!(!title_text.contains("cite"));
+        assert!(!title_text.contains("ref"));
     }
 }

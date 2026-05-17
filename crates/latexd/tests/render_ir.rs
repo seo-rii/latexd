@@ -125,6 +125,50 @@ fn compact_title_ir_preserves_emit_and_metadata_provenance() {
 }
 
 #[test]
+fn title_inline_keys_are_redacted_in_ir_and_display_list() {
+    let capture =
+        capture_internal_render_ir("main.tex", TITLE_INLINE_KEY_SOURCE, &SemanticAux::default());
+    let title = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::TitleBlock(title) => Some(title),
+            _ => None,
+        })
+        .expect("title block");
+
+    assert_eq!(title.title.as_deref(), Some("See [?] and [?]."));
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(
+        extracted_text.contains("See [?] and [?]."),
+        "{extracted_text}"
+    );
+    assert!(!extracted_text.contains("key"));
+    assert!(!extracted_text.contains("sec:intro"));
+    assert!(!extracted_text.contains(r"\cite"));
+    assert!(!extracted_text.contains(r"\ref"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("See [?] and [?]."),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("key"));
+    assert!(!display_list_text.contains("sec:intro"));
+    assert!(!display_list_text.contains(r"\cite"));
+    assert!(!display_list_text.contains(r"\ref"));
+}
+
+#[test]
 fn compact_ir_contains_expected_first_batch_structures() {
     let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
 
@@ -2111,6 +2155,9 @@ fn macro_heading_display_list_svg_preserves_expansion_provenance() {
 }
 
 const COMPACT_SOURCE: &str = r"\title{A Paper}\author{Ada Lovelace}\date{May 1843}\begin{document}\maketitle\begin{abstract}Short abstract.\end{abstract}\section{Intro}Hello \cite{key}.\[x^2\]\begin{thebibliography}{1}\bibitem{key} Author. Title.\end{thebibliography}\begin{unknownenv}Fallback text.\end{unknownenv}\end{document}";
+
+const TITLE_INLINE_KEY_SOURCE: &str =
+    r"\title{See \cite{key} and \ref{sec:intro}.}\begin{document}\maketitle\end{document}";
 
 const GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\end{figure}\end{document}";
 

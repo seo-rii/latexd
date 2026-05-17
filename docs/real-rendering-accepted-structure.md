@@ -104,6 +104,9 @@ The next implementation step has started with a narrow display-list spike:
 - `TitleBlock` now keeps field-level provenance for title, author, and date
   values so display-list text runs can point to the original metadata
   definitions while the block emission still points to `\maketitle`;
+- metadata values such as `\title{...}` now use inline citation/reference
+  placeholder redaction before becoming `TitleBlock` text, preventing raw keys
+  from leaking into extracted or display-list text;
 - `\href` and `\url` now survive as inline link events, `Link` IR nodes, text
   runs, and `LinkAnnotation` display-list operations without leaking hidden
   `\href` targets into visible body text; `\url` supports both braced and
