@@ -94,6 +94,9 @@ The next implementation step has started with a narrow display-list spike:
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and
   `labelcref`, rendering unresolved references as placeholders instead of
   leaking raw label keys;
+- range references such as `crefrange`/`Crefrange` and
+  `cpagerefrange`/`Cpagerefrange` now emit a single reference event with both
+  endpoint labels instead of exposing either label in visible text;
 - VM render-event capture now emits `LabelDefinition` events for `\label{...}`,
   and `DocumentIr` preserves labels as invisible metadata rather than body text;
 - `SemanticAux`-backed citation labels and reference targets now have latexd

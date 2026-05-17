@@ -1683,6 +1683,39 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
+                "crefrange" | "Crefrange" | "cpagerefrange" | "Cpagerefrange" if in_document => {
+                    index = skip_ascii_whitespace(source, index);
+                    if source[index..].starts_with('*') {
+                        index += 1;
+                        index = skip_ascii_whitespace(source, index);
+                    }
+                    if let Some((first_key, first_start, _, after_first)) =
+                        read_braced_source_argument(source, index)
+                    {
+                        let second_index = skip_ascii_whitespace(source, after_first);
+                        if let Some((second_key, _, second_end, after)) =
+                            read_braced_source_argument(source, second_index)
+                        {
+                            self.emit_render_event(
+                                RenderEvent::InlineReference(InlineReferenceEvent {
+                                    keys: [first_key, second_key]
+                                        .into_iter()
+                                        .map(str::trim)
+                                        .filter(|key| !key.is_empty())
+                                        .map(ToOwned::to_owned)
+                                        .collect(),
+                                    command: command.to_string(),
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    first_start as u32,
+                                    second_end as u32,
+                                ),
+                            );
+                            index = after;
+                        }
+                    }
+                }
                 "href" if in_document => {
                     index = skip_ascii_whitespace(source, index);
                     if let Some((target, target_start, target_end, after_target)) =
@@ -2062,6 +2095,42 @@ impl<'i> Vm<'i> {
                                                 ),
                                             );
                                             inner_index = command_after;
+                                        }
+                                    }
+                                    "crefrange" | "Crefrange" | "cpagerefrange"
+                                    | "Cpagerefrange" => {
+                                        let argument_index =
+                                            skip_ascii_whitespace(source, inner_index);
+                                        if let Some((first_key, first_start, _, after_first)) =
+                                            read_braced_source_argument(source, argument_index)
+                                            && after_first <= content_end
+                                        {
+                                            let second_index =
+                                                skip_ascii_whitespace(source, after_first);
+                                            if let Some((second_key, _, second_end, command_after)) =
+                                                read_braced_source_argument(source, second_index)
+                                                && command_after <= content_end
+                                            {
+                                                self.emit_render_event(
+                                                    RenderEvent::InlineReference(
+                                                        InlineReferenceEvent {
+                                                            keys: [first_key, second_key]
+                                                                .into_iter()
+                                                                .map(str::trim)
+                                                                .filter(|key| !key.is_empty())
+                                                                .map(ToOwned::to_owned)
+                                                                .collect(),
+                                                            command: inner_command.to_string(),
+                                                        },
+                                                    ),
+                                                    SourceProvenance::file(
+                                                        source_path.to_owned(),
+                                                        first_start as u32,
+                                                        second_end as u32,
+                                                    ),
+                                                );
+                                                inner_index = command_after;
+                                            }
                                         }
                                     }
                                     "label" => {
@@ -2574,6 +2643,68 @@ impl<'i> Vm<'i> {
                                                                 );
                                                                 argument_inner_index =
                                                                     command_after;
+                                                            }
+                                                        }
+                                                        "crefrange" | "Crefrange"
+                                                        | "cpagerefrange" | "Cpagerefrange" => {
+                                                            let argument_index =
+                                                                skip_ascii_whitespace(
+                                                                    source,
+                                                                    argument_inner_index,
+                                                                );
+                                                            if let Some((
+                                                                first_key,
+                                                                first_start,
+                                                                _,
+                                                                after_first,
+                                                            )) = read_braced_source_argument(
+                                                                source,
+                                                                argument_index,
+                                                            ) && after_first <= text_end
+                                                            {
+                                                                let second_index =
+                                                                    skip_ascii_whitespace(
+                                                                        source,
+                                                                        after_first,
+                                                                    );
+                                                                if let Some((
+                                                                    second_key,
+                                                                    _,
+                                                                    second_end,
+                                                                    command_after,
+                                                                )) = read_braced_source_argument(
+                                                                    source,
+                                                                    second_index,
+                                                                ) && command_after <= text_end
+                                                                {
+                                                                    self.emit_render_event(
+                                                                        RenderEvent::InlineReference(
+                                                                            InlineReferenceEvent {
+                                                                                keys: [
+                                                                                    first_key,
+                                                                                    second_key,
+                                                                                ]
+                                                                                .into_iter()
+                                                                                .map(str::trim)
+                                                                                .filter(|key| {
+                                                                                    !key.is_empty()
+                                                                                })
+                                                                                .map(ToOwned::to_owned)
+                                                                                .collect(),
+                                                                                command:
+                                                                                    argument_command
+                                                                                        .to_string(),
+                                                                            },
+                                                                        ),
+                                                                        SourceProvenance::file(
+                                                                            source_path.to_owned(),
+                                                                            first_start as u32,
+                                                                            second_end as u32,
+                                                                        ),
+                                                                    );
+                                                                    argument_inner_index =
+                                                                        command_after;
+                                                                }
                                                             }
                                                         }
                                                         "href" => {
@@ -3217,6 +3348,71 @@ impl<'i> Vm<'i> {
                                                                                     nested_index = after_reference;
                                                                                     nested_text_start = nested_index;
                                                                                     emitted_inline = true;
+                                                                                }
+                                                                            }
+                                                                            "crefrange"
+                                                                            | "Crefrange"
+                                                                            | "cpagerefrange"
+                                                                            | "Cpagerefrange" => {
+                                                                                let reference_index =
+                                                                                    skip_ascii_whitespace(
+                                                                                        source,
+                                                                                        nested_index,
+                                                                                    );
+                                                                                if let Some((
+                                                                                    first_key,
+                                                                                    first_start,
+                                                                                    _,
+                                                                                    after_first,
+                                                                                )) = read_braced_source_argument(
+                                                                                    source,
+                                                                                    reference_index,
+                                                                                ) && after_first <= visible_text_end
+                                                                                {
+                                                                                    let second_index =
+                                                                                        skip_ascii_whitespace(
+                                                                                            source,
+                                                                                            after_first,
+                                                                                        );
+                                                                                    if let Some((
+                                                                                        second_key,
+                                                                                        _,
+                                                                                        second_end,
+                                                                                        after_reference,
+                                                                                    )) = read_braced_source_argument(
+                                                                                        source,
+                                                                                        second_index,
+                                                                                    ) && after_reference <= visible_text_end
+                                                                                    {
+                                                                                        self.capture_text_events(
+                                                                                            source_path,
+                                                                                            source,
+                                                                                            nested_text_start,
+                                                                                            nested_command_start,
+                                                                                            true,
+                                                                                        );
+                                                                                        self.emit_render_event(
+                                                                                            RenderEvent::InlineReference(
+                                                                                                InlineReferenceEvent {
+                                                                                                    keys: [first_key, second_key]
+                                                                                                        .into_iter()
+                                                                                                        .map(str::trim)
+                                                                                                        .filter(|key| !key.is_empty())
+                                                                                                        .map(ToOwned::to_owned)
+                                                                                                        .collect(),
+                                                                                                    command: nested_command.to_string(),
+                                                                                                },
+                                                                                            ),
+                                                                                            SourceProvenance::file(
+                                                                                                source_path.to_owned(),
+                                                                                                first_start as u32,
+                                                                                                second_end as u32,
+                                                                                            ),
+                                                                                        );
+                                                                                        nested_index = after_reference;
+                                                                                        nested_text_start = nested_index;
+                                                                                        emitted_inline = true;
+                                                                                    }
                                                                                 }
                                                                             }
                                                                             "label" => {
@@ -10443,6 +10639,10 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 | "namecref"
                 | "labelcref"
         );
+        let is_range_reference = matches!(
+            command,
+            "crefrange" | "Crefrange" | "cpagerefrange" | "Cpagerefrange"
+        );
         if command == "href" {
             let target_index = skip_ascii_whitespace(source, command_name_end);
             if let Some((_, _, _, after_target)) = read_braced_source_argument(source, target_index)
@@ -10512,6 +10712,31 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 chunk_start = command_after;
                 scan_index = command_after;
                 continue;
+            }
+        }
+        if is_range_reference {
+            let mut argument_index = skip_ascii_whitespace(source, command_name_end);
+            if argument_index < source.len() && source[argument_index..].starts_with('*') {
+                argument_index += 1;
+                argument_index = skip_ascii_whitespace(source, argument_index);
+            }
+            if let Some((_, _, _, after_first)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                let second_index = skip_ascii_whitespace(source, after_first);
+                if let Some((_, _, _, command_after)) =
+                    read_braced_source_argument(source, second_index)
+                {
+                    append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                    if !text.is_empty() && !text.ends_with([' ', '(', '[']) {
+                        text.push(' ');
+                    }
+                    text.push_str("[?]");
+                    found_structured_inline = true;
+                    chunk_start = command_after;
+                    scan_index = command_after;
+                    continue;
+                }
             }
         }
         if is_citation || is_reference {
@@ -14619,6 +14844,58 @@ Fallback text.
                     || text.text.contains("sec:full")
                     || text.text.contains("thm:one")
                     || text.text.contains("item:x")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_reference_ranges_without_leaking_keys() {
+        let source = r"\begin{document}See \crefrange{fig:a}{fig:b}, \Crefrange{sec:a}{sec:b}, \cpagerefrange{p:a}{p:b}, and \Cpagerefrange{app:a}{app:b}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let references = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineReference(reference) => Some(reference),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(references.len(), 4);
+        assert_eq!(references[0].command, "crefrange");
+        assert_eq!(
+            references[0].keys,
+            vec!["fig:a".to_string(), "fig:b".to_string()]
+        );
+        assert_eq!(references[1].command, "Crefrange");
+        assert_eq!(
+            references[1].keys,
+            vec!["sec:a".to_string(), "sec:b".to_string()]
+        );
+        assert_eq!(references[2].command, "cpagerefrange");
+        assert_eq!(
+            references[2].keys,
+            vec!["p:a".to_string(), "p:b".to_string()]
+        );
+        assert_eq!(references[3].command, "Cpagerefrange");
+        assert_eq!(
+            references[3].keys,
+            vec!["app:a".to_string(), "app:b".to_string()]
+        );
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if text.text.contains("fig:a")
+                    || text.text.contains("fig:b")
+                    || text.text.contains("sec:a")
+                    || text.text.contains("sec:b")
+                    || text.text.contains("p:a")
+                    || text.text.contains("p:b")
+                    || text.text.contains("app:a")
+                    || text.text.contains("app:b")
         )));
     }
 

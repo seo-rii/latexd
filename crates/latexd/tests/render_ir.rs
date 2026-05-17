@@ -912,6 +912,81 @@ fn reference_alias_capture_survives_ir_without_visible_keys() {
 }
 
 #[test]
+fn reference_range_capture_survives_ir_without_visible_keys() {
+    let capture =
+        capture_internal_render_ir("main.tex", REFERENCE_RANGE_SOURCE, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let references = paragraph
+        .content
+        .iter()
+        .filter_map(|node| match node {
+            InlineNode::Reference(reference) => Some(reference),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(references.len(), 4);
+    assert_eq!(references[0].command, "crefrange");
+    assert_eq!(
+        references[0].keys,
+        vec!["fig:a".to_string(), "fig:b".to_string()]
+    );
+    assert_eq!(references[1].command, "Crefrange");
+    assert_eq!(
+        references[1].keys,
+        vec!["sec:a".to_string(), "sec:b".to_string()]
+    );
+    assert_eq!(references[2].command, "cpagerefrange");
+    assert_eq!(
+        references[2].keys,
+        vec!["p:a".to_string(), "p:b".to_string()]
+    );
+    assert_eq!(references[3].command, "Cpagerefrange");
+    assert_eq!(
+        references[3].keys,
+        vec!["app:a".to_string(), "app:b".to_string()]
+    );
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("See [?], [?], [?], and [?]."));
+    assert!(!extracted_text.contains("fig:a"));
+    assert!(!extracted_text.contains("fig:b"));
+    assert!(!extracted_text.contains("sec:a"));
+    assert!(!extracted_text.contains("sec:b"));
+    assert!(!extracted_text.contains("p:a"));
+    assert!(!extracted_text.contains("p:b"));
+    assert!(!extracted_text.contains("app:a"));
+    assert!(!extracted_text.contains("app:b"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("See [?], [?], [?], and [?]."));
+    assert!(!display_list_text.contains("fig:a"));
+    assert!(!display_list_text.contains("fig:b"));
+    assert!(!display_list_text.contains("sec:a"));
+    assert!(!display_list_text.contains("sec:b"));
+    assert!(!display_list_text.contains("p:a"));
+    assert!(!display_list_text.contains("p:b"));
+    assert!(!display_list_text.contains("app:a"));
+    assert!(!display_list_text.contains("app:b"));
+}
+
+#[test]
 fn link_capture_survives_ir_and_display_list_annotations() {
     let capture = capture_internal_render_ir("main.tex", LINK_SOURCE, &SemanticAux::default());
     let paragraph = capture
@@ -2580,6 +2655,8 @@ const REFERENCE_SOURCE: &str =
 const STARRED_REFERENCE_SOURCE: &str = r"\begin{document}See \ref*{sec:intro}, \autoref*{fig:plot}, and \Cref*{tab:data}.\end{document}";
 
 const REFERENCE_ALIAS_SOURCE: &str = r"\begin{document}See \subref{sub:a}, \vref{sec:intro}, \Vref{chap:main}, \vpageref{page:two}, \fullref{sec:full}, \namecref{thm:one}, and \labelcref{item:x}.\end{document}";
+
+const REFERENCE_RANGE_SOURCE: &str = r"\begin{document}See \crefrange{fig:a}{fig:b}, \Crefrange{sec:a}{sec:b}, \cpagerefrange{p:a}{p:b}, and \Cpagerefrange{app:a}{app:b}.\end{document}";
 
 const LINK_SOURCE: &str = r"\begin{document}Read \href{https://example.test/paper}{paper link}, \url{https://example.test/raw}, and \url|https://example.test/delimited|.\end{document}";
 
