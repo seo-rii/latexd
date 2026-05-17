@@ -1882,6 +1882,60 @@ fn tabular_fallback_capture_uses_normalized_visible_text() {
 }
 
 #[test]
+fn raw_fallback_inline_keys_are_redacted_in_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        RAW_FALLBACK_INLINE_KEY_SOURCE,
+        &SemanticAux::default(),
+    );
+    let fallback = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("unknownenv") =>
+            {
+                Some(fallback)
+            }
+            _ => None,
+        })
+        .expect("unknownenv fallback");
+
+    assert_eq!(
+        fallback.normalized_visible_text.as_deref(),
+        Some("See [?] and [?].")
+    );
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(
+        extracted_text.contains("See [?] and [?]."),
+        "{extracted_text}"
+    );
+    assert!(!extracted_text.contains("cited"));
+    assert!(!extracted_text.contains("sec:intro"));
+    assert!(!extracted_text.contains(r"\cite"));
+    assert!(!extracted_text.contains(r"\ref"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("See [?] and [?]."),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("cited"));
+    assert!(!display_list_text.contains("sec:intro"));
+    assert!(!display_list_text.contains(r"\cite"));
+    assert!(!display_list_text.contains(r"\ref"));
+}
+
+#[test]
 fn list_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir("main.tex", LIST_SOURCE, &SemanticAux::default());
     let lists = capture
@@ -2207,6 +2261,8 @@ const TITLE_INLINE_KEY_SOURCE: &str =
     r"\title{See \cite{key} and \ref{sec:intro}.}\begin{document}\maketitle\end{document}";
 
 const BIBLIOGRAPHY_ITEM_INLINE_KEY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{entry} See \cite{cited} and \ref{sec:intro}.\end{thebibliography}\end{document}";
+
+const RAW_FALLBACK_INLINE_KEY_SOURCE: &str = r"\begin{document}\begin{unknownenv}See \cite{cited} and \ref{sec:intro}.\end{unknownenv}\end{document}";
 
 const GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\end{figure}\end{document}";
 

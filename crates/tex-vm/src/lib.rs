@@ -1453,12 +1453,16 @@ impl<'i> Vm<'i> {
                                                 }
                                             }
 
-                                            normalize_latex_text(&rewritten)
-                                                .trim_end_matches(';')
-                                                .trim_end()
-                                                .to_string()
+                                            normalize_latex_text_with_inline_placeholders(
+                                                &rewritten,
+                                            )
+                                            .trim_end_matches(';')
+                                            .trim_end()
+                                            .to_string()
                                         } else {
-                                            normalize_latex_text(body_source)
+                                            normalize_latex_text_with_inline_placeholders(
+                                                body_source,
+                                            )
                                         };
                                     self.emit_render_event(
                                         RenderEvent::RawFallback(RawFallbackEvent {
@@ -13975,6 +13979,34 @@ Fallback text.
         assert!(!visible.contains("ll"));
         assert!(!visible.contains("hline"));
         assert!(!visible.contains("textbf"));
+    }
+
+    #[test]
+    fn render_event_capture_redacts_raw_fallback_citation_and_reference_keys() {
+        let source = r"\begin{document}\begin{unknownenv}See \cite{cited} and \ref{sec:intro}.\end{unknownenv}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("unknownenv") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("unknownenv fallback visible text");
+
+        assert_eq!(visible, "See [?] and [?].");
+        assert!(!visible.contains("cited"));
+        assert!(!visible.contains("sec:intro"));
+        assert!(!visible.contains("cite"));
+        assert!(!visible.contains("ref"));
     }
 
     #[test]

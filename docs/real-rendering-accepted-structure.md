@@ -169,6 +169,9 @@ The next implementation step has started with a narrow display-list spike:
   text;
 - table captions now stay in table context and no longer overwrite the caption
   on a preceding figure graphic during Document IR construction;
+- unsupported-environment `RawFallback.normalized_visible_text` now uses inline
+  citation/reference placeholder redaction, so fallback text remains readable
+  without exposing raw citation or label keys;
 - escaped visible characters such as `\%`, `\&`, `\$`, `\_`, `\#`, `\{`,
   and `\}` now survive as text events instead of disappearing during capture;
 - nonbreaking `~` spaces now survive as explicit visible spaces in event
