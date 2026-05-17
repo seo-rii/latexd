@@ -1586,7 +1586,7 @@ impl<'i> Vm<'i> {
                         self.emit_render_event(
                             RenderEvent::Heading(HeadingEvent {
                                 level,
-                                text: normalize_latex_text(heading),
+                                text: normalize_latex_text_with_inline_placeholders(heading),
                                 number: None,
                             }),
                             SourceProvenance::file(
@@ -3468,7 +3468,7 @@ impl<'i> Vm<'i> {
                         self.emit_render_event(
                             RenderEvent::Heading(HeadingEvent {
                                 level: 1,
-                                text: normalize_latex_text(heading),
+                                text: normalize_latex_text_with_inline_placeholders(heading),
                                 number: None,
                             }),
                             SourceProvenance::file(
@@ -3555,116 +3555,10 @@ impl<'i> Vm<'i> {
         if after > limit {
             return None;
         }
-        let mut caption_text = String::new();
-        let mut chunk_start = content_start;
-        let mut scan_index = content_start;
-        let mut found_structured_inline = false;
-        while scan_index < content_end {
-            let Some(relative_command_start) = source[scan_index..content_end].find('\\') else {
-                break;
-            };
-            let command_start = scan_index + relative_command_start;
-            let command_name_start = command_start + 1;
-            if command_name_start >= content_end {
-                break;
-            }
-            let mut command_name_end = command_name_start;
-            for ch in source[command_name_start..content_end].chars() {
-                if ch.is_ascii_alphabetic() || ch == '@' {
-                    command_name_end += ch.len_utf8();
-                } else {
-                    break;
-                }
-            }
-            if command_name_end == command_name_start {
-                scan_index = command_name_start;
-                continue;
-            }
-            let command = &source[command_name_start..command_name_end];
-            let is_citation = matches!(
-                command,
-                "cite"
-                    | "citet"
-                    | "Citet"
-                    | "citep"
-                    | "Citep"
-                    | "citealt"
-                    | "citealp"
-                    | "citeauthor"
-                    | "citeyear"
-                    | "citeyearpar"
-                    | "parencite"
-                    | "Parencite"
-                    | "textcite"
-                    | "Textcite"
-                    | "autocite"
-                    | "Autocite"
-                    | "footcite"
-                    | "supercite"
-            );
-            let is_reference = matches!(
-                command,
-                "ref" | "eqref" | "pageref" | "autoref" | "nameref" | "cref" | "Cref"
-            );
-            if is_citation || is_reference {
-                let mut argument_index = skip_ascii_whitespace(source, command_name_end);
-                if argument_index < content_end && source[argument_index..].starts_with('*') {
-                    argument_index += 1;
-                }
-                if is_citation {
-                    loop {
-                        argument_index = skip_ascii_whitespace(source, argument_index);
-                        let Some((_, _, _, after_option)) =
-                            read_bracket_source_argument(source, argument_index)
-                        else {
-                            break;
-                        };
-                        if after_option > content_end {
-                            break;
-                        }
-                        argument_index = after_option;
-                    }
-                }
-                if let Some((_, _, _, command_after)) =
-                    read_braced_source_argument(source, argument_index)
-                    && command_after <= content_end
-                {
-                    let plain_text = normalize_latex_text(&source[chunk_start..command_start]);
-                    if !plain_text.is_empty() {
-                        if !caption_text.is_empty()
-                            && !plain_text.starts_with(['.', ',', ';', ':', '!', '?', ')', ']'])
-                        {
-                            caption_text.push(' ');
-                        }
-                        caption_text.push_str(&plain_text);
-                    }
-                    if !caption_text.is_empty() && !caption_text.ends_with([' ', '(', '[']) {
-                        caption_text.push(' ');
-                    }
-                    caption_text.push_str("[?]");
-                    found_structured_inline = true;
-                    chunk_start = command_after;
-                    scan_index = command_after;
-                    continue;
-                }
-            }
-            scan_index = command_name_end;
-        }
-        if found_structured_inline {
-            let plain_text = normalize_latex_text(&source[chunk_start..content_end]);
-            if !plain_text.is_empty() {
-                if !caption_text.is_empty()
-                    && !plain_text.starts_with(['.', ',', ';', ':', '!', '?', ')', ']'])
-                {
-                    caption_text.push(' ');
-                }
-                caption_text.push_str(&plain_text);
-            }
-        } else {
-            caption_text = normalize_latex_text(caption);
-        }
         self.emit_render_event(
-            RenderEvent::Caption(CaptionEvent { text: caption_text }),
+            RenderEvent::Caption(CaptionEvent {
+                text: normalize_latex_text_with_inline_placeholders(caption),
+            }),
             SourceProvenance::file(
                 source_path.to_owned(),
                 content_start as u32,
@@ -10384,6 +10278,108 @@ fn normalize_latex_text(source: &str) -> String {
     text.trim().to_string()
 }
 
+fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
+    let mut text = String::new();
+    let mut chunk_start = 0;
+    let mut scan_index = 0;
+    let mut found_structured_inline = false;
+    let append_normalized_text = |output: &mut String, source: &str| {
+        let plain_text = normalize_latex_text(source);
+        if plain_text.is_empty() {
+            return;
+        }
+        if !output.is_empty() && !plain_text.starts_with(['.', ',', ';', ':', '!', '?', ')', ']']) {
+            output.push(' ');
+        }
+        output.push_str(&plain_text);
+    };
+    while scan_index < source.len() {
+        let Some(relative_command_start) = source[scan_index..].find('\\') else {
+            break;
+        };
+        let command_start = scan_index + relative_command_start;
+        let command_name_start = command_start + 1;
+        if command_name_start >= source.len() {
+            break;
+        }
+        let mut command_name_end = command_name_start;
+        for ch in source[command_name_start..].chars() {
+            if ch.is_ascii_alphabetic() || ch == '@' {
+                command_name_end += ch.len_utf8();
+            } else {
+                break;
+            }
+        }
+        if command_name_end == command_name_start {
+            scan_index = command_name_start;
+            continue;
+        }
+        let command = &source[command_name_start..command_name_end];
+        let is_citation = matches!(
+            command,
+            "cite"
+                | "citet"
+                | "Citet"
+                | "citep"
+                | "Citep"
+                | "citealt"
+                | "citealp"
+                | "citeauthor"
+                | "citeyear"
+                | "citeyearpar"
+                | "parencite"
+                | "Parencite"
+                | "textcite"
+                | "Textcite"
+                | "autocite"
+                | "Autocite"
+                | "footcite"
+                | "supercite"
+        );
+        let is_reference = matches!(
+            command,
+            "ref" | "eqref" | "pageref" | "autoref" | "nameref" | "cref" | "Cref"
+        );
+        if is_citation || is_reference {
+            let mut argument_index = skip_ascii_whitespace(source, command_name_end);
+            if argument_index < source.len() && source[argument_index..].starts_with('*') {
+                argument_index += 1;
+            }
+            if is_citation {
+                loop {
+                    argument_index = skip_ascii_whitespace(source, argument_index);
+                    let Some((_, _, _, after_option)) =
+                        read_bracket_source_argument(source, argument_index)
+                    else {
+                        break;
+                    };
+                    argument_index = after_option;
+                }
+            }
+            if let Some((_, _, _, command_after)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                if !text.is_empty() && !text.ends_with([' ', '(', '[']) {
+                    text.push(' ');
+                }
+                text.push_str("[?]");
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
+        scan_index = command_name_end;
+    }
+    if found_structured_inline {
+        append_normalized_text(&mut text, &source[chunk_start..]);
+        text
+    } else {
+        normalize_latex_text(source)
+    }
+}
+
 fn normalize_latex_math_source(source: &str) -> String {
     source.trim().to_string()
 }
@@ -14165,6 +14161,30 @@ Fallback text.
         assert_eq!(headings[2].0.text, "Details");
         assert_eq!(headings[3].0.level, 4);
         assert_eq!(headings[3].0.text, "Sketch");
+    }
+
+    #[test]
+    fn render_event_capture_redacts_heading_citation_and_reference_keys() {
+        let source = r"\begin{document}\section{See \cite{key} and \ref{sec:intro}.}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let heading_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::Heading(heading) => Some(heading.text.as_str()),
+                _ => None,
+            })
+            .expect("heading event");
+
+        assert_eq!(heading_text, "See [?] and [?].");
+        assert!(!heading_text.contains("key"));
+        assert!(!heading_text.contains("sec:intro"));
+        assert!(!heading_text.contains("cite"));
+        assert!(!heading_text.contains("ref"));
     }
 
     #[test]

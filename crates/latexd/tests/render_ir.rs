@@ -469,6 +469,56 @@ fn heading_level_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn heading_inline_keys_are_redacted_in_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        HEADING_INLINE_KEY_SOURCE,
+        &SemanticAux::default(),
+    );
+    let heading = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Heading(heading) => Some(heading),
+            _ => None,
+        })
+        .expect("heading");
+
+    assert!(matches!(
+        &heading.content[0],
+        InlineNode::Text { text, .. } if text == "See [?] and [?]."
+    ));
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(
+        extracted_text.contains("See [?] and [?]."),
+        "{extracted_text}"
+    );
+    assert!(!extracted_text.contains("key"));
+    assert!(!extracted_text.contains("sec:intro"));
+    assert!(!extracted_text.contains(r"\cite"));
+    assert!(!extracted_text.contains(r"\ref"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("See [?] and [?]."),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("key"));
+    assert!(!display_list_text.contains("sec:intro"));
+    assert!(!display_list_text.contains(r"\cite"));
+    assert!(!display_list_text.contains(r"\ref"));
+}
+
+#[test]
 fn citation_variant_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -2076,6 +2126,9 @@ const MATH_ENVIRONMENT_SOURCE: &str =
     r"\begin{document}\begin{equation}\frac{a}{b}\end{equation}\end{document}";
 
 const HEADING_LEVEL_SOURCE: &str = r"\begin{document}\section[Short]{Long Section}\subsection*{Methods}\subsubsection{Details}\paragraph{Sketch}\end{document}";
+
+const HEADING_INLINE_KEY_SOURCE: &str =
+    r"\begin{document}\section{See \cite{key} and \ref{sec:intro}.}\end{document}";
 
 const CITATION_VARIANTS_SOURCE: &str = r"\begin{document}\citep[see][p.~3]{alpha,beta}\citet*{gamma}\parencite{delta}\textcite{epsilon}\end{document}";
 
