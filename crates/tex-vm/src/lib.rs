@@ -1606,13 +1606,17 @@ impl<'i> Vm<'i> {
                 | "citeauthor" | "citeyear" | "citeyearpar" | "parencite" | "Parencite"
                 | "textcite" | "Textcite" | "autocite" | "Autocite" | "footcite" | "supercite"
                 | "Citeauthor" | "Citeyear" | "Citeyearpar" | "citetitle" | "Citetitle"
-                | "citefullauthor" | "Citefullauthor"
+                | "citefullauthor" | "Citefullauthor" | "citedoi" | "citeeprint" | "citeisbn"
+                | "citeissn" | "citeurl" | "citenum" | "citedate" | "Citedate" | "citeurldate"
+                | "Citeurldate"
                     if in_document =>
                 {
                     let style_hint = match command {
                         "citet" | "Citet" | "citealt" | "citeauthor" | "citeyear" | "textcite"
                         | "Textcite" | "Citeauthor" | "Citeyear" | "citetitle" | "Citetitle"
-                        | "citefullauthor" | "Citefullauthor" => CitationStyleHint::Textual,
+                        | "citefullauthor" | "Citefullauthor" | "citedoi" | "citeeprint"
+                        | "citeisbn" | "citeissn" | "citeurl" | "citedate" | "Citedate"
+                        | "citeurldate" | "Citeurldate" => CitationStyleHint::Textual,
                         "citep" | "Citep" | "citealp" | "citeyearpar" | "Citeyearpar"
                         | "parencite" | "Parencite" | "autocite" | "Autocite" => {
                             CitationStyleHint::Parenthetical
@@ -2020,12 +2024,18 @@ impl<'i> Vm<'i> {
                                     | "parencite" | "Parencite" | "textcite" | "Textcite"
                                     | "autocite" | "Autocite" | "footcite" | "supercite"
                                     | "Citeauthor" | "Citeyear" | "Citeyearpar" | "citetitle"
-                                    | "Citetitle" | "citefullauthor" | "Citefullauthor" => {
+                                    | "Citetitle" | "citefullauthor" | "Citefullauthor"
+                                    | "citedoi" | "citeeprint" | "citeisbn" | "citeissn"
+                                    | "citeurl" | "citenum" | "citedate" | "Citedate"
+                                    | "citeurldate" | "Citeurldate" => {
                                         let style_hint = match inner_command {
                                             "citet" | "Citet" | "citealt" | "citeauthor"
                                             | "citeyear" | "textcite" | "Textcite"
                                             | "Citeauthor" | "Citeyear" | "citetitle"
-                                            | "Citetitle" | "citefullauthor" | "Citefullauthor" => {
+                                            | "Citetitle" | "citefullauthor" | "Citefullauthor"
+                                            | "citedoi" | "citeeprint" | "citeisbn"
+                                            | "citeissn" | "citeurl" | "citedate" | "Citedate"
+                                            | "citeurldate" | "Citeurldate" => {
                                                 CitationStyleHint::Textual
                                             }
                                             "citep" | "Citep" | "citealp" | "citeyearpar"
@@ -2537,7 +2547,11 @@ impl<'i> Vm<'i> {
                                                         | "supercite" | "Citeauthor"
                                                         | "Citeyear" | "Citeyearpar"
                                                         | "citetitle" | "Citetitle"
-                                                        | "citefullauthor" | "Citefullauthor" => {
+                                                        | "citefullauthor" | "Citefullauthor"
+                                                        | "citedoi" | "citeeprint" | "citeisbn"
+                                                        | "citeissn" | "citeurl" | "citenum"
+                                                        | "citedate" | "Citedate"
+                                                        | "citeurldate" | "Citeurldate" => {
                                                             let style_hint = match argument_command
                                                             {
                                                                 "citet" | "Citet" | "citealt"
@@ -2546,7 +2560,11 @@ impl<'i> Vm<'i> {
                                                                 | "Citeauthor" | "Citeyear"
                                                                 | "citetitle" | "Citetitle"
                                                                 | "citefullauthor"
-                                                                | "Citefullauthor" => {
+                                                                | "Citefullauthor" | "citedoi"
+                                                                | "citeeprint" | "citeisbn"
+                                                                | "citeissn" | "citeurl"
+                                                                | "citedate" | "Citedate"
+                                                                | "citeurldate" | "Citeurldate" => {
                                                                     CitationStyleHint::Textual
                                                                 }
                                                                 "citep" | "Citep" | "citealp"
@@ -3078,14 +3096,29 @@ impl<'i> Vm<'i> {
                                                                             | "citetitle"
                                                                             | "Citetitle"
                                                                             | "citefullauthor"
-                                                                            | "Citefullauthor" => {
+                                                                            | "Citefullauthor"
+                                                                            | "citedoi"
+                                                                            | "citeeprint"
+                                                                            | "citeisbn"
+                                                                            | "citeissn"
+                                                                            | "citeurl"
+                                                                            | "citenum"
+                                                                            | "citedate"
+                                                                            | "Citedate"
+                                                                            | "citeurldate"
+                                                                            | "Citeurldate" => {
                                                                                 let style_hint = match nested_command {
                                                                                     "citet" | "Citet" | "citealt"
                                                                                     | "citeauthor" | "citeyear"
                                                                                     | "textcite" | "Textcite"
                                                                                     | "Citeauthor" | "Citeyear"
                                                                                     | "citetitle" | "Citetitle"
-                                                                                    | "citefullauthor" | "Citefullauthor" => {
+                                                                                    | "citefullauthor" | "Citefullauthor"
+                                                                                    | "citedoi" | "citeeprint"
+                                                                                    | "citeisbn" | "citeissn"
+                                                                                    | "citeurl" | "citedate"
+                                                                                    | "Citedate" | "citeurldate"
+                                                                                    | "Citeurldate" => {
                                                                                         CitationStyleHint::Textual
                                                                                     }
                                                                                     "citep" | "Citep" | "citealp"
@@ -10693,6 +10726,16 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 | "Citetitle"
                 | "citefullauthor"
                 | "Citefullauthor"
+                | "citedoi"
+                | "citeeprint"
+                | "citeisbn"
+                | "citeissn"
+                | "citeurl"
+                | "citenum"
+                | "citedate"
+                | "Citedate"
+                | "citeurldate"
+                | "Citeurldate"
         );
         let is_reference = matches!(
             command,
@@ -14868,6 +14911,57 @@ Fallback text.
                     || text.text.contains("epsilon")
                     || text.text.contains("zeta")
                     || text.text.contains("eta")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_citation_identifier_date_aliases_without_leaking_keys() {
+        let source = r"\begin{document}\citedoi{doi} \citeeprint{eprint} \citeisbn{isbn} \citeissn{issn} \citeurl{url} \citenum{number} \citedate{date} \Citedate{capdate} \citeurldate{urldate} \Citeurldate{capurldate}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let citations = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineCitation(citation) => Some(citation),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let expected = [
+            ("citedoi", "doi", CitationStyleHint::Textual),
+            ("citeeprint", "eprint", CitationStyleHint::Textual),
+            ("citeisbn", "isbn", CitationStyleHint::Textual),
+            ("citeissn", "issn", CitationStyleHint::Textual),
+            ("citeurl", "url", CitationStyleHint::Textual),
+            ("citenum", "number", CitationStyleHint::Numeric),
+            ("citedate", "date", CitationStyleHint::Textual),
+            ("Citedate", "capdate", CitationStyleHint::Textual),
+            ("citeurldate", "urldate", CitationStyleHint::Textual),
+            ("Citeurldate", "capurldate", CitationStyleHint::Textual),
+        ];
+        assert_eq!(citations.len(), expected.len());
+        for (citation, (command, key, style_hint)) in citations.iter().zip(expected) {
+            assert_eq!(citation.command, command);
+            assert_eq!(citation.keys, vec![key.to_string()]);
+            assert_eq!(citation.style_hint, style_hint);
+        }
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if text.text.contains("doi")
+                    || text.text.contains("eprint")
+                    || text.text.contains("isbn")
+                    || text.text.contains("issn")
+                    || text.text.contains("url")
+                    || text.text.contains("number")
+                    || text.text.contains("date")
+                    || text.text.contains("capdate")
+                    || text.text.contains("urldate")
+                    || text.text.contains("capurldate")
         )));
     }
 
