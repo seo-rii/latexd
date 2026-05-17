@@ -912,6 +912,107 @@ fn reference_alias_capture_survives_ir_without_visible_keys() {
 }
 
 #[test]
+fn reference_page_name_alias_capture_survives_ir_without_visible_keys() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        REFERENCE_PAGE_NAME_ALIAS_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let references = paragraph
+        .content
+        .iter()
+        .filter_map(|node| match node {
+            InlineNode::Reference(reference) => Some(reference),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let expected = [
+        ("cpageref", vec!["page:intro"]),
+        ("Cpageref", vec!["sub:scope"]),
+        ("autopageref", vec!["sec:auto"]),
+        ("labelcpageref", vec!["eq:main"]),
+        ("Fullref", vec!["sec:full"]),
+        ("titleref", vec!["sec:title"]),
+        ("Titleref", vec!["chap:title"]),
+        ("nameCref", vec!["thm:upper"]),
+        ("lcnamecref", vec!["sub:lower"]),
+        ("namecrefs", vec!["thm:a", "thm:b"]),
+        ("nameCrefs", vec!["lem:a", "lem:b"]),
+        ("lcnamecrefs", vec!["def:a", "def:b"]),
+    ];
+    assert_eq!(references.len(), expected.len());
+    for (reference, (command, keys)) in references.iter().zip(expected.iter()) {
+        assert_eq!(reference.command, *command);
+        assert_eq!(
+            reference.keys,
+            keys.iter().map(|key| key.to_string()).collect::<Vec<_>>()
+        );
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert_eq!(extracted_text.matches("[?]").count(), expected.len());
+    for label in [
+        "page:intro",
+        "sub:scope",
+        "sec:auto",
+        "eq:main",
+        "sec:full",
+        "sec:title",
+        "chap:title",
+        "thm:upper",
+        "sub:lower",
+        "thm:a",
+        "thm:b",
+        "lem:a",
+        "lem:b",
+        "def:a",
+        "def:b",
+    ] {
+        assert!(!extracted_text.contains(label));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert_eq!(display_list_text.matches("[?]").count(), expected.len());
+    for label in [
+        "page:intro",
+        "sub:scope",
+        "sec:auto",
+        "eq:main",
+        "sec:full",
+        "sec:title",
+        "chap:title",
+        "thm:upper",
+        "sub:lower",
+        "thm:a",
+        "thm:b",
+        "lem:a",
+        "lem:b",
+        "def:a",
+        "def:b",
+    ] {
+        assert!(!display_list_text.contains(label));
+    }
+}
+
+#[test]
 fn reference_range_capture_survives_ir_without_visible_keys() {
     let capture =
         capture_internal_render_ir("main.tex", REFERENCE_RANGE_SOURCE, &SemanticAux::default());
@@ -2655,6 +2756,8 @@ const REFERENCE_SOURCE: &str =
 const STARRED_REFERENCE_SOURCE: &str = r"\begin{document}See \ref*{sec:intro}, \autoref*{fig:plot}, and \Cref*{tab:data}.\end{document}";
 
 const REFERENCE_ALIAS_SOURCE: &str = r"\begin{document}See \subref{sub:a}, \vref{sec:intro}, \Vref{chap:main}, \vpageref{page:two}, \fullref{sec:full}, \namecref{thm:one}, and \labelcref{item:x}.\end{document}";
+
+const REFERENCE_PAGE_NAME_ALIAS_SOURCE: &str = r"\begin{document}See \cpageref{page:intro}, \Cpageref{sub:scope}, \autopageref{sec:auto}, \labelcpageref{eq:main}, \Fullref{sec:full}, \titleref{sec:title}, \Titleref{chap:title}, \nameCref{thm:upper}, \lcnamecref{sub:lower}, \namecrefs{thm:a,thm:b}, \nameCrefs{lem:a,lem:b}, and \lcnamecrefs{def:a,def:b}.\end{document}";
 
 const REFERENCE_RANGE_SOURCE: &str = r"\begin{document}See \crefrange{fig:a}{fig:b}, \Crefrange{sec:a}{sec:b}, \cpagerefrange{p:a}{p:b}, and \Cpagerefrange{app:a}{app:b}.\end{document}";
 

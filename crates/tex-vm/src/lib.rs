@@ -1653,7 +1653,9 @@ impl<'i> Vm<'i> {
                 }
                 "ref" | "eqref" | "pageref" | "autoref" | "nameref" | "cref" | "Cref"
                 | "subref" | "vref" | "Vref" | "vpageref" | "fullref" | "namecref"
-                | "labelcref"
+                | "labelcref" | "cpageref" | "Cpageref" | "autopageref" | "labelcpageref"
+                | "Fullref" | "titleref" | "Titleref" | "nameCref" | "lcnamecref" | "namecrefs"
+                | "nameCrefs" | "lcnamecrefs"
                     if in_document =>
                 {
                     index = skip_ascii_whitespace(source, index);
@@ -2069,7 +2071,10 @@ impl<'i> Vm<'i> {
                                     }
                                     "ref" | "eqref" | "pageref" | "autoref" | "nameref"
                                     | "cref" | "Cref" | "subref" | "vref" | "Vref" | "vpageref"
-                                    | "fullref" | "namecref" | "labelcref" => {
+                                    | "fullref" | "namecref" | "labelcref" | "cpageref"
+                                    | "Cpageref" | "autopageref" | "labelcpageref" | "Fullref"
+                                    | "titleref" | "Titleref" | "nameCref" | "lcnamecref"
+                                    | "namecrefs" | "nameCrefs" | "lcnamecrefs" => {
                                         let argument_index =
                                             skip_ascii_whitespace(source, inner_index);
                                         if let Some((keys, key_start, key_end, command_after)) =
@@ -2603,7 +2608,12 @@ impl<'i> Vm<'i> {
                                                         | "nameref" | "cref" | "Cref"
                                                         | "subref" | "vref" | "Vref"
                                                         | "vpageref" | "fullref" | "namecref"
-                                                        | "labelcref" => {
+                                                        | "labelcref" | "cpageref" | "Cpageref"
+                                                        | "autopageref" | "labelcpageref"
+                                                        | "Fullref" | "titleref" | "Titleref"
+                                                        | "nameCref" | "lcnamecref"
+                                                        | "namecrefs" | "nameCrefs"
+                                                        | "lcnamecrefs" => {
                                                             let argument_index =
                                                                 skip_ascii_whitespace(
                                                                     source,
@@ -3304,7 +3314,19 @@ impl<'i> Vm<'i> {
                                                                             | "vpageref"
                                                                             | "fullref"
                                                                             | "namecref"
-                                                                            | "labelcref" => {
+                                                                            | "labelcref"
+                                                                            | "cpageref"
+                                                                            | "Cpageref"
+                                                                            | "autopageref"
+                                                                            | "labelcpageref"
+                                                                            | "Fullref"
+                                                                            | "titleref"
+                                                                            | "Titleref"
+                                                                            | "nameCref"
+                                                                            | "lcnamecref"
+                                                                            | "namecrefs"
+                                                                            | "nameCrefs"
+                                                                            | "lcnamecrefs" => {
                                                                                 let reference_index =
                                                                                     skip_ascii_whitespace(
                                                                                         source,
@@ -10638,6 +10660,18 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 | "fullref"
                 | "namecref"
                 | "labelcref"
+                | "cpageref"
+                | "Cpageref"
+                | "autopageref"
+                | "labelcpageref"
+                | "Fullref"
+                | "titleref"
+                | "Titleref"
+                | "nameCref"
+                | "lcnamecref"
+                | "namecrefs"
+                | "nameCrefs"
+                | "lcnamecrefs"
         );
         let is_range_reference = matches!(
             command,
@@ -14844,6 +14878,66 @@ Fallback text.
                     || text.text.contains("sec:full")
                     || text.text.contains("thm:one")
                     || text.text.contains("item:x")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_reference_page_name_aliases_without_leaking_keys() {
+        let source = r"\begin{document}See \cpageref{page:intro}, \Cpageref{sub:scope}, \autopageref{sec:auto}, \labelcpageref{eq:main}, \Fullref{sec:full}, \titleref{sec:title}, \Titleref{chap:title}, \nameCref{thm:upper}, \lcnamecref{sub:lower}, \namecrefs{thm:a,thm:b}, \nameCrefs{lem:a,lem:b}, and \lcnamecrefs{def:a,def:b}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let references = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineReference(reference) => Some(reference),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let expected = [
+            ("cpageref", vec!["page:intro"]),
+            ("Cpageref", vec!["sub:scope"]),
+            ("autopageref", vec!["sec:auto"]),
+            ("labelcpageref", vec!["eq:main"]),
+            ("Fullref", vec!["sec:full"]),
+            ("titleref", vec!["sec:title"]),
+            ("Titleref", vec!["chap:title"]),
+            ("nameCref", vec!["thm:upper"]),
+            ("lcnamecref", vec!["sub:lower"]),
+            ("namecrefs", vec!["thm:a", "thm:b"]),
+            ("nameCrefs", vec!["lem:a", "lem:b"]),
+            ("lcnamecrefs", vec!["def:a", "def:b"]),
+        ];
+        assert_eq!(references.len(), expected.len());
+        for (reference, (command, keys)) in references.iter().zip(expected.iter()) {
+            assert_eq!(reference.command, *command);
+            assert_eq!(
+                reference.keys,
+                keys.iter().map(|key| key.to_string()).collect::<Vec<_>>()
+            );
+        }
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if text.text.contains("page:intro")
+                    || text.text.contains("sub:scope")
+                    || text.text.contains("sec:auto")
+                    || text.text.contains("eq:main")
+                    || text.text.contains("sec:full")
+                    || text.text.contains("sec:title")
+                    || text.text.contains("chap:title")
+                    || text.text.contains("thm:upper")
+                    || text.text.contains("sub:lower")
+                    || text.text.contains("thm:a")
+                    || text.text.contains("thm:b")
+                    || text.text.contains("lem:a")
+                    || text.text.contains("lem:b")
+                    || text.text.contains("def:a")
+                    || text.text.contains("def:b")
         )));
     }
 

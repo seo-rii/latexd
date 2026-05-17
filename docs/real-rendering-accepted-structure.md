@@ -94,6 +94,10 @@ The next implementation step has started with a narrow display-list spike:
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and
   `labelcref`, rendering unresolved references as placeholders instead of
   leaking raw label keys;
+- page/name/title aliases such as `cpageref`, `Cpageref`, `autopageref`,
+  `labelcpageref`, `Fullref`, `titleref`/`Titleref`, `nameCref`,
+  `lcnamecref`, `namecrefs`, `nameCrefs`, and `lcnamecrefs` also emit
+  reference events and placeholder text without exposing labels;
 - range references such as `crefrange`/`Crefrange` and
   `cpagerefrange`/`Cpagerefrange` now emit a single reference event with both
   endpoint labels instead of exposing either label in visible text;
