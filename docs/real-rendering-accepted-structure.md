@@ -98,8 +98,9 @@ The next implementation step has started with a narrow display-list spike:
   `labelcpageref`, `Fullref`, `titleref`/`Titleref`, `nameCref`,
   `lcnamecref`, `namecrefs`, `nameCrefs`, and `lcnamecrefs` also emit
   reference events and placeholder text without exposing labels;
-- range references such as `crefrange`/`Crefrange` and
-  `cpagerefrange`/`Cpagerefrange` now emit a single reference event with both
+- range references such as `crefrange`/`Crefrange`,
+  `cpagerefrange`/`Cpagerefrange`, `pagerefrange`, `vpagerefrange`,
+  `vrefrange`, and `Vrefrange` now emit a single reference event with both
   endpoint labels instead of exposing either label in visible text;
 - VM render-event capture now emits `LabelDefinition` events for `\label{...}`,
   and `DocumentIr` preserves labels as invisible metadata rather than body text;

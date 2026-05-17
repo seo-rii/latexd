@@ -1088,6 +1088,71 @@ fn reference_range_capture_survives_ir_without_visible_keys() {
 }
 
 #[test]
+fn reference_range_alias_capture_survives_ir_without_visible_keys() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        REFERENCE_RANGE_ALIAS_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let references = paragraph
+        .content
+        .iter()
+        .filter_map(|node| match node {
+            InlineNode::Reference(reference) => Some(reference),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let expected = [
+        ("pagerefrange", vec!["page:a", "page:b"]),
+        ("vpagerefrange", vec!["vp:a", "vp:b"]),
+        ("vrefrange", vec!["sec:a", "sec:b"]),
+        ("Vrefrange", vec!["chap:a", "chap:b"]),
+    ];
+    assert_eq!(references.len(), expected.len());
+    for (reference, (command, keys)) in references.iter().zip(expected.iter()) {
+        assert_eq!(reference.command, *command);
+        assert_eq!(
+            reference.keys,
+            keys.iter().map(|key| key.to_string()).collect::<Vec<_>>()
+        );
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("See [?], [?], [?], and [?]."));
+    for label in [
+        "page:a", "page:b", "vp:a", "vp:b", "sec:a", "sec:b", "chap:a", "chap:b",
+    ] {
+        assert!(!extracted_text.contains(label));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("See [?], [?], [?], and [?]."));
+    for label in [
+        "page:a", "page:b", "vp:a", "vp:b", "sec:a", "sec:b", "chap:a", "chap:b",
+    ] {
+        assert!(!display_list_text.contains(label));
+    }
+}
+
+#[test]
 fn link_capture_survives_ir_and_display_list_annotations() {
     let capture = capture_internal_render_ir("main.tex", LINK_SOURCE, &SemanticAux::default());
     let paragraph = capture
@@ -2760,6 +2825,8 @@ const REFERENCE_ALIAS_SOURCE: &str = r"\begin{document}See \subref{sub:a}, \vref
 const REFERENCE_PAGE_NAME_ALIAS_SOURCE: &str = r"\begin{document}See \cpageref{page:intro}, \Cpageref{sub:scope}, \autopageref{sec:auto}, \labelcpageref{eq:main}, \Fullref{sec:full}, \titleref{sec:title}, \Titleref{chap:title}, \nameCref{thm:upper}, \lcnamecref{sub:lower}, \namecrefs{thm:a,thm:b}, \nameCrefs{lem:a,lem:b}, and \lcnamecrefs{def:a,def:b}.\end{document}";
 
 const REFERENCE_RANGE_SOURCE: &str = r"\begin{document}See \crefrange{fig:a}{fig:b}, \Crefrange{sec:a}{sec:b}, \cpagerefrange{p:a}{p:b}, and \Cpagerefrange{app:a}{app:b}.\end{document}";
+
+const REFERENCE_RANGE_ALIAS_SOURCE: &str = r"\begin{document}See \pagerefrange{page:a}{page:b}, \vpagerefrange{vp:a}{vp:b}, \vrefrange{sec:a}{sec:b}, and \Vrefrange{chap:a}{chap:b}.\end{document}";
 
 const LINK_SOURCE: &str = r"\begin{document}Read \href{https://example.test/paper}{paper link}, \url{https://example.test/raw}, and \url|https://example.test/delimited|.\end{document}";
 

@@ -1685,7 +1685,10 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
-                "crefrange" | "Crefrange" | "cpagerefrange" | "Cpagerefrange" if in_document => {
+                "crefrange" | "Crefrange" | "cpagerefrange" | "Cpagerefrange" | "pagerefrange"
+                | "vpagerefrange" | "vrefrange" | "Vrefrange"
+                    if in_document =>
+                {
                     index = skip_ascii_whitespace(source, index);
                     if source[index..].starts_with('*') {
                         index += 1;
@@ -2103,7 +2106,8 @@ impl<'i> Vm<'i> {
                                         }
                                     }
                                     "crefrange" | "Crefrange" | "cpagerefrange"
-                                    | "Cpagerefrange" => {
+                                    | "Cpagerefrange" | "pagerefrange" | "vpagerefrange"
+                                    | "vrefrange" | "Vrefrange" => {
                                         let argument_index =
                                             skip_ascii_whitespace(source, inner_index);
                                         if let Some((first_key, first_start, _, after_first)) =
@@ -2656,7 +2660,9 @@ impl<'i> Vm<'i> {
                                                             }
                                                         }
                                                         "crefrange" | "Crefrange"
-                                                        | "cpagerefrange" | "Cpagerefrange" => {
+                                                        | "cpagerefrange" | "Cpagerefrange"
+                                                        | "pagerefrange" | "vpagerefrange"
+                                                        | "vrefrange" | "Vrefrange" => {
                                                             let argument_index =
                                                                 skip_ascii_whitespace(
                                                                     source,
@@ -3375,7 +3381,11 @@ impl<'i> Vm<'i> {
                                                                             "crefrange"
                                                                             | "Crefrange"
                                                                             | "cpagerefrange"
-                                                                            | "Cpagerefrange" => {
+                                                                            | "Cpagerefrange"
+                                                                            | "pagerefrange"
+                                                                            | "vpagerefrange"
+                                                                            | "vrefrange"
+                                                                            | "Vrefrange" => {
                                                                                 let reference_index =
                                                                                     skip_ascii_whitespace(
                                                                                         source,
@@ -10675,7 +10685,14 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
         );
         let is_range_reference = matches!(
             command,
-            "crefrange" | "Crefrange" | "cpagerefrange" | "Cpagerefrange"
+            "crefrange"
+                | "Crefrange"
+                | "cpagerefrange"
+                | "Cpagerefrange"
+                | "pagerefrange"
+                | "vpagerefrange"
+                | "vrefrange"
+                | "Vrefrange"
         );
         if command == "href" {
             let target_index = skip_ascii_whitespace(source, command_name_end);
@@ -14990,6 +15007,51 @@ Fallback text.
                     || text.text.contains("p:b")
                     || text.text.contains("app:a")
                     || text.text.contains("app:b")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_reference_range_aliases_without_leaking_keys() {
+        let source = r"\begin{document}See \pagerefrange{page:a}{page:b}, \vpagerefrange{vp:a}{vp:b}, \vrefrange{sec:a}{sec:b}, and \Vrefrange{chap:a}{chap:b}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let references = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineReference(reference) => Some(reference),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let expected = [
+            ("pagerefrange", vec!["page:a", "page:b"]),
+            ("vpagerefrange", vec!["vp:a", "vp:b"]),
+            ("vrefrange", vec!["sec:a", "sec:b"]),
+            ("Vrefrange", vec!["chap:a", "chap:b"]),
+        ];
+        assert_eq!(references.len(), expected.len());
+        for (reference, (command, keys)) in references.iter().zip(expected.iter()) {
+            assert_eq!(reference.command, *command);
+            assert_eq!(
+                reference.keys,
+                keys.iter().map(|key| key.to_string()).collect::<Vec<_>>()
+            );
+        }
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if text.text.contains("page:a")
+                    || text.text.contains("page:b")
+                    || text.text.contains("vp:a")
+                    || text.text.contains("vp:b")
+                    || text.text.contains("sec:a")
+                    || text.text.contains("sec:b")
+                    || text.text.contains("chap:a")
+                    || text.text.contains("chap:b")
         )));
     }
 
