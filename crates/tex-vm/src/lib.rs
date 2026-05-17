@@ -10292,8 +10292,7 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
     let mut chunk_start = 0;
     let mut scan_index = 0;
     let mut found_structured_inline = false;
-    let append_normalized_text = |output: &mut String, source: &str| {
-        let plain_text = normalize_latex_text(source);
+    let append_text = |output: &mut String, plain_text: &str| {
         if plain_text.is_empty() {
             return;
         }
@@ -10301,6 +10300,10 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
             output.push(' ');
         }
         output.push_str(&plain_text);
+    };
+    let append_normalized_text = |output: &mut String, source: &str| {
+        let plain_text = normalize_latex_text(source);
+        append_text(output, &plain_text);
     };
     while scan_index < source.len() {
         let Some(relative_command_start) = source[scan_index..].find('\\') else {
@@ -10349,6 +10352,24 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
             command,
             "ref" | "eqref" | "pageref" | "autoref" | "nameref" | "cref" | "Cref"
         );
+        if command == "href" {
+            let target_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, after_target)) = read_braced_source_argument(source, target_index)
+            {
+                let text_index = skip_ascii_whitespace(source, after_target);
+                if let Some((visible_text, _, _, command_after)) =
+                    read_braced_source_argument(source, text_index)
+                {
+                    append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                    let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                    append_text(&mut text, &visible_text);
+                    found_structured_inline = true;
+                    chunk_start = command_after;
+                    scan_index = command_after;
+                    continue;
+                }
+            }
+        }
         if is_citation || is_reference {
             let mut argument_index = skip_ascii_whitespace(source, command_name_end);
             if argument_index < source.len() && source[argument_index..].starts_with('*') {
@@ -14064,6 +14085,29 @@ Fallback text.
         assert!(!caption_text.contains("sec:intro"));
         assert!(!caption_text.contains("cite"));
         assert!(!caption_text.contains("ref"));
+    }
+
+    #[test]
+    fn render_event_capture_hides_caption_href_targets() {
+        let source = r"\def\caption#1{#1}\begin{document}\begin{figure}\caption{Read \href{https://hidden.test}{paper} and \cite{key}.}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let caption_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::Caption(caption) => Some(caption.text.as_str()),
+                _ => None,
+            })
+            .expect("caption event");
+
+        assert_eq!(caption_text, "Read paper and [?].");
+        assert!(!caption_text.contains("https://hidden.test"));
+        assert!(!caption_text.contains("href"));
+        assert!(!caption_text.contains("key"));
     }
 
     #[test]

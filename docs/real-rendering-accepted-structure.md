@@ -117,6 +117,9 @@ The next implementation step has started with a narrow display-list spike:
 - `\href{target}{visible}` visible text now uses inline citation/reference
   placeholder redaction, keeping the link target annotation while hiding raw
   citation and label keys from extracted/display-list text;
+- structured text normalization for captions, headings, metadata, bibliography,
+  and fallback text now treats nested `\href{target}{visible}` as visible text
+  only, preventing hidden targets from being concatenated into rendered text;
 - non-link text wrappers such as `\nolinkurl`, `\path`, and `\detokenize`
   now survive as visible text events and IR text nodes without creating link
   annotations; URL-like wrappers support both braced and delimiter-form

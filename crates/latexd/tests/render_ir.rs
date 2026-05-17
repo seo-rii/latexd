@@ -369,6 +369,38 @@ fn caption_inline_keys_are_redacted_in_ir_and_display_list() {
 }
 
 #[test]
+fn caption_href_targets_are_hidden_in_ir_and_display_list() {
+    let capture =
+        capture_internal_render_ir("main.tex", CAPTION_HREF_SOURCE, &SemanticAux::default());
+    let extracted_text = capture.document_ir.extracted_text();
+
+    assert!(
+        extracted_text.contains("Read paper and [?]."),
+        "{extracted_text}"
+    );
+    assert!(!extracted_text.contains("https://hidden.test"));
+    assert!(!extracted_text.contains(r"\href"));
+    assert!(!extracted_text.contains("key"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("Read paper and [?]."),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("https://hidden.test"));
+    assert!(!display_list_text.contains(r"\href"));
+    assert!(!display_list_text.contains("key"));
+}
+
+#[test]
 fn inline_math_capture_survives_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", INLINE_MATH_SOURCE, &SemanticAux::default());
@@ -2331,6 +2363,8 @@ const GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1
 const FIGURE_TABLE_LABEL_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\label{fig:plot}\end{figure}\begin{table}\caption{Table caption.}\label{tab:data}\end{table}\end{document}";
 
 const CAPTION_INLINE_KEY_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{See \cite{key} and \ref{sec:intro}.}\end{figure}\end{document}";
+
+const CAPTION_HREF_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Read \href{https://hidden.test}{paper} and \cite{key}.}\end{figure}\end{document}";
 
 const INLINE_MATH_SOURCE: &str = r"\begin{document}Area \(x^2 + y^2\).\end{document}";
 
