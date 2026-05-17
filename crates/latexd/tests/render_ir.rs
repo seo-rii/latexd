@@ -736,6 +736,68 @@ fn citation_variant_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn citation_metadata_alias_capture_survives_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        CITATION_METADATA_ALIAS_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let citations = paragraph
+        .content
+        .iter()
+        .filter_map(|node| match node {
+            InlineNode::Citation(citation) => Some(citation),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let expected = [
+        ("alpha", CitationStyleHint::Textual),
+        ("beta", CitationStyleHint::Textual),
+        ("gamma", CitationStyleHint::Parenthetical),
+        ("delta", CitationStyleHint::Textual),
+        ("epsilon", CitationStyleHint::Textual),
+        ("zeta", CitationStyleHint::Textual),
+        ("eta", CitationStyleHint::Textual),
+    ];
+    assert_eq!(citations.len(), expected.len());
+    for (citation, (key, style_hint)) in citations.iter().zip(expected) {
+        assert_eq!(citation.keys, vec![key.to_string()]);
+        assert_eq!(citation.style_hint, style_hint);
+        assert_eq!(citation.display_text, "[?]");
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert_eq!(extracted_text.matches("[?]").count(), expected.len());
+    for key in ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta"] {
+        assert!(!extracted_text.contains(key));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert_eq!(display_list_text.matches("[?]").count(), expected.len());
+    for key in ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta"] {
+        assert!(!display_list_text.contains(key));
+    }
+}
+
+#[test]
 fn reference_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir("main.tex", REFERENCE_SOURCE, &SemanticAux::default());
     let paragraph = capture
@@ -2871,6 +2933,8 @@ const HEADING_INLINE_KEY_SOURCE: &str =
     r"\begin{document}\section{See \cite{key} and \ref{sec:intro}.}\end{document}";
 
 const CITATION_VARIANTS_SOURCE: &str = r"\begin{document}\citep[see][p.~3]{alpha,beta}\citet*{gamma}\parencite{delta}\textcite{epsilon}\end{document}";
+
+const CITATION_METADATA_ALIAS_SOURCE: &str = r"\begin{document}\Citeauthor{alpha} \Citeyear{beta} \Citeyearpar{gamma} \citetitle{delta} \Citetitle{epsilon} \citefullauthor{zeta} \Citefullauthor*{eta}\end{document}";
 
 const REFERENCE_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \eqref{eq:main}; \cref{fig:a,tab:b}.\end{document}";

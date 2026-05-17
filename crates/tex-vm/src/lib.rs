@@ -1605,13 +1605,18 @@ impl<'i> Vm<'i> {
                 "cite" | "citet" | "Citet" | "citep" | "Citep" | "citealt" | "citealp"
                 | "citeauthor" | "citeyear" | "citeyearpar" | "parencite" | "Parencite"
                 | "textcite" | "Textcite" | "autocite" | "Autocite" | "footcite" | "supercite"
+                | "Citeauthor" | "Citeyear" | "Citeyearpar" | "citetitle" | "Citetitle"
+                | "citefullauthor" | "Citefullauthor"
                     if in_document =>
                 {
                     let style_hint = match command {
                         "citet" | "Citet" | "citealt" | "citeauthor" | "citeyear" | "textcite"
-                        | "Textcite" => CitationStyleHint::Textual,
-                        "citep" | "Citep" | "citealp" | "citeyearpar" | "parencite"
-                        | "Parencite" | "autocite" | "Autocite" => CitationStyleHint::Parenthetical,
+                        | "Textcite" | "Citeauthor" | "Citeyear" | "citetitle" | "Citetitle"
+                        | "citefullauthor" | "Citefullauthor" => CitationStyleHint::Textual,
+                        "citep" | "Citep" | "citealp" | "citeyearpar" | "Citeyearpar"
+                        | "parencite" | "Parencite" | "autocite" | "Autocite" => {
+                            CitationStyleHint::Parenthetical
+                        }
                         "footcite" | "supercite" => CitationStyleHint::Unknown,
                         _ => CitationStyleHint::Numeric,
                     };
@@ -2013,15 +2018,21 @@ impl<'i> Vm<'i> {
                                     "cite" | "citet" | "Citet" | "citep" | "Citep" | "citealt"
                                     | "citealp" | "citeauthor" | "citeyear" | "citeyearpar"
                                     | "parencite" | "Parencite" | "textcite" | "Textcite"
-                                    | "autocite" | "Autocite" | "footcite" | "supercite" => {
+                                    | "autocite" | "Autocite" | "footcite" | "supercite"
+                                    | "Citeauthor" | "Citeyear" | "Citeyearpar" | "citetitle"
+                                    | "Citetitle" | "citefullauthor" | "Citefullauthor" => {
                                         let style_hint = match inner_command {
                                             "citet" | "Citet" | "citealt" | "citeauthor"
-                                            | "citeyear" | "textcite" | "Textcite" => {
+                                            | "citeyear" | "textcite" | "Textcite"
+                                            | "Citeauthor" | "Citeyear" | "citetitle"
+                                            | "Citetitle" | "citefullauthor" | "Citefullauthor" => {
                                                 CitationStyleHint::Textual
                                             }
                                             "citep" | "Citep" | "citealp" | "citeyearpar"
-                                            | "parencite" | "Parencite" | "autocite"
-                                            | "Autocite" => CitationStyleHint::Parenthetical,
+                                            | "Citeyearpar" | "parencite" | "Parencite"
+                                            | "autocite" | "Autocite" => {
+                                                CitationStyleHint::Parenthetical
+                                            }
                                             "footcite" | "supercite" => CitationStyleHint::Unknown,
                                             _ => CitationStyleHint::Numeric,
                                         };
@@ -2523,18 +2534,25 @@ impl<'i> Vm<'i> {
                                                         | "citeyearpar" | "parencite"
                                                         | "Parencite" | "textcite" | "Textcite"
                                                         | "autocite" | "Autocite" | "footcite"
-                                                        | "supercite" => {
+                                                        | "supercite" | "Citeauthor"
+                                                        | "Citeyear" | "Citeyearpar"
+                                                        | "citetitle" | "Citetitle"
+                                                        | "citefullauthor" | "Citefullauthor" => {
                                                             let style_hint = match argument_command
                                                             {
                                                                 "citet" | "Citet" | "citealt"
                                                                 | "citeauthor" | "citeyear"
-                                                                | "textcite" | "Textcite" => {
+                                                                | "textcite" | "Textcite"
+                                                                | "Citeauthor" | "Citeyear"
+                                                                | "citetitle" | "Citetitle"
+                                                                | "citefullauthor"
+                                                                | "Citefullauthor" => {
                                                                     CitationStyleHint::Textual
                                                                 }
                                                                 "citep" | "Citep" | "citealp"
-                                                                | "citeyearpar" | "parencite"
-                                                                | "Parencite" | "autocite"
-                                                                | "Autocite" => {
+                                                                | "citeyearpar" | "Citeyearpar"
+                                                                | "parencite" | "Parencite"
+                                                                | "autocite" | "Autocite" => {
                                                                     CitationStyleHint::Parenthetical
                                                                 }
                                                                 "footcite" | "supercite" => {
@@ -3053,17 +3071,27 @@ impl<'i> Vm<'i> {
                                                                             | "autocite"
                                                                             | "Autocite"
                                                                             | "footcite"
-                                                                            | "supercite" => {
+                                                                            | "supercite"
+                                                                            | "Citeauthor"
+                                                                            | "Citeyear"
+                                                                            | "Citeyearpar"
+                                                                            | "citetitle"
+                                                                            | "Citetitle"
+                                                                            | "citefullauthor"
+                                                                            | "Citefullauthor" => {
                                                                                 let style_hint = match nested_command {
                                                                                     "citet" | "Citet" | "citealt"
                                                                                     | "citeauthor" | "citeyear"
-                                                                                    | "textcite" | "Textcite" => {
+                                                                                    | "textcite" | "Textcite"
+                                                                                    | "Citeauthor" | "Citeyear"
+                                                                                    | "citetitle" | "Citetitle"
+                                                                                    | "citefullauthor" | "Citefullauthor" => {
                                                                                         CitationStyleHint::Textual
                                                                                     }
                                                                                     "citep" | "Citep" | "citealp"
-                                                                                    | "citeyearpar" | "parencite"
-                                                                                    | "Parencite" | "autocite"
-                                                                                    | "Autocite" => {
+                                                                                    | "citeyearpar" | "Citeyearpar"
+                                                                                    | "parencite" | "Parencite"
+                                                                                    | "autocite" | "Autocite" => {
                                                                                         CitationStyleHint::Parenthetical
                                                                                     }
                                                                                     "footcite" | "supercite" => {
@@ -10658,6 +10686,13 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 | "Autocite"
                 | "footcite"
                 | "supercite"
+                | "Citeauthor"
+                | "Citeyear"
+                | "Citeyearpar"
+                | "citetitle"
+                | "Citetitle"
+                | "citefullauthor"
+                | "Citefullauthor"
         );
         let is_reference = matches!(
             command,
@@ -14789,6 +14824,51 @@ Fallback text.
         assert_eq!(citations[3].0.command, "textcite");
         assert_eq!(citations[3].0.style_hint, CitationStyleHint::Textual);
         assert_eq!(citations[3].0.keys, vec!["epsilon".to_string()]);
+    }
+
+    #[test]
+    fn render_event_capture_records_citation_metadata_aliases_without_leaking_keys() {
+        let source = r"\begin{document}\Citeauthor{alpha} \Citeyear{beta} \Citeyearpar{gamma} \citetitle{delta} \Citetitle{epsilon} \citefullauthor{zeta} \Citefullauthor*{eta}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let citations = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineCitation(citation) => Some(citation),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let expected = [
+            ("Citeauthor", "alpha", CitationStyleHint::Textual),
+            ("Citeyear", "beta", CitationStyleHint::Textual),
+            ("Citeyearpar", "gamma", CitationStyleHint::Parenthetical),
+            ("citetitle", "delta", CitationStyleHint::Textual),
+            ("Citetitle", "epsilon", CitationStyleHint::Textual),
+            ("citefullauthor", "zeta", CitationStyleHint::Textual),
+            ("Citefullauthor", "eta", CitationStyleHint::Textual),
+        ];
+        assert_eq!(citations.len(), expected.len());
+        for (citation, (command, key, style_hint)) in citations.iter().zip(expected) {
+            assert_eq!(citation.command, command);
+            assert_eq!(citation.keys, vec![key.to_string()]);
+            assert_eq!(citation.style_hint, style_hint);
+        }
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if text.text.contains("alpha")
+                    || text.text.contains("beta")
+                    || text.text.contains("gamma")
+                    || text.text.contains("delta")
+                    || text.text.contains("epsilon")
+                    || text.text.contains("zeta")
+                    || text.text.contains("eta")
+        )));
     }
 
     #[test]
