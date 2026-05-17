@@ -1655,6 +1655,10 @@ impl<'i> Vm<'i> {
                     if in_document =>
                 {
                     index = skip_ascii_whitespace(source, index);
+                    if source[index..].starts_with('*') {
+                        index += 1;
+                        index = skip_ascii_whitespace(source, index);
+                    }
                     if let Some((keys, content_start, content_end, after)) =
                         read_braced_source_argument(source, index)
                     {
@@ -14513,6 +14517,39 @@ Fallback text.
             references[2].0.keys,
             vec!["fig:a".to_string(), "tab:b".to_string()]
         );
+    }
+
+    #[test]
+    fn render_event_capture_records_starred_references_without_leaking_keys() {
+        let source = r"\begin{document}See \ref*{sec:intro}, \autoref*{fig:plot}, and \Cref*{tab:data}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let references = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineReference(reference) => Some(reference),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(references.len(), 3);
+        assert_eq!(references[0].command, "ref");
+        assert_eq!(references[0].keys, vec!["sec:intro".to_string()]);
+        assert_eq!(references[1].command, "autoref");
+        assert_eq!(references[1].keys, vec!["fig:plot".to_string()]);
+        assert_eq!(references[2].command, "Cref");
+        assert_eq!(references[2].keys, vec!["tab:data".to_string()]);
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if text.text.contains("sec:intro")
+                    || text.text.contains("fig:plot")
+                    || text.text.contains("tab:data")
+        )));
     }
 
     #[test]

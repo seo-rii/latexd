@@ -126,6 +126,8 @@ The next implementation step has started with a narrow display-list spike:
 - `\hyperref[ref]{visible}`, `\hyperlink{target}{visible}`, and
   `\hypertarget{target}{visible}` now preserve only the visible argument in
   body and structured text, keeping labels and anchors out of rendered text;
+- starred reference commands such as `\ref*`, `\autoref*`, and `\Cref*` now
+  emit normal reference intent without leaking the hidden label into body text;
 - non-link text wrappers such as `\nolinkurl`, `\path`, and `\detokenize`
   now survive as visible text events and IR text nodes without creating link
   annotations; URL-like wrappers support both braced and delimiter-form

@@ -791,6 +791,60 @@ fn reference_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn starred_reference_capture_survives_ir_without_visible_keys() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        STARRED_REFERENCE_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let references = paragraph
+        .content
+        .iter()
+        .filter_map(|node| match node {
+            InlineNode::Reference(reference) => Some(reference),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(references.len(), 3);
+    assert_eq!(references[0].command, "ref");
+    assert_eq!(references[0].keys, vec!["sec:intro".to_string()]);
+    assert_eq!(references[1].command, "autoref");
+    assert_eq!(references[1].keys, vec!["fig:plot".to_string()]);
+    assert_eq!(references[2].command, "Cref");
+    assert_eq!(references[2].keys, vec!["tab:data".to_string()]);
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("See [?], [?], and [?]."));
+    assert!(!extracted_text.contains("sec:intro"));
+    assert!(!extracted_text.contains("fig:plot"));
+    assert!(!extracted_text.contains("tab:data"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("See [?], [?], and [?]."));
+    assert!(!display_list_text.contains("sec:intro"));
+    assert!(!display_list_text.contains("fig:plot"));
+    assert!(!display_list_text.contains("tab:data"));
+}
+
+#[test]
 fn link_capture_survives_ir_and_display_list_annotations() {
     let capture = capture_internal_render_ir("main.tex", LINK_SOURCE, &SemanticAux::default());
     let paragraph = capture
@@ -2455,6 +2509,8 @@ const CITATION_VARIANTS_SOURCE: &str = r"\begin{document}\citep[see][p.~3]{alpha
 
 const REFERENCE_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \eqref{eq:main}; \cref{fig:a,tab:b}.\end{document}";
+
+const STARRED_REFERENCE_SOURCE: &str = r"\begin{document}See \ref*{sec:intro}, \autoref*{fig:plot}, and \Cref*{tab:data}.\end{document}";
 
 const LINK_SOURCE: &str = r"\begin{document}Read \href{https://example.test/paper}{paper link}, \url{https://example.test/raw}, and \url|https://example.test/delimited|.\end{document}";
 
