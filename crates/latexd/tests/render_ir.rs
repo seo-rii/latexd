@@ -939,6 +939,42 @@ fn link_text_inline_keys_are_redacted_in_ir_and_display_list() {
 }
 
 #[test]
+fn hyperref_visible_text_survives_ir_without_targets() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        HYPERREF_VISIBLE_TEXT_SOURCE,
+        &SemanticAux::default(),
+    );
+    let expected = "Read intro, anchor text, and target text.";
+    let extracted_text = capture.document_ir.extracted_text();
+
+    assert!(extracted_text.contains(expected), "{extracted_text}");
+    assert!(!extracted_text.contains("sec:intro"));
+    assert!(!extracted_text.contains("hidden-anchor"));
+    assert!(!extracted_text.contains("target-id"));
+    assert!(!extracted_text.contains(r"\hyperref"));
+    assert!(!extracted_text.contains(r"\hyperlink"));
+    assert!(!extracted_text.contains(r"\hypertarget"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    assert!(!display_list_text.contains("sec:intro"));
+    assert!(!display_list_text.contains("hidden-anchor"));
+    assert!(!display_list_text.contains("target-id"));
+    assert!(!display_list_text.contains(r"\hyperref"));
+    assert!(!display_list_text.contains(r"\hyperlink"));
+    assert!(!display_list_text.contains(r"\hypertarget"));
+}
+
+#[test]
 fn url_text_wrapper_capture_survives_ir_without_link_annotations() {
     let capture =
         capture_internal_render_ir("main.tex", URL_TEXT_WRAPPER_SOURCE, &SemanticAux::default());
@@ -2423,6 +2459,8 @@ const REFERENCE_SOURCE: &str =
 const LINK_SOURCE: &str = r"\begin{document}Read \href{https://example.test/paper}{paper link}, \url{https://example.test/raw}, and \url|https://example.test/delimited|.\end{document}";
 
 const LINK_TEXT_INLINE_KEY_SOURCE: &str = r"\begin{document}Read \href{https://hidden.test}{see \cite{cited} and \ref{sec:intro}}.\end{document}";
+
+const HYPERREF_VISIBLE_TEXT_SOURCE: &str = r"\begin{document}Read \hyperref[sec:intro]{intro}, \hyperlink{hidden-anchor}{anchor text}, and \hypertarget{target-id}{target text}.\end{document}";
 
 const URL_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Use \nolinkurl{https://example.test/paper}, \nolinkurl|https://example.test/delimited|, at \path{/tmp/archive} and \path|/var/tmp| via \detokenize{\foo+*}.\end{document}";
 

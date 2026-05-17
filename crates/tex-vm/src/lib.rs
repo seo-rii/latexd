@@ -1710,6 +1710,68 @@ impl<'i> Vm<'i> {
                         }
                     }
                 }
+                "hyperref" if in_document => {
+                    index = skip_ascii_whitespace(source, index);
+                    if let Some((_, target_start, target_end, after_target)) =
+                        read_bracket_source_argument(source, index)
+                    {
+                        let text_index = skip_ascii_whitespace(source, after_target);
+                        if let Some((text, content_start, content_end, after)) =
+                            read_braced_source_argument(source, text_index)
+                        {
+                            self.emit_render_event(
+                                RenderEvent::Text(TextEvent {
+                                    text: normalize_latex_text_with_inline_placeholders(text),
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    content_start as u32,
+                                    content_end as u32,
+                                )
+                                .with_related(
+                                    SourceSpanRole::Argument,
+                                    ProvenanceSpan::File(SourceSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: target_start as u32,
+                                        end_utf8: target_end as u32,
+                                    }),
+                                ),
+                            );
+                            index = after;
+                        }
+                    }
+                }
+                "hyperlink" | "hypertarget" if in_document => {
+                    index = skip_ascii_whitespace(source, index);
+                    if let Some((_, target_start, target_end, after_target)) =
+                        read_braced_source_argument(source, index)
+                    {
+                        let text_index = skip_ascii_whitespace(source, after_target);
+                        if let Some((text, content_start, content_end, after)) =
+                            read_braced_source_argument(source, text_index)
+                        {
+                            self.emit_render_event(
+                                RenderEvent::Text(TextEvent {
+                                    text: normalize_latex_text_with_inline_placeholders(text),
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    content_start as u32,
+                                    content_end as u32,
+                                )
+                                .with_related(
+                                    SourceSpanRole::Argument,
+                                    ProvenanceSpan::File(SourceSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: target_start as u32,
+                                        end_utf8: target_end as u32,
+                                    }),
+                                ),
+                            );
+                            index = after;
+                        }
+                    }
+                }
                 "url" if in_document => {
                     index = skip_ascii_whitespace(source, index);
                     if let Some((target, content_start, content_end, after)) =
@@ -10370,6 +10432,43 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 }
             }
         }
+        if command == "hyperref" {
+            let target_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, after_target)) =
+                read_bracket_source_argument(source, target_index)
+            {
+                let text_index = skip_ascii_whitespace(source, after_target);
+                if let Some((visible_text, _, _, command_after)) =
+                    read_braced_source_argument(source, text_index)
+                {
+                    append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                    let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                    append_text(&mut text, &visible_text);
+                    found_structured_inline = true;
+                    chunk_start = command_after;
+                    scan_index = command_after;
+                    continue;
+                }
+            }
+        }
+        if matches!(command, "hyperlink" | "hypertarget") {
+            let target_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, after_target)) = read_braced_source_argument(source, target_index)
+            {
+                let text_index = skip_ascii_whitespace(source, after_target);
+                if let Some((visible_text, _, _, command_after)) =
+                    read_braced_source_argument(source, text_index)
+                {
+                    append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                    let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                    append_text(&mut text, &visible_text);
+                    found_structured_inline = true;
+                    chunk_start = command_after;
+                    scan_index = command_after;
+                    continue;
+                }
+            }
+        }
         if matches!(command, "url" | "nolinkurl" | "path" | "detokenize") {
             let argument_index = skip_ascii_whitespace(source, command_name_end);
             let argument = if command == "detokenize" {
@@ -14460,6 +14559,38 @@ Fallback text.
             &event.event,
             RenderEvent::Text(text) if text.text.contains("https://example.test/paper")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_preserves_hyperref_visible_text_without_targets() {
+        let source = r"\begin{document}Read \hyperref[sec:intro]{intro}, \hyperlink{hidden-anchor}{anchor text}, and \hypertarget{target-id}{target text}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let text_events = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(text_events.contains(&"intro"));
+        assert!(text_events.contains(&"anchor text"));
+        assert!(text_events.contains(&"target text"));
+        assert!(!text_events.iter().any(|text| text.contains("sec:intro")));
+        assert!(
+            !text_events
+                .iter()
+                .any(|text| text.contains("hidden-anchor"))
+        );
+        assert!(!text_events.iter().any(|text| text.contains("target-id")));
+        assert!(!text_events.iter().any(|text| text.contains("hyperref")));
+        assert!(!text_events.iter().any(|text| text.contains("hyperlink")));
+        assert!(!text_events.iter().any(|text| text.contains("hypertarget")));
     }
 
     #[test]

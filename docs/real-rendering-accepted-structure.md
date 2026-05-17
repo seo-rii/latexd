@@ -123,6 +123,9 @@ The next implementation step has started with a narrow display-list spike:
 - the same structured text path now normalizes URL-like wrappers such as
   `\url|...|`, `\path|...|`, `\nolinkurl|...|`, and `\detokenize{...}` as
   wrapper-free visible text, preserving detokenized backslashes;
+- `\hyperref[ref]{visible}`, `\hyperlink{target}{visible}`, and
+  `\hypertarget{target}{visible}` now preserve only the visible argument in
+  body and structured text, keeping labels and anchors out of rendered text;
 - non-link text wrappers such as `\nolinkurl`, `\path`, and `\detokenize`
   now survive as visible text events and IR text nodes without creating link
   annotations; URL-like wrappers support both braced and delimiter-form
