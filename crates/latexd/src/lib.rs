@@ -9428,18 +9428,20 @@ mod tests {
                 "page-a:main.tex:5:14:2:3".to_string(),
             ]
         );
-        timeout(Duration::from_secs(2), async {
+        let lines = timeout(Duration::from_secs(2), async {
             loop {
                 if output_path.exists() {
-                    break;
+                    let captured = fs::read_to_string(&output_path).expect("captured args");
+                    let lines = captured.lines().map(ToOwned::to_owned).collect::<Vec<_>>();
+                    if lines.len() >= 10 {
+                        break lines;
+                    }
                 }
                 sleep(Duration::from_millis(20)).await;
             }
         })
         .await
         .expect("editor bridge execution");
-        let captured = fs::read_to_string(&output_path).expect("captured args");
-        let lines = captured.lines().collect::<Vec<_>>();
         assert_eq!(lines[0], "page-a");
         assert_eq!(lines[1], "0");
         assert_eq!(lines[2], "5");
@@ -9542,18 +9544,20 @@ mod tests {
         assert_eq!(opened.column, 1);
         assert_eq!(opened.column0, 0);
 
-        timeout(Duration::from_secs(2), async {
+        let lines = timeout(Duration::from_secs(2), async {
             loop {
                 if output_path.exists() {
-                    break;
+                    let captured = fs::read_to_string(&output_path).expect("captured args");
+                    let lines = captured.lines().map(ToOwned::to_owned).collect::<Vec<_>>();
+                    if lines.len() >= 7 {
+                        break lines;
+                    }
                 }
                 sleep(Duration::from_millis(20)).await;
             }
         })
         .await
         .expect("editor bridge execution");
-        let captured = fs::read_to_string(&output_path).expect("captured args");
-        let lines = captured.lines().collect::<Vec<_>>();
         assert_eq!(lines[0], root.join("main.tex").as_str());
         assert_eq!(lines[1], root.as_str());
         assert_eq!(lines[2], source_file_uri(&root.join("main.tex")));
@@ -9643,18 +9647,20 @@ mod tests {
         assert!(opened.editor_command_line.contains(&opened.editor_uri));
         assert!(!opened.editor_command_line.contains("{editor_"));
 
-        timeout(Duration::from_secs(2), async {
+        let lines = timeout(Duration::from_secs(2), async {
             loop {
                 if output_path.exists() {
-                    break;
+                    let captured = fs::read_to_string(&output_path).expect("captured args");
+                    let lines = captured.lines().map(ToOwned::to_owned).collect::<Vec<_>>();
+                    if lines.len() >= 4 {
+                        break lines;
+                    }
                 }
                 sleep(Duration::from_millis(20)).await;
             }
         })
         .await
         .expect("editor bridge execution");
-        let captured = fs::read_to_string(&output_path).expect("captured args");
-        let lines = captured.lines().collect::<Vec<_>>();
         assert_eq!(lines[0], "command_and_uri");
         assert_eq!(lines[1], editor_program.as_str());
         assert_eq!(lines[2], opened.editor_command_line);
