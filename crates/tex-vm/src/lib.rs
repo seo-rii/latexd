@@ -1697,6 +1697,42 @@ impl<'i> Vm<'i> {
                     );
                     index = after_options;
                 }
+                "bibliographystyle" if in_document => {
+                    let style_index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_style)) =
+                        read_braced_source_argument(source, style_index)
+                    {
+                        index = after_style;
+                    }
+                }
+                "bibliography" if in_document => {
+                    let database_index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_database)) =
+                        read_braced_source_argument(source, database_index)
+                    {
+                        self.emit_render_event(
+                            RenderEvent::BeginBlock(BeginBlockEvent {
+                                block: BlockKind::Bibliography,
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                command_start as u32,
+                                after_database as u32,
+                            ),
+                        );
+                        self.emit_render_event(
+                            RenderEvent::EndBlock(BeginBlockEvent {
+                                block: BlockKind::Bibliography,
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                command_start as u32,
+                                after_database as u32,
+                            ),
+                        );
+                        index = after_database;
+                    }
+                }
                 "citefield" if in_document => {
                     index = skip_ascii_whitespace(source, index);
                     if source[index..].starts_with('*') {
@@ -11501,6 +11537,29 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
             scan_index = after_options;
             continue;
         }
+        if command == "bibliographystyle" {
+            let style_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, command_after)) = read_braced_source_argument(source, style_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
+        if command == "bibliography" {
+            let database_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, command_after)) =
+                read_braced_source_argument(source, database_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
         if command == "citefield" {
             let mut argument_index = skip_ascii_whitespace(source, command_name_end);
             if argument_index < source.len() && source[argument_index..].starts_with('*') {
@@ -15874,6 +15933,51 @@ Fallback text.
             .join("");
         assert!(visible_text.contains("Before [?]."), "{visible_text}");
         for hidden in ["printbibliography", "heading", "none", "alpha"] {
+            assert!(!visible_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_records_legacy_bibliography_boundary_without_leaking_database() {
+        let source = r"\begin{document}Before \cite{alpha}.\bibliographystyle{plain}\bibliography{refs}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(BeginBlockEvent {
+                block: BlockKind::Bibliography
+            })
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::EndBlock(BeginBlockEvent {
+                block: BlockKind::Bibliography
+            })
+        )));
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                RenderEvent::InlineCitation(_) => Some("[?]"),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("Before [?]."), "{visible_text}");
+        for hidden in [
+            "bibliographystyle",
+            "bibliography",
+            "plain",
+            "refs",
+            "alpha",
+        ] {
             assert!(!visible_text.contains(hidden));
         }
     }

@@ -112,6 +112,9 @@ The next implementation step has started with a narrow display-list spike:
   so resource paths and options do not leak into rendered body text;
 - `printbibliography[...]` now emits an empty bibliography block boundary while
   consuming options without leaking raw biblatex command text;
+- legacy BibTeX `bibliographystyle{...}` is consumed as non-visible metadata,
+  and `bibliography{...}` emits an empty bibliography block boundary without
+  leaking style or database names;
 - bibliography item text now preserves visible punctuation from common biblatex
   formatting wrappers such as `mkbibquote`, `mkbibparens`, `mkbibbrackets`,
   and `mkbibbraces`;
