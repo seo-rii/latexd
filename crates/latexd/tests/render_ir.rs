@@ -1256,6 +1256,50 @@ fn legacy_bibliography_capture_creates_empty_bibliography_without_database_leaka
 }
 
 #[test]
+fn nocite_capture_does_not_leak_hidden_keys_into_ir_or_display_list() {
+    let capture = capture_internal_render_ir("main.tex", NOCITE_SOURCE, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let citations = paragraph
+        .content
+        .iter()
+        .filter_map(|node| match node {
+            InlineNode::Citation(citation) => Some(citation),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(citations.len(), 1);
+    assert_eq!(citations[0].keys, vec!["visible".to_string()]);
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Before [?]."));
+    for hidden in ["hidden", "other", "visible", "nocite", "*"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Before [?]."));
+    for hidden in ["hidden", "other", "visible", "nocite", "*"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn citefield_capture_survives_ir_without_field_or_key_leakage() {
     let capture = capture_internal_render_ir("main.tex", CITEFIELD_SOURCE, &SemanticAux::default());
     let paragraph = capture
@@ -3608,6 +3652,9 @@ const PRINTBIBLIOGRAPHY_SOURCE: &str =
     r"\begin{document}Before \textcite{alpha}.\printbibliography[heading=none]\end{document}";
 
 const LEGACY_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}Before \cite{alpha}.\bibliographystyle{plain}\bibliography{refs}\end{document}";
+
+const NOCITE_SOURCE: &str =
+    r"\begin{document}Before \nocite{hidden,other}\nocite{*}\cite{visible}.\end{document}";
 
 const CITEFIELD_SOURCE: &str = r"\begin{document}Fields \citefield{alpha}{doi}, \citefield{beta}{year}, and nested \emph{\citefield{gamma}{journal}}.\end{document}";
 

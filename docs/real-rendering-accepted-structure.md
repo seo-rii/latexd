@@ -115,6 +115,8 @@ The next implementation step has started with a narrow display-list spike:
 - legacy BibTeX `bibliographystyle{...}` is consumed as non-visible metadata,
   and `bibliography{...}` emits an empty bibliography block boundary without
   leaking style or database names;
+- `nocite{...}` is consumed as non-visible citation-inclusion metadata for now,
+  avoiding hidden key or wildcard leakage into rendered text;
 - bibliography item text now preserves visible punctuation from common biblatex
   formatting wrappers such as `mkbibquote`, `mkbibparens`, `mkbibbrackets`,
   and `mkbibbraces`;

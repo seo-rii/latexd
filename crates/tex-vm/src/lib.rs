@@ -1733,6 +1733,14 @@ impl<'i> Vm<'i> {
                         index = after_database;
                     }
                 }
+                "nocite" if in_document => {
+                    let key_index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_key)) =
+                        read_braced_source_argument(source, key_index)
+                    {
+                        index = after_key;
+                    }
+                }
                 "citefield" if in_document => {
                     index = skip_ascii_whitespace(source, index);
                     if source[index..].starts_with('*') {
@@ -11560,6 +11568,16 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 continue;
             }
         }
+        if command == "nocite" {
+            let key_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, command_after)) = read_braced_source_argument(source, key_index) {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
         if command == "citefield" {
             let mut argument_index = skip_ascii_whitespace(source, command_name_end);
             if argument_index < source.len() && source[argument_index..].starts_with('*') {
@@ -15978,6 +15996,44 @@ Fallback text.
             "refs",
             "alpha",
         ] {
+            assert!(!visible_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_ignores_nocite_without_leaking_keys() {
+        let source =
+            r"\begin{document}Before \nocite{hidden,other}\nocite{*}\cite{visible}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let citations = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineCitation(citation) => Some(citation),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(citations.len(), 1);
+        assert_eq!(citations[0].command, "cite");
+        assert_eq!(citations[0].keys, vec!["visible".to_string()]);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                RenderEvent::InlineCitation(_) => Some("[?]"),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("Before [?]."), "{visible_text}");
+        for hidden in ["hidden", "other", "visible", "nocite", "*"] {
             assert!(!visible_text.contains(hidden));
         }
     }
