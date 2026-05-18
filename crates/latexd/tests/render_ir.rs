@@ -369,6 +369,41 @@ fn graphic_render_ir_capture_derives_display_list_image() {
 }
 
 #[test]
+fn captionof_capture_uses_long_caption_without_type_or_short_title_leakage() {
+    let capture = capture_internal_render_ir("main.tex", CAPTIONOF_SOURCE, &SemanticAux::default());
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Long Figure Title"));
+    assert!(extracted_text.contains("[?]"));
+    for hidden in ["figure", "Short Figure", "fig:first"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let label_keys = capture
+        .document_ir
+        .labels
+        .iter()
+        .map(|label| label.key.as_str())
+        .collect::<Vec<_>>();
+    assert!(label_keys.contains(&"fig:first"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Long Figure Title"));
+    assert!(display_list_text.contains("[?]"));
+    for hidden in ["figure", "Short Figure", "fig:first"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn float_label_definitions_survive_ir_without_visible_keys() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -3617,6 +3652,8 @@ const RAW_FALLBACK_INLINE_KEY_SOURCE: &str = r"\begin{document}\begin{unknownenv
 const GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\end{figure}\end{document}";
 
 const FIGURE_TABLE_LABEL_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\label{fig:plot}\end{figure}\begin{table}\caption{Table caption.}\label{tab:data}\end{table}\end{document}";
+
+const CAPTIONOF_SOURCE: &str = r"\begin{document}\captionof{figure}[Short Figure]{Long Figure Title}\label{fig:first}See \autoref{fig:first}.\end{document}";
 
 const CAPTION_INLINE_KEY_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{See \cite{key} and \ref{sec:intro}.}\end{figure}\end{document}";
 

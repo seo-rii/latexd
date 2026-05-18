@@ -4231,6 +4231,13 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
+                "captionof" if in_document => {
+                    if let Some(after) =
+                        self.capture_captionof_event(source_path, source, index, source.len())
+                    {
+                        index = after;
+                    }
+                }
                 "item" if in_document => {
                     let mut marker = None;
                     index = skip_ascii_whitespace(source, index);
@@ -4428,6 +4435,53 @@ impl<'i> Vm<'i> {
         }
         let Some((caption, content_start, content_end, after)) =
             read_braced_source_argument(source, argument_index)
+        else {
+            return None;
+        };
+        if after > limit {
+            return None;
+        }
+        self.emit_render_event(
+            RenderEvent::Caption(CaptionEvent {
+                text: normalize_latex_text_with_inline_placeholders(caption),
+            }),
+            SourceProvenance::file(
+                source_path.to_owned(),
+                content_start as u32,
+                content_end as u32,
+            ),
+        );
+        Some(after)
+    }
+
+    fn capture_captionof_event(
+        &mut self,
+        source_path: &Utf8Path,
+        source: &str,
+        argument_index: usize,
+        limit: usize,
+    ) -> Option<usize> {
+        let mut argument_index = skip_ascii_whitespace(source, argument_index);
+        if argument_index < limit && source[argument_index..].starts_with('*') {
+            argument_index += 1;
+            argument_index = skip_ascii_whitespace(source, argument_index);
+        }
+        let Some((_, _, _, after_type)) = read_braced_source_argument(source, argument_index)
+        else {
+            return None;
+        };
+        if after_type > limit {
+            return None;
+        }
+        let mut caption_index = skip_ascii_whitespace(source, after_type);
+        if let Some((_, _, _, after_short)) = read_bracket_source_argument(source, caption_index) {
+            if after_short > limit {
+                return None;
+            }
+            caption_index = skip_ascii_whitespace(source, after_short);
+        }
+        let Some((caption, content_start, content_end, after)) =
+            read_braced_source_argument(source, caption_index)
         else {
             return None;
         };
@@ -15373,6 +15427,48 @@ Fallback text.
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("figure")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_records_captionof_without_type_or_short_title_leakage() {
+        let source = r"\begin{document}\captionof{figure}[Short Figure]{Long Figure Title}\label{fig:first}See \autoref{fig:first}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let caption_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::Caption(caption) => Some(caption.text.as_str()),
+                _ => None,
+            })
+            .expect("caption event");
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Caption(caption) => Some(caption.text.as_str()),
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                RenderEvent::InlineReference(_) => Some("[?]"),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert_eq!(caption_text, "Long Figure Title");
+        assert!(visible_text.contains("Long Figure Title"));
+        assert!(visible_text.contains("[?]"));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::LabelDefinition(label)
+                if label.key == "fig:first" && label.command == "label"
+        )));
+        for hidden in ["figure", "Short Figure", "fig:first"] {
+            assert!(!visible_text.contains(hidden));
+        }
     }
 
     #[test]
