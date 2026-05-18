@@ -1934,7 +1934,7 @@ impl<'i> Vm<'i> {
                     }
                 }
                 "emph" | "textbf" | "textit" | "texttt" | "textsc" | "textrm" | "textsf"
-                | "underline" | "mbox" | "textsuperscript" | "textsubscript"
+                | "underline" | "mbox" | "textsuperscript" | "textsubscript" | "citetext"
                     if in_document =>
                 {
                     index = skip_ascii_whitespace(source, index);
@@ -11314,6 +11314,20 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
             scan_index = command_after;
             continue;
         }
+        if command == "citetext" {
+            let argument_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((visible_text, _, _, command_after)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                append_text(&mut text, &visible_text);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
         if command == "citefield" {
             let mut argument_index = skip_ascii_whitespace(source, command_name_end);
             if argument_index < source.len() && source[argument_index..].starts_with('*') {
@@ -15591,6 +15605,62 @@ Fallback text.
                     || text.text.contains("pp.")
                     || text.text.contains("note")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_records_citetext_nested_citations_without_leaking_keys() {
+        let source = r"\begin{document}See \citetext{compare \citealp{beta} with \citeyearpar{alpha}}, nested \emph{\citetext{see \citep{gamma}}}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let citations = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineCitation(citation) => Some(citation),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(citations.len(), 3);
+        assert_eq!(citations[0].command, "citealp");
+        assert_eq!(citations[0].keys, vec!["beta".to_string()]);
+        assert_eq!(citations[0].style_hint, CitationStyleHint::Parenthetical);
+        assert_eq!(citations[1].command, "citeyearpar");
+        assert_eq!(citations[1].keys, vec!["alpha".to_string()]);
+        assert_eq!(citations[1].style_hint, CitationStyleHint::Parenthetical);
+        assert_eq!(citations[2].command, "citep");
+        assert_eq!(citations[2].keys, vec!["gamma".to_string()]);
+        assert_eq!(citations[2].style_hint, CitationStyleHint::Parenthetical);
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                RenderEvent::InlineCitation(_) => Some("[?]"),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(
+            visible_text.contains("See compare [?] with [?], nested see [?]."),
+            "{visible_text}"
+        );
+        for hidden in [
+            "alpha",
+            "beta",
+            "gamma",
+            "citetext",
+            "citealp",
+            "citeyearpar",
+            "citep",
+        ] {
+            assert!(!visible_text.contains(hidden));
+        }
     }
 
     #[test]

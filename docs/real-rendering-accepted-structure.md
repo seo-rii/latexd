@@ -104,6 +104,8 @@ The next implementation step has started with a narrow display-list spike:
 - multi-cite commands such as `textcites`, `parencites`, and `smartcites`
   consume per-cite options and emit one citation event containing all cited
   keys instead of leaking option or key text;
+- `citetext{...}` is treated as visible citation text, preserving nested
+  citation events while avoiding raw command, brace, or key leakage;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and

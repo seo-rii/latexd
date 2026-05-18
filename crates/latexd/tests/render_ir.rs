@@ -1089,6 +1089,81 @@ fn multicite_capture_survives_ir_without_option_or_key_leakage() {
 }
 
 #[test]
+fn citetext_capture_survives_ir_without_nested_key_leakage() {
+    let capture = capture_internal_render_ir("main.tex", CITETEXT_SOURCE, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let citations = paragraph
+        .content
+        .iter()
+        .filter_map(|node| match node {
+            InlineNode::Citation(citation) => Some(citation),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(citations.len(), 3);
+    assert_eq!(citations[0].keys, vec!["beta".to_string()]);
+    assert_eq!(citations[0].style_hint, CitationStyleHint::Parenthetical);
+    assert_eq!(citations[1].keys, vec!["alpha".to_string()]);
+    assert_eq!(citations[1].style_hint, CitationStyleHint::Parenthetical);
+    assert_eq!(citations[2].keys, vec!["gamma".to_string()]);
+    assert_eq!(citations[2].style_hint, CitationStyleHint::Parenthetical);
+    for citation in citations {
+        assert_eq!(citation.display_text, "[?]");
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(
+        extracted_text.contains("See compare [?] with [?], nested see [?]."),
+        "{extracted_text}"
+    );
+    for hidden in [
+        "alpha",
+        "beta",
+        "gamma",
+        "citetext",
+        "citealp",
+        "citeyearpar",
+        "citep",
+    ] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("See compare [?] with [?], nested see [?]."),
+        "{display_list_text}"
+    );
+    for hidden in [
+        "alpha",
+        "beta",
+        "gamma",
+        "citetext",
+        "citealp",
+        "citeyearpar",
+        "citep",
+    ] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn reference_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir("main.tex", REFERENCE_SOURCE, &SemanticAux::default());
     let paragraph = capture
@@ -3234,6 +3309,8 @@ const CITATION_ENTRY_ALIAS_SOURCE: &str = r"\begin{document}\onlinecite{online} 
 const CITEFIELD_SOURCE: &str = r"\begin{document}Fields \citefield{alpha}{doi}, \citefield{beta}{year}, and nested \emph{\citefield{gamma}{journal}}.\end{document}";
 
 const MULTICITE_SOURCE: &str = r"\begin{document}Multi \textcites[see][chap.~2]{alpha}[cf.][pp.~1--2]{beta} and \parencites{gamma}[note]{delta}, nested \emph{\smartcites{epsilon}[cf.]{zeta}}.\end{document}";
+
+const CITETEXT_SOURCE: &str = r"\begin{document}See \citetext{compare \citealp{beta} with \citeyearpar{alpha}}, nested \emph{\citetext{see \citep{gamma}}}.\end{document}";
 
 const REFERENCE_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \eqref{eq:main}; \cref{fig:a,tab:b}.\end{document}";
