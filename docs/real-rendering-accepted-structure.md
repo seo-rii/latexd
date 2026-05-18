@@ -124,6 +124,8 @@ The next implementation step has started with a narrow display-list spike:
   value while hiding bibliography field names;
 - `captionof{type}[short]{long}` now emits the long visible caption without
   leaking float type, short-title, or following label keys into body text;
+- `phantom`, `hphantom`, and `vphantom` now consume their invisible box text
+  without leaking that content into bibliography/body extraction;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and

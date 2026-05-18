@@ -334,6 +334,48 @@ fn bibliography_item_bibinfo_bibfield_wrappers_hide_field_names() {
 }
 
 #[test]
+fn bibliography_item_phantom_wrappers_hide_invisible_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        PHANTOM_BIBLIOGRAPHY_SOURCE,
+        &SemanticAux::default(),
+    );
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+
+    assert_eq!(bibliography.items[0].content, "Visible Text.");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Visible Text."), "{extracted_text}");
+    for hidden in ["Ghost", "Wide", "Tall", "phantom", "hphantom", "vphantom"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("Visible Text."),
+        "{display_list_text}"
+    );
+    for hidden in ["Ghost", "Wide", "Tall", "phantom", "hphantom", "vphantom"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn graphic_render_ir_capture_derives_display_list_image() {
     let capture = capture_internal_render_ir("main.tex", GRAPHIC_SOURCE, &SemanticAux::default());
 
@@ -3646,6 +3688,8 @@ const BIBLIOGRAPHY_ITEM_INLINE_KEY_SOURCE: &str = r"\begin{document}\begin{thebi
 const MKBIB_WRAPPER_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\mkbibquote{Alpha Title}. \mkbibparens{2024}. \mkbibbrackets{note}. \mkbibbraces{Supplement}. \mkbibemph{Emph}. \mkbibbold{Bold}. \mkbibitalic{Italic}.\end{thebibliography}\end{document}";
 
 const BIBINFO_BIBFIELD_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\bibinfo{doi}{10.1000/example}. \bibfield{journal}{Journal of Tests}.\end{thebibliography}\end{document}";
+
+const PHANTOM_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Visible \phantom{Ghost}\hphantom{Wide}\vphantom{Tall}Text.\end{thebibliography}\end{document}";
 
 const RAW_FALLBACK_INLINE_KEY_SOURCE: &str = r"\begin{document}\begin{unknownenv}See \cite{cited} and \ref{sec:intro}.\end{unknownenv}\end{document}";
 
