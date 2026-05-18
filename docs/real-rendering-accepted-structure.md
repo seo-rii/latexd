@@ -101,6 +101,9 @@ The next implementation step has started with a narrow display-list spike:
   `Citetalias` also emit citation events without exposing keys;
 - `citefield{key}{field}` now emits citation intent from the key argument and
   consumes the field selector without leaking either argument into visible text;
+- multi-cite commands such as `textcites`, `parencites`, and `smartcites`
+  consume per-cite options and emit one citation event containing all cited
+  keys instead of leaking option or key text;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and

@@ -1602,6 +1602,38 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
+                "textcites" | "Textcites" | "parencites" | "Parencites" | "smartcites"
+                | "Smartcites"
+                    if in_document =>
+                {
+                    let style_hint = match command {
+                        "textcites" | "Textcites" => CitationStyleHint::Textual,
+                        _ => CitationStyleHint::Parenthetical,
+                    };
+                    if let Some((keys, content_start, content_end, after)) =
+                        read_multicite_source_arguments(source, index, source.len())
+                    {
+                        self.emit_render_event(
+                            RenderEvent::InlineCitation(InlineCitationEvent {
+                                keys: keys
+                                    .into_iter()
+                                    .flat_map(|group| group.split(','))
+                                    .map(str::trim)
+                                    .filter(|key| !key.is_empty())
+                                    .map(ToOwned::to_owned)
+                                    .collect(),
+                                command: command.to_string(),
+                                style_hint,
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                content_start as u32,
+                                content_end as u32,
+                            ),
+                        );
+                        index = after;
+                    }
+                }
                 "citefield" if in_document => {
                     index = skip_ascii_whitespace(source, index);
                     if source[index..].starts_with('*') {
@@ -2052,6 +2084,40 @@ impl<'i> Vm<'i> {
                                                 ),
                                             );
                                             inner_index = math_end + 2;
+                                        }
+                                    }
+                                    "textcites" | "Textcites" | "parencites" | "Parencites"
+                                    | "smartcites" | "Smartcites" => {
+                                        let style_hint = match inner_command {
+                                            "textcites" | "Textcites" => CitationStyleHint::Textual,
+                                            _ => CitationStyleHint::Parenthetical,
+                                        };
+                                        if let Some((keys, key_start, key_end, command_after)) =
+                                            read_multicite_source_arguments(
+                                                source,
+                                                inner_index,
+                                                content_end,
+                                            )
+                                        {
+                                            self.emit_render_event(
+                                                RenderEvent::InlineCitation(InlineCitationEvent {
+                                                    keys: keys
+                                                        .into_iter()
+                                                        .flat_map(|group| group.split(','))
+                                                        .map(str::trim)
+                                                        .filter(|key| !key.is_empty())
+                                                        .map(ToOwned::to_owned)
+                                                        .collect(),
+                                                    command: inner_command.to_string(),
+                                                    style_hint,
+                                                }),
+                                                SourceProvenance::file(
+                                                    source_path.to_owned(),
+                                                    key_start as u32,
+                                                    key_end as u32,
+                                                ),
+                                            );
+                                            inner_index = command_after;
                                         }
                                     }
                                     "citefield" => {
@@ -2611,6 +2677,62 @@ impl<'i> Vm<'i> {
                                                                     ),
                                                                 );
                                                                 argument_inner_index = math_end + 2;
+                                                            }
+                                                        }
+                                                        "textcites" | "Textcites"
+                                                        | "parencites" | "Parencites"
+                                                        | "smartcites" | "Smartcites" => {
+                                                            let style_hint = match argument_command
+                                                            {
+                                                                "textcites" | "Textcites" => {
+                                                                    CitationStyleHint::Textual
+                                                                }
+                                                                _ => {
+                                                                    CitationStyleHint::Parenthetical
+                                                                }
+                                                            };
+                                                            if let Some((
+                                                                keys,
+                                                                key_start,
+                                                                key_end,
+                                                                command_after,
+                                                            )) = read_multicite_source_arguments(
+                                                                source,
+                                                                argument_inner_index,
+                                                                text_end,
+                                                            ) {
+                                                                self.emit_render_event(
+                                                                    RenderEvent::InlineCitation(
+                                                                        InlineCitationEvent {
+                                                                            keys: keys
+                                                                                .into_iter()
+                                                                                .flat_map(
+                                                                                    |group| {
+                                                                                        group.split(
+                                                                                            ',',
+                                                                                        )
+                                                                                    },
+                                                                                )
+                                                                                .map(str::trim)
+                                                                                .filter(|key| {
+                                                                                    !key.is_empty()
+                                                                                })
+                                                                                .map(ToOwned::to_owned)
+                                                                                .collect(),
+                                                                            command:
+                                                                                argument_command
+                                                                                    .to_string(),
+                                                                            style_hint,
+                                                                        },
+                                                                    ),
+                                                                    SourceProvenance::file(
+                                                                        source_path.to_owned(),
+                                                                        key_start as u32,
+                                                                        key_end as u32,
+                                                                    ),
+                                                                );
+                                                                argument_inner_index =
+                                                                    command_after;
                                                             }
                                                         }
                                                         "citefield" => {
@@ -3215,6 +3337,60 @@ impl<'i> Vm<'i> {
                                                                         let mut emitted_inline =
                                                                             false;
                                                                         match nested_command {
+                                                                            "textcites"
+                                                                            | "Textcites"
+                                                                            | "parencites"
+                                                                            | "Parencites"
+                                                                            | "smartcites"
+                                                                            | "Smartcites" => {
+                                                                                let style_hint = match nested_command {
+                                                                                    "textcites" | "Textcites" => {
+                                                                                        CitationStyleHint::Textual
+                                                                                    }
+                                                                                    _ => CitationStyleHint::Parenthetical,
+                                                                                };
+                                                                                if let Some((
+                                                                                    keys,
+                                                                                    key_start,
+                                                                                    key_end,
+                                                                                    after_citation,
+                                                                                )) = read_multicite_source_arguments(
+                                                                                    source,
+                                                                                    nested_index,
+                                                                                    visible_text_end,
+                                                                                ) {
+                                                                                    self.capture_text_events(
+                                                                                        source_path,
+                                                                                        source,
+                                                                                        nested_text_start,
+                                                                                        nested_command_start,
+                                                                                        true,
+                                                                                    );
+                                                                                    self.emit_render_event(
+                                                                                        RenderEvent::InlineCitation(
+                                                                                            InlineCitationEvent {
+                                                                                                keys: keys
+                                                                                                    .into_iter()
+                                                                                                    .flat_map(|group| group.split(','))
+                                                                                                    .map(str::trim)
+                                                                                                    .filter(|key| !key.is_empty())
+                                                                                                    .map(ToOwned::to_owned)
+                                                                                                    .collect(),
+                                                                                                command: nested_command.to_string(),
+                                                                                                style_hint,
+                                                                                            },
+                                                                                        ),
+                                                                                        SourceProvenance::file(
+                                                                                            source_path.to_owned(),
+                                                                                            key_start as u32,
+                                                                                            key_end as u32,
+                                                                                        ),
+                                                                                    );
+                                                                                    nested_index = after_citation;
+                                                                                    nested_text_start = nested_index;
+                                                                                    emitted_inline = true;
+                                                                                }
+                                                                            }
                                                                             "citefield" => {
                                                                                 let citation_index =
                                                                                     skip_ascii_whitespace(
@@ -10836,6 +11012,54 @@ fn read_delimited_source_argument(
     None
 }
 
+fn read_multicite_source_arguments(
+    source: &str,
+    index: usize,
+    limit: usize,
+) -> Option<(Vec<&str>, usize, usize, usize)> {
+    let mut cursor = skip_ascii_whitespace(source, index);
+    if cursor < limit && source[cursor..].starts_with('*') {
+        cursor += 1;
+    }
+
+    let mut keys = Vec::new();
+    let mut first_start = None;
+    let mut last_end = cursor;
+    let mut last_after_key = cursor;
+    loop {
+        cursor = skip_ascii_whitespace(source, cursor);
+        let mut argument_index = cursor;
+        loop {
+            argument_index = skip_ascii_whitespace(source, argument_index);
+            let Some((_, _, _, after_option)) =
+                read_bracket_source_argument(source, argument_index)
+            else {
+                break;
+            };
+            if after_option > limit {
+                break;
+            }
+            argument_index = after_option;
+        }
+        argument_index = skip_ascii_whitespace(source, argument_index);
+        let Some((key, key_start, key_end, after_key)) =
+            read_braced_source_argument(source, argument_index)
+        else {
+            break;
+        };
+        if after_key > limit {
+            break;
+        }
+        first_start.get_or_insert(key_start);
+        last_end = key_end;
+        last_after_key = after_key;
+        keys.push(key);
+        cursor = after_key;
+    }
+
+    first_start.map(|start| (keys, start, last_end, last_after_key))
+}
+
 fn normalize_latex_text(source: &str) -> String {
     let mut text = String::new();
     let mut in_command = false;
@@ -11073,6 +11297,22 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 scan_index = command_after;
                 continue;
             }
+        }
+        if matches!(
+            command,
+            "textcites" | "Textcites" | "parencites" | "Parencites" | "smartcites" | "Smartcites"
+        ) && let Some((_, _, _, command_after)) =
+            read_multicite_source_arguments(source, command_name_end, source.len())
+        {
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            if !text.is_empty() && !text.ends_with([' ', '(', '[']) {
+                text.push(' ');
+            }
+            text.push_str("[?]");
+            found_structured_inline = true;
+            chunk_start = command_after;
+            scan_index = command_after;
+            continue;
         }
         if command == "citefield" {
             let mut argument_index = skip_ascii_whitespace(source, command_name_end);
@@ -15297,6 +15537,59 @@ Fallback text.
                     || text.text.contains("doi")
                     || text.text.contains("year")
                     || text.text.contains("journal")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_multicites_without_leaking_keys_or_options() {
+        let source = r"\begin{document}Multi \textcites[see][chap.~2]{alpha}[cf.][pp.~1--2]{beta} and \parencites{gamma}[note]{delta}, nested \emph{\smartcites{epsilon}[cf.]{zeta}}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let citations = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineCitation(citation) => Some(citation),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(citations.len(), 3);
+        assert_eq!(citations[0].command, "textcites");
+        assert_eq!(
+            citations[0].keys,
+            vec!["alpha".to_string(), "beta".to_string()]
+        );
+        assert_eq!(citations[0].style_hint, CitationStyleHint::Textual);
+        assert_eq!(citations[1].command, "parencites");
+        assert_eq!(
+            citations[1].keys,
+            vec!["gamma".to_string(), "delta".to_string()]
+        );
+        assert_eq!(citations[1].style_hint, CitationStyleHint::Parenthetical);
+        assert_eq!(citations[2].command, "smartcites");
+        assert_eq!(
+            citations[2].keys,
+            vec!["epsilon".to_string(), "zeta".to_string()]
+        );
+        assert_eq!(citations[2].style_hint, CitationStyleHint::Parenthetical);
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if text.text.contains("alpha")
+                    || text.text.contains("beta")
+                    || text.text.contains("gamma")
+                    || text.text.contains("delta")
+                    || text.text.contains("epsilon")
+                    || text.text.contains("zeta")
+                    || text.text.contains("see")
+                    || text.text.contains("chap")
+                    || text.text.contains("cf.")
+                    || text.text.contains("pp.")
+                    || text.text.contains("note")
         )));
     }
 
