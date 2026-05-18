@@ -11290,6 +11290,46 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 | "vrefrange"
                 | "Vrefrange"
         );
+        if matches!(
+            command,
+            "mkbibquote"
+                | "mkbibparens"
+                | "mkbibbrackets"
+                | "mkbibbraces"
+                | "mkbibemph"
+                | "mkbibbold"
+                | "mkbibitalic"
+                | "mkbibnamefamily"
+                | "mkbibnameaffix"
+                | "mkbibacro"
+                | "mkbibsuperscript"
+                | "mkbibsubscript"
+                | "bibstring"
+                | "enquote"
+        ) {
+            let mut argument_index = skip_ascii_whitespace(source, command_name_end);
+            if argument_index < source.len() && source[argument_index..].starts_with('*') {
+                argument_index += 1;
+            }
+            if let Some((visible_text, _, _, command_after)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                let decorated_text = match command {
+                    "mkbibquote" | "enquote" => format!("\"{visible_text}\""),
+                    "mkbibparens" => format!("({visible_text})"),
+                    "mkbibbrackets" => format!("[{visible_text}]"),
+                    "mkbibbraces" => format!("{{{visible_text}}}"),
+                    _ => visible_text,
+                };
+                append_text(&mut text, &decorated_text);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
         if command == "href" {
             let target_index = skip_ascii_whitespace(source, command_name_end);
             if let Some((_, _, _, after_target)) = read_braced_source_argument(source, target_index)
@@ -15098,6 +15138,38 @@ Fallback text.
         assert!(!item_text.contains("sec:intro"));
         assert!(!item_text.contains("cite"));
         assert!(!item_text.contains("ref"));
+    }
+
+    #[test]
+    fn render_event_capture_preserves_mkbib_wrapper_punctuation_in_bibliography_items() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\mkbibquote{Alpha Title}. \mkbibparens{2024}. \mkbibbrackets{note}. \mkbibbraces{Supplement}. \mkbibemph{Emph}. \mkbibbold{Bold}. \mkbibitalic{Italic}.\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .expect("bibliography item");
+        let expected = r#""Alpha Title". (2024). [note]. {Supplement}. Emph. Bold. Italic."#;
+
+        assert_eq!(item_text, expected);
+        for hidden in [
+            "mkbibquote",
+            "mkbibparens",
+            "mkbibbrackets",
+            "mkbibbraces",
+            "mkbibemph",
+            "mkbibbold",
+            "mkbibitalic",
+        ] {
+            assert!(!item_text.contains(hidden));
+        }
     }
 
     #[test]

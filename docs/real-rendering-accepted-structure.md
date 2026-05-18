@@ -112,6 +112,9 @@ The next implementation step has started with a narrow display-list spike:
   so resource paths and options do not leak into rendered body text;
 - `printbibliography[...]` now emits an empty bibliography block boundary while
   consuming options without leaking raw biblatex command text;
+- bibliography item text now preserves visible punctuation from common biblatex
+  formatting wrappers such as `mkbibquote`, `mkbibparens`, `mkbibbrackets`,
+  and `mkbibbraces`;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and
