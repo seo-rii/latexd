@@ -1021,6 +1021,69 @@ fn defcitealias_definition_does_not_leak_into_ir_or_display_list() {
 }
 
 #[test]
+fn addbibresource_definition_does_not_leak_into_ir_or_display_list() {
+    let capture =
+        capture_internal_render_ir("main.tex", ADDBIBRESOURCE_SOURCE, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let citations = paragraph
+        .content
+        .iter()
+        .filter_map(|node| match node {
+            InlineNode::Citation(citation) => Some(citation),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(citations.len(), 2);
+    assert_eq!(citations[0].keys, vec!["alpha".to_string()]);
+    assert_eq!(citations[0].style_hint, CitationStyleHint::Textual);
+    assert_eq!(citations[1].keys, vec!["beta".to_string()]);
+    assert_eq!(citations[1].style_hint, CitationStyleHint::Parenthetical);
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Bib [?] and [?]."));
+    for hidden in [
+        "refs.bib",
+        "location",
+        "local",
+        "addbibresource",
+        "alpha",
+        "beta",
+    ] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Bib [?] and [?]."));
+    for hidden in [
+        "refs.bib",
+        "location",
+        "local",
+        "addbibresource",
+        "alpha",
+        "beta",
+    ] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn citefield_capture_survives_ir_without_field_or_key_leakage() {
     let capture = capture_internal_render_ir("main.tex", CITEFIELD_SOURCE, &SemanticAux::default());
     let paragraph = capture
@@ -3362,6 +3425,8 @@ const CITATION_IDENTIFIER_DATE_ALIAS_SOURCE: &str = r"\begin{document}\citedoi{d
 const CITATION_ENTRY_ALIAS_SOURCE: &str = r"\begin{document}\onlinecite{online} \smartcite{smart} \fullcite{full} \footfullcite{footfull} \bibentry{entry} \citetalias{textalias} \citepalias{parenalias} \Citetalias{capalias}\end{document}";
 
 const DEFCITEALIAS_SOURCE: &str = r"\begin{document}\defcitealias{alpha}{Paper I}Alias \citetalias{alpha}, \citepalias{alpha}, and \Citetalias{alpha}.\end{document}";
+
+const ADDBIBRESOURCE_SOURCE: &str = r"\begin{document}\addbibresource[location=local]{refs.bib}Bib \textcite{alpha} and \parencite{beta}.\end{document}";
 
 const CITEFIELD_SOURCE: &str = r"\begin{document}Fields \citefield{alpha}{doi}, \citefield{beta}{year}, and nested \emph{\citefield{gamma}{journal}}.\end{document}";
 

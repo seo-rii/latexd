@@ -1647,6 +1647,23 @@ impl<'i> Vm<'i> {
                         }
                     }
                 }
+                "addbibresource" if in_document => {
+                    let mut resource_index = skip_ascii_whitespace(source, index);
+                    loop {
+                        resource_index = skip_ascii_whitespace(source, resource_index);
+                        let Some((_, _, _, after_option)) =
+                            read_bracket_source_argument(source, resource_index)
+                        else {
+                            break;
+                        };
+                        resource_index = after_option;
+                    }
+                    if let Some((_, _, _, after_resource)) =
+                        read_braced_source_argument(source, resource_index)
+                    {
+                        index = after_resource;
+                    }
+                }
                 "citefield" if in_document => {
                     index = skip_ascii_whitespace(source, index);
                     if source[index..].starts_with('*') {
@@ -11356,6 +11373,27 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 }
             }
         }
+        if command == "addbibresource" {
+            let mut resource_index = skip_ascii_whitespace(source, command_name_end);
+            loop {
+                resource_index = skip_ascii_whitespace(source, resource_index);
+                let Some((_, _, _, after_option)) =
+                    read_bracket_source_argument(source, resource_index)
+                else {
+                    break;
+                };
+                resource_index = after_option;
+            }
+            if let Some((_, _, _, command_after)) =
+                read_braced_source_argument(source, resource_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
         if command == "citefield" {
             let mut argument_index = skip_ascii_whitespace(source, command_name_end);
             if argument_index < source.len() && source[argument_index..].starts_with('*') {
@@ -15586,6 +15624,55 @@ Fallback text.
             "{visible_text}"
         );
         for hidden in ["alpha", "Paper I", "defcitealias"] {
+            assert!(!visible_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_ignores_addbibresource_without_leaking_filename() {
+        let source = r"\begin{document}\addbibresource[location=local]{refs.bib}Bib \textcite{alpha} and \parencite{beta}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let citations = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineCitation(citation) => Some(citation),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(citations.len(), 2);
+        assert_eq!(citations[0].command, "textcite");
+        assert_eq!(citations[0].keys, vec!["alpha".to_string()]);
+        assert_eq!(citations[0].style_hint, CitationStyleHint::Textual);
+        assert_eq!(citations[1].command, "parencite");
+        assert_eq!(citations[1].keys, vec!["beta".to_string()]);
+        assert_eq!(citations[1].style_hint, CitationStyleHint::Parenthetical);
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                RenderEvent::InlineCitation(_) => Some("[?]"),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("Bib [?] and [?]."), "{visible_text}");
+        for hidden in [
+            "refs.bib",
+            "location",
+            "local",
+            "addbibresource",
+            "alpha",
+            "beta",
+        ] {
             assert!(!visible_text.contains(hidden));
         }
     }

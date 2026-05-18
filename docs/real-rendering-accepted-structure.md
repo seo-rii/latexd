@@ -108,6 +108,8 @@ The next implementation step has started with a narrow display-list spike:
   citation events while avoiding raw command, brace, or key leakage;
 - `defcitealias{key}{alias}` definitions are consumed as non-visible citation
   metadata so alias keys and replacement text do not leak into body output;
+- `addbibresource[...]{...}` is consumed as non-visible bibliography metadata
+  so resource paths and options do not leak into rendered body text;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and
