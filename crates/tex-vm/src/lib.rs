@@ -1634,6 +1634,19 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
+                "defcitealias" if in_document => {
+                    let key_index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_key)) =
+                        read_braced_source_argument(source, key_index)
+                    {
+                        let alias_index = skip_ascii_whitespace(source, after_key);
+                        if let Some((_, _, _, after_alias)) =
+                            read_braced_source_argument(source, alias_index)
+                        {
+                            index = after_alias;
+                        }
+                    }
+                }
                 "citefield" if in_document => {
                     index = skip_ascii_whitespace(source, index);
                     if source[index..].starts_with('*') {
@@ -11328,6 +11341,21 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 continue;
             }
         }
+        if command == "defcitealias" {
+            let key_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, after_key)) = read_braced_source_argument(source, key_index) {
+                let alias_index = skip_ascii_whitespace(source, after_key);
+                if let Some((_, _, _, command_after)) =
+                    read_braced_source_argument(source, alias_index)
+                {
+                    append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                    found_structured_inline = true;
+                    chunk_start = command_after;
+                    scan_index = command_after;
+                    continue;
+                }
+            }
+        }
         if command == "citefield" {
             let mut argument_index = skip_ascii_whitespace(source, command_name_end);
             if argument_index < source.len() && source[argument_index..].starts_with('*') {
@@ -15511,6 +15539,55 @@ Fallback text.
                     || text.text.contains("parenalias")
                     || text.text.contains("capalias")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_ignores_defcitealias_definitions_without_leaking_text() {
+        let source = r"\begin{document}\defcitealias{alpha}{Paper I}Alias \citetalias{alpha}, \citepalias{alpha}, and \Citetalias{alpha}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let citations = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::InlineCitation(citation) => Some(citation),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let expected = [
+            ("citetalias", CitationStyleHint::Textual),
+            ("citepalias", CitationStyleHint::Parenthetical),
+            ("Citetalias", CitationStyleHint::Textual),
+        ];
+        assert_eq!(citations.len(), expected.len());
+        for (citation, (command, style_hint)) in citations.iter().zip(expected) {
+            assert_eq!(citation.command, command);
+            assert_eq!(citation.keys, vec!["alpha".to_string()]);
+            assert_eq!(citation.style_hint, style_hint);
+        }
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                RenderEvent::InlineCitation(_) => Some("[?]"),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(
+            visible_text.contains("Alias [?], [?], and [?]."),
+            "{visible_text}"
+        );
+        for hidden in ["alpha", "Paper I", "defcitealias"] {
+            assert!(!visible_text.contains(hidden));
+        }
     }
 
     #[test]

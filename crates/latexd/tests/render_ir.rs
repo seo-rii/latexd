@@ -966,6 +966,61 @@ fn citation_entry_alias_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn defcitealias_definition_does_not_leak_into_ir_or_display_list() {
+    let capture =
+        capture_internal_render_ir("main.tex", DEFCITEALIAS_SOURCE, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let citations = paragraph
+        .content
+        .iter()
+        .filter_map(|node| match node {
+            InlineNode::Citation(citation) => Some(citation),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let expected = [
+        CitationStyleHint::Textual,
+        CitationStyleHint::Parenthetical,
+        CitationStyleHint::Textual,
+    ];
+    assert_eq!(citations.len(), expected.len());
+    for (citation, style_hint) in citations.iter().zip(expected) {
+        assert_eq!(citation.keys, vec!["alpha".to_string()]);
+        assert_eq!(citation.style_hint, style_hint);
+        assert_eq!(citation.display_text, "[?]");
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Alias [?], [?], and [?]."));
+    for hidden in ["alpha", "Paper I", "defcitealias"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Alias [?], [?], and [?]."));
+    for hidden in ["alpha", "Paper I", "defcitealias"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn citefield_capture_survives_ir_without_field_or_key_leakage() {
     let capture = capture_internal_render_ir("main.tex", CITEFIELD_SOURCE, &SemanticAux::default());
     let paragraph = capture
@@ -3305,6 +3360,8 @@ const CITATION_METADATA_ALIAS_SOURCE: &str = r"\begin{document}\Citeauthor{alpha
 const CITATION_IDENTIFIER_DATE_ALIAS_SOURCE: &str = r"\begin{document}\citedoi{doi} \citeeprint{eprint} \citeisbn{isbn} \citeissn{issn} \citeurl{url} \citenum{number} \citedate{date} \Citedate{capdate} \citeurldate{urldate} \Citeurldate{capurldate}\end{document}";
 
 const CITATION_ENTRY_ALIAS_SOURCE: &str = r"\begin{document}\onlinecite{online} \smartcite{smart} \fullcite{full} \footfullcite{footfull} \bibentry{entry} \citetalias{textalias} \citepalias{parenalias} \Citetalias{capalias}\end{document}";
+
+const DEFCITEALIAS_SOURCE: &str = r"\begin{document}\defcitealias{alpha}{Paper I}Alias \citetalias{alpha}, \citepalias{alpha}, and \Citetalias{alpha}.\end{document}";
 
 const CITEFIELD_SOURCE: &str = r"\begin{document}Fields \citefield{alpha}{doi}, \citefield{beta}{year}, and nested \emph{\citefield{gamma}{journal}}.\end{document}";
 
