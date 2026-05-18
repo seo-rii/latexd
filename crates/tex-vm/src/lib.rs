@@ -1664,6 +1664,39 @@ impl<'i> Vm<'i> {
                         index = after_resource;
                     }
                 }
+                "printbibliography" if in_document => {
+                    let mut after_options = skip_ascii_whitespace(source, index);
+                    loop {
+                        after_options = skip_ascii_whitespace(source, after_options);
+                        let Some((_, _, _, after_option)) =
+                            read_bracket_source_argument(source, after_options)
+                        else {
+                            break;
+                        };
+                        after_options = after_option;
+                    }
+                    self.emit_render_event(
+                        RenderEvent::BeginBlock(BeginBlockEvent {
+                            block: BlockKind::Bibliography,
+                        }),
+                        SourceProvenance::file(
+                            source_path.to_owned(),
+                            command_start as u32,
+                            after_options as u32,
+                        ),
+                    );
+                    self.emit_render_event(
+                        RenderEvent::EndBlock(BeginBlockEvent {
+                            block: BlockKind::Bibliography,
+                        }),
+                        SourceProvenance::file(
+                            source_path.to_owned(),
+                            command_start as u32,
+                            after_options as u32,
+                        ),
+                    );
+                    index = after_options;
+                }
                 "citefield" if in_document => {
                     index = skip_ascii_whitespace(source, index);
                     if source[index..].starts_with('*') {
@@ -11394,6 +11427,23 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 continue;
             }
         }
+        if command == "printbibliography" {
+            let mut after_options = skip_ascii_whitespace(source, command_name_end);
+            loop {
+                after_options = skip_ascii_whitespace(source, after_options);
+                let Some((_, _, _, after_option)) =
+                    read_bracket_source_argument(source, after_options)
+                else {
+                    break;
+                };
+                after_options = after_option;
+            }
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            found_structured_inline = true;
+            chunk_start = after_options;
+            scan_index = after_options;
+            continue;
+        }
         if command == "citefield" {
             let mut argument_index = skip_ascii_whitespace(source, command_name_end);
             if argument_index < source.len() && source[argument_index..].starts_with('*') {
@@ -15673,6 +15723,45 @@ Fallback text.
             "alpha",
             "beta",
         ] {
+            assert!(!visible_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_records_printbibliography_block_without_leaking_options() {
+        let source = r"\begin{document}Before \textcite{alpha}.\printbibliography[heading=none]\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(BeginBlockEvent {
+                block: BlockKind::Bibliography
+            })
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::EndBlock(BeginBlockEvent {
+                block: BlockKind::Bibliography
+            })
+        )));
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                RenderEvent::InlineCitation(_) => Some("[?]"),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("Before [?]."), "{visible_text}");
+        for hidden in ["printbibliography", "heading", "none", "alpha"] {
             assert!(!visible_text.contains(hidden));
         }
     }

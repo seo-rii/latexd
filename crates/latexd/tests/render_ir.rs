@@ -1084,6 +1084,45 @@ fn addbibresource_definition_does_not_leak_into_ir_or_display_list() {
 }
 
 #[test]
+fn printbibliography_capture_creates_empty_bibliography_without_option_leakage() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        PRINTBIBLIOGRAPHY_SOURCE,
+        &SemanticAux::default(),
+    );
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+
+    assert!(bibliography.items.is_empty());
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Before [?]."));
+    for hidden in ["printbibliography", "heading", "none", "alpha"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Before [?]."));
+    for hidden in ["printbibliography", "heading", "none", "alpha"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn citefield_capture_survives_ir_without_field_or_key_leakage() {
     let capture = capture_internal_render_ir("main.tex", CITEFIELD_SOURCE, &SemanticAux::default());
     let paragraph = capture
@@ -3427,6 +3466,9 @@ const CITATION_ENTRY_ALIAS_SOURCE: &str = r"\begin{document}\onlinecite{online} 
 const DEFCITEALIAS_SOURCE: &str = r"\begin{document}\defcitealias{alpha}{Paper I}Alias \citetalias{alpha}, \citepalias{alpha}, and \Citetalias{alpha}.\end{document}";
 
 const ADDBIBRESOURCE_SOURCE: &str = r"\begin{document}\addbibresource[location=local]{refs.bib}Bib \textcite{alpha} and \parencite{beta}.\end{document}";
+
+const PRINTBIBLIOGRAPHY_SOURCE: &str =
+    r"\begin{document}Before \textcite{alpha}.\printbibliography[heading=none]\end{document}";
 
 const CITEFIELD_SOURCE: &str = r"\begin{document}Fields \citefield{alpha}{doi}, \citefield{beta}{year}, and nested \emph{\citefield{gamma}{journal}}.\end{document}";
 

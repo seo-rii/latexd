@@ -110,6 +110,8 @@ The next implementation step has started with a narrow display-list spike:
   metadata so alias keys and replacement text do not leak into body output;
 - `addbibresource[...]{...}` is consumed as non-visible bibliography metadata
   so resource paths and options do not leak into rendered body text;
+- `printbibliography[...]` now emits an empty bibliography block boundary while
+  consuming options without leaking raw biblatex command text;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and
