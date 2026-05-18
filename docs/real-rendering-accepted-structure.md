@@ -115,6 +115,8 @@ The next implementation step has started with a narrow display-list spike:
 - bibliography item text now preserves visible punctuation from common biblatex
   formatting wrappers such as `mkbibquote`, `mkbibparens`, `mkbibbrackets`,
   and `mkbibbraces`;
+- `bibinfo{field}{value}` and `bibfield{field}{value}` now render the visible
+  value while hiding bibliography field names;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and

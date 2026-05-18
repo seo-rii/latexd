@@ -11290,6 +11290,23 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 | "vrefrange"
                 | "Vrefrange"
         );
+        if matches!(command, "bibinfo" | "bibfield") {
+            let field_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, after_field)) = read_braced_source_argument(source, field_index) {
+                let value_index = skip_ascii_whitespace(source, after_field);
+                if let Some((visible_text, _, _, command_after)) =
+                    read_braced_source_argument(source, value_index)
+                {
+                    append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                    let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                    append_text(&mut text, &visible_text);
+                    found_structured_inline = true;
+                    chunk_start = command_after;
+                    scan_index = command_after;
+                    continue;
+                }
+            }
+        }
         if matches!(
             command,
             "mkbibquote"
@@ -15168,6 +15185,29 @@ Fallback text.
             "mkbibbold",
             "mkbibitalic",
         ] {
+            assert!(!item_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_renders_bibinfo_bibfield_values_without_field_names() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\bibinfo{doi}{10.1000/example}. \bibfield{journal}{Journal of Tests}.\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .expect("bibliography item");
+
+        assert_eq!(item_text, "10.1000/example. Journal of Tests.");
+        for hidden in ["bibinfo", "bibfield", "doi", "journal"] {
             assert!(!item_text.contains(hidden));
         }
     }
