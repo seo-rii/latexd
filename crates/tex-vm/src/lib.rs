@@ -11231,6 +11231,16 @@ fn normalize_latex_text(source: &str) -> String {
                 continue;
             }
             in_command = false;
+            match ch {
+                '!' => continue,
+                ',' | ';' | ':' | ' ' => {
+                    if !text.is_empty() {
+                        previous_space = true;
+                    }
+                    continue;
+                }
+                _ => {}
+            }
         }
         match ch {
             '\\' => {
@@ -15374,6 +15384,32 @@ Fallback text.
 
         assert_eq!(item_text, "Visible Text.");
         for hidden in ["Ghost", "Wide", "Tall", "phantom", "hphantom", "vphantom"] {
+            assert!(!item_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_tex_spacing_commands_in_bibliography_items() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Tight\!Join. Soft\,Gap. Wide\;Gap. Colon\:Gap. Named\space Gap. Backslash\ Gap.\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .expect("bibliography item");
+
+        assert_eq!(
+            item_text,
+            "TightJoin. Soft Gap. Wide Gap. Colon Gap. Named Gap. Backslash Gap."
+        );
+        for hidden in ["Tight!Join", "Soft,Gap", "Wide;Gap", "Colon:Gap", "space"] {
             assert!(!item_text.contains(hidden));
         }
     }

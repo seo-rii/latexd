@@ -126,6 +126,9 @@ The next implementation step has started with a narrow display-list spike:
   leaking float type, short-title, or following label keys into body text;
 - `phantom`, `hphantom`, and `vphantom` now consume their invisible box text
   without leaking that content into bibliography/body extraction;
+- TeX spacing control symbols such as `\!`, `\,`, `\;`, `\:`, `\space`,
+  and control-space now normalize to invisible or space text instead of
+  literal punctuation;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and
