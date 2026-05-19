@@ -311,6 +311,9 @@ The next implementation step has started with a narrow display-list spike:
   RawFallback;
 - `widetext` and `strip` now act as structured wrappers so their body text and
   inline events are captured instead of being swallowed by RawFallback;
+- `spacing`, `onehalfspace`, `doublespace`, and `singlespace` now act as
+  structured wrappers while consuming line-spacing arguments so they do not
+  appear as visible text;
 - `minipage` now uses the structured environment path while consuming layout
   position/width arguments so they do not appear as visible text;
 - `multicols` and `multicols*` now use the structured environment path while

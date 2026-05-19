@@ -5199,6 +5199,58 @@ fn wide_text_wrappers_capture_survives_ir_without_fallback() {
 }
 
 #[test]
+fn spacing_wrappers_capture_hides_layout_arguments() {
+    let capture =
+        capture_internal_render_ir("main.tex", SPACING_WRAPPER_SOURCE, &SemanticAux::default());
+    let environment_names = capture
+        .document_ir
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            IrBlock::Environment(environment) => Some(environment.name.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    for environment in ["spacing", "onehalfspace", "doublespace", "singlespace"] {
+        assert!(environment_names.contains(&environment));
+    }
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if matches!(
+                    fallback.environment.as_deref(),
+                    Some("spacing" | "onehalfspace" | "doublespace" | "singlespace")
+                )
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Spaced [?] text."));
+    assert!(extracted_text.contains("Half text."));
+    assert!(extracted_text.contains("Double text."));
+    assert!(extracted_text.contains("Single text."));
+    assert!(!extracted_text.contains("1.5"));
+    assert!(!extracted_text.contains("{key}"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Spaced [?] text."));
+    assert!(display_list_text.contains("Half text."));
+    assert!(display_list_text.contains("Double text."));
+    assert!(display_list_text.contains("Single text."));
+    assert!(!display_list_text.contains("1.5"));
+    assert!(!display_list_text.contains("{key}"));
+}
+
+#[test]
 fn appendices_environment_capture_preserves_nested_headings() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -6231,6 +6283,8 @@ const KEYWORDS_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{keywords}visi
 const FRONTMATTER_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{frontmatter}\title{Wrapped Paper}\author{Ada}\begin{abstract}Wrapped abstract \cite{key}.\end{abstract}\end{frontmatter}\end{document}";
 
 const WIDE_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}\begin{widetext}Wide \cite{key} text.\end{widetext}\begin{strip}Strip text.\end{strip}\end{document}";
+
+const SPACING_WRAPPER_SOURCE: &str = r"\begin{document}\begin{spacing}{1.5}Spaced \cite{key} text.\end{spacing}\begin{onehalfspace}Half text.\end{onehalfspace}\begin{doublespace}Double text.\end{doublespace}\begin{singlespace}Single text.\end{singlespace}\end{document}";
 
 const APPENDICES_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{appendices}\section{Extra}Appendix \ref{sec:intro} text.\end{appendices}\begin{subappendices}\subsection{More}More text.\end{subappendices}\end{document}";
 

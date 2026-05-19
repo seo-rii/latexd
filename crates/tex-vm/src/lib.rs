@@ -965,6 +965,10 @@ impl<'i> Vm<'i> {
             "frontmatter",
             "widetext",
             "strip",
+            "spacing",
+            "onehalfspace",
+            "doublespace",
+            "singlespace",
             "algorithm",
             "algorithm*",
             "algorithmic",
@@ -1306,6 +1310,13 @@ impl<'i> Vm<'i> {
                                         read_braced_source_argument(source, argument_index)
                                     {
                                         index = after_columns;
+                                    }
+                                } else if other == "spacing" {
+                                    let argument_index = skip_ascii_whitespace(source, index);
+                                    if let Some((_, _, _, after_scale)) =
+                                        read_braced_source_argument(source, argument_index)
+                                    {
+                                        index = after_scale;
                                     }
                                 }
                                 self.emit_render_event(
@@ -19580,6 +19591,47 @@ Fallback text.
             RenderEvent::RawFallback(fallback)
                 if matches!(fallback.environment.as_deref(), Some("widetext" | "strip"))
         )));
+    }
+
+    #[test]
+    fn render_event_capture_records_spacing_wrappers_without_layout_arguments() {
+        let source = r"\begin{document}\begin{spacing}{1.5}Spaced \cite{key} text.\end{spacing}\begin{onehalfspace}Half text.\end{onehalfspace}\begin{doublespace}Double text.\end{doublespace}\begin{singlespace}Single text.\end{singlespace}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for environment in ["spacing", "onehalfspace", "doublespace", "singlespace"] {
+            assert!(outcome.render_events.iter().any(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::BeginBlock(BeginBlockEvent {
+                        block: BlockKind::Environment { name },
+                    }) if name == environment
+                )
+            }));
+        }
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::InlineCitation(citation)
+                    if citation.keys == vec!["key".to_string()]
+            )
+        }));
+        assert!(
+            !outcome
+                .render_events
+                .iter()
+                .any(|event| match &event.event {
+                    RenderEvent::Text(text) => text.text.contains("1.5"),
+                    RenderEvent::RawFallback(fallback) => matches!(
+                        fallback.environment.as_deref(),
+                        Some("spacing" | "onehalfspace" | "doublespace" | "singlespace")
+                    ),
+                    _ => false,
+                })
+        );
     }
 
     #[test]
