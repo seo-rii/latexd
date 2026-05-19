@@ -1039,8 +1039,9 @@ fn captionof_capture_uses_long_caption_without_type_or_short_title_leakage() {
 
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("Long Figure Title"));
+    assert!(extracted_text.contains("Long Table Title"));
     assert!(extracted_text.contains("[?]"));
-    for hidden in ["figure", "Short Figure", "fig:first"] {
+    for hidden in ["figure", "Short Figure", "fig:first", "table", "tab:first"] {
         assert!(!extracted_text.contains(hidden));
     }
 
@@ -1051,6 +1052,7 @@ fn captionof_capture_uses_long_caption_without_type_or_short_title_leakage() {
         .map(|label| label.key.as_str())
         .collect::<Vec<_>>();
     assert!(label_keys.contains(&"fig:first"));
+    assert!(label_keys.contains(&"tab:first"));
 
     let display_list_text = capture.page_display_lists[0]
         .ops
@@ -1062,8 +1064,37 @@ fn captionof_capture_uses_long_caption_without_type_or_short_title_leakage() {
         .collect::<Vec<_>>()
         .join("");
     assert!(display_list_text.contains("Long Figure Title"));
+    assert!(display_list_text.contains("Long Table Title"));
     assert!(display_list_text.contains("[?]"));
-    for hidden in ["figure", "Short Figure", "fig:first"] {
+    for hidden in ["figure", "Short Figure", "fig:first", "table", "tab:first"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
+fn starred_caption_capture_survives_ir_without_visible_star_or_label_key() {
+    let capture =
+        capture_internal_render_ir("main.tex", STARRED_CAPTION_SOURCE, &SemanticAux::default());
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Unnumbered Figure Caption"));
+    assert!(extracted_text.contains("[?]"));
+    for hidden in ["*", "fig:starred"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Unnumbered Figure Caption"));
+    assert!(display_list_text.contains("[?]"));
+    for hidden in ["*", "fig:starred"] {
         assert!(!display_list_text.contains(hidden));
     }
 }
@@ -4434,7 +4465,9 @@ const GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1
 
 const FIGURE_TABLE_LABEL_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\label{fig:plot}\end{figure}\begin{table}\caption{Table caption.}\label{tab:data}\end{table}\end{document}";
 
-const CAPTIONOF_SOURCE: &str = r"\begin{document}\captionof{figure}[Short Figure]{Long Figure Title}\label{fig:first}See \autoref{fig:first}.\end{document}";
+const CAPTIONOF_SOURCE: &str = r"\begin{document}\captionof{figure}[Short Figure]{Long Figure Title}\label{fig:first}See \autoref{fig:first}.\captionof*{table}{Long Table Title}\label{tab:first}See \autoref{tab:first}.\end{document}";
+
+const STARRED_CAPTION_SOURCE: &str = r"\begin{document}\begin{figure}\caption*{Unnumbered Figure Caption}\label{fig:starred}\end{figure}See \autoref{fig:starred}.\end{document}";
 
 const CAPTION_INLINE_KEY_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{See \cite{key} and \ref{sec:intro}.}\end{figure}\end{document}";
 

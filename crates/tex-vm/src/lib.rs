@@ -4435,6 +4435,10 @@ impl<'i> Vm<'i> {
         limit: usize,
     ) -> Option<usize> {
         let mut argument_index = skip_ascii_whitespace(source, argument_index);
+        if argument_index < limit && source[argument_index..].starts_with('*') {
+            argument_index += 1;
+            argument_index = skip_ascii_whitespace(source, argument_index);
+        }
         if let Some((_, _, _, after)) = read_bracket_source_argument(source, argument_index) {
             if after > limit {
                 return None;
@@ -16171,7 +16175,61 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_captionof_without_type_or_short_title_leakage() {
-        let source = r"\begin{document}\captionof{figure}[Short Figure]{Long Figure Title}\label{fig:first}See \autoref{fig:first}.\end{document}";
+        let source = r"\begin{document}\captionof{figure}[Short Figure]{Long Figure Title}\label{fig:first}See \autoref{fig:first}.\captionof*{table}{Long Table Title}\label{tab:first}See \autoref{tab:first}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let caption_texts = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Caption(caption) => Some(caption.text.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Caption(caption) => Some(caption.text.as_str()),
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                RenderEvent::InlineReference(_) => Some("[?]"),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert_eq!(
+            caption_texts,
+            vec![
+                "Long Figure Title".to_string(),
+                "Long Table Title".to_string()
+            ]
+        );
+        assert!(visible_text.contains("Long Figure Title"));
+        assert!(visible_text.contains("Long Table Title"));
+        assert!(visible_text.contains("[?]"));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::LabelDefinition(label)
+                if label.key == "fig:first" && label.command == "label"
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::LabelDefinition(label)
+                if label.key == "tab:first" && label.command == "label"
+        )));
+        for hidden in ["figure", "Short Figure", "fig:first", "table", "tab:first"] {
+            assert!(!visible_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_records_starred_caption_without_leaking_star_or_label_key() {
+        let source = r"\begin{document}\begin{figure}\caption*{Unnumbered Figure Caption}\label{fig:starred}\end{figure}See \autoref{fig:starred}.\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -16198,15 +16256,10 @@ Fallback text.
             .collect::<Vec<_>>()
             .join("");
 
-        assert_eq!(caption_text, "Long Figure Title");
-        assert!(visible_text.contains("Long Figure Title"));
+        assert_eq!(caption_text, "Unnumbered Figure Caption");
+        assert!(visible_text.contains("Unnumbered Figure Caption"));
         assert!(visible_text.contains("[?]"));
-        assert!(outcome.render_events.iter().any(|event| matches!(
-            &event.event,
-            RenderEvent::LabelDefinition(label)
-                if label.key == "fig:first" && label.command == "label"
-        )));
-        for hidden in ["figure", "Short Figure", "fig:first"] {
+        for hidden in ["*", "fig:starred"] {
             assert!(!visible_text.contains(hidden));
         }
     }
