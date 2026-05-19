@@ -85,6 +85,8 @@ The next implementation step has started with a narrow display-list spike:
 - label definitions inside display math environments, `\[...\]`, and `$$...$$`
   delimiters now emit `LabelDefinition` events while `\label{...}` commands are
   stripped from display math `raw_source`;
+- `subequations` now acts as a structured wrapper so inner display math
+  environments are captured instead of being swallowed by RawFallback;
 - VM render-event capture now emits `Heading` levels for `part`/`chapter`,
   `section`, `subsection`, `subsubsection`, `paragraph`, and `subparagraph`,
   preserving the long title span when an optional short title is present;

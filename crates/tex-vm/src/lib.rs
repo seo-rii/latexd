@@ -959,6 +959,7 @@ impl<'i> Vm<'i> {
             "algorithm*",
             "algorithmic",
             "algorithmic*",
+            "subequations",
         ] {
             structured_environments.insert(environment.to_string());
         }
@@ -19205,6 +19206,45 @@ Fallback text.
                 if matches!(
                     fallback.environment.as_deref(),
                     Some("algorithmic" | "algorithmic*")
+                )
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_subequations_wrapper_without_fallback() {
+        let source = r"\begin{document}\begin{subequations}\label{eq:group}\begin{align}x&=y\end{align}\end{subequations}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::Environment { name },
+                }) if name == "subequations"
+            )
+        }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::DisplayMath(math) if math.raw_source == "x&=y"
+            )
+        }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::LabelDefinition(label) if label.key == "eq:group"
+            )
+        }));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if matches!(
+                    fallback.environment.as_deref(),
+                    Some("subequations" | "align")
                 )
         )));
     }

@@ -4795,6 +4795,62 @@ fn algorithmic_environment_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn subequations_wrapper_preserves_inner_display_math() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        SUBEQUATIONS_WRAPPER_SOURCE,
+        &SemanticAux::default(),
+    );
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Environment(environment) if environment.name == "subequations"
+        )
+    }));
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::DisplayMath(display) if display.raw_source == "x&=y"
+        )
+    }));
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if matches!(
+                    fallback.environment.as_deref(),
+                    Some("subequations" | "align")
+                )
+        )
+    }));
+
+    let label_keys = capture
+        .document_ir
+        .labels
+        .iter()
+        .map(|label| label.key.as_str())
+        .collect::<Vec<_>>();
+    assert!(label_keys.contains(&"eq:group"));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("x&=y"));
+    assert!(!extracted_text.contains("eq:group"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("x&=y"));
+    assert!(!display_list_text.contains("eq:group"));
+}
+
+#[test]
 fn theorem_like_environment_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -5438,6 +5494,8 @@ const SIMPLE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{quote}Quoted \c
 const ALGORITHM_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{algorithm}\caption{Procedure.}\label{alg:first}Step text.\end{algorithm}\begin{algorithm*}Wide step.\end{algorithm*}\end{document}";
 
 const ALGORITHMIC_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{algorithmic}\State Step one.\end{algorithmic}\begin{algorithmic*}Wide step.\end{algorithmic*}\end{document}";
+
+const SUBEQUATIONS_WRAPPER_SOURCE: &str = r"\begin{document}\begin{subequations}\label{eq:group}\begin{align}x&=y\end{align}\end{subequations}\end{document}";
 
 const THEOREM_LIKE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{lemma}Lemma text.\end{lemma}\begin{proposition}Proposition text.\end{proposition}\begin{corollary}Corollary text.\end{corollary}\begin{definition}Definition text.\end{definition}\begin{remark}Remark text.\end{remark}\begin{example}Example text.\end{example}\end{document}";
 
