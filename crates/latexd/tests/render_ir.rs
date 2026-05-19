@@ -5154,6 +5154,51 @@ fn frontmatter_environment_capture_preserves_metadata_and_abstract() {
 }
 
 #[test]
+fn wide_text_wrappers_capture_survives_ir_without_fallback() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        WIDE_TEXT_WRAPPER_SOURCE,
+        &SemanticAux::default(),
+    );
+    let environment_names = capture
+        .document_ir
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            IrBlock::Environment(environment) => Some(environment.name.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(environment_names.contains(&"widetext"));
+    assert!(environment_names.contains(&"strip"));
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if matches!(fallback.environment.as_deref(), Some("widetext" | "strip"))
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Wide [?] text."));
+    assert!(extracted_text.contains("Strip text."));
+    assert!(!extracted_text.contains("{key}"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Wide [?] text."));
+    assert!(display_list_text.contains("Strip text."));
+    assert!(!display_list_text.contains("{key}"));
+}
+
+#[test]
 fn appendices_environment_capture_preserves_nested_headings() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -6184,6 +6229,8 @@ const ACKNOWLEDGEMENTS_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{ackno
 const KEYWORDS_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{keywords}vision; \cite{key}\end{keywords}\begin{keyword}single keyword\end{keyword}\begin{IEEEkeywords}systems, latex\end{IEEEkeywords}\end{document}";
 
 const FRONTMATTER_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{frontmatter}\title{Wrapped Paper}\author{Ada}\begin{abstract}Wrapped abstract \cite{key}.\end{abstract}\end{frontmatter}\end{document}";
+
+const WIDE_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}\begin{widetext}Wide \cite{key} text.\end{widetext}\begin{strip}Strip text.\end{strip}\end{document}";
 
 const APPENDICES_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{appendices}\section{Extra}Appendix \ref{sec:intro} text.\end{appendices}\begin{subappendices}\subsection{More}More text.\end{subappendices}\end{document}";
 
