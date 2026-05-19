@@ -1166,7 +1166,7 @@ impl<'i> Vm<'i> {
                             }
                             "equation" | "equation*" | "displaymath" | "align" | "align*"
                             | "flalign" | "flalign*" | "alignat" | "alignat*" | "gather"
-                            | "gather*" | "multline" | "multline*"
+                            | "gather*" | "multline" | "multline*" | "eqnarray" | "eqnarray*"
                                 if in_document =>
                             {
                                 let end_marker = format!("\\end{{{environment}}}");
@@ -16583,7 +16583,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_math_environment() {
-        let source = r"\begin{document}\begin{equation}\frac{a}{b}\end{equation}\begin{flalign*}a&=b\end{flalign*}\begin{alignat*}{2}x&=y\end{alignat*}\end{document}";
+        let source = r"\begin{document}\begin{equation}\frac{a}{b}\end{equation}\begin{flalign*}a&=b\end{flalign*}\begin{alignat*}{2}x&=y\end{alignat*}\begin{eqnarray*}u&=&v\end{eqnarray*}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -16595,7 +16595,7 @@ Fallback text.
             .filter(|event| matches!(&event.event, RenderEvent::DisplayMath(_)))
             .collect::<Vec<_>>();
 
-        assert_eq!(display_math.len(), 3);
+        assert_eq!(display_math.len(), 4);
         assert!(matches!(
             &display_math[0].event,
             RenderEvent::DisplayMath(math) if math.raw_source == r"\frac{a}{b}"
@@ -16607,6 +16607,10 @@ Fallback text.
         assert!(matches!(
             &display_math[2].event,
             RenderEvent::DisplayMath(math) if math.raw_source == r"x&=y"
+        ));
+        assert!(matches!(
+            &display_math[3].event,
+            RenderEvent::DisplayMath(math) if math.raw_source == r"u&=&v"
         ));
         assert!(matches!(
             &display_math[0].meta.source.primary,
@@ -16629,6 +16633,11 @@ Fallback text.
             &event.event,
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("alignat*")
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("eqnarray*")
         )));
     }
 
