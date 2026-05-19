@@ -1267,6 +1267,62 @@ impl<'i> Vm<'i> {
                                         }
                                     }
                                     let raw_end = body_end + end_marker.len();
+                                    let mut body_index = body_start;
+                                    while body_index < body_end {
+                                        let Some(relative_command) =
+                                            source[body_index..body_end].find('\\')
+                                        else {
+                                            break;
+                                        };
+                                        let command_start = body_index + relative_command;
+                                        let mut command_index = command_start + 1;
+                                        if command_index >= body_end {
+                                            break;
+                                        }
+                                        let command = if source.as_bytes()[command_index]
+                                            .is_ascii_alphabetic()
+                                            || source.as_bytes()[command_index] == b'@'
+                                        {
+                                            let start = command_index;
+                                            while command_index < body_end
+                                                && (source.as_bytes()[command_index]
+                                                    .is_ascii_alphabetic()
+                                                    || source.as_bytes()[command_index] == b'@')
+                                            {
+                                                command_index += 1;
+                                            }
+                                            &source[start..command_index]
+                                        } else {
+                                            let start = command_index;
+                                            command_index += 1;
+                                            &source[start..command_index]
+                                        };
+                                        if command == "label" {
+                                            let argument_index =
+                                                skip_ascii_whitespace(source, command_index);
+                                            if let Some((key, key_start, key_end, after_label)) =
+                                                read_braced_source_argument(source, argument_index)
+                                                && after_label <= body_end
+                                            {
+                                                self.emit_render_event(
+                                                    RenderEvent::LabelDefinition(
+                                                        LabelDefinitionEvent {
+                                                            key: key.trim().to_string(),
+                                                            command: command.to_string(),
+                                                        },
+                                                    ),
+                                                    SourceProvenance::file(
+                                                        source_path.to_owned(),
+                                                        key_start as u32,
+                                                        key_end as u32,
+                                                    ),
+                                                );
+                                                body_index = after_label;
+                                                continue;
+                                            }
+                                        }
+                                        body_index = command_index;
+                                    }
                                     self.emit_render_event(
                                         RenderEvent::DisplayMath(MathSourceEvent {
                                             raw_source: normalize_latex_math_source(
@@ -12148,7 +12204,48 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
 }
 
 fn normalize_latex_math_source(source: &str) -> String {
-    source.trim().to_string()
+    let source = source.trim();
+    let bytes = source.as_bytes();
+    let mut text = String::new();
+    let mut index = 0usize;
+    let mut chunk_start = 0usize;
+    while index < bytes.len() {
+        if bytes[index] != b'\\' {
+            index += 1;
+            continue;
+        }
+        let command_start = index;
+        let mut command_index = index + 1;
+        if command_index >= bytes.len() {
+            index += 1;
+            continue;
+        }
+        let command = if bytes[command_index].is_ascii_alphabetic() || bytes[command_index] == b'@'
+        {
+            let start = command_index;
+            while command_index < bytes.len()
+                && (bytes[command_index].is_ascii_alphabetic() || bytes[command_index] == b'@')
+            {
+                command_index += 1;
+            }
+            &source[start..command_index]
+        } else {
+            let start = command_index;
+            command_index += 1;
+            &source[start..command_index]
+        };
+        if command == "label"
+            && let Some((_, _, _, after_label)) = read_braced_source_argument(source, command_index)
+        {
+            text.push_str(&source[chunk_start..command_start]);
+            index = after_label;
+            chunk_start = index;
+            continue;
+        }
+        index = command_index;
+    }
+    text.push_str(&source[chunk_start..]);
+    text.trim().to_string()
 }
 
 fn render_roman_numeral(value: i32) -> String {
@@ -16720,6 +16817,36 @@ Fallback text.
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("eqnarray*")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_records_math_environment_label_without_raw_leakage() {
+        let source = r"\begin{document}\begin{equation}\label{eq:one}x\end{equation}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::LabelDefinition(label) if label.key == "eq:one"
+            )
+        }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::DisplayMath(math) if math.raw_source == "x"
+            )
+        }));
+        assert!(!outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::DisplayMath(math)
+                    if math.raw_source.contains(r"\label") || math.raw_source.contains("eq:one")
+            )
+        }));
     }
 
     #[test]

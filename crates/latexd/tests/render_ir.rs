@@ -1510,6 +1510,45 @@ fn math_environment_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn math_environment_label_definitions_do_not_leak_into_display_math() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        MATH_ENVIRONMENT_LABEL_SOURCE,
+        &SemanticAux::default(),
+    );
+
+    assert!(capture.document_ir.labels.iter().any(|label| {
+        label.key == "eq:one"
+            && matches!(
+                &label.source.primary,
+                ProvenanceSpan::File(span)
+                    if &MATH_ENVIRONMENT_LABEL_SOURCE
+                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                        == "eq:one"
+            )
+    }));
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::DisplayMath(display) if display.raw_source == "x"
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("x"));
+    assert!(!display_list_text.contains(r"\label"));
+    assert!(!display_list_text.contains("eq:one"));
+}
+
+#[test]
 fn heading_level_capture_survives_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", HEADING_LEVEL_SOURCE, &SemanticAux::default());
@@ -4927,6 +4966,9 @@ const INLINE_MATH_SOURCE: &str = r"\begin{document}Area \(x^2 + y^2\).\end{docum
 const DOLLAR_MATH_SOURCE: &str = r"\begin{document}Area $x^2 + y^2$.$$z^2$$\end{document}";
 
 const MATH_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{equation}\frac{a}{b}\end{equation}\begin{flalign*}a&=b\end{flalign*}\begin{alignat*}{2}x&=y\end{alignat*}\begin{eqnarray*}u&=&v\end{eqnarray*}\end{document}";
+
+const MATH_ENVIRONMENT_LABEL_SOURCE: &str =
+    r"\begin{document}\begin{equation}\label{eq:one}x\end{equation}\end{document}";
 
 const HEADING_LEVEL_SOURCE: &str = r"\begin{document}\section[Short]{Long Section}\subsection*{Methods}\subsubsection{Details}\paragraph{Sketch}\end{document}";
 
