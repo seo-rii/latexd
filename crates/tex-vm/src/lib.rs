@@ -1078,7 +1078,11 @@ impl<'i> Vm<'i> {
                     }
                 }
                 "newtheorem" => {
-                    let environment_index = skip_ascii_whitespace(source, index);
+                    let mut environment_index = skip_ascii_whitespace(source, index);
+                    if source[environment_index..].starts_with('*') {
+                        environment_index += 1;
+                        environment_index = skip_ascii_whitespace(source, environment_index);
+                    }
                     if let Some((environment, _, _, after_environment)) =
                         read_braced_source_argument(source, environment_index)
                     {
@@ -18779,6 +18783,33 @@ Fallback text.
             &event.event,
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("claim")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_starred_newtheorem_defined_environment_blocks() {
+        let source = r"\newtheorem*{namedclaim}{Named Claim}\begin{document}\begin{namedclaim}Starred claim body.\end{namedclaim}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let environment_begins = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::Environment { name },
+                }) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(environment_begins, vec!["namedclaim"]);
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("namedclaim")
         )));
     }
 

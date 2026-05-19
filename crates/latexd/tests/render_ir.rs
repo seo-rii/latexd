@@ -4569,6 +4569,47 @@ fn newtheorem_defined_environment_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn starred_newtheorem_defined_environment_capture_survives_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        STARRED_NEWTHEOREM_DEFINED_ENVIRONMENT_SOURCE,
+        &SemanticAux::default(),
+    );
+    let environment_names = capture
+        .document_ir
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            IrBlock::Environment(environment) => Some(environment.name.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(environment_names, vec!["namedclaim"]);
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("namedclaim")
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Starred claim body."));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Starred claim body."));
+}
+
+#[test]
 fn aux_resolved_references_and_citations_survive_ir_and_display_list() {
     let mut aux = SemanticAux::default();
     aux.labels.push(SemanticLabel {
@@ -4996,6 +5037,8 @@ const THEOREM_LIKE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{lemma}Lem
 const THEOREM_ENVIRONMENT_TITLE_SOURCE: &str = r"\begin{document}\begin{theorem}[Sharp bound]Body.\end{theorem}\begin{proof}[Sketch]Done.\end{proof}\end{document}";
 
 const NEWTHEOREM_DEFINED_ENVIRONMENT_SOURCE: &str = r"\newtheorem{claim}{Claim}\begin{document}\begin{claim}[Named claim]Claim body.\end{claim}\end{document}";
+
+const STARRED_NEWTHEOREM_DEFINED_ENVIRONMENT_SOURCE: &str = r"\newtheorem*{namedclaim}{Named Claim}\begin{document}\begin{namedclaim}Starred claim body.\end{namedclaim}\end{document}";
 
 const AUX_RESOLUTION_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \cite{key}.\end{document}";
