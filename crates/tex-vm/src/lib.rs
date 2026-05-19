@@ -1524,7 +1524,10 @@ impl<'i> Vm<'i> {
                                     let raw_end = body_end + end_marker.len();
                                     let body_source = &source[body_start..body_end];
                                     let normalized_visible_text =
-                                        if matches!(other, "array" | "tabular" | "tabular*") {
+                                        if matches!(other, "verbatim" | "verbatim*") {
+                                            body_source.to_string()
+                                        } else if matches!(other, "array" | "tabular" | "tabular*")
+                                        {
                                             let mut table_body_start =
                                                 skip_ascii_whitespace(body_source, 0);
                                             if other == "tabular*" {
@@ -16467,6 +16470,31 @@ Fallback text.
         assert!(!visible.contains("ll"));
         assert!(!visible.contains("hline"));
         assert!(!visible.contains("textbf"));
+    }
+
+    #[test]
+    fn render_event_capture_preserves_verbatim_fallback_text() {
+        let source =
+            r"\begin{document}\begin{verbatim}\alpha_{i} {raw}\end{verbatim}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("verbatim") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("verbatim fallback visible text");
+
+        assert_eq!(visible, r"\alpha_{i} {raw}");
     }
 
     #[test]

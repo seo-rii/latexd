@@ -299,6 +299,9 @@ The next implementation step has started with a narrow display-list spike:
 - unsupported `tabular`-style environments now normalize column specs, cell
   separators, row breaks, and common rule commands into readable fallback text
   instead of leaking raw table syntax into extracted/display-list text;
+- unsupported `verbatim` environments now preserve their body text without
+  applying LaTeX command normalization, so backslashes, braces, and code-like
+  snippets remain visible in IR and display-list fallback text;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`

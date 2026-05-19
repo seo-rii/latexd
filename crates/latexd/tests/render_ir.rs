@@ -4310,6 +4310,46 @@ fn tabular_fallback_capture_uses_normalized_visible_text() {
 }
 
 #[test]
+fn verbatim_fallback_preserves_raw_visible_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        VERBATIM_FALLBACK_SOURCE,
+        &SemanticAux::default(),
+    );
+    let fallback = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("verbatim") =>
+            {
+                Some(fallback)
+            }
+            _ => None,
+        })
+        .expect("verbatim fallback");
+
+    assert_eq!(
+        fallback.normalized_visible_text.as_deref(),
+        Some(r"\alpha_{i} {raw}")
+    );
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(r"\alpha_{i} {raw}"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains(r"\alpha_{i} {raw}"));
+}
+
+#[test]
 fn raw_fallback_inline_keys_are_redacted_in_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -5012,6 +5052,9 @@ const TEXTSTYLE_BOX_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibl
 const URLSTYLE_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\urlstyle{same}\url{https://example.test/paper}.\end{thebibliography}\end{document}";
 
 const RAW_FALLBACK_INLINE_KEY_SOURCE: &str = r"\begin{document}\begin{unknownenv}See \cite{cited} and \ref{sec:intro}.\end{unknownenv}\end{document}";
+
+const VERBATIM_FALLBACK_SOURCE: &str =
+    r"\begin{document}\begin{verbatim}\alpha_{i} {raw}\end{verbatim}\end{document}";
 
 const GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\end{figure}\end{document}";
 
