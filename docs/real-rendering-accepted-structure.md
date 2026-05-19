@@ -134,6 +134,8 @@ The next implementation step has started with a narrow display-list spike:
   render as their visible symbols;
 - bibliography text extraction now passes through common case, text-style, and
   box wrappers while dropping non-visible wrapper options and control commands;
+- `\urlstyle{...}` is treated as a non-visible URL style declaration while
+  preserving the visible URL from `\url{...}`;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and

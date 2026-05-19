@@ -11435,6 +11435,17 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
             scan_index = chunk_start;
             continue;
         }
+        if command == "urlstyle" {
+            let style_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, command_after)) = read_braced_source_argument(source, style_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
         if matches!(
             command,
             "NoCaseChange"
@@ -15642,6 +15653,28 @@ Fallback text.
         ] {
             assert!(!item_text.contains(hidden));
         }
+    }
+
+    #[test]
+    fn render_event_capture_hides_urlstyle_declaration_in_bibliography_items() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\urlstyle{same}\url{https://example.test/paper}.\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .expect("bibliography item");
+
+        assert_eq!(item_text, "https://example.test/paper.");
+        assert!(!item_text.contains("urlstyle"));
+        assert!(!item_text.contains("same"));
     }
 
     #[test]
