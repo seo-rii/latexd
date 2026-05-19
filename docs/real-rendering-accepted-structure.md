@@ -306,6 +306,9 @@ The next implementation step has started with a narrow display-list spike:
   environment block events and IR blocks while preserving inline citations;
 - keywords environment variants now survive as structured environment block
   events and IR blocks while preserving inline citations;
+- `frontmatter` now acts as a structured wrapper so title/author/date metadata,
+  abstract content, and body text are captured instead of being swallowed by
+  RawFallback;
 - `minipage` now uses the structured environment path while consuming layout
   position/width arguments so they do not appear as visible text;
 - `multicols` and `multicols*` now use the structured environment path while

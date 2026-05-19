@@ -3,7 +3,9 @@ use std::{env, fs, path::Path};
 use camino::Utf8PathBuf;
 use latexd::compiler::capture_internal_render_ir;
 use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
-use tex_render_model::{CitationStyleHint, DrawOp, ListKind, to_pretty_json};
+use tex_render_model::{
+    CitationStyleHint, DrawOp, ListKind, MetadataField, RenderEvent, to_pretty_json,
+};
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole};
 
 #[test]
@@ -5089,6 +5091,69 @@ fn keywords_environment_capture_survives_ir_without_fallback() {
 }
 
 #[test]
+fn frontmatter_environment_capture_preserves_metadata_and_abstract() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        FRONTMATTER_ENVIRONMENT_SOURCE,
+        &SemanticAux::default(),
+    );
+
+    assert!(capture.events.events.iter().any(|event| matches!(
+        &event.event,
+        RenderEvent::SetDocumentMetadata(metadata)
+            if metadata.field == MetadataField::Title
+                && metadata.value == "Wrapped Paper"
+    )));
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Environment(environment) if environment.name == "frontmatter"
+        )
+    }));
+    let abstract_block = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Abstract(abstract_block) => Some(abstract_block),
+            _ => None,
+        })
+        .expect("abstract block");
+    assert!(abstract_block.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Citation(citation)
+                if citation.keys == vec!["key".to_string()] && citation.display_text == "[?]"
+        )
+    }));
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("frontmatter")
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Wrapped abstract [?]."));
+    assert!(!extracted_text.contains(r"\title"));
+    assert!(!extracted_text.contains("frontmatter"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Wrapped abstract [?]."));
+    assert!(!display_list_text.contains(r"\title"));
+    assert!(!display_list_text.contains("frontmatter"));
+}
+
+#[test]
 fn appendices_environment_capture_preserves_nested_headings() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -6117,6 +6182,8 @@ const SIMPLE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{quote}Quoted \c
 const ACKNOWLEDGEMENTS_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{acknowledgements}Thanks \cite{grant}.\end{acknowledgements}\begin{acknowledgments}US spelling.\end{acknowledgments}\begin{acknowledgement}Singular.\end{acknowledgement}\begin{acknowledgment}Singular US.\end{acknowledgment}\end{document}";
 
 const KEYWORDS_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{keywords}vision; \cite{key}\end{keywords}\begin{keyword}single keyword\end{keyword}\begin{IEEEkeywords}systems, latex\end{IEEEkeywords}\end{document}";
+
+const FRONTMATTER_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{frontmatter}\title{Wrapped Paper}\author{Ada}\begin{abstract}Wrapped abstract \cite{key}.\end{abstract}\end{frontmatter}\end{document}";
 
 const APPENDICES_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{appendices}\section{Extra}Appendix \ref{sec:intro} text.\end{appendices}\begin{subappendices}\subsection{More}More text.\end{subappendices}\end{document}";
 

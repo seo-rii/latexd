@@ -962,6 +962,7 @@ impl<'i> Vm<'i> {
             "keywords",
             "keyword",
             "IEEEkeywords",
+            "frontmatter",
             "algorithm",
             "algorithm*",
             "algorithmic",
@@ -19502,6 +19503,47 @@ Fallback text.
                     fallback.environment.as_deref(),
                     Some("keywords" | "keyword" | "IEEEkeywords")
                 )
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_frontmatter_without_swallowing_metadata() {
+        let source = r"\begin{document}\begin{frontmatter}\title{Wrapped Paper}\author{Ada}\begin{abstract}Wrapped abstract \cite{key}.\end{abstract}\end{frontmatter}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::Environment { name },
+                }) if name == "frontmatter"
+            )
+        }));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::SetDocumentMetadata(metadata)
+                if metadata.field == MetadataField::Title
+                    && metadata.value == "Wrapped Paper"
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Abstract
+        )));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::InlineCitation(citation)
+                    if citation.keys == vec!["key".to_string()]
+            )
+        }));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("frontmatter")
         )));
     }
 
