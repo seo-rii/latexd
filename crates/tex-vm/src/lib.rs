@@ -2351,8 +2351,15 @@ impl<'i> Vm<'i> {
                                     | "titleref" | "Titleref" | "nameCref" | "lcnamecref"
                                     | "namecrefs" | "nameCrefs" | "lcnamecrefs" | "thmref"
                                     | "Thmref" | "subeqref" => {
-                                        let argument_index =
+                                        let mut argument_index =
                                             skip_ascii_whitespace(source, inner_index);
+                                        if argument_index < content_end
+                                            && source[argument_index..].starts_with('*')
+                                        {
+                                            argument_index += 1;
+                                            argument_index =
+                                                skip_ascii_whitespace(source, argument_index);
+                                        }
                                         if let Some((keys, key_start, key_end, command_after)) =
                                             read_braced_source_argument(source, argument_index)
                                             && command_after <= content_end
@@ -2381,8 +2388,15 @@ impl<'i> Vm<'i> {
                                     "crefrange" | "Crefrange" | "cpagerefrange"
                                     | "Cpagerefrange" | "pagerefrange" | "vpagerefrange"
                                     | "vrefrange" | "Vrefrange" => {
-                                        let argument_index =
+                                        let mut argument_index =
                                             skip_ascii_whitespace(source, inner_index);
+                                        if argument_index < content_end
+                                            && source[argument_index..].starts_with('*')
+                                        {
+                                            argument_index += 1;
+                                            argument_index =
+                                                skip_ascii_whitespace(source, argument_index);
+                                        }
                                         if let Some((first_key, first_start, _, after_first)) =
                                             read_braced_source_argument(source, argument_index)
                                             && after_first <= content_end
@@ -3032,11 +3046,22 @@ impl<'i> Vm<'i> {
                                                         | "namecrefs" | "nameCrefs"
                                                         | "lcnamecrefs" | "thmref" | "Thmref"
                                                         | "subeqref" => {
-                                                            let argument_index =
+                                                            let mut argument_index =
                                                                 skip_ascii_whitespace(
                                                                     source,
                                                                     argument_inner_index,
                                                                 );
+                                                            if argument_index < text_end
+                                                                && source[argument_index..]
+                                                                    .starts_with('*')
+                                                            {
+                                                                argument_index += 1;
+                                                                argument_index =
+                                                                    skip_ascii_whitespace(
+                                                                        source,
+                                                                        argument_index,
+                                                                    );
+                                                            }
                                                             if let Some((
                                                                 keys,
                                                                 key_start,
@@ -3077,11 +3102,22 @@ impl<'i> Vm<'i> {
                                                         | "cpagerefrange" | "Cpagerefrange"
                                                         | "pagerefrange" | "vpagerefrange"
                                                         | "vrefrange" | "Vrefrange" => {
-                                                            let argument_index =
+                                                            let mut argument_index =
                                                                 skip_ascii_whitespace(
                                                                     source,
                                                                     argument_inner_index,
                                                                 );
+                                                            if argument_index < text_end
+                                                                && source[argument_index..]
+                                                                    .starts_with('*')
+                                                            {
+                                                                argument_index += 1;
+                                                                argument_index =
+                                                                    skip_ascii_whitespace(
+                                                                        source,
+                                                                        argument_index,
+                                                                    );
+                                                            }
                                                             if let Some((
                                                                 first_key,
                                                                 first_start,
@@ -3905,11 +3941,20 @@ impl<'i> Vm<'i> {
                                                                             | "thmref"
                                                                             | "Thmref"
                                                                             | "subeqref" => {
-                                                                                let reference_index =
+                                                                                let mut reference_index =
                                                                                     skip_ascii_whitespace(
                                                                                         source,
                                                                                         nested_index,
                                                                                     );
+                                                                                if reference_index < visible_text_end
+                                                                                    && source[reference_index..].starts_with('*')
+                                                                                {
+                                                                                    reference_index += 1;
+                                                                                    reference_index = skip_ascii_whitespace(
+                                                                                        source,
+                                                                                        reference_index,
+                                                                                    );
+                                                                                }
                                                                                 if let Some((
                                                                                     keys,
                                                                                     key_start,
@@ -3958,11 +4003,20 @@ impl<'i> Vm<'i> {
                                                                             | "vpagerefrange"
                                                                             | "vrefrange"
                                                                             | "Vrefrange" => {
-                                                                                let reference_index =
+                                                                                let mut reference_index =
                                                                                     skip_ascii_whitespace(
                                                                                         source,
                                                                                         nested_index,
                                                                                     );
+                                                                                if reference_index < visible_text_end
+                                                                                    && source[reference_index..].starts_with('*')
+                                                                                {
+                                                                                    reference_index += 1;
+                                                                                    reference_index = skip_ascii_whitespace(
+                                                                                        source,
+                                                                                        reference_index,
+                                                                                    );
+                                                                                }
                                                                                 if let Some((
                                                                                     first_key,
                                                                                     first_start,
@@ -17518,7 +17572,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_redacts_link_text_citation_and_reference_keys() {
-        let source = r"\begin{document}Read \href{https://hidden.test}{see \cite{cited} and \ref{sec:intro}}.\end{document}";
+        let source = r"\begin{document}Read \href{https://hidden.test}{see \cite{cited}, \citep*{starred}, \ref{sec:intro}, and \ref*{sec:starred}}.\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -17534,9 +17588,11 @@ Fallback text.
             .expect("link event");
 
         assert_eq!(link.target, "https://hidden.test");
-        assert_eq!(link.text, "see [?] and [?]");
+        assert_eq!(link.text, "see [?], [?], [?], and [?]");
         assert!(!link.text.contains("cited"));
+        assert!(!link.text.contains("starred"));
         assert!(!link.text.contains("sec:intro"));
+        assert!(!link.text.contains("sec:starred"));
         assert!(!link.text.contains("cite"));
         assert!(!link.text.contains("ref"));
     }
@@ -17647,7 +17703,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_nested_text_wrapper_inline_events() {
-        let source = r"\begin{document}Nested \emph{important \cite{key} and \ref{sec:intro}} text.\end{document}";
+        let source = r"\begin{document}Nested \emph{important \cite{key}, \citep*{starred}, \ref{sec:intro}, and \ref*{sec:starred}} text.\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -17660,8 +17716,20 @@ Fallback text.
         )));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
+            RenderEvent::InlineCitation(citation)
+                if citation.keys == vec!["starred".to_string()]
+                    && citation.command == "citep"
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
             RenderEvent::InlineReference(reference)
                 if reference.keys == vec!["sec:intro".to_string()]
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineReference(reference)
+                if reference.keys == vec!["sec:starred".to_string()]
+                    && reference.command == "ref"
         )));
 
         let visible_text = outcome
@@ -17680,7 +17748,9 @@ Fallback text.
         assert!(visible_text.contains(" text."));
         assert!(!visible_text.contains("{important"));
         assert!(!visible_text.contains("key"));
+        assert!(!visible_text.contains("starred"));
         assert!(!visible_text.contains("sec:intro"));
+        assert!(!visible_text.contains("sec:starred"));
     }
 
     #[test]

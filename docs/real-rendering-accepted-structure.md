@@ -211,8 +211,9 @@ The next implementation step has started with a narrow display-list spike:
 - `\hyperref[ref]{visible}`, `\hyperlink{target}{visible}`, and
   `\hypertarget{target}{visible}` now preserve only the visible argument in
   body and structured text, keeping labels and anchors out of rendered text;
-- starred reference commands such as `\ref*`, `\autoref*`, and `\Cref*` now
-  emit normal reference intent without leaking the hidden label into body text;
+- starred reference commands such as `\ref*`, `\eqref*`, `\autoref*`,
+  `\nameref*`, and `\Cref*` now emit normal reference intent without leaking
+  the hidden label into body text;
 - non-link text wrappers such as `\nolinkurl`, `\path`, and `\detokenize`
   now survive as visible text events and IR text nodes without creating link
   annotations; URL-like wrappers support both braced and delimiter-form
@@ -220,10 +221,10 @@ The next implementation step has started with a narrow display-list spike:
 - simple one-argument text wrappers such as `\emph`, `\textbf`, `\textit`,
   and `\texttt` now preserve their visible text without leaking raw braces
   into the event stream or derived IR;
-- text wrappers now preserve nested migrated inline citation/reference events
-  such as `\emph{...\cite{...}}` and `\textbf{...\ref{...}}`, so derived IR
-  and display-list text use placeholders/resolved labels instead of leaking raw
-  keys or wrapper braces;
+- text wrappers now preserve nested migrated inline citation/reference events,
+  including starred commands such as `\emph{...\citep*{...}}` and
+  `\textbf{...\ref*{...}}`, so derived IR and display-list text use
+  placeholders/resolved labels instead of leaking raw keys or wrapper braces;
 - text wrappers also preserve nested `\href`/`\url` events and URL-like text
   wrappers, keeping hidden link targets out of visible text while still
   deriving display-list link annotations;

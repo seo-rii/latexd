@@ -2860,16 +2860,18 @@ fn link_text_inline_keys_are_redacted_in_ir_and_display_list() {
             node,
             InlineNode::Link(link)
                 if link.target == "https://hidden.test"
-                    && link.display_text == "see [?] and [?]"
+                    && link.display_text == "see [?], [?], [?], and [?]"
         )
     }));
     let extracted_text = capture.document_ir.extracted_text();
     assert!(
-        extracted_text.contains("Read see [?] and [?]."),
+        extracted_text.contains("Read see [?], [?], [?], and [?]."),
         "{extracted_text}"
     );
     assert!(!extracted_text.contains("cited"));
+    assert!(!extracted_text.contains("starred"));
     assert!(!extracted_text.contains("sec:intro"));
+    assert!(!extracted_text.contains("sec:starred"));
     assert!(!extracted_text.contains(r"\cite"));
     assert!(!extracted_text.contains(r"\ref"));
     assert!(!extracted_text.contains("https://hidden.test"));
@@ -2884,11 +2886,13 @@ fn link_text_inline_keys_are_redacted_in_ir_and_display_list() {
         .collect::<Vec<_>>()
         .join("");
     assert!(
-        display_list_text.contains("Read see [?] and [?]."),
+        display_list_text.contains("Read see [?], [?], [?], and [?]."),
         "{display_list_text}"
     );
     assert!(!display_list_text.contains("cited"));
+    assert!(!display_list_text.contains("starred"));
     assert!(!display_list_text.contains("sec:intro"));
+    assert!(!display_list_text.contains("sec:starred"));
     assert!(!display_list_text.contains(r"\cite"));
     assert!(!display_list_text.contains(r"\ref"));
     assert!(!display_list_text.contains("https://hidden.test"));
@@ -3107,19 +3111,34 @@ fn nested_text_wrapper_capture_survives_ir_without_raw_keys() {
     assert!(paragraph.content.iter().any(|node| {
         matches!(
             node,
+            InlineNode::Citation(citation) if citation.keys == vec!["starred".to_string()]
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
             InlineNode::Reference(reference)
                 if reference.keys == vec!["sec:intro".to_string()]
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Reference(reference)
+                if reference.keys == vec!["sec:starred".to_string()]
         )
     }));
 
     let extracted_text = capture.document_ir.extracted_text();
     assert!(
-        extracted_text.contains("Nested important [?] and [?] text."),
+        extracted_text.contains("Nested important [?], [?], [?], and [?] text."),
         "{extracted_text}"
     );
     assert!(!extracted_text.contains("{important"));
     assert!(!extracted_text.contains("key"));
+    assert!(!extracted_text.contains("starred"));
     assert!(!extracted_text.contains("sec:intro"));
+    assert!(!extracted_text.contains("sec:starred"));
 
     let display_list_text = capture.page_display_lists[0]
         .ops
@@ -3131,12 +3150,14 @@ fn nested_text_wrapper_capture_survives_ir_without_raw_keys() {
         .collect::<Vec<_>>()
         .join("");
     assert!(
-        display_list_text.contains("Nested important [?] and [?] text."),
+        display_list_text.contains("Nested important [?], [?], [?], and [?] text."),
         "{display_list_text}"
     );
     assert!(!display_list_text.contains("{important"));
     assert!(!display_list_text.contains("key"));
+    assert!(!display_list_text.contains("starred"));
     assert!(!display_list_text.contains("sec:intro"));
+    assert!(!display_list_text.contains("sec:starred"));
 }
 
 #[test]
@@ -4560,7 +4581,7 @@ const REFERENCE_RANGE_ALIAS_SOURCE: &str = r"\begin{document}See \pagerefrange{p
 
 const LINK_SOURCE: &str = r"\begin{document}Read \href{https://example.test/paper}{paper link}, \url{https://example.test/raw}, and \url|https://example.test/delimited|.\end{document}";
 
-const LINK_TEXT_INLINE_KEY_SOURCE: &str = r"\begin{document}Read \href{https://hidden.test}{see \cite{cited} and \ref{sec:intro}}.\end{document}";
+const LINK_TEXT_INLINE_KEY_SOURCE: &str = r"\begin{document}Read \href{https://hidden.test}{see \cite{cited}, \citep*{starred}, \ref{sec:intro}, and \ref*{sec:starred}}.\end{document}";
 
 const HYPERREF_VISIBLE_TEXT_SOURCE: &str = r"\begin{document}Read \hyperref[sec:intro]{intro}, \hyperlink{hidden-anchor}{anchor text}, and \hypertarget{target-id}{target text}.\end{document}";
 
@@ -4568,8 +4589,7 @@ const URL_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Use \nolinkurl{https://e
 
 const TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Styled \emph{important} and \textbf{bold text} with \texttt{code_path}.\end{document}";
 
-const NESTED_TEXT_WRAPPER_SOURCE: &str =
-    r"\begin{document}Nested \emph{important \cite{key} and \ref{sec:intro}} text.\end{document}";
+const NESTED_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Nested \emph{important \cite{key}, \citep*{starred}, \ref{sec:intro}, and \ref*{sec:starred}} text.\end{document}";
 
 const NESTED_TEXT_WRAPPER_LINK_SOURCE: &str = r"\begin{document}Nested \emph{read \href{https://hidden.test}{paper} and \url{https://shown.test}}.\end{document}";
 
