@@ -15854,6 +15854,32 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_renders_doi_eprint_commands_without_command_names() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Alpha entry. \doi{10.1000/example}. \eprint{arXiv:2401.00001}. \href{https://example.test}{Link}.\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .expect("bibliography item");
+
+        assert_eq!(
+            item_text,
+            "Alpha entry. 10.1000/example. arXiv:2401.00001. Link."
+        );
+        for hidden in ["doi", "eprint", "href", "example.test"] {
+            assert!(!item_text.contains(hidden));
+        }
+    }
+
+    #[test]
     fn render_event_capture_hides_phantom_wrapper_contents_in_bibliography_items() {
         let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Visible \phantom{Ghost}\hphantom{Wide}\vphantom{Tall}Text.\end{thebibliography}\end{document}";
         let mut interner = ControlSequenceInterner::new();
