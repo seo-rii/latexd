@@ -951,7 +951,7 @@ impl<'i> Vm<'i> {
         let mut in_document = false;
         let mut section_macros = HashMap::<String, (usize, usize)>::new();
         let mut structured_environments = HashSet::<String>::new();
-        for environment in ["quote", "quotation", "center"] {
+        for environment in ["quote", "quotation", "center", "algorithm", "algorithm*"] {
             structured_environments.insert(environment.to_string());
         }
         let mut theorem_like_environments = HashSet::<String>::new();
@@ -19091,6 +19091,65 @@ Fallback text.
                 if matches!(
                     fallback.environment.as_deref(),
                     Some("quote" | "center" | "theorem" | "proof")
+                )
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_algorithm_environment_blocks_without_fallback() {
+        let source = r"\begin{document}\begin{algorithm}\caption{Procedure.}\label{alg:first}Step text.\end{algorithm}\begin{algorithm*}Wide step.\end{algorithm*}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let environment_begins = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::Environment { name },
+                }) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let environment_ends = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::EndBlock(BeginBlockEvent {
+                    block: BlockKind::Environment { name },
+                }) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(environment_begins, vec!["algorithm", "algorithm*"]);
+        assert_eq!(environment_ends, vec!["algorithm", "algorithm*"]);
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::Caption(caption) if caption.text == "Procedure."
+            )
+        }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::LabelDefinition(label) if label.key == "alg:first"
+            )
+        }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::Text(text) if text.text == "Step"
+            )
+        }));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if matches!(
+                    fallback.environment.as_deref(),
+                    Some("algorithm" | "algorithm*")
                 )
         )));
     }

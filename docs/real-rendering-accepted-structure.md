@@ -291,6 +291,8 @@ The next implementation step has started with a narrow display-list spike:
   `theorem`, `proof`, `lemma`, `proposition`, `corollary`, `definition`,
   `remark`, and `example` now survive as structured environment block events
   and IR blocks instead of falling back to unsupported-environment raw text;
+- `algorithm` and `algorithm*` now use the same structured environment path,
+  preserving captions, labels, and body text without emitting RawFallback;
 - theorem-like environment optional titles are consumed as visible title text
   without leaking raw square-bracket syntax into IR or display-list text;
 - `\newtheorem{...}{...}` and `\newtheorem*{...}{...}` declarations register
