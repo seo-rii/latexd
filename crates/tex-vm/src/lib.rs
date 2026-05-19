@@ -4491,6 +4491,56 @@ impl<'i> Vm<'i> {
                     if let Some(relative_end) = source[index..].find("\\]") {
                         let math_start = index;
                         let math_end = index + relative_end;
+                        let mut math_index = math_start;
+                        while math_index < math_end {
+                            let Some(relative_command) = source[math_index..math_end].find('\\')
+                            else {
+                                break;
+                            };
+                            let command_start = math_index + relative_command;
+                            let mut command_index = command_start + 1;
+                            if command_index >= math_end {
+                                break;
+                            }
+                            let command = if source.as_bytes()[command_index].is_ascii_alphabetic()
+                                || source.as_bytes()[command_index] == b'@'
+                            {
+                                let start = command_index;
+                                while command_index < math_end
+                                    && (source.as_bytes()[command_index].is_ascii_alphabetic()
+                                        || source.as_bytes()[command_index] == b'@')
+                                {
+                                    command_index += 1;
+                                }
+                                &source[start..command_index]
+                            } else {
+                                let start = command_index;
+                                command_index += 1;
+                                &source[start..command_index]
+                            };
+                            if command == "label" {
+                                let argument_index = skip_ascii_whitespace(source, command_index);
+                                if let Some((key, key_start, key_end, after_label)) =
+                                    read_braced_source_argument(source, argument_index)
+                                    && after_label <= math_end
+                                {
+                                    self.emit_render_event(
+                                        RenderEvent::LabelDefinition(LabelDefinitionEvent {
+                                            key: key.trim().to_string(),
+                                            command: command.to_string(),
+                                        }),
+                                        SourceProvenance::file(
+                                            source_path.to_owned(),
+                                            key_start as u32,
+                                            key_end as u32,
+                                        ),
+                                    );
+                                    math_index = after_label;
+                                    continue;
+                                }
+                            }
+                            math_index = command_index;
+                        }
                         self.emit_render_event(
                             RenderEvent::DisplayMath(MathSourceEvent {
                                 raw_source: normalize_latex_math_source(
@@ -16845,6 +16895,37 @@ Fallback text.
                 &event.event,
                 RenderEvent::DisplayMath(math)
                     if math.raw_source.contains(r"\label") || math.raw_source.contains("eq:one")
+            )
+        }));
+    }
+
+    #[test]
+    fn render_event_capture_records_bracket_display_math_label_without_raw_leakage() {
+        let source = r"\begin{document}\[\label{eq:bracket}y\]\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::LabelDefinition(label) if label.key == "eq:bracket"
+            )
+        }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::DisplayMath(math) if math.raw_source == "y"
+            )
+        }));
+        assert!(!outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::DisplayMath(math)
+                    if math.raw_source.contains(r"\label")
+                        || math.raw_source.contains("eq:bracket")
             )
         }));
     }
