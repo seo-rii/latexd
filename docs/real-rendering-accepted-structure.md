@@ -82,9 +82,9 @@ The next implementation step has started with a narrow display-list spike:
   `DisplayMath` for `\[...\]`/`$$...$$` plus common display math environments
   such as `equation`, `align`, `flalign`, `alignat`, and `eqnarray`,
   preserving math commands in `raw_source`;
-- label definitions inside display math environments and `\[...\]` delimiters
-  now emit `LabelDefinition` events while `\label{...}` commands are stripped
-  from display math `raw_source`;
+- label definitions inside display math environments, `\[...\]`, and `$$...$$`
+  delimiters now emit `LabelDefinition` events while `\label{...}` commands are
+  stripped from display math `raw_source`;
 - VM render-event capture now emits `Heading` levels for `part`/`chapter`,
   `section`, `subsection`, `subsubsection`, `paragraph`, and `subparagraph`,
   preserving the long title span when an optional short title is present;

@@ -1004,6 +1004,61 @@ impl<'i> Vm<'i> {
                             index,
                             in_document,
                         );
+                        if delimiter_len == 2 {
+                            let mut math_index = math_start;
+                            while math_index < math_end {
+                                let Some(relative_command) =
+                                    source[math_index..math_end].find('\\')
+                                else {
+                                    break;
+                                };
+                                let command_start = math_index + relative_command;
+                                let mut command_index = command_start + 1;
+                                if command_index >= math_end {
+                                    break;
+                                }
+                                let command = if source.as_bytes()[command_index]
+                                    .is_ascii_alphabetic()
+                                    || source.as_bytes()[command_index] == b'@'
+                                {
+                                    let start = command_index;
+                                    while command_index < math_end
+                                        && (source.as_bytes()[command_index].is_ascii_alphabetic()
+                                            || source.as_bytes()[command_index] == b'@')
+                                    {
+                                        command_index += 1;
+                                    }
+                                    &source[start..command_index]
+                                } else {
+                                    let start = command_index;
+                                    command_index += 1;
+                                    &source[start..command_index]
+                                };
+                                if command == "label" {
+                                    let argument_index =
+                                        skip_ascii_whitespace(source, command_index);
+                                    if let Some((key, key_start, key_end, after_label)) =
+                                        read_braced_source_argument(source, argument_index)
+                                        && after_label <= math_end
+                                    {
+                                        self.emit_render_event(
+                                            RenderEvent::LabelDefinition(LabelDefinitionEvent {
+                                                key: key.trim().to_string(),
+                                                command: command.to_string(),
+                                            }),
+                                            SourceProvenance::file(
+                                                source_path.to_owned(),
+                                                key_start as u32,
+                                                key_end as u32,
+                                            ),
+                                        );
+                                        math_index = after_label;
+                                        continue;
+                                    }
+                                }
+                                math_index = command_index;
+                            }
+                        }
                         let event = if delimiter_len == 2 {
                             RenderEvent::DisplayMath(MathSourceEvent {
                                 raw_source: normalize_latex_math_source(
@@ -16926,6 +16981,37 @@ Fallback text.
                 RenderEvent::DisplayMath(math)
                     if math.raw_source.contains(r"\label")
                         || math.raw_source.contains("eq:bracket")
+            )
+        }));
+    }
+
+    #[test]
+    fn render_event_capture_records_dollar_display_math_label_without_raw_leakage() {
+        let source = r"\begin{document}$$\label{eq:dollar}z$$\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::LabelDefinition(label) if label.key == "eq:dollar"
+            )
+        }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::DisplayMath(math) if math.raw_source == "z"
+            )
+        }));
+        assert!(!outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::DisplayMath(math)
+                    if math.raw_source.contains(r"\label")
+                        || math.raw_source.contains("eq:dollar")
             )
         }));
     }
