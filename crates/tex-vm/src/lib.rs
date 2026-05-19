@@ -15880,6 +15880,37 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_strips_natexlab_and_newblock_in_bibliography_items() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem[Alpha 2024\natexlab{a}]{alpha}Alpha \newblock 2024\NAT@exlab{a}.\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item),
+                _ => None,
+            })
+            .expect("bibliography item");
+
+        assert_eq!(item.label_hint.as_deref(), Some("Alpha 2024a"));
+        assert_eq!(item.text, "Alpha 2024a.");
+        for hidden in ["natexlab", "NAT@exlab", "newblock"] {
+            assert!(!item.text.contains(hidden));
+            assert!(
+                !item
+                    .label_hint
+                    .as_deref()
+                    .unwrap_or_default()
+                    .contains(hidden)
+            );
+        }
+    }
+
+    #[test]
     fn render_event_capture_hides_phantom_wrapper_contents_in_bibliography_items() {
         let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Visible \phantom{Ghost}\hphantom{Wide}\vphantom{Tall}Text.\end{thebibliography}\end{document}";
         let mut interner = ControlSequenceInterner::new();

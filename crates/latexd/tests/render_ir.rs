@@ -724,6 +724,49 @@ fn bibliography_item_doi_eprint_commands_render_visible_values() {
 }
 
 #[test]
+fn bibliography_item_natexlab_and_newblock_markup_is_hidden() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        NATEXLAB_NEWBLOCK_BIBLIOGRAPHY_SOURCE,
+        &SemanticAux::default(),
+    );
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+
+    assert_eq!(bibliography.items[0].label.as_deref(), Some("Alpha 2024a"));
+    assert_eq!(bibliography.items[0].content, "Alpha 2024a.");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Alpha 2024a."), "{extracted_text}");
+    for hidden in ["natexlab", "NAT@exlab", "newblock"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("Alpha 2024a."),
+        "{display_list_text}"
+    );
+    for hidden in ["natexlab", "NAT@exlab", "newblock"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn bibliography_item_phantom_wrappers_hide_invisible_text() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -4347,6 +4390,8 @@ const STARRED_WRAPPER_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebi
 const BIBINFO_BIBFIELD_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\bibinfo{doi}{10.1000/example}. \bibfield{journal}{Journal of Tests}.\end{thebibliography}\end{document}";
 
 const DOI_EPRINT_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Alpha entry. \doi{10.1000/example}. \eprint{arXiv:2401.00001}. \href{https://example.test}{Link}.\end{thebibliography}\end{document}";
+
+const NATEXLAB_NEWBLOCK_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem[Alpha 2024\natexlab{a}]{alpha}Alpha \newblock 2024\NAT@exlab{a}.\end{thebibliography}\end{document}";
 
 const PHANTOM_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Visible \phantom{Ghost}\hphantom{Wide}\vphantom{Tall}Text.\end{thebibliography}\end{document}";
 
