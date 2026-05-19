@@ -239,8 +239,9 @@ The next implementation step has started with a narrow display-list spike:
   wrapper arguments, so `\emph{...\unknown{text}}` keeps normalized visible text
   instead of leaking command names or braces;
 - readable unknown commands inside text wrappers now also preserve nested
-  citation/reference events, so `\emph{...\unknown{\cite{key}}}` reaches IR as
-  structured citation/reference placeholders instead of raw keys or braces;
+  citation/reference events, including starred reference/range forms, so
+  `\emph{...\unknown{\cite{key}}}` reaches IR as structured
+  citation/reference placeholders instead of raw keys or braces;
 - readable unknown commands inside text wrappers also preserve nested
   `\href`/`\url` link events and raw math sources, so hidden targets and math
   delimiters do not leak into visible IR/display-list text;
@@ -254,8 +255,8 @@ The next implementation step has started with a narrow display-list spike:
   one-argument unknown commands, so `\unknown{...\inner{...}}` keeps local
   visible text without leaking the inner command name or braces;
 - readable nested unknown commands inside text wrappers now preserve migrated
-  citation/reference events without leaking their raw keys or the nested
-  command's braced argument delimiters;
+  citation/reference events, including starred reference/range forms, without
+  leaking their raw keys or the nested command's braced argument delimiters;
 - readable nested unknown commands inside text wrappers now also preserve
   `\href`/`\url` link events, keeping hidden href targets out of visible
   extracted/display-list text while retaining link annotations;

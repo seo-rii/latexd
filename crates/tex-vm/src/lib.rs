@@ -17923,7 +17923,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_nested_wrapper_unknown_command_inline_events() {
-        let source = r"\begin{document}Nested \emph{before \unknowntext{see \cite{key} and \ref{sec:intro}} after}.\end{document}";
+        let source = r"\begin{document}Nested \emph{before \unknowntext{see \cite{key}, \citep*{starred}, \ref{sec:intro}, \crefrange*{fig:a}{fig:b}, and \ref*{sec:starred}} after}.\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -17936,8 +17936,26 @@ Fallback text.
         )));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
+            RenderEvent::InlineCitation(citation)
+                if citation.keys == vec!["starred".to_string()]
+                    && citation.command == "citep"
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
             RenderEvent::InlineReference(reference)
                 if reference.keys == vec!["sec:intro".to_string()]
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineReference(reference)
+                if reference.keys == vec!["fig:a".to_string(), "fig:b".to_string()]
+                    && reference.command == "crefrange"
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineReference(reference)
+                if reference.keys == vec!["sec:starred".to_string()]
+                    && reference.command == "ref"
         )));
 
         let visible_text = outcome
@@ -17951,11 +17969,16 @@ Fallback text.
             .collect::<Vec<_>>()
             .join("");
 
-        assert!(visible_text.contains("Nested before see  and  after."));
+        assert!(visible_text.contains("Nested before see "));
+        assert!(visible_text.contains(" after."));
         assert!(!visible_text.contains("unknowntext"));
         assert!(!visible_text.contains("{see"));
         assert!(!visible_text.contains("key"));
+        assert!(!visible_text.contains("starred"));
         assert!(!visible_text.contains("sec:intro"));
+        assert!(!visible_text.contains("fig:a"));
+        assert!(!visible_text.contains("fig:b"));
+        assert!(!visible_text.contains("sec:starred"));
     }
 
     #[test]
@@ -18092,7 +18115,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_nested_wrapper_unknown_command_nested_unknown_inline_events() {
-        let source = r"\begin{document}Nested \emph{before \unknowntext{outer \innerunknown{see \cite{key} and \ref{sec:intro}} done} after}.\end{document}";
+        let source = r"\begin{document}Nested \emph{before \unknowntext{outer \innerunknown{see \cite{key}, \citep*{starred}, \ref{sec:intro}, \crefrange*{fig:a}{fig:b}, and \ref*{sec:starred}} done} after}.\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -18105,8 +18128,26 @@ Fallback text.
         )));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
+            RenderEvent::InlineCitation(citation)
+                if citation.keys == vec!["starred".to_string()]
+                    && citation.command == "citep"
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
             RenderEvent::InlineReference(reference)
                 if reference.keys == vec!["sec:intro".to_string()]
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineReference(reference)
+                if reference.keys == vec!["fig:a".to_string(), "fig:b".to_string()]
+                    && reference.command == "crefrange"
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineReference(reference)
+                if reference.keys == vec!["sec:starred".to_string()]
+                    && reference.command == "ref"
         )));
 
         let visible_text = outcome
@@ -18120,11 +18161,16 @@ Fallback text.
             .collect::<Vec<_>>()
             .join("");
 
-        assert!(visible_text.contains("Nested before outer see  and  done after."));
+        assert!(visible_text.contains("Nested before outer see "));
+        assert!(visible_text.contains(" done after."));
         assert!(!visible_text.contains("unknowntext"));
         assert!(!visible_text.contains("innerunknown"));
         assert!(!visible_text.contains("key"));
+        assert!(!visible_text.contains("starred"));
         assert!(!visible_text.contains("sec:intro"));
+        assert!(!visible_text.contains("fig:a"));
+        assert!(!visible_text.contains("fig:b"));
+        assert!(!visible_text.contains("sec:starred"));
     }
 
     #[test]

@@ -3429,20 +3429,45 @@ fn nested_text_wrapper_unknown_command_inline_events_survive_ir_without_raw_keys
     assert!(paragraph.content.iter().any(|node| {
         matches!(
             node,
+            InlineNode::Citation(citation) if citation.keys == vec!["starred".to_string()]
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
             InlineNode::Reference(reference)
                 if reference.keys == vec!["sec:intro".to_string()]
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Reference(reference)
+                if reference.keys == vec!["fig:a".to_string(), "fig:b".to_string()]
+                    && reference.command == "crefrange"
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Reference(reference)
+                if reference.keys == vec!["sec:starred".to_string()]
         )
     }));
 
     let extracted_text = capture.document_ir.extracted_text();
     assert!(
-        extracted_text.contains("Nested before see [?] and [?] after."),
+        extracted_text.contains("Nested before see [?], [?], [?], [?], and [?] after."),
         "{extracted_text}"
     );
     assert!(!extracted_text.contains("unknowntext"));
     assert!(!extracted_text.contains("{see"));
     assert!(!extracted_text.contains("key"));
+    assert!(!extracted_text.contains("starred"));
     assert!(!extracted_text.contains("sec:intro"));
+    assert!(!extracted_text.contains("fig:a"));
+    assert!(!extracted_text.contains("fig:b"));
+    assert!(!extracted_text.contains("sec:starred"));
 
     let display_list_text = capture.page_display_lists[0]
         .ops
@@ -3454,13 +3479,17 @@ fn nested_text_wrapper_unknown_command_inline_events_survive_ir_without_raw_keys
         .collect::<Vec<_>>()
         .join("");
     assert!(
-        display_list_text.contains("Nested before see [?] and [?] after."),
+        display_list_text.contains("Nested before see [?], [?], [?], [?], and [?] after."),
         "{display_list_text}"
     );
     assert!(!display_list_text.contains("unknowntext"));
     assert!(!display_list_text.contains("{see"));
     assert!(!display_list_text.contains("key"));
+    assert!(!display_list_text.contains("starred"));
     assert!(!display_list_text.contains("sec:intro"));
+    assert!(!display_list_text.contains("fig:a"));
+    assert!(!display_list_text.contains("fig:b"));
+    assert!(!display_list_text.contains("sec:starred"));
 }
 
 #[test]
@@ -3669,18 +3698,43 @@ fn nested_text_wrapper_unknown_command_nested_unknown_inline_events_survive_ir()
     assert!(paragraph.content.iter().any(|node| {
         matches!(
             node,
+            InlineNode::Citation(citation) if citation.keys == vec!["starred".to_string()]
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
             InlineNode::Reference(reference)
                 if reference.keys == vec!["sec:intro".to_string()]
         )
     }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Reference(reference)
+                if reference.keys == vec!["fig:a".to_string(), "fig:b".to_string()]
+                    && reference.command == "crefrange"
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Reference(reference)
+                if reference.keys == vec!["sec:starred".to_string()]
+        )
+    }));
 
-    let expected_text = "Nested before outer see [?] and [?] done after.";
+    let expected_text = "Nested before outer see [?], [?], [?], [?], and [?] done after.";
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains(expected_text), "{extracted_text}");
     assert!(!extracted_text.contains("unknowntext"));
     assert!(!extracted_text.contains("innerunknown"));
     assert!(!extracted_text.contains("key"));
+    assert!(!extracted_text.contains("starred"));
     assert!(!extracted_text.contains("sec:intro"));
+    assert!(!extracted_text.contains("fig:a"));
+    assert!(!extracted_text.contains("fig:b"));
+    assert!(!extracted_text.contains("sec:starred"));
 
     let display_list_text = capture.page_display_lists[0]
         .ops
@@ -3698,7 +3752,11 @@ fn nested_text_wrapper_unknown_command_nested_unknown_inline_events_survive_ir()
     assert!(!display_list_text.contains("unknowntext"));
     assert!(!display_list_text.contains("innerunknown"));
     assert!(!display_list_text.contains("key"));
+    assert!(!display_list_text.contains("starred"));
     assert!(!display_list_text.contains("sec:intro"));
+    assert!(!display_list_text.contains("fig:a"));
+    assert!(!display_list_text.contains("fig:b"));
+    assert!(!display_list_text.contains("sec:starred"));
 }
 
 #[test]
@@ -4617,7 +4675,7 @@ const NESTED_TEXT_WRAPPER_WRAPPER_SOURCE: &str =
 const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_SOURCE: &str =
     r"\begin{document}Nested \emph{before \unknowntext{visible text} after}.\end{document}";
 
-const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_INLINE_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{see \cite{key} and \ref{sec:intro}} after}.\end{document}";
+const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_INLINE_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{see \cite{key}, \citep*{starred}, \ref{sec:intro}, \crefrange*{fig:a}{fig:b}, and \ref*{sec:starred}} after}.\end{document}";
 
 const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_LINK_MATH_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{see \href{https://hidden.test}{paper}, \url{https://shown.test}, and $x^2$} after}.\end{document}";
 
@@ -4627,7 +4685,7 @@ const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_TEXT_WRAPPER_SOURCE: &str = r"\begin{d
 
 const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{outer \innerunknown{inner text} done} after}.\end{document}";
 
-const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_INLINE_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{outer \innerunknown{see \cite{key} and \ref{sec:intro}} done} after}.\end{document}";
+const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_INLINE_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{outer \innerunknown{see \cite{key}, \citep*{starred}, \ref{sec:intro}, \crefrange*{fig:a}{fig:b}, and \ref*{sec:starred}} done} after}.\end{document}";
 
 const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_LINK_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{outer \innerunknown{see \href{https://hidden.test}{paper} and \url{https://shown.test}} done} after}.\end{document}";
 
