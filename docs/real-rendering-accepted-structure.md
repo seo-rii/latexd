@@ -152,6 +152,8 @@ The next implementation step has started with a narrow display-list spike:
 - bibliography spacing helpers such as `\addabbrvspace`, `\addnbspace`, and
   `\addthinspace` are consumed as non-visible separators, while
   `\parentext{...}` renders parenthesized visible text;
+- `\bibnamedash` now renders as `---`, and `\urlprefix` is consumed without
+  leaking before visible `\url{...}` text;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and

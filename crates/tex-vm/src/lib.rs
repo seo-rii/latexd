@@ -11433,6 +11433,7 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
             "textendash" => Some(("-", true)),
             "textemdash" => Some(("---", false)),
             "addslash" => Some(("/", true)),
+            "bibnamedash" => Some(("---", false)),
             _ => None,
         };
         if let Some((punctuation, attach_next)) = punctuation_helper {
@@ -11496,6 +11497,7 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 | "addthinspace"
                 | "addlowpenspace"
                 | "addhighpenspace"
+                | "urlprefix"
         ) {
             append_normalized_text(&mut text, &source[chunk_start..command_start]);
             found_structured_inline = true;
@@ -15747,6 +15749,29 @@ Fallback text.
             "addhighpenspace",
             "parentext",
         ] {
+            assert!(!item_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_namedash_and_urlprefix_in_bibliography_items() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\bibnamedash. \urlprefix\url{https://example.test/paper}.\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .expect("bibliography item");
+
+        assert_eq!(item_text, "---. https://example.test/paper.");
+        for hidden in ["bibnamedash", "urlprefix"] {
             assert!(!item_text.contains(hidden));
         }
     }
