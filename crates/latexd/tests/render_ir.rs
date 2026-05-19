@@ -4735,6 +4735,66 @@ fn algorithm_environment_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn algorithmic_environment_capture_survives_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        ALGORITHMIC_ENVIRONMENT_SOURCE,
+        &SemanticAux::default(),
+    );
+    let environments = capture
+        .document_ir
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            IrBlock::Environment(environment) => Some(environment),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(environments.len(), 2);
+    assert_eq!(environments[0].name, "algorithmic");
+    assert!(environments[0].content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Text { text, .. } if text == "Step"
+        )
+    }));
+    assert_eq!(environments[1].name, "algorithmic*");
+    assert!(environments[1].content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Text { text, .. } if text == "Wide"
+        )
+    }));
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if matches!(
+                    fallback.environment.as_deref(),
+                    Some("algorithmic" | "algorithmic*")
+                )
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Step one."));
+    assert!(extracted_text.contains("Wide step."));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Step one."));
+    assert!(display_list_text.contains("Wide step."));
+}
+
+#[test]
 fn theorem_like_environment_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -5376,6 +5436,8 @@ const LIST_SOURCE: &str = r"\begin{document}\begin{itemize}\item First \cite{key
 const SIMPLE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{quote}Quoted \cite{key}.\end{quote}\begin{center}Centered text.\end{center}\begin{theorem}Theorem text.\end{theorem}\begin{proof}Proof text.\end{proof}\end{document}";
 
 const ALGORITHM_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{algorithm}\caption{Procedure.}\label{alg:first}Step text.\end{algorithm}\begin{algorithm*}Wide step.\end{algorithm*}\end{document}";
+
+const ALGORITHMIC_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{algorithmic}\State Step one.\end{algorithmic}\begin{algorithmic*}Wide step.\end{algorithmic*}\end{document}";
 
 const THEOREM_LIKE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{lemma}Lemma text.\end{lemma}\begin{proposition}Proposition text.\end{proposition}\begin{corollary}Corollary text.\end{corollary}\begin{definition}Definition text.\end{definition}\begin{remark}Remark text.\end{remark}\begin{example}Example text.\end{example}\end{document}";
 
