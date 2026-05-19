@@ -260,7 +260,8 @@ impl AuxView for SemanticAux {
             return Some(CitationLabel {
                 text: entry
                     .label
-                    .clone()
+                    .as_deref()
+                    .map(normalize_bibliography_inline_markup)
                     .unwrap_or_else(|| fallback_position.to_string()),
             });
         }
@@ -14138,7 +14139,7 @@ mod tests {
             bibliography: vec![super::BibliographyEntry {
                 key: "alpha".to_string(),
                 text: "Alpha entry.".to_string(),
-                label: Some("3".to_string()),
+                label: Some(r"Alpha 2024\natexlab{a}".to_string()),
                 file: Utf8PathBuf::from("refs.bbl"),
             }],
             ..SemanticAux::default()
@@ -14148,7 +14149,7 @@ mod tests {
             aux.citation_label("alpha", CitationStyleHint::Numeric)
                 .expect("citation label")
                 .text,
-            "3"
+            "Alpha 2024a"
         );
         assert_eq!(
             aux.bibliography_record("alpha")

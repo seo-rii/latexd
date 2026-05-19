@@ -4123,6 +4123,68 @@ fn aux_resolved_references_and_citations_survive_ir_and_display_list() {
 }
 
 #[test]
+fn aux_natexlab_labels_are_normalized_in_ir_and_display_list() {
+    let mut aux = SemanticAux::default();
+    aux.bibliography.push(BibliographyEntry {
+        key: "alpha".to_string(),
+        text: "Alpha entry.".to_string(),
+        label: Some(r"Alpha 2024\natexlab{a}".to_string()),
+        file: Utf8PathBuf::from("refs.bbl"),
+    });
+    aux.bibliography.push(BibliographyEntry {
+        key: "beta".to_string(),
+        text: "Beta entry.".to_string(),
+        label: Some(r"Beta 2023\NAT@exlab{b}".to_string()),
+        file: Utf8PathBuf::from("refs.bbl"),
+    });
+
+    let capture = capture_internal_render_ir("main.tex", AUX_NATEXLAB_SOURCE, &aux);
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Citation(citation)
+                if citation.keys == vec!["alpha".to_string(), "beta".to_string()]
+                    && citation.resolved_label.as_deref() == Some("[Alpha 2024a,Beta 2023b]")
+                    && citation.display_text == "[Alpha 2024a,Beta 2023b]"
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(
+        extracted_text.contains("See [Alpha 2024a,Beta 2023b]."),
+        "{extracted_text}"
+    );
+    assert!(!extracted_text.contains("natexlab"));
+    assert!(!extracted_text.contains("NAT@exlab"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("See [Alpha 2024a,Beta 2023b]."),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("natexlab"));
+    assert!(!display_list_text.contains("NAT@exlab"));
+}
+
+#[test]
 fn label_definition_capture_survives_ir_without_visible_key() {
     let capture = capture_internal_render_ir("main.tex", LABEL_SOURCE, &SemanticAux::default());
 
@@ -4382,6 +4444,8 @@ const SIMPLE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{quote}Quoted \c
 
 const AUX_RESOLUTION_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \cite{key}.\end{document}";
+
+const AUX_NATEXLAB_SOURCE: &str = r"\begin{document}See \cite{alpha,beta}.\end{document}";
 
 const LABEL_SOURCE: &str =
     r"\begin{document}\section{Intro}\label{sec:intro}See \ref{sec:intro}.\end{document}";

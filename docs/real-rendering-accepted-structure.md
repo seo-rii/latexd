@@ -173,6 +173,9 @@ The next implementation step has started with a narrow display-list spike:
   and `DocumentIr` preserves labels as invisible metadata rather than body text;
 - `SemanticAux`-backed citation labels and reference targets now have latexd
   integration coverage through `RenderEvent -> DocumentIr -> PageDisplayList`;
+- `SemanticAux` citation labels now normalize natbib year-suffix markup such as
+  `\natexlab{a}` and `\NAT@exlab{b}` before IR/display-list citation text is
+  built, preventing raw bibliography label macros from leaking into output;
 - `BibliographyItem` text now uses inline citation/reference placeholder
   redaction before becoming bibliography IR/display-list text, so bibliography
   bodies do not leak nested citation or label keys;
