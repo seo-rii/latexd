@@ -11421,7 +11421,25 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
             scan_index = chunk_start;
             continue;
         }
-        if matches!(command, "protect" | "relax" | "leavevmode" | "unskip") {
+        let punctuation_helper = match command {
+            "addcomma" => Some(","),
+            "addcolon" => Some(":"),
+            "addsemicolon" => Some(";"),
+            "adddot" => Some("."),
+            _ => None,
+        };
+        if let Some(punctuation) = punctuation_helper {
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            text.push_str(punctuation);
+            found_structured_inline = true;
+            chunk_start = command_name_end;
+            scan_index = command_name_end;
+            continue;
+        }
+        if matches!(
+            command,
+            "protect" | "relax" | "leavevmode" | "unskip" | "addspace" | "newunit" | "finentry"
+        ) {
             append_normalized_text(&mut text, &source[chunk_start..command_start]);
             found_structured_inline = true;
             chunk_start = command_name_end;
@@ -15517,6 +15535,37 @@ Fallback text.
 
         assert_eq!(item_text, "Alpha et al. URL: https://example.test/paper.");
         for hidden in ["mkbibnamefamily", "bibstring", "mkbibacro", "andothers"] {
+            assert!(!item_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_punctuation_helpers_in_bibliography_items() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Alpha\addcomma\addspace Beta\newunit Gamma\addcolon\addspace Delta\addsemicolon\addspace Epsilon\adddot\finentry\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .expect("bibliography item");
+
+        assert_eq!(item_text, "Alpha, Beta Gamma: Delta; Epsilon.");
+        for hidden in [
+            "addcomma",
+            "addspace",
+            "newunit",
+            "addcolon",
+            "addsemicolon",
+            "adddot",
+            "finentry",
+        ] {
             assert!(!item_text.contains(hidden));
         }
     }
