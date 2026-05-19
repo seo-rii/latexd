@@ -74,7 +74,8 @@ The next implementation step has started with a narrow display-list spike:
   provenance, and display-list caption text uses the caption source span;
 - VM render-event capture now emits `GraphicRef`/`Caption` events for
   `\includegraphics`/`\includegraphics*`, `\caption`, and `\caption*`,
-  including inside `figure`/`figure*` and `table`/`table*` blocks;
+  including inside `figure`/`figure*`, `sidewaysfigure`/`sidewaysfigure*`,
+  `table`/`table*`, and `sidewaystable`/`sidewaystable*` blocks;
 - captured caption text now redacts nested citation/reference commands to
   placeholders instead of leaking raw citation keys or label keys into
   `Graphic` IR captions and display-list text;

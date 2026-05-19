@@ -1424,11 +1424,15 @@ impl<'i> Vm<'i> {
                                     index = raw_end;
                                 }
                             }
-                            "figure" | "figure*" | "table" | "table*" if in_document => {
-                                let block = if environment.starts_with("figure") {
-                                    BlockKind::Figure
-                                } else {
-                                    BlockKind::Table
+                            "figure" | "figure*" | "sidewaysfigure" | "sidewaysfigure*"
+                            | "table" | "table*" | "sidewaystable" | "sidewaystable*"
+                                if in_document =>
+                            {
+                                let block = match environment {
+                                    "figure" | "figure*" | "sidewaysfigure" | "sidewaysfigure*" => {
+                                        BlockKind::Figure
+                                    }
+                                    _ => BlockKind::Table,
                                 };
                                 self.emit_render_event(
                                     RenderEvent::BeginBlock(BeginBlockEvent {
@@ -16855,6 +16859,53 @@ Fallback text.
             &event.event,
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("table*")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_sideways_floats_without_fallback() {
+        let source = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{sidewaysfigure}\includegraphics[width=4cm]{figures/rotated.pdf}\caption{Rotated figure.}\label{fig:rot}\end{sidewaysfigure}\begin{sidewaystable}\caption{Rotated table.}\label{tab:rot}\end{sidewaystable}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Figure
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Table
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/rotated.pdf"
+                    && graphic.options.as_deref() == Some("width=4cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Rotated figure."
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Rotated table."
+        )));
+        for key in ["fig:rot", "tab:rot"] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::LabelDefinition(label) if label.key == key
+            )));
+        }
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if matches!(
+                    fallback.environment.as_deref(),
+                    Some("sidewaysfigure" | "sidewaystable")
+                )
         )));
     }
 
