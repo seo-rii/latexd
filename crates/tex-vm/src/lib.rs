@@ -1568,8 +1568,10 @@ impl<'i> Vm<'i> {
                                                 }
                                             }
                                             body_source[code_body_start..].to_string()
-                                        } else if matches!(other, "array" | "tabular" | "tabular*")
-                                        {
+                                        } else if matches!(
+                                            other,
+                                            "array" | "tabular" | "tabular*" | "longtable"
+                                        ) {
                                             let mut table_body_start =
                                                 skip_ascii_whitespace(body_source, 0);
                                             if other == "tabular*" {
@@ -16506,6 +16508,34 @@ Fallback text.
                 _ => None,
             })
             .expect("tabular fallback visible text");
+
+        assert_eq!(visible, "Alpha | Beta ; Gamma | Delta");
+        assert!(!visible.contains("&"));
+        assert!(!visible.contains("ll"));
+        assert!(!visible.contains("hline"));
+        assert!(!visible.contains("textbf"));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_longtable_fallback_text() {
+        let source = r"\begin{document}\begin{longtable}{ll}Alpha & Beta \\ Gamma & \textbf{Delta} \\\hline\end{longtable}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("longtable") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("longtable fallback visible text");
 
         assert_eq!(visible, "Alpha | Beta ; Gamma | Delta");
         assert!(!visible.contains("&"));

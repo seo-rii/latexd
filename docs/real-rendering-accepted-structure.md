@@ -301,9 +301,10 @@ The next implementation step has started with a narrow display-list spike:
 - `\newtheorem{...}{...}` and `\newtheorem*{...}{...}` declarations register
   custom theorem-like environment names for the same structured block and
   optional-title path;
-- unsupported `tabular`-style environments now normalize column specs, cell
-  separators, row breaks, and common rule commands into readable fallback text
-  instead of leaking raw table syntax into extracted/display-list text;
+- unsupported `tabular`/`longtable`-style environments now normalize column
+  specs, cell separators, row breaks, and common rule commands into readable
+  fallback text instead of leaking raw table syntax into extracted/display-list
+  text;
 - unsupported `verbatim` environments now preserve their body text without
   applying LaTeX command normalization, so backslashes, braces, and code-like
   snippets remain visible in IR and display-list fallback text;
