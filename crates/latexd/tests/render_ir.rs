@@ -1454,6 +1454,12 @@ fn math_environment_capture_survives_ir_and_display_list() {
             IrBlock::DisplayMath(display) if display.raw_source == r"a&=b"
         )
     }));
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::DisplayMath(display) if display.raw_source == r"x&=y"
+        )
+    }));
     assert!(!capture.document_ir.blocks.iter().any(|block| {
         matches!(
             block,
@@ -1468,6 +1474,13 @@ fn math_environment_capture_survives_ir_and_display_list() {
                 if fallback.environment.as_deref() == Some("flalign*")
         )
     }));
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("alignat*")
+        )
+    }));
     let display_list_text = capture.page_display_lists[0]
         .ops
         .iter()
@@ -1479,6 +1492,7 @@ fn math_environment_capture_survives_ir_and_display_list() {
         .join("\n");
     assert!(display_list_text.contains(r"\frac{a}{b}"));
     assert!(display_list_text.contains("a&=b"));
+    assert!(display_list_text.contains("x&=y"));
 }
 
 #[test]
@@ -4675,7 +4689,7 @@ const INLINE_MATH_SOURCE: &str = r"\begin{document}Area \(x^2 + y^2\).\end{docum
 
 const DOLLAR_MATH_SOURCE: &str = r"\begin{document}Area $x^2 + y^2$.$$z^2$$\end{document}";
 
-const MATH_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{equation}\frac{a}{b}\end{equation}\begin{flalign*}a&=b\end{flalign*}\end{document}";
+const MATH_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{equation}\frac{a}{b}\end{equation}\begin{flalign*}a&=b\end{flalign*}\begin{alignat*}{2}x&=y\end{alignat*}\end{document}";
 
 const HEADING_LEVEL_SOURCE: &str = r"\begin{document}\section[Short]{Long Section}\subsection*{Methods}\subsubsection{Details}\paragraph{Sketch}\end{document}";
 

@@ -80,7 +80,7 @@ The next implementation step has started with a narrow display-list spike:
   `Graphic` IR captions and display-list text;
 - VM render-event capture now emits `InlineMath` for `\(...\)`/`$...$` and
   `DisplayMath` for `\[...\]`/`$$...$$` plus common display math environments
-  such as `equation`, `align`, and `flalign`, preserving math commands in
+  such as `equation`, `align`, `flalign`, and `alignat`, preserving math commands in
   `raw_source`;
 - VM render-event capture now emits `Heading` levels for `part`/`chapter`,
   `section`, `subsection`, `subsubsection`, `paragraph`, and `subparagraph`,

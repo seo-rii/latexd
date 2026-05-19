@@ -1165,14 +1165,26 @@ impl<'i> Vm<'i> {
                                 );
                             }
                             "equation" | "equation*" | "displaymath" | "align" | "align*"
-                            | "flalign" | "flalign*" | "gather" | "gather*" | "multline"
-                            | "multline*"
+                            | "flalign" | "flalign*" | "alignat" | "alignat*" | "gather"
+                            | "gather*" | "multline" | "multline*"
                                 if in_document =>
                             {
                                 let end_marker = format!("\\end{{{environment}}}");
                                 if let Some(relative_end) = source[index..].find(&end_marker) {
-                                    let body_start = index;
+                                    let mut body_start = index;
                                     let body_end = index + relative_end;
+                                    if matches!(environment, "alignat" | "alignat*") {
+                                        let argument_index =
+                                            skip_ascii_whitespace(source, body_start);
+                                        if let Some((_, _, _, after_argument)) =
+                                            read_braced_source_argument(source, argument_index)
+                                        {
+                                            if after_argument <= body_end {
+                                                body_start =
+                                                    skip_ascii_whitespace(source, after_argument);
+                                            }
+                                        }
+                                    }
                                     let raw_end = body_end + end_marker.len();
                                     self.emit_render_event(
                                         RenderEvent::DisplayMath(MathSourceEvent {
@@ -16571,7 +16583,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_math_environment() {
-        let source = r"\begin{document}\begin{equation}\frac{a}{b}\end{equation}\begin{flalign*}a&=b\end{flalign*}\end{document}";
+        let source = r"\begin{document}\begin{equation}\frac{a}{b}\end{equation}\begin{flalign*}a&=b\end{flalign*}\begin{alignat*}{2}x&=y\end{alignat*}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -16583,7 +16595,7 @@ Fallback text.
             .filter(|event| matches!(&event.event, RenderEvent::DisplayMath(_)))
             .collect::<Vec<_>>();
 
-        assert_eq!(display_math.len(), 2);
+        assert_eq!(display_math.len(), 3);
         assert!(matches!(
             &display_math[0].event,
             RenderEvent::DisplayMath(math) if math.raw_source == r"\frac{a}{b}"
@@ -16591,6 +16603,10 @@ Fallback text.
         assert!(matches!(
             &display_math[1].event,
             RenderEvent::DisplayMath(math) if math.raw_source == r"a&=b"
+        ));
+        assert!(matches!(
+            &display_math[2].event,
+            RenderEvent::DisplayMath(math) if math.raw_source == r"x&=y"
         ));
         assert!(matches!(
             &display_math[0].meta.source.primary,
@@ -16608,6 +16624,11 @@ Fallback text.
             &event.event,
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("flalign*")
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("alignat*")
         )));
     }
 
