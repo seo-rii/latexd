@@ -16287,6 +16287,30 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_records_starred_table_caption_without_fallback() {
+        let source = r"\def\caption#1{#1}\begin{document}\begin{table*}\caption{Wide table.}\end{table*}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Table
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Wide table."
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("table*")
+        )));
+    }
+
+    #[test]
     fn render_event_capture_records_captionof_without_type_or_short_title_leakage() {
         let source = r"\begin{document}\captionof{figure}[Short Figure]{Long Figure Title}\label{fig:first}See \autoref{fig:first}.\captionof*{table}{Long Table Title}\label{tab:first}See \autoref{tab:first}.\end{document}";
         let mut interner = ControlSequenceInterner::new();
