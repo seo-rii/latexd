@@ -2294,19 +2294,24 @@ fn starred_reference_capture_survives_ir_without_visible_keys() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(references.len(), 3);
+    assert_eq!(references.len(), 5);
     assert_eq!(references[0].command, "ref");
     assert_eq!(references[0].keys, vec!["sec:intro".to_string()]);
     assert_eq!(references[1].command, "autoref");
     assert_eq!(references[1].keys, vec!["fig:plot".to_string()]);
     assert_eq!(references[2].command, "Cref");
     assert_eq!(references[2].keys, vec!["tab:data".to_string()]);
+    assert_eq!(references[3].command, "eqref");
+    assert_eq!(references[3].keys, vec!["eq:main".to_string()]);
+    assert_eq!(references[3].display_text, "(?)");
+    assert_eq!(references[4].command, "nameref");
+    assert_eq!(references[4].keys, vec!["sec:name".to_string()]);
 
     let extracted_text = capture.document_ir.extracted_text();
-    assert!(extracted_text.contains("See [?], [?], and [?]."));
-    assert!(!extracted_text.contains("sec:intro"));
-    assert!(!extracted_text.contains("fig:plot"));
-    assert!(!extracted_text.contains("tab:data"));
+    assert!(extracted_text.contains("See [?], [?], [?], (?), and [?]."));
+    for hidden in ["sec:intro", "fig:plot", "tab:data", "eq:main", "sec:name"] {
+        assert!(!extracted_text.contains(hidden));
+    }
 
     let display_list_text = capture.page_display_lists[0]
         .ops
@@ -2317,10 +2322,10 @@ fn starred_reference_capture_survives_ir_without_visible_keys() {
         })
         .collect::<Vec<_>>()
         .join("");
-    assert!(display_list_text.contains("See [?], [?], and [?]."));
-    assert!(!display_list_text.contains("sec:intro"));
-    assert!(!display_list_text.contains("fig:plot"));
-    assert!(!display_list_text.contains("tab:data"));
+    assert!(display_list_text.contains("See [?], [?], [?], (?), and [?]."));
+    for hidden in ["sec:intro", "fig:plot", "tab:data", "eq:main", "sec:name"] {
+        assert!(!display_list_text.contains(hidden));
+    }
 }
 
 #[test]
@@ -4478,7 +4483,7 @@ const CITETEXT_SOURCE: &str = r"\begin{document}See \citetext{compare \citealp{b
 const REFERENCE_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \eqref{eq:main}; \cref{fig:a,tab:b}.\end{document}";
 
-const STARRED_REFERENCE_SOURCE: &str = r"\begin{document}See \ref*{sec:intro}, \autoref*{fig:plot}, and \Cref*{tab:data}.\end{document}";
+const STARRED_REFERENCE_SOURCE: &str = r"\begin{document}See \ref*{sec:intro}, \autoref*{fig:plot}, \Cref*{tab:data}, \eqref*{eq:main}, and \nameref*{sec:name}.\end{document}";
 
 const REFERENCE_ALIAS_SOURCE: &str = r"\begin{document}See \subref{sub:a}, \vref{sec:intro}, \Vref{chap:main}, \vpageref{page:two}, \fullref{sec:full}, \namecref{thm:one}, and \labelcref{item:x}.\end{document}";
 

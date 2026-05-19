@@ -17081,7 +17081,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_starred_references_without_leaking_keys() {
-        let source = r"\begin{document}See \ref*{sec:intro}, \autoref*{fig:plot}, and \Cref*{tab:data}.\end{document}";
+        let source = r"\begin{document}See \ref*{sec:intro}, \autoref*{fig:plot}, \Cref*{tab:data}, \eqref*{eq:main}, and \nameref*{sec:name}.\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -17096,19 +17096,25 @@ Fallback text.
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(references.len(), 3);
+        assert_eq!(references.len(), 5);
         assert_eq!(references[0].command, "ref");
         assert_eq!(references[0].keys, vec!["sec:intro".to_string()]);
         assert_eq!(references[1].command, "autoref");
         assert_eq!(references[1].keys, vec!["fig:plot".to_string()]);
         assert_eq!(references[2].command, "Cref");
         assert_eq!(references[2].keys, vec!["tab:data".to_string()]);
+        assert_eq!(references[3].command, "eqref");
+        assert_eq!(references[3].keys, vec!["eq:main".to_string()]);
+        assert_eq!(references[4].command, "nameref");
+        assert_eq!(references[4].keys, vec!["sec:name".to_string()]);
         assert!(!outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Text(text)
                 if text.text.contains("sec:intro")
                     || text.text.contains("fig:plot")
                     || text.text.contains("tab:data")
+                    || text.text.contains("eq:main")
+                    || text.text.contains("sec:name")
         )));
     }
 
