@@ -15777,6 +15777,60 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_preserves_name_affix_wrappers_in_bibliography_items() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\mkbibnamefamily{Doe}, \mkbibnameaffix{Jr.}.\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .expect("bibliography item");
+
+        assert_eq!(item_text, "Doe, Jr..");
+        for hidden in ["mkbibnamefamily", "mkbibnameaffix"] {
+            assert!(!item_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_preserves_starred_wrappers_in_bibliography_items() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\MakeSentenceCase*{alpha title}. \MakeTitleCase*{beta title}. \mkbibquote*{Alpha Title}. \mkbibparens*{2024}. \mkbibbrackets*{note}. \mkbibbraces*{Supplement}.\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .expect("bibliography item");
+        let expected = r#"alpha title. beta title. "Alpha Title". (2024). [note]. {Supplement}."#;
+
+        assert_eq!(item_text, expected);
+        for hidden in [
+            "MakeSentenceCase",
+            "MakeTitleCase",
+            "mkbibquote",
+            "mkbibparens",
+            "mkbibbrackets",
+            "mkbibbraces",
+        ] {
+            assert!(!item_text.contains(hidden));
+        }
+    }
+
+    #[test]
     fn render_event_capture_renders_bibinfo_bibfield_values_without_field_names() {
         let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\bibinfo{doi}{10.1000/example}. \bibfield{journal}{Journal of Tests}.\end{thebibliography}\end{document}";
         let mut interner = ControlSequenceInterner::new();
