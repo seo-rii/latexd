@@ -1779,6 +1779,17 @@ impl<'i> Vm<'i> {
                                                 body_source,
                                             )
                                         };
+                                    let normalized_visible_text = if matches!(
+                                        other,
+                                        "tikzpicture"
+                                            | "tikzpicture*"
+                                            | "pgfpicture"
+                                            | "pgfpicture*"
+                                    ) {
+                                        format!("[unsupported {other}]")
+                                    } else {
+                                        normalized_visible_text
+                                    };
                                     self.emit_render_event(
                                         RenderEvent::RawFallback(RawFallbackEvent {
                                             source_excerpt: source[command_start..raw_end]
@@ -16753,6 +16764,48 @@ Fallback text.
         assert!(!visible.contains("sec:intro"));
         assert!(!visible.contains("cite"));
         assert!(!visible.contains("ref"));
+    }
+
+    #[test]
+    fn render_event_capture_uses_placeholder_for_tikz_fallback() {
+        let cases = [
+            ("tikzpicture", "[unsupported tikzpicture]"),
+            ("pgfpicture", "[unsupported pgfpicture]"),
+        ];
+
+        for (environment, expected) in cases {
+            let source = format!(
+                r"\begin{{document}}\begin{{{environment}}}\draw (0,0) -- (1,1); \node {{Should not render}};\end{{{environment}}}\end{{document}}"
+            );
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.set_entry_source_path("main.tex");
+            vm.enable_render_event_capture();
+            let outcome = vm.run_plain(&source);
+            let fallback = outcome
+                .render_events
+                .iter()
+                .find_map(|event| match &event.event {
+                    RenderEvent::RawFallback(fallback)
+                        if fallback.environment.as_deref() == Some(environment) =>
+                    {
+                        Some(fallback)
+                    }
+                    _ => None,
+                })
+                .expect("TikZ fallback event");
+
+            assert_eq!(fallback.normalized_visible_text.as_deref(), Some(expected));
+            assert!(fallback.source_excerpt.contains("\\draw"));
+            assert!(!fallback.truncated);
+            let visible = fallback
+                .normalized_visible_text
+                .as_deref()
+                .unwrap_or_default();
+            for hidden in ["draw", "node", "Should not render", "(0,0)", "(1,1)"] {
+                assert!(!visible.contains(hidden));
+            }
+        }
     }
 
     #[test]

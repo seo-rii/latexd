@@ -4726,6 +4726,49 @@ fn raw_fallback_inline_keys_are_redacted_in_ir_and_display_list() {
 }
 
 #[test]
+fn tikz_fallback_uses_placeholder_in_ir_and_display_list() {
+    let capture =
+        capture_internal_render_ir("main.tex", TIKZ_FALLBACK_SOURCE, &SemanticAux::default());
+    let fallback = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("tikzpicture") =>
+            {
+                Some(fallback)
+            }
+            _ => None,
+        })
+        .expect("tikz fallback");
+
+    assert_eq!(
+        fallback.normalized_visible_text.as_deref(),
+        Some("[unsupported tikzpicture]")
+    );
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("[unsupported tikzpicture]"));
+    for hidden in ["draw", "node", "Should not render", "(0,0)", "(1,1)"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("[unsupported tikzpicture]"));
+    for hidden in ["draw", "node", "Should not render", "(0,0)", "(1,1)"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn list_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir("main.tex", LIST_SOURCE, &SemanticAux::default());
     let lists = capture
@@ -5613,6 +5656,8 @@ const TEXTSTYLE_BOX_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibl
 const URLSTYLE_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\urlstyle{same}\url{https://example.test/paper}.\end{thebibliography}\end{document}";
 
 const RAW_FALLBACK_INLINE_KEY_SOURCE: &str = r"\begin{document}\begin{unknownenv}See \cite{cited} and \ref{sec:intro}.\end{unknownenv}\end{document}";
+
+const TIKZ_FALLBACK_SOURCE: &str = r"\begin{document}\begin{tikzpicture}\draw (0,0) -- (1,1); \node {Should not render};\end{tikzpicture}\end{document}";
 
 const VERBATIM_FALLBACK_SOURCE: &str =
     r"\begin{document}\begin{verbatim}\alpha_{i} {raw}\end{verbatim}\end{document}";

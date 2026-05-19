@@ -282,6 +282,8 @@ The next implementation step has started with a narrow display-list spike:
 - unsupported-environment `RawFallback.normalized_visible_text` now uses inline
   citation/reference placeholder redaction, so fallback text remains readable
   without exposing raw citation or label keys;
+- unsupported TikZ/PGF picture environments now render a bounded placeholder
+  as visible fallback text while preserving source excerpts for diagnostics;
 - escaped visible characters such as `\%`, `\&`, `\$`, `\_`, `\#`, `\{`,
   and `\}` now survive as text events instead of disappearing during capture;
 - nonbreaking `~` spaces now survive as explicit visible spaces in event
