@@ -4486,6 +4486,46 @@ fn theorem_like_environment_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn theorem_environment_optional_titles_do_not_leak_raw_brackets() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        THEOREM_ENVIRONMENT_TITLE_SOURCE,
+        &SemanticAux::default(),
+    );
+    let environment_names = capture
+        .document_ir
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            IrBlock::Environment(environment) => Some(environment.name.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(environment_names, vec!["theorem", "proof"]);
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Sharp bound Body."));
+    assert!(extracted_text.contains("Sketch Done."));
+    assert!(!extracted_text.contains("[Sharp bound]"));
+    assert!(!extracted_text.contains("[Sketch]"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Sharp bound Body."));
+    assert!(display_list_text.contains("Sketch Done."));
+    assert!(!display_list_text.contains("[Sharp bound]"));
+    assert!(!display_list_text.contains("[Sketch]"));
+}
+
+#[test]
 fn aux_resolved_references_and_citations_survive_ir_and_display_list() {
     let mut aux = SemanticAux::default();
     aux.labels.push(SemanticLabel {
@@ -4909,6 +4949,8 @@ const LIST_SOURCE: &str = r"\begin{document}\begin{itemize}\item First \cite{key
 const SIMPLE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{quote}Quoted \cite{key}.\end{quote}\begin{center}Centered text.\end{center}\begin{theorem}Theorem text.\end{theorem}\begin{proof}Proof text.\end{proof}\end{document}";
 
 const THEOREM_LIKE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{lemma}Lemma text.\end{lemma}\begin{proposition}Proposition text.\end{proposition}\begin{corollary}Corollary text.\end{corollary}\begin{definition}Definition text.\end{definition}\begin{remark}Remark text.\end{remark}\begin{example}Example text.\end{example}\end{document}";
+
+const THEOREM_ENVIRONMENT_TITLE_SOURCE: &str = r"\begin{document}\begin{theorem}[Sharp bound]Body.\end{theorem}\begin{proof}[Sketch]Done.\end{proof}\end{document}";
 
 const AUX_RESOLUTION_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \cite{key}.\end{document}";

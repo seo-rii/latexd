@@ -1166,6 +1166,46 @@ impl<'i> Vm<'i> {
                                         index as u32,
                                     ),
                                 );
+                                if matches!(
+                                    environment,
+                                    "theorem"
+                                        | "proof"
+                                        | "lemma"
+                                        | "proposition"
+                                        | "corollary"
+                                        | "definition"
+                                        | "remark"
+                                        | "example"
+                                ) {
+                                    let title_index = skip_ascii_whitespace(source, index);
+                                    if let Some((title, title_start, title_end, after_title)) =
+                                        read_bracket_source_argument(source, title_index)
+                                    {
+                                        let title =
+                                            normalize_latex_text_with_inline_placeholders(title);
+                                        if !title.is_empty() {
+                                            self.emit_render_event(
+                                                RenderEvent::Text(TextEvent { text: title }),
+                                                SourceProvenance::file(
+                                                    source_path.to_owned(),
+                                                    title_start as u32,
+                                                    title_end as u32,
+                                                ),
+                                            );
+                                            self.emit_render_event(
+                                                RenderEvent::Space(SpaceEvent {
+                                                    kind: SpaceKind::Interword,
+                                                }),
+                                                SourceProvenance::file(
+                                                    source_path.to_owned(),
+                                                    title_end as u32,
+                                                    after_title as u32,
+                                                ),
+                                            );
+                                        }
+                                        index = after_title;
+                                    }
+                                }
                             }
                             "equation" | "equation*" | "displaymath" | "align" | "align*"
                             | "flalign" | "flalign*" | "alignat" | "alignat*" | "gather"
@@ -18649,6 +18689,29 @@ Fallback text.
                     if fallback.environment.as_deref() == Some(environment)
             )));
         }
+    }
+
+    #[test]
+    fn render_event_capture_records_theorem_environment_optional_titles_without_brackets() {
+        let source = r"\begin{document}\begin{theorem}[Sharp bound]Body.\end{theorem}\begin{proof}[Sketch]Done.\end{proof}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let texts = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(texts.contains(&"Sharp bound"));
+        assert!(texts.contains(&"Sketch"));
+        assert!(!texts.iter().any(|text| text.contains("[Sharp bound]")));
+        assert!(!texts.iter().any(|text| text.contains("[Sketch]")));
     }
 
     #[test]

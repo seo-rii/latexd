@@ -288,6 +288,8 @@ The next implementation step has started with a narrow display-list spike:
   `theorem`, `proof`, `lemma`, `proposition`, `corollary`, `definition`,
   `remark`, and `example` now survive as structured environment block events
   and IR blocks instead of falling back to unsupported-environment raw text;
+- theorem-like environment optional titles are consumed as visible title text
+  without leaking raw square-bracket syntax into IR or display-list text;
 - unsupported `tabular`-style environments now normalize column specs, cell
   separators, row breaks, and common rule commands into readable fallback text
   instead of leaking raw table syntax into extracted/display-list text;
