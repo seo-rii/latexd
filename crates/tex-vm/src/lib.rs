@@ -960,6 +960,7 @@ impl<'i> Vm<'i> {
             "algorithmic",
             "algorithmic*",
             "subequations",
+            "minipage",
         ] {
             structured_environments.insert(environment.to_string());
         }
@@ -1266,6 +1267,26 @@ impl<'i> Vm<'i> {
                                 );
                             }
                             other if in_document && structured_environments.contains(other) => {
+                                if other == "minipage" {
+                                    let mut argument_index = skip_ascii_whitespace(source, index);
+                                    for _ in 0..3 {
+                                        if let Some((_, _, _, after_argument)) =
+                                            read_bracket_source_argument(source, argument_index)
+                                        {
+                                            argument_index =
+                                                skip_ascii_whitespace(source, after_argument);
+                                        } else {
+                                            break;
+                                        }
+                                    }
+                                    if let Some((_, _, _, after_width)) =
+                                        read_braced_source_argument(source, argument_index)
+                                    {
+                                        index = after_width;
+                                    } else {
+                                        index = argument_index;
+                                    }
+                                }
                                 self.emit_render_event(
                                     RenderEvent::BeginBlock(BeginBlockEvent {
                                         block: BlockKind::Environment {
@@ -19201,6 +19222,43 @@ Fallback text.
                     Some("quote" | "center" | "theorem" | "proof")
                 )
         )));
+    }
+
+    #[test]
+    fn render_event_capture_records_minipage_without_layout_arguments() {
+        let source = r"\begin{document}\begin{minipage}[t]{0.5\textwidth}Box text.\end{minipage}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::Environment { name },
+                }) if name == "minipage"
+            )
+        }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::Text(text) if text.text == "Box"
+            )
+        }));
+        assert!(
+            !outcome
+                .render_events
+                .iter()
+                .any(|event| match &event.event {
+                    RenderEvent::Text(text) =>
+                        text.text.contains("0.5") || text.text.contains("textwidth"),
+                    RenderEvent::RawFallback(fallback) =>
+                        fallback.environment.as_deref() == Some("minipage"),
+                    _ => false,
+                })
+        );
     }
 
     #[test]
