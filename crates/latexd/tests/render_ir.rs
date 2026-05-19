@@ -4924,6 +4924,75 @@ fn simple_environment_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn appendices_environment_capture_preserves_nested_headings() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        APPENDICES_ENVIRONMENT_SOURCE,
+        &SemanticAux::default(),
+    );
+    let environment_names = capture
+        .document_ir
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            IrBlock::Environment(environment) => Some(environment.name.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(environment_names.contains(&"appendices"));
+    assert!(environment_names.contains(&"subappendices"));
+
+    let heading_text = capture
+        .document_ir
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            IrBlock::Heading(heading) => heading.content.iter().find_map(|node| match node {
+                InlineNode::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(heading_text.contains(&"Extra"));
+    assert!(heading_text.contains(&"More"));
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if matches!(
+                    fallback.environment.as_deref(),
+                    Some("appendices" | "subappendices")
+                )
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Extra"));
+    assert!(extracted_text.contains("Appendix [?] text."));
+    assert!(extracted_text.contains("More"));
+    assert!(extracted_text.contains("More text."));
+    assert!(!extracted_text.contains("sec:intro"));
+    assert!(!extracted_text.contains("appendices"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Extra"));
+    assert!(display_list_text.contains("Appendix [?] text."));
+    assert!(display_list_text.contains("More"));
+    assert!(display_list_text.contains("More text."));
+    assert!(!display_list_text.contains("sec:intro"));
+    assert!(!display_list_text.contains("appendices"));
+}
+
+#[test]
 fn minipage_environment_capture_hides_layout_arguments() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -5876,6 +5945,8 @@ const TABULAR_FALLBACK_SOURCE: &str = r"\begin{document}\begin{tabular}{ll}Alpha
 const LIST_SOURCE: &str = r"\begin{document}\begin{itemize}\item First \cite{key}\item[Custom] Second\end{itemize}\begin{enumerate}\item One\item Two\end{enumerate}\begin{description}\item[Term] Meaning \cite{key}\item[Other] More\end{description}\end{document}";
 
 const SIMPLE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{quote}Quoted \cite{key}.\end{quote}\begin{center}Centered text.\end{center}\begin{theorem}Theorem text.\end{theorem}\begin{proof}Proof text.\end{proof}\end{document}";
+
+const APPENDICES_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{appendices}\section{Extra}Appendix \ref{sec:intro} text.\end{appendices}\begin{subappendices}\subsection{More}More text.\end{subappendices}\end{document}";
 
 const MINIPAGE_ENVIRONMENT_SOURCE: &str =
     r"\begin{document}\begin{minipage}[t]{0.5\textwidth}Box text.\end{minipage}\end{document}";

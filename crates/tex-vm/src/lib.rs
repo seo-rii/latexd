@@ -960,6 +960,8 @@ impl<'i> Vm<'i> {
             "algorithmic",
             "algorithmic*",
             "subequations",
+            "appendices",
+            "subappendices",
             "minipage",
             "multicols",
             "multicols*",
@@ -19382,6 +19384,50 @@ Fallback text.
                 if matches!(
                     fallback.environment.as_deref(),
                     Some("quote" | "center" | "theorem" | "proof")
+                )
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_appendices_without_swallowing_headings() {
+        let source = r"\begin{document}\begin{appendices}\section{Extra}Appendix \ref{sec:intro} text.\end{appendices}\begin{subappendices}\subsection{More}More text.\end{subappendices}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for environment in ["appendices", "subappendices"] {
+            assert!(outcome.render_events.iter().any(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::BeginBlock(BeginBlockEvent {
+                        block: BlockKind::Environment { name },
+                    }) if name == environment
+                )
+            }));
+        }
+        for heading in ["Extra", "More"] {
+            assert!(outcome.render_events.iter().any(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::Heading(event) if event.text == heading
+                )
+            }));
+        }
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::InlineReference(reference)
+                    if reference.keys == vec!["sec:intro".to_string()]
+            )
+        }));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if matches!(
+                    fallback.environment.as_deref(),
+                    Some("appendices" | "subappendices")
                 )
         )));
     }
