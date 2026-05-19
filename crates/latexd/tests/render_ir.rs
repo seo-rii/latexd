@@ -4971,6 +4971,70 @@ fn simple_environment_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn acknowledgements_environment_capture_survives_ir_without_fallback() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        ACKNOWLEDGEMENTS_ENVIRONMENT_SOURCE,
+        &SemanticAux::default(),
+    );
+    let environment_names = capture
+        .document_ir
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            IrBlock::Environment(environment) => Some(environment.name.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    for environment in [
+        "acknowledgements",
+        "acknowledgments",
+        "acknowledgement",
+        "acknowledgment",
+    ] {
+        assert!(environment_names.contains(&environment));
+    }
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if matches!(
+                    fallback.environment.as_deref(),
+                    Some(
+                        "acknowledgements"
+                            | "acknowledgments"
+                            | "acknowledgement"
+                            | "acknowledgment"
+                    )
+                )
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Thanks [?]."));
+    assert!(extracted_text.contains("US spelling."));
+    assert!(extracted_text.contains("Singular."));
+    assert!(extracted_text.contains("Singular US."));
+    assert!(!extracted_text.contains("grant"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Thanks [?]."));
+    assert!(display_list_text.contains("US spelling."));
+    assert!(display_list_text.contains("Singular."));
+    assert!(display_list_text.contains("Singular US."));
+    assert!(!display_list_text.contains("grant"));
+}
+
+#[test]
 fn appendices_environment_capture_preserves_nested_headings() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -5995,6 +6059,8 @@ const TABULAR_FALLBACK_SOURCE: &str = r"\begin{document}\begin{tabular}{ll}Alpha
 const LIST_SOURCE: &str = r"\begin{document}\begin{itemize}\item First \cite{key}\item[Custom] Second\end{itemize}\begin{enumerate}\item One\item Two\end{enumerate}\begin{description}\item[Term] Meaning \cite{key}\item[Other] More\end{description}\end{document}";
 
 const SIMPLE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{quote}Quoted \cite{key}.\end{quote}\begin{center}Centered text.\end{center}\begin{theorem}Theorem text.\end{theorem}\begin{proof}Proof text.\end{proof}\end{document}";
+
+const ACKNOWLEDGEMENTS_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{acknowledgements}Thanks \cite{grant}.\end{acknowledgements}\begin{acknowledgments}US spelling.\end{acknowledgments}\begin{acknowledgement}Singular.\end{acknowledgement}\begin{acknowledgment}Singular US.\end{acknowledgment}\end{document}";
 
 const APPENDICES_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{appendices}\section{Extra}Appendix \ref{sec:intro} text.\end{appendices}\begin{subappendices}\subsection{More}More text.\end{subappendices}\end{document}";
 

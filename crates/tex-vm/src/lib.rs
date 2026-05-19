@@ -955,6 +955,10 @@ impl<'i> Vm<'i> {
             "quote",
             "quotation",
             "center",
+            "acknowledgements",
+            "acknowledgments",
+            "acknowledgement",
+            "acknowledgment",
             "algorithm",
             "algorithm*",
             "algorithmic",
@@ -19412,6 +19416,52 @@ Fallback text.
                 if matches!(
                     fallback.environment.as_deref(),
                     Some("quote" | "center" | "theorem" | "proof")
+                )
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_acknowledgements_without_fallback() {
+        let source = r"\begin{document}\begin{acknowledgements}Thanks \cite{grant}.\end{acknowledgements}\begin{acknowledgments}US spelling.\end{acknowledgments}\begin{acknowledgement}Singular.\end{acknowledgement}\begin{acknowledgment}Singular US.\end{acknowledgment}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for environment in [
+            "acknowledgements",
+            "acknowledgments",
+            "acknowledgement",
+            "acknowledgment",
+        ] {
+            assert!(outcome.render_events.iter().any(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::BeginBlock(BeginBlockEvent {
+                        block: BlockKind::Environment { name },
+                    }) if name == environment
+                )
+            }));
+        }
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::InlineCitation(citation)
+                    if citation.keys == vec!["grant".to_string()]
+            )
+        }));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if matches!(
+                    fallback.environment.as_deref(),
+                    Some(
+                        "acknowledgements"
+                            | "acknowledgments"
+                            | "acknowledgement"
+                            | "acknowledgment"
+                    )
                 )
         )));
     }
