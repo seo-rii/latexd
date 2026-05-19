@@ -11604,7 +11604,11 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 read_braced_source_argument(source, argument_index)
             {
                 append_normalized_text(&mut text, &source[chunk_start..command_start]);
-                let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                let visible_text = if command == "bibstring" && visible_text.trim() == "andothers" {
+                    "et al".to_string()
+                } else {
+                    normalize_latex_text_with_inline_placeholders(visible_text)
+                };
                 let decorated_text = match command {
                     "mkbibquote" | "enquote" => format!("\"{visible_text}\""),
                     "mkbibparens" => format!("({visible_text})"),
@@ -15490,6 +15494,29 @@ Fallback text.
             "mkbibbold",
             "mkbibitalic",
         ] {
+            assert!(!item_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_bibstring_and_acro_wrappers_in_bibliography_items() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\mkbibnamefamily{Alpha} \bibstring{andothers}. \mkbibacro{URL}: \url{https://example.test/paper}.\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .expect("bibliography item");
+
+        assert_eq!(item_text, "Alpha et al. URL: https://example.test/paper.");
+        for hidden in ["mkbibnamefamily", "bibstring", "mkbibacro", "andothers"] {
             assert!(!item_text.contains(hidden));
         }
     }

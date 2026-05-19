@@ -297,6 +297,43 @@ fn bibliography_item_mkbib_wrappers_preserve_visible_punctuation() {
 }
 
 #[test]
+fn bibliography_item_bibstring_and_acro_wrappers_render_visible_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        BIBSTRING_ACRO_BIBLIOGRAPHY_SOURCE,
+        &SemanticAux::default(),
+    );
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+    let expected = "Alpha et al. URL: https://example.test/paper.";
+
+    assert_eq!(bibliography.items[0].content, expected);
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(expected), "{extracted_text}");
+    for hidden in ["mkbibnamefamily", "bibstring", "mkbibacro", "andothers"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+}
+
+#[test]
 fn bibliography_item_bibinfo_bibfield_wrappers_hide_field_names() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -3873,6 +3910,8 @@ const TITLE_INLINE_KEY_SOURCE: &str =
 const BIBLIOGRAPHY_ITEM_INLINE_KEY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{entry} See \cite{cited} and \ref{sec:intro}.\end{thebibliography}\end{document}";
 
 const MKBIB_WRAPPER_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\mkbibquote{Alpha Title}. \mkbibparens{2024}. \mkbibbrackets{note}. \mkbibbraces{Supplement}. \mkbibemph{Emph}. \mkbibbold{Bold}. \mkbibitalic{Italic}.\end{thebibliography}\end{document}";
+
+const BIBSTRING_ACRO_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\mkbibnamefamily{Alpha} \bibstring{andothers}. \mkbibacro{URL}: \url{https://example.test/paper}.\end{thebibliography}\end{document}";
 
 const BIBINFO_BIBFIELD_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\bibinfo{doi}{10.1000/example}. \bibfield{journal}{Journal of Tests}.\end{thebibliography}\end{document}";
 

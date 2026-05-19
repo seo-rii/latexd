@@ -136,6 +136,8 @@ The next implementation step has started with a narrow display-list spike:
   box wrappers while dropping non-visible wrapper options and control commands;
 - `\urlstyle{...}` is treated as a non-visible URL style declaration while
   preserving the visible URL from `\url{...}`;
+- common bibliography string wrappers now normalize `\bibstring{andothers}`
+  to visible `et al` text instead of leaking the raw bibstring key;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and
