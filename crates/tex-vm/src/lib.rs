@@ -11422,17 +11422,23 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
             continue;
         }
         let punctuation_helper = match command {
-            "addcomma" => Some(","),
-            "addcolon" => Some(":"),
-            "addsemicolon" => Some(";"),
-            "adddot" => Some("."),
-            "adddotspace" => Some("."),
-            "isdot" => Some("."),
+            "addcomma" => Some((",", false)),
+            "addcolon" => Some((":", false)),
+            "addsemicolon" => Some((";", false)),
+            "adddot" => Some((".", false)),
+            "adddotspace" => Some((".", false)),
+            "isdot" => Some((".", false)),
+            "bibrangedash" => Some(("-", true)),
+            "addhyphen" => Some(("-", true)),
+            "textendash" => Some(("-", true)),
+            "textemdash" => Some(("---", false)),
+            "addslash" => Some(("/", true)),
             _ => None,
         };
-        if let Some(punctuation) = punctuation_helper {
+        if let Some((punctuation, attach_next)) = punctuation_helper {
             append_normalized_text(&mut text, &source[chunk_start..command_start]);
             text.push_str(punctuation);
+            suppress_next_interword_space.set(attach_next);
             found_structured_inline = true;
             chunk_start = command_name_end;
             scan_index = command_name_end;
@@ -15672,6 +15678,35 @@ Fallback text.
             "bibclosebracket",
             "bibopenbrace",
             "bibclosebrace",
+        ] {
+            assert!(!item_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_dash_and_slash_helpers_in_bibliography_items() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Pages 10\bibrangedash20\addcomma\addspace Vol\adddot 2\addslash Issue 3\addhyphen4\textendash5\textemdash appendix.\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .expect("bibliography item");
+
+        assert_eq!(item_text, "Pages 10-20, Vol. 2/Issue 3-4-5--- appendix.");
+        for hidden in [
+            "bibrangedash",
+            "addslash",
+            "addhyphen",
+            "textendash",
+            "textemdash",
         ] {
             assert!(!item_text.contains(hidden));
         }

@@ -146,6 +146,9 @@ The next implementation step has started with a narrow display-list spike:
 - low-level bibliography helpers such as `\adddotspace`, `\isdot`,
   `\bibopenparen`/`\bibcloseparen`, `\bibopenbracket`/`\bibclosebracket`, and
   `\bibopenbrace`/`\bibclosebrace` now render visible punctuation/delimiters;
+- bibliography dash and slash helpers such as `\bibrangedash`, `\addslash`,
+  `\addhyphen`, `\textendash`, and `\textemdash` now render visible
+  punctuation with the expected attachment spacing;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and

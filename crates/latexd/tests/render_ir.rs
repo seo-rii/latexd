@@ -464,6 +464,49 @@ fn bibliography_item_low_level_punctuation_helpers_render_delimiters() {
 }
 
 #[test]
+fn bibliography_item_dash_and_slash_helpers_attach_correctly() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        DASH_SLASH_BIBLIOGRAPHY_SOURCE,
+        &SemanticAux::default(),
+    );
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+    let expected = "Pages 10-20, Vol. 2/Issue 3-4-5--- appendix.";
+
+    assert_eq!(bibliography.items[0].content, expected);
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(expected), "{extracted_text}");
+    for hidden in [
+        "bibrangedash",
+        "addslash",
+        "addhyphen",
+        "textendash",
+        "textemdash",
+    ] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+}
+
+#[test]
 fn bibliography_item_bibinfo_bibfield_wrappers_hide_field_names() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -4048,6 +4091,8 @@ const PUNCTUATION_HELPER_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{th
 const MKBIB_SUPER_SUB_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Edition\mkbibsuperscript{2}\mkbibsubscript{a} \mkbibbraces{Supplement}.\end{thebibliography}\end{document}";
 
 const LOW_LEVEL_PUNCTUATION_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Alpha\adddotspace Beta\unspace\isdot\nopunct Gamma\isdot \bibopenparen Delta\bibcloseparen \bibopenbracket Epsilon\bibclosebracket \bibopenbrace Zeta\bibclosebrace\end{thebibliography}\end{document}";
+
+const DASH_SLASH_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Pages 10\bibrangedash20\addcomma\addspace Vol\adddot 2\addslash Issue 3\addhyphen4\textendash5\textemdash appendix.\end{thebibliography}\end{document}";
 
 const BIBINFO_BIBFIELD_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\bibinfo{doi}{10.1000/example}. \bibfield{journal}{Journal of Tests}.\end{thebibliography}\end{document}";
 
