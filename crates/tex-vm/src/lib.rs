@@ -969,6 +969,8 @@ impl<'i> Vm<'i> {
             "onehalfspace",
             "doublespace",
             "singlespace",
+            "adjustwidth",
+            "adjustwidth*",
             "algorithm",
             "algorithm*",
             "algorithmic",
@@ -1318,6 +1320,19 @@ impl<'i> Vm<'i> {
                                     {
                                         index = after_scale;
                                     }
+                                } else if matches!(other, "adjustwidth" | "adjustwidth*") {
+                                    let mut argument_index = skip_ascii_whitespace(source, index);
+                                    for _ in 0..2 {
+                                        if let Some((_, _, _, after_margin)) =
+                                            read_braced_source_argument(source, argument_index)
+                                        {
+                                            argument_index =
+                                                skip_ascii_whitespace(source, after_margin);
+                                        } else {
+                                            break;
+                                        }
+                                    }
+                                    index = argument_index;
                                 }
                                 self.emit_render_event(
                                     RenderEvent::BeginBlock(BeginBlockEvent {
@@ -19632,6 +19647,46 @@ Fallback text.
                     _ => false,
                 })
         );
+    }
+
+    #[test]
+    fn render_event_capture_records_adjustwidth_without_margin_arguments() {
+        let source = r"\begin{document}\begin{adjustwidth}{1cm}{2cm}Margin \cite{key} text.\end{adjustwidth}\begin{adjustwidth*}{-1em}{0pt}Star text.\end{adjustwidth*}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for environment in ["adjustwidth", "adjustwidth*"] {
+            assert!(outcome.render_events.iter().any(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::BeginBlock(BeginBlockEvent {
+                        block: BlockKind::Environment { name },
+                    }) if name == environment
+                )
+            }));
+        }
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::InlineCitation(citation)
+                    if citation.keys == vec!["key".to_string()]
+            )
+        }));
+        assert!(!outcome.render_events.iter().any(|event| {
+            match &event.event {
+                RenderEvent::Text(text) => ["1cm", "2cm", "-1em", "0pt"]
+                    .iter()
+                    .any(|argument| text.text.contains(argument)),
+                RenderEvent::RawFallback(fallback) => matches!(
+                    fallback.environment.as_deref(),
+                    Some("adjustwidth" | "adjustwidth*")
+                ),
+                _ => false,
+            }
+        }));
     }
 
     #[test]
