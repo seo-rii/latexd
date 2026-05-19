@@ -1526,6 +1526,41 @@ impl<'i> Vm<'i> {
                                     let normalized_visible_text =
                                         if matches!(other, "verbatim" | "verbatim*") {
                                             body_source.to_string()
+                                        } else if matches!(other, "lstlisting" | "minted") {
+                                            let mut code_body_start =
+                                                skip_ascii_whitespace(body_source, 0);
+                                            if other == "lstlisting" {
+                                                if let Some((_, _, _, after)) =
+                                                    read_bracket_source_argument(
+                                                        body_source,
+                                                        code_body_start,
+                                                    )
+                                                {
+                                                    code_body_start = after;
+                                                }
+                                            } else {
+                                                if let Some((_, _, _, after)) =
+                                                    read_bracket_source_argument(
+                                                        body_source,
+                                                        code_body_start,
+                                                    )
+                                                {
+                                                    code_body_start = after;
+                                                    code_body_start = skip_ascii_whitespace(
+                                                        body_source,
+                                                        code_body_start,
+                                                    );
+                                                }
+                                                if let Some((_, _, _, after)) =
+                                                    read_braced_source_argument(
+                                                        body_source,
+                                                        code_body_start,
+                                                    )
+                                                {
+                                                    code_body_start = after;
+                                                }
+                                            }
+                                            body_source[code_body_start..].to_string()
                                         } else if matches!(other, "array" | "tabular" | "tabular*")
                                         {
                                             let mut table_body_start =
@@ -16495,6 +16530,44 @@ Fallback text.
             .expect("verbatim fallback visible text");
 
         assert_eq!(visible, r"\alpha_{i} {raw}");
+    }
+
+    #[test]
+    fn render_event_capture_preserves_code_listing_fallback_text() {
+        let cases = [
+            (
+                r#"\begin{document}\begin{lstlisting}[language=Rust]fn main() { println!("hi"); }\end{lstlisting}\end{document}"#,
+                "lstlisting",
+                r#"fn main() { println!("hi"); }"#,
+            ),
+            (
+                r"\begin{document}\begin{minted}{rust}let value = \alpha_{i} + {raw};\end{minted}\end{document}",
+                "minted",
+                r"let value = \alpha_{i} + {raw};",
+            ),
+        ];
+
+        for (source, environment, expected) in cases {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.set_entry_source_path("main.tex");
+            vm.enable_render_event_capture();
+            let outcome = vm.run_plain(source);
+            let visible = outcome
+                .render_events
+                .iter()
+                .find_map(|event| match &event.event {
+                    RenderEvent::RawFallback(fallback)
+                        if fallback.environment.as_deref() == Some(environment) =>
+                    {
+                        fallback.normalized_visible_text.as_deref()
+                    }
+                    _ => None,
+                })
+                .expect("code listing fallback visible text");
+
+            assert_eq!(visible, expected);
+        }
     }
 
     #[test]

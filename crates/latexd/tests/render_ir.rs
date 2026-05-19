@@ -4350,6 +4350,68 @@ fn verbatim_fallback_preserves_raw_visible_text() {
 }
 
 #[test]
+fn code_listing_fallback_preserves_raw_visible_text_without_begin_options() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        CODE_LISTING_FALLBACK_SOURCE,
+        &SemanticAux::default(),
+    );
+    let lstlisting = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("lstlisting") =>
+            {
+                Some(fallback)
+            }
+            _ => None,
+        })
+        .expect("lstlisting fallback");
+    let minted = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::RawFallback(fallback) if fallback.environment.as_deref() == Some("minted") => {
+                Some(fallback)
+            }
+            _ => None,
+        })
+        .expect("minted fallback");
+
+    assert_eq!(
+        lstlisting.normalized_visible_text.as_deref(),
+        Some(r#"fn main() { println!("hi"); }"#)
+    );
+    assert_eq!(
+        minted.normalized_visible_text.as_deref(),
+        Some(r"let value = \alpha_{i} + {raw};")
+    );
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(r#"fn main() { println!("hi"); }"#));
+    assert!(extracted_text.contains(r"let value = \alpha_{i} + {raw};"));
+    assert!(!extracted_text.contains("language=Rust"));
+    assert!(!extracted_text.contains("{rust}"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains(r#"fn main() { println!("hi"); }"#));
+    assert!(display_list_text.contains(r"let value = \alpha_{i} + {raw};"));
+    assert!(!display_list_text.contains("language=Rust"));
+    assert!(!display_list_text.contains("{rust}"));
+}
+
+#[test]
 fn raw_fallback_inline_keys_are_redacted_in_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -5055,6 +5117,8 @@ const RAW_FALLBACK_INLINE_KEY_SOURCE: &str = r"\begin{document}\begin{unknownenv
 
 const VERBATIM_FALLBACK_SOURCE: &str =
     r"\begin{document}\begin{verbatim}\alpha_{i} {raw}\end{verbatim}\end{document}";
+
+const CODE_LISTING_FALLBACK_SOURCE: &str = r#"\begin{document}\begin{lstlisting}[language=Rust]fn main() { println!("hi"); }\end{lstlisting}\begin{minted}{rust}let value = \alpha_{i} + {raw};\end{minted}\end{document}"#;
 
 const GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\end{figure}\end{document}";
 
