@@ -1150,7 +1150,9 @@ impl<'i> Vm<'i> {
                                     ),
                                 );
                             }
-                            "quote" | "quotation" | "center" if in_document => {
+                            "quote" | "quotation" | "center" | "theorem" | "proof"
+                                if in_document =>
+                            {
                                 self.emit_render_event(
                                     RenderEvent::BeginBlock(BeginBlockEvent {
                                         block: BlockKind::Environment {
@@ -1556,7 +1558,9 @@ impl<'i> Vm<'i> {
                                     ),
                                 );
                             }
-                            "quote" | "quotation" | "center" if in_document => {
+                            "quote" | "quotation" | "center" | "theorem" | "proof"
+                                if in_document =>
+                            {
                                 self.emit_render_event(
                                     RenderEvent::EndBlock(BeginBlockEvent {
                                         block: BlockKind::Environment {
@@ -18545,7 +18549,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_simple_environment_blocks_without_fallback() {
-        let source = r"\begin{document}\begin{quote}Quoted \cite{key}.\end{quote}\begin{center}Centered text.\end{center}\end{document}";
+        let source = r"\begin{document}\begin{quote}Quoted \cite{key}.\end{quote}\begin{center}Centered text.\end{center}\begin{theorem}Theorem text.\end{theorem}\begin{proof}Proof text.\end{proof}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -18572,8 +18576,14 @@ Fallback text.
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(environment_begins, vec!["quote", "center"]);
-        assert_eq!(environment_ends, vec!["quote", "center"]);
+        assert_eq!(
+            environment_begins,
+            vec!["quote", "center", "theorem", "proof"]
+        );
+        assert_eq!(
+            environment_ends,
+            vec!["quote", "center", "theorem", "proof"]
+        );
         assert!(outcome.render_events.iter().any(|event| {
             matches!(
                 &event.event,
@@ -18584,7 +18594,10 @@ Fallback text.
         assert!(!outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::RawFallback(fallback)
-                if matches!(fallback.environment.as_deref(), Some("quote" | "center"))
+                if matches!(
+                    fallback.environment.as_deref(),
+                    Some("quote" | "center" | "theorem" | "proof")
+                )
         )));
     }
 

@@ -4337,7 +4337,7 @@ fn simple_environment_capture_survives_ir_and_display_list() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(environments.len(), 2);
+    assert_eq!(environments.len(), 4);
     assert_eq!(environments[0].name, "quote");
     assert!(environments[0].content.iter().any(|node| {
         matches!(
@@ -4359,17 +4359,36 @@ fn simple_environment_capture_survives_ir_and_display_list() {
             InlineNode::Text { text, .. } if text == "Centered"
         )
     }));
+    assert_eq!(environments[2].name, "theorem");
+    assert!(environments[2].content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Text { text, .. } if text == "Theorem"
+        )
+    }));
+    assert_eq!(environments[3].name, "proof");
+    assert!(environments[3].content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Text { text, .. } if text == "Proof"
+        )
+    }));
     assert!(!capture.document_ir.blocks.iter().any(|block| {
         matches!(
             block,
             IrBlock::RawFallback(fallback)
-                if matches!(fallback.environment.as_deref(), Some("quote" | "center"))
+                if matches!(
+                    fallback.environment.as_deref(),
+                    Some("quote" | "center" | "theorem" | "proof")
+                )
         )
     }));
 
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("Quoted [?]."));
     assert!(extracted_text.contains("Centered text."));
+    assert!(extracted_text.contains("Theorem text."));
+    assert!(extracted_text.contains("Proof text."));
     assert!(!extracted_text.contains("key"));
 
     let display_list_text = capture.page_display_lists[0]
@@ -4383,6 +4402,8 @@ fn simple_environment_capture_survives_ir_and_display_list() {
         .join("");
     assert!(display_list_text.contains("Quoted [?]."));
     assert!(display_list_text.contains("Centered text."));
+    assert!(display_list_text.contains("Theorem text."));
+    assert!(display_list_text.contains("Proof text."));
     assert!(!display_list_text.contains("key"));
 }
 
@@ -4807,7 +4828,7 @@ const TABULAR_FALLBACK_SOURCE: &str = r"\begin{document}\begin{tabular}{ll}Alpha
 
 const LIST_SOURCE: &str = r"\begin{document}\begin{itemize}\item First \cite{key}\item[Custom] Second\end{itemize}\begin{enumerate}\item One\item Two\end{enumerate}\begin{description}\item[Term] Meaning \cite{key}\item[Other] More\end{description}\end{document}";
 
-const SIMPLE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{quote}Quoted \cite{key}.\end{quote}\begin{center}Centered text.\end{center}\end{document}";
+const SIMPLE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{quote}Quoted \cite{key}.\end{quote}\begin{center}Centered text.\end{center}\begin{theorem}Theorem text.\end{theorem}\begin{proof}Proof text.\end{proof}\end{document}";
 
 const AUX_RESOLUTION_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \cite{key}.\end{document}";
