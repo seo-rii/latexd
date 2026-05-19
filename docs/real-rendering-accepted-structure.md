@@ -129,6 +129,9 @@ The next implementation step has started with a narrow display-list spike:
 - TeX spacing control symbols such as `\!`, `\,`, `\;`, `\:`, `\space`,
   and control-space now normalize to invisible or space text instead of
   literal punctuation;
+- common no-argument text symbol commands such as `\textquotesingle`,
+  `\textquotedbl`, `\textless`, `\textgreater`, `\textbar`, and `\slash` now
+  render as their visible symbols;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and

@@ -11278,7 +11278,10 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
         if plain_text.is_empty() {
             return;
         }
-        if !output.is_empty() && !plain_text.starts_with(['.', ',', ';', ':', '!', '?', ')', ']']) {
+        if !output.is_empty()
+            && !output.ends_with(['\'', '"', '<', '|', '/'])
+            && !plain_text.starts_with(['.', ',', ';', ':', '!', '?', ')', ']'])
+        {
             output.push(' ');
         }
         output.push_str(&plain_text);
@@ -11398,6 +11401,23 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 | "vrefrange"
                 | "Vrefrange"
         );
+        let text_symbol = match command {
+            "textquotesingle" => Some("'"),
+            "textquotedbl" => Some("\""),
+            "textless" => Some("<"),
+            "textgreater" => Some(">"),
+            "textbar" => Some("|"),
+            "slash" => Some("/"),
+            _ => None,
+        };
+        if let Some(symbol) = text_symbol {
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            text.push_str(symbol);
+            found_structured_inline = true;
+            chunk_start = skip_ascii_whitespace(source, command_name_end);
+            scan_index = chunk_start;
+            continue;
+        }
         if matches!(command, "bibinfo" | "bibfield") {
             let field_index = skip_ascii_whitespace(source, command_name_end);
             if let Some((_, _, _, after_field)) = read_braced_source_argument(source, field_index) {
@@ -15410,6 +15430,39 @@ Fallback text.
             "TightJoin. Soft Gap. Wide Gap. Colon Gap. Named Gap. Backslash Gap."
         );
         for hidden in ["Tight!Join", "Soft,Gap", "Wide;Gap", "Colon:Gap", "space"] {
+            assert!(!item_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_text_symbol_commands_in_bibliography_items() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Quote\textquotesingle s. Double\textquotedbl q. Angles\textless x\textgreater. Pipe\textbar join. Path\slash name.\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .expect("bibliography item");
+
+        assert_eq!(
+            item_text,
+            "Quote's. Double\"q. Angles<x>. Pipe|join. Path/name."
+        );
+        for hidden in [
+            "textquotesingle",
+            "textquotedbl",
+            "textless",
+            "textgreater",
+            "textbar",
+            "slash",
+        ] {
             assert!(!item_text.contains(hidden));
         }
     }
