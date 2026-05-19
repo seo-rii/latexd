@@ -16460,7 +16460,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_citation_variants() {
-        let source = r"\begin{document}\citep[see][p.~3]{alpha,beta}\citet*{gamma}\parencite{delta}\textcite{epsilon}\end{document}";
+        let source = r"\begin{document}\citep[see][p.~3]{alpha,beta}\citet*{gamma}\parencite{delta}\textcite{epsilon}\citep*{zeta}\citealt*{eta}\citealp*{theta}\Textcite*{iota}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -16477,7 +16477,7 @@ Fallback text.
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(citations.len(), 4);
+        assert_eq!(citations.len(), 8);
         assert_eq!(citations[0].0.command, "citep");
         assert_eq!(citations[0].0.style_hint, CitationStyleHint::Parenthetical);
         assert_eq!(
@@ -16499,6 +16499,18 @@ Fallback text.
         assert_eq!(citations[3].0.command, "textcite");
         assert_eq!(citations[3].0.style_hint, CitationStyleHint::Textual);
         assert_eq!(citations[3].0.keys, vec!["epsilon".to_string()]);
+        assert_eq!(citations[4].0.command, "citep");
+        assert_eq!(citations[4].0.style_hint, CitationStyleHint::Parenthetical);
+        assert_eq!(citations[4].0.keys, vec!["zeta".to_string()]);
+        assert_eq!(citations[5].0.command, "citealt");
+        assert_eq!(citations[5].0.style_hint, CitationStyleHint::Textual);
+        assert_eq!(citations[5].0.keys, vec!["eta".to_string()]);
+        assert_eq!(citations[6].0.command, "citealp");
+        assert_eq!(citations[6].0.style_hint, CitationStyleHint::Parenthetical);
+        assert_eq!(citations[6].0.keys, vec!["theta".to_string()]);
+        assert_eq!(citations[7].0.command, "Textcite");
+        assert_eq!(citations[7].0.style_hint, CitationStyleHint::Textual);
+        assert_eq!(citations[7].0.keys, vec!["iota".to_string()]);
     }
 
     #[test]
