@@ -3125,19 +3125,29 @@ fn nested_text_wrapper_capture_survives_ir_without_raw_keys() {
         matches!(
             node,
             InlineNode::Reference(reference)
+                if reference.keys == vec!["fig:a".to_string(), "fig:b".to_string()]
+                    && reference.command == "crefrange"
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Reference(reference)
                 if reference.keys == vec!["sec:starred".to_string()]
         )
     }));
 
     let extracted_text = capture.document_ir.extracted_text();
     assert!(
-        extracted_text.contains("Nested important [?], [?], [?], and [?] text."),
+        extracted_text.contains("Nested important [?], [?], [?], [?], and [?] text."),
         "{extracted_text}"
     );
     assert!(!extracted_text.contains("{important"));
     assert!(!extracted_text.contains("key"));
     assert!(!extracted_text.contains("starred"));
     assert!(!extracted_text.contains("sec:intro"));
+    assert!(!extracted_text.contains("fig:a"));
+    assert!(!extracted_text.contains("fig:b"));
     assert!(!extracted_text.contains("sec:starred"));
 
     let display_list_text = capture.page_display_lists[0]
@@ -3150,13 +3160,15 @@ fn nested_text_wrapper_capture_survives_ir_without_raw_keys() {
         .collect::<Vec<_>>()
         .join("");
     assert!(
-        display_list_text.contains("Nested important [?], [?], [?], and [?] text."),
+        display_list_text.contains("Nested important [?], [?], [?], [?], and [?] text."),
         "{display_list_text}"
     );
     assert!(!display_list_text.contains("{important"));
     assert!(!display_list_text.contains("key"));
     assert!(!display_list_text.contains("starred"));
     assert!(!display_list_text.contains("sec:intro"));
+    assert!(!display_list_text.contains("fig:a"));
+    assert!(!display_list_text.contains("fig:b"));
     assert!(!display_list_text.contains("sec:starred"));
 }
 
@@ -4589,7 +4601,7 @@ const URL_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Use \nolinkurl{https://e
 
 const TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Styled \emph{important} and \textbf{bold text} with \texttt{code_path}.\end{document}";
 
-const NESTED_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Nested \emph{important \cite{key}, \citep*{starred}, \ref{sec:intro}, and \ref*{sec:starred}} text.\end{document}";
+const NESTED_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Nested \emph{important \cite{key}, \citep*{starred}, \ref{sec:intro}, \crefrange*{fig:a}{fig:b}, and \ref*{sec:starred}} text.\end{document}";
 
 const NESTED_TEXT_WRAPPER_LINK_SOURCE: &str = r"\begin{document}Nested \emph{read \href{https://hidden.test}{paper} and \url{https://shown.test}}.\end{document}";
 

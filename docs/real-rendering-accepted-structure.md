@@ -213,7 +213,8 @@ The next implementation step has started with a narrow display-list spike:
   body and structured text, keeping labels and anchors out of rendered text;
 - starred reference commands such as `\ref*`, `\eqref*`, `\autoref*`,
   `\nameref*`, and `\Cref*` now emit normal reference intent without leaking
-  the hidden label into body text;
+  the hidden label into body text, and starred range commands such as
+  `\crefrange*` follow the same path;
 - non-link text wrappers such as `\nolinkurl`, `\path`, and `\detokenize`
   now survive as visible text events and IR text nodes without creating link
   annotations; URL-like wrappers support both braced and delimiter-form

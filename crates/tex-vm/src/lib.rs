@@ -17703,7 +17703,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_nested_text_wrapper_inline_events() {
-        let source = r"\begin{document}Nested \emph{important \cite{key}, \citep*{starred}, \ref{sec:intro}, and \ref*{sec:starred}} text.\end{document}";
+        let source = r"\begin{document}Nested \emph{important \cite{key}, \citep*{starred}, \ref{sec:intro}, \crefrange*{fig:a}{fig:b}, and \ref*{sec:starred}} text.\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -17724,6 +17724,12 @@ Fallback text.
             &event.event,
             RenderEvent::InlineReference(reference)
                 if reference.keys == vec!["sec:intro".to_string()]
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineReference(reference)
+                if reference.keys == vec!["fig:a".to_string(), "fig:b".to_string()]
+                    && reference.command == "crefrange"
         )));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
@@ -17750,6 +17756,8 @@ Fallback text.
         assert!(!visible_text.contains("key"));
         assert!(!visible_text.contains("starred"));
         assert!(!visible_text.contains("sec:intro"));
+        assert!(!visible_text.contains("fig:a"));
+        assert!(!visible_text.contains("fig:b"));
         assert!(!visible_text.contains("sec:starred"));
     }
 
