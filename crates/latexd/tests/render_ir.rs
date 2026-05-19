@@ -4355,6 +4355,65 @@ fn longtable_fallback_capture_uses_normalized_visible_text() {
 }
 
 #[test]
+fn longtable_fallback_labels_survive_without_visible_key() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        LONGTABLE_FALLBACK_LABEL_SOURCE,
+        &SemanticAux::default(),
+    );
+    let fallback = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("longtable") =>
+            {
+                Some(fallback)
+            }
+            _ => None,
+        })
+        .expect("longtable fallback");
+
+    let visible = fallback
+        .normalized_visible_text
+        .as_deref()
+        .expect("visible fallback text");
+    assert!(visible.contains("Long table."));
+    assert!(visible.contains("Alpha | Beta"));
+    assert!(!visible.contains("tab:long"));
+    assert!(!visible.contains("label"));
+
+    let label_keys = capture
+        .document_ir
+        .labels
+        .iter()
+        .map(|label| label.key.as_str())
+        .collect::<Vec<_>>();
+    assert!(label_keys.contains(&"tab:long"));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Long table."));
+    assert!(extracted_text.contains("Alpha | Beta"));
+    assert!(!extracted_text.contains("tab:long"));
+    assert!(!extracted_text.contains("label"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Long table."));
+    assert!(display_list_text.contains("Alpha | Beta"));
+    assert!(!display_list_text.contains("tab:long"));
+    assert!(!display_list_text.contains("label"));
+}
+
+#[test]
 fn verbatim_fallback_preserves_raw_visible_text() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -5394,6 +5453,8 @@ const VERBATIM_FALLBACK_SOURCE: &str =
     r"\begin{document}\begin{verbatim}\alpha_{i} {raw}\end{verbatim}\end{document}";
 
 const LONGTABLE_FALLBACK_SOURCE: &str = r"\begin{document}\begin{longtable}{ll}Alpha & Beta \\ Gamma & \textbf{Delta} \\\hline\end{longtable}\end{document}";
+
+const LONGTABLE_FALLBACK_LABEL_SOURCE: &str = r"\begin{document}\begin{longtable}{ll}\caption{Long table.}\label{tab:long}\\ Alpha & Beta\end{longtable}\end{document}";
 
 const CODE_LISTING_FALLBACK_SOURCE: &str = r#"\begin{document}\begin{lstlisting}[language=Rust]fn main() { println!("hi"); }\end{lstlisting}\begin{minted}{rust}let value = \alpha_{i} + {raw};\end{minted}\end{document}"#;
 

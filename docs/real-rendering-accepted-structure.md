@@ -305,6 +305,8 @@ The next implementation step has started with a narrow display-list spike:
   specs, cell separators, row breaks, and common rule commands into readable
   fallback text instead of leaking raw table syntax into extracted/display-list
   text;
+- labels inside table-style fallback bodies now emit `LabelDefinition` events
+  and are removed from visible fallback text;
 - unsupported `verbatim` environments now preserve their body text without
   applying LaTeX command normalization, so backslashes, braces, and code-like
   snippets remain visible in IR and display-list fallback text;

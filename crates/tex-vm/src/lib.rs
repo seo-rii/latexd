@@ -1668,6 +1668,42 @@ impl<'i> Vm<'i> {
                                                             | "bottomrule" => {
                                                                 table_index = command_end;
                                                             }
+                                                            "label" => {
+                                                                table_index = command_end;
+                                                                if let Some((
+                                                                    key,
+                                                                    key_start,
+                                                                    key_end,
+                                                                    after,
+                                                                )) = read_braced_source_argument(
+                                                                    table_body,
+                                                                    table_index,
+                                                                ) {
+                                                                    self.emit_render_event(
+                                                                    RenderEvent::LabelDefinition(
+                                                                        LabelDefinitionEvent {
+                                                                            key: key
+                                                                                .trim()
+                                                                                .to_string(),
+                                                                            command: command
+                                                                                .to_string(),
+                                                                        },
+                                                                    ),
+                                                                    SourceProvenance::file(
+                                                                        source_path.to_owned(),
+                                                                        (body_start
+                                                                            + table_body_start
+                                                                            + key_start)
+                                                                            as u32,
+                                                                        (body_start
+                                                                            + table_body_start
+                                                                            + key_end)
+                                                                            as u32,
+                                                                    ),
+                                                                );
+                                                                    table_index = after;
+                                                                }
+                                                            }
                                                             "cline" | "cmidrule" => {
                                                                 table_index = command_end;
                                                                 if let Some((_, _, _, after)) =
@@ -16542,6 +16578,39 @@ Fallback text.
         assert!(!visible.contains("ll"));
         assert!(!visible.contains("hline"));
         assert!(!visible.contains("textbf"));
+    }
+
+    #[test]
+    fn render_event_capture_records_longtable_fallback_labels_without_visible_key() {
+        let source = r"\begin{document}\begin{longtable}{ll}\caption{Long table.}\label{tab:long}\\ Alpha & Beta\end{longtable}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("longtable") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("longtable fallback visible text");
+
+        assert!(visible.contains("Long table."));
+        assert!(visible.contains("Alpha | Beta"));
+        assert!(!visible.contains("tab:long"));
+        assert!(!visible.contains("label"));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::LabelDefinition(label) if label.key == "tab:long"
+            )
+        }));
     }
 
     #[test]
