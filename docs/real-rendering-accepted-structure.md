@@ -89,6 +89,9 @@ The next implementation step has started with a narrow display-list spike:
 - VM render-event capture now emits `InlineCitation` events for common natbib
   and biblatex citation variants such as `citep`, `citet`, `parencite`, and
   `textcite`, skipping optional pre/post notes and preserving citation keys;
+- capitalized natbib aliases such as `Citealt` and `Citealp` are handled as
+  citation events with the same textual/parenthetical style hints as their
+  lowercase counterparts;
 - metadata-style citation aliases such as `Citeauthor`, `Citeyear`,
   `Citeyearpar`, `citetitle`/`Citetitle`, and
   `citefullauthor`/`Citefullauthor` also emit citation events instead of

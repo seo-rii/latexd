@@ -1483,7 +1483,7 @@ fn citation_variant_capture_survives_ir_and_display_list() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(citations.len(), 8);
+    assert_eq!(citations.len(), 10);
     assert_eq!(
         citations[0].keys,
         vec!["alpha".to_string(), "beta".to_string()]
@@ -1510,6 +1510,10 @@ fn citation_variant_capture_survives_ir_and_display_list() {
     assert_eq!(citations[6].style_hint, CitationStyleHint::Parenthetical);
     assert_eq!(citations[7].keys, vec!["iota".to_string()]);
     assert_eq!(citations[7].style_hint, CitationStyleHint::Textual);
+    assert_eq!(citations[8].keys, vec!["lambda".to_string()]);
+    assert_eq!(citations[8].style_hint, CitationStyleHint::Textual);
+    assert_eq!(citations[9].keys, vec!["mu".to_string()]);
+    assert_eq!(citations[9].style_hint, CitationStyleHint::Parenthetical);
 
     let display_list_text = capture.page_display_lists[0]
         .ops
@@ -1524,7 +1528,10 @@ fn citation_variant_capture_survives_ir_and_display_list() {
     assert!(!display_list_text.contains("alpha"));
     assert!(!display_list_text.contains("epsilon"));
     assert!(!display_list_text.contains("theta"));
+    assert!(!display_list_text.contains("lambda"));
+    assert!(!display_list_text.contains("mu"));
     assert!(!display_list_text.contains(r"\cite"));
+    assert!(!display_list_text.contains(r"\Cite"));
 }
 
 #[test]
@@ -4442,7 +4449,7 @@ const HEADING_LEVEL_SOURCE: &str = r"\begin{document}\section[Short]{Long Sectio
 const HEADING_INLINE_KEY_SOURCE: &str =
     r"\begin{document}\section{See \cite{key} and \ref{sec:intro}.}\end{document}";
 
-const CITATION_VARIANTS_SOURCE: &str = r"\begin{document}\citep[see][p.~3]{alpha,beta}\citet*{gamma}\parencite{delta}\textcite{epsilon}\citep*{zeta}\citealt*{eta}\citealp*{theta}\Textcite*{iota}\end{document}";
+const CITATION_VARIANTS_SOURCE: &str = r"\begin{document}\citep[see][p.~3]{alpha,beta}\citet*{gamma}\parencite{delta}\textcite{epsilon}\citep*{zeta}\citealt*{eta}\citealp*{theta}\Textcite*{iota}\Citealt{lambda}\Citealp{mu}\end{document}";
 
 const CITATION_METADATA_ALIAS_SOURCE: &str = r"\begin{document}\Citeauthor{alpha} \Citeyear{beta} \Citeyearpar{gamma} \citetitle{delta} \Citetitle{epsilon} \citefullauthor{zeta} \Citefullauthor*{eta}\end{document}";
 

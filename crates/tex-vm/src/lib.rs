@@ -1775,26 +1775,27 @@ impl<'i> Vm<'i> {
                         }
                     }
                 }
-                "cite" | "citet" | "Citet" | "citep" | "Citep" | "citealt" | "citealp"
-                | "citeauthor" | "citeyear" | "citeyearpar" | "parencite" | "Parencite"
-                | "textcite" | "Textcite" | "autocite" | "Autocite" | "footcite" | "supercite"
-                | "Citeauthor" | "Citeyear" | "Citeyearpar" | "citetitle" | "Citetitle"
-                | "citefullauthor" | "Citefullauthor" | "citedoi" | "citeeprint" | "citeisbn"
-                | "citeissn" | "citeurl" | "citenum" | "citedate" | "Citedate" | "citeurldate"
-                | "Citeurldate" | "onlinecite" | "smartcite" | "fullcite" | "footfullcite"
-                | "bibentry" | "citetalias" | "citepalias" | "Citetalias"
+                "cite" | "citet" | "Citet" | "citep" | "Citep" | "citealt" | "Citealt"
+                | "citealp" | "Citealp" | "citeauthor" | "citeyear" | "citeyearpar"
+                | "parencite" | "Parencite" | "textcite" | "Textcite" | "autocite" | "Autocite"
+                | "footcite" | "supercite" | "Citeauthor" | "Citeyear" | "Citeyearpar"
+                | "citetitle" | "Citetitle" | "citefullauthor" | "Citefullauthor" | "citedoi"
+                | "citeeprint" | "citeisbn" | "citeissn" | "citeurl" | "citenum" | "citedate"
+                | "Citedate" | "citeurldate" | "Citeurldate" | "onlinecite" | "smartcite"
+                | "fullcite" | "footfullcite" | "bibentry" | "citetalias" | "citepalias"
+                | "Citetalias"
                     if in_document =>
                 {
                     let style_hint = match command {
-                        "citet" | "Citet" | "citealt" | "citeauthor" | "citeyear" | "textcite"
-                        | "Textcite" | "Citeauthor" | "Citeyear" | "citetitle" | "Citetitle"
-                        | "citefullauthor" | "Citefullauthor" | "citedoi" | "citeeprint"
-                        | "citeisbn" | "citeissn" | "citeurl" | "citedate" | "Citedate"
-                        | "citeurldate" | "Citeurldate" | "fullcite" | "bibentry"
+                        "citet" | "Citet" | "citealt" | "Citealt" | "citeauthor" | "citeyear"
+                        | "textcite" | "Textcite" | "Citeauthor" | "Citeyear" | "citetitle"
+                        | "Citetitle" | "citefullauthor" | "Citefullauthor" | "citedoi"
+                        | "citeeprint" | "citeisbn" | "citeissn" | "citeurl" | "citedate"
+                        | "Citedate" | "citeurldate" | "Citeurldate" | "fullcite" | "bibentry"
                         | "citetalias" | "Citetalias" => CitationStyleHint::Textual,
-                        "citep" | "Citep" | "citealp" | "citeyearpar" | "Citeyearpar"
-                        | "parencite" | "Parencite" | "autocite" | "Autocite" | "smartcite"
-                        | "citepalias" => CitationStyleHint::Parenthetical,
+                        "citep" | "Citep" | "citealp" | "Citealp" | "citeyearpar"
+                        | "Citeyearpar" | "parencite" | "Parencite" | "autocite" | "Autocite"
+                        | "smartcite" | "citepalias" => CitationStyleHint::Parenthetical,
                         "footcite" | "supercite" | "footfullcite" => CitationStyleHint::Unknown,
                         _ => CitationStyleHint::Numeric,
                     };
@@ -2264,31 +2265,33 @@ impl<'i> Vm<'i> {
                                         }
                                     }
                                     "cite" | "citet" | "Citet" | "citep" | "Citep" | "citealt"
-                                    | "citealp" | "citeauthor" | "citeyear" | "citeyearpar"
-                                    | "parencite" | "Parencite" | "textcite" | "Textcite"
-                                    | "autocite" | "Autocite" | "footcite" | "supercite"
-                                    | "Citeauthor" | "Citeyear" | "Citeyearpar" | "citetitle"
-                                    | "Citetitle" | "citefullauthor" | "Citefullauthor"
-                                    | "citedoi" | "citeeprint" | "citeisbn" | "citeissn"
-                                    | "citeurl" | "citenum" | "citedate" | "Citedate"
-                                    | "citeurldate" | "Citeurldate" | "onlinecite"
-                                    | "smartcite" | "fullcite" | "footfullcite" | "bibentry"
-                                    | "citetalias" | "citepalias" | "Citetalias" => {
+                                    | "Citealt" | "citealp" | "Citealp" | "citeauthor"
+                                    | "citeyear" | "citeyearpar" | "parencite" | "Parencite"
+                                    | "textcite" | "Textcite" | "autocite" | "Autocite"
+                                    | "footcite" | "supercite" | "Citeauthor" | "Citeyear"
+                                    | "Citeyearpar" | "citetitle" | "Citetitle"
+                                    | "citefullauthor" | "Citefullauthor" | "citedoi"
+                                    | "citeeprint" | "citeisbn" | "citeissn" | "citeurl"
+                                    | "citenum" | "citedate" | "Citedate" | "citeurldate"
+                                    | "Citeurldate" | "onlinecite" | "smartcite" | "fullcite"
+                                    | "footfullcite" | "bibentry" | "citetalias" | "citepalias"
+                                    | "Citetalias" => {
                                         let style_hint = match inner_command {
-                                            "citet" | "Citet" | "citealt" | "citeauthor"
-                                            | "citeyear" | "textcite" | "Textcite"
-                                            | "Citeauthor" | "Citeyear" | "citetitle"
-                                            | "Citetitle" | "citefullauthor" | "Citefullauthor"
-                                            | "citedoi" | "citeeprint" | "citeisbn"
-                                            | "citeissn" | "citeurl" | "citedate" | "Citedate"
-                                            | "citeurldate" | "Citeurldate" | "fullcite"
-                                            | "bibentry" | "citetalias" | "Citetalias" => {
-                                                CitationStyleHint::Textual
+                                            "citet" | "Citet" | "citealt" | "Citealt"
+                                            | "citeauthor" | "citeyear" | "textcite"
+                                            | "Textcite" | "Citeauthor" | "Citeyear"
+                                            | "citetitle" | "Citetitle" | "citefullauthor"
+                                            | "Citefullauthor" | "citedoi" | "citeeprint"
+                                            | "citeisbn" | "citeissn" | "citeurl" | "citedate"
+                                            | "Citedate" | "citeurldate" | "Citeurldate"
+                                            | "fullcite" | "bibentry" | "citetalias"
+                                            | "Citetalias" => CitationStyleHint::Textual,
+                                            "citep" | "Citep" | "citealp" | "Citealp"
+                                            | "citeyearpar" | "Citeyearpar" | "parencite"
+                                            | "Parencite" | "autocite" | "Autocite"
+                                            | "smartcite" | "citepalias" => {
+                                                CitationStyleHint::Parenthetical
                                             }
-                                            "citep" | "Citep" | "citealp" | "citeyearpar"
-                                            | "Citeyearpar" | "parencite" | "Parencite"
-                                            | "autocite" | "Autocite" | "smartcite"
-                                            | "citepalias" => CitationStyleHint::Parenthetical,
                                             "footcite" | "supercite" | "footfullcite" => {
                                                 CitationStyleHint::Unknown
                                             }
@@ -2902,16 +2905,17 @@ impl<'i> Vm<'i> {
                                                             }
                                                         }
                                                         "cite" | "citet" | "Citet" | "citep"
-                                                        | "Citep" | "citealt" | "citealp"
-                                                        | "citeauthor" | "citeyear"
-                                                        | "citeyearpar" | "parencite"
-                                                        | "Parencite" | "textcite" | "Textcite"
-                                                        | "autocite" | "Autocite" | "footcite"
-                                                        | "supercite" | "Citeauthor"
-                                                        | "Citeyear" | "Citeyearpar"
-                                                        | "citetitle" | "Citetitle"
-                                                        | "citefullauthor" | "Citefullauthor"
-                                                        | "citedoi" | "citeeprint" | "citeisbn"
+                                                        | "Citep" | "citealt" | "Citealt"
+                                                        | "citealp" | "Citealp" | "citeauthor"
+                                                        | "citeyear" | "citeyearpar"
+                                                        | "parencite" | "Parencite"
+                                                        | "textcite" | "Textcite" | "autocite"
+                                                        | "Autocite" | "footcite" | "supercite"
+                                                        | "Citeauthor" | "Citeyear"
+                                                        | "Citeyearpar" | "citetitle"
+                                                        | "Citetitle" | "citefullauthor"
+                                                        | "Citefullauthor" | "citedoi"
+                                                        | "citeeprint" | "citeisbn"
                                                         | "citeissn" | "citeurl" | "citenum"
                                                         | "citedate" | "Citedate"
                                                         | "citeurldate" | "Citeurldate"
@@ -2922,10 +2926,11 @@ impl<'i> Vm<'i> {
                                                             let style_hint = match argument_command
                                                             {
                                                                 "citet" | "Citet" | "citealt"
-                                                                | "citeauthor" | "citeyear"
-                                                                | "textcite" | "Textcite"
-                                                                | "Citeauthor" | "Citeyear"
-                                                                | "citetitle" | "Citetitle"
+                                                                | "Citealt" | "citeauthor"
+                                                                | "citeyear" | "textcite"
+                                                                | "Textcite" | "Citeauthor"
+                                                                | "Citeyear" | "citetitle"
+                                                                | "Citetitle"
                                                                 | "citefullauthor"
                                                                 | "Citefullauthor" | "citedoi"
                                                                 | "citeeprint" | "citeisbn"
@@ -2937,10 +2942,11 @@ impl<'i> Vm<'i> {
                                                                     CitationStyleHint::Textual
                                                                 }
                                                                 "citep" | "Citep" | "citealp"
-                                                                | "citeyearpar" | "Citeyearpar"
-                                                                | "parencite" | "Parencite"
-                                                                | "autocite" | "Autocite"
-                                                                | "smartcite" | "citepalias" => {
+                                                                | "Citealp" | "citeyearpar"
+                                                                | "Citeyearpar" | "parencite"
+                                                                | "Parencite" | "autocite"
+                                                                | "Autocite" | "smartcite"
+                                                                | "citepalias" => {
                                                                     CitationStyleHint::Parenthetical
                                                                 }
                                                                 "footcite" | "supercite" => {
@@ -3565,7 +3571,9 @@ impl<'i> Vm<'i> {
                                                                             | "Citet" | "citep"
                                                                             | "Citep"
                                                                             | "citealt"
+                                                                            | "Citealt"
                                                                             | "citealp"
+                                                                            | "Citealp"
                                                                             | "citeauthor"
                                                                             | "citeyear"
                                                                             | "citeyearpar"
@@ -3603,7 +3611,7 @@ impl<'i> Vm<'i> {
                                                                             | "citepalias"
                                                                             | "Citetalias" => {
                                                                                 let style_hint = match nested_command {
-                                                                                    "citet" | "Citet" | "citealt"
+                                                                                    "citet" | "Citet" | "citealt" | "Citealt"
                                                                                     | "citeauthor" | "citeyear"
                                                                                     | "textcite" | "Textcite"
                                                                                     | "Citeauthor" | "Citeyear"
@@ -3618,7 +3626,7 @@ impl<'i> Vm<'i> {
                                                                                     | "Citetalias" => {
                                                                                         CitationStyleHint::Textual
                                                                                     }
-                                                                                    "citep" | "Citep" | "citealp"
+                                                                                    "citep" | "Citep" | "citealp" | "Citealp"
                                                                                     | "citeyearpar" | "Citeyearpar"
                                                                                     | "parencite" | "Parencite"
                                                                                     | "autocite" | "Autocite"
@@ -11322,7 +11330,9 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 | "citep"
                 | "Citep"
                 | "citealt"
+                | "Citealt"
                 | "citealp"
+                | "Citealp"
                 | "citeauthor"
                 | "citeyear"
                 | "citeyearpar"
@@ -16460,7 +16470,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_citation_variants() {
-        let source = r"\begin{document}\citep[see][p.~3]{alpha,beta}\citet*{gamma}\parencite{delta}\textcite{epsilon}\citep*{zeta}\citealt*{eta}\citealp*{theta}\Textcite*{iota}\end{document}";
+        let source = r"\begin{document}\citep[see][p.~3]{alpha,beta}\citet*{gamma}\parencite{delta}\textcite{epsilon}\citep*{zeta}\citealt*{eta}\citealp*{theta}\Textcite*{iota}\Citealt{lambda}\Citealp{mu}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -16477,7 +16487,7 @@ Fallback text.
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(citations.len(), 8);
+        assert_eq!(citations.len(), 10);
         assert_eq!(citations[0].0.command, "citep");
         assert_eq!(citations[0].0.style_hint, CitationStyleHint::Parenthetical);
         assert_eq!(
@@ -16511,6 +16521,12 @@ Fallback text.
         assert_eq!(citations[7].0.command, "Textcite");
         assert_eq!(citations[7].0.style_hint, CitationStyleHint::Textual);
         assert_eq!(citations[7].0.keys, vec!["iota".to_string()]);
+        assert_eq!(citations[8].0.command, "Citealt");
+        assert_eq!(citations[8].0.style_hint, CitationStyleHint::Textual);
+        assert_eq!(citations[8].0.keys, vec!["lambda".to_string()]);
+        assert_eq!(citations[9].0.command, "Citealp");
+        assert_eq!(citations[9].0.style_hint, CitationStyleHint::Parenthetical);
+        assert_eq!(citations[9].0.keys, vec!["mu".to_string()]);
     }
 
     #[test]
