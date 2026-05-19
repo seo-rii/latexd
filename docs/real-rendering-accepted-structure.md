@@ -132,6 +132,8 @@ The next implementation step has started with a narrow display-list spike:
 - common no-argument text symbol commands such as `\textquotesingle`,
   `\textquotedbl`, `\textless`, `\textgreater`, `\textbar`, and `\slash` now
   render as their visible symbols;
+- bibliography text extraction now passes through common case, text-style, and
+  box wrappers while dropping non-visible wrapper options and control commands;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and

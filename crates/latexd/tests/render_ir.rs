@@ -457,6 +457,75 @@ fn bibliography_item_text_symbol_commands_render_visible_symbols() {
 }
 
 #[test]
+fn bibliography_item_textstyle_and_box_wrappers_render_visible_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        TEXTSTYLE_BOX_BIBLIOGRAPHY_SOURCE,
+        &SemanticAux::default(),
+    );
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+    let expected = "NASA. alpha title. beta title. Emph. Trimmed. Stable. Fixed. Framed. Wide. Raised. Paragraph. Inline. Code. Sans. Caps. Bold. Italic. Roman. Upright. Medium. Normal. Edition2a.";
+
+    assert_eq!(bibliography.items[0].content, expected);
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(expected), "{extracted_text}");
+    for hidden in [
+        "NoCaseChange",
+        "MakeSentenceCase",
+        "MakeTitleCase",
+        "protect",
+        "relax",
+        "leavevmode",
+        "ignorespaces",
+        "unskip",
+        "emph",
+        "mbox",
+        "hbox",
+        "fbox",
+        "framebox",
+        "raisebox",
+        "parbox",
+        "makebox",
+        "texttt",
+        "textsf",
+        "textsc",
+        "textbf",
+        "textit",
+        "textrm",
+        "textup",
+        "textmd",
+        "textnormal",
+        "textsuperscript",
+        "textsubscript",
+        "2em",
+        "0.5ex",
+        "4em",
+        "3em",
+    ] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+}
+
+#[test]
 fn graphic_render_ir_capture_derives_display_list_image() {
     let capture = capture_internal_render_ir("main.tex", GRAPHIC_SOURCE, &SemanticAux::default());
 
@@ -3775,6 +3844,8 @@ const PHANTOM_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliograp
 const TEX_SPACING_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Tight\!Join. Soft\,Gap. Wide\;Gap. Colon\:Gap. Named\space Gap. Backslash\ Gap.\end{thebibliography}\end{document}";
 
 const TEXT_SYMBOL_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Quote\textquotesingle s. Double\textquotedbl q. Angles\textless x\textgreater. Pipe\textbar join. Path\slash name.\end{thebibliography}\end{document}";
+
+const TEXTSTYLE_BOX_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\NoCaseChange{NASA}. \MakeSentenceCase{alpha title}. \MakeTitleCase*{beta title}. \protect\relax\leavevmode\ignorespaces   \emph{Emph}. Trimmed \unskip. \mbox{Stable}. \hbox{Fixed}. \fbox{Framed}. \framebox[2em][c]{Wide}. \raisebox{0.5ex}[1ex][0ex]{Raised}. \parbox[t]{4em}{Paragraph}. \makebox[3em][l]{Inline}. \texttt{Code}. \textsf{Sans}. \textsc{Caps}. \textbf{Bold}. \textit{Italic}. \textrm{Roman}. \textup{Upright}. \textmd{Medium}. \textnormal{Normal}. Edition\textsuperscript{2}\textsubscript{a}.\end{thebibliography}\end{document}";
 
 const RAW_FALLBACK_INLINE_KEY_SOURCE: &str = r"\begin{document}\begin{unknownenv}See \cite{cited} and \ref{sec:intro}.\end{unknownenv}\end{document}";
 

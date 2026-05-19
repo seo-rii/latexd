@@ -11274,17 +11274,19 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
     let mut chunk_start = 0;
     let mut scan_index = 0;
     let mut found_structured_inline = false;
+    let suppress_next_interword_space = std::cell::Cell::new(false);
     let append_text = |output: &mut String, plain_text: &str| {
         if plain_text.is_empty() {
             return;
         }
         if !output.is_empty()
-            && !output.ends_with(['\'', '"', '<', '|', '/'])
+            && !suppress_next_interword_space.get()
             && !plain_text.starts_with(['.', ',', ';', ':', '!', '?', ')', ']'])
         {
             output.push(' ');
         }
-        output.push_str(&plain_text);
+        output.push_str(plain_text);
+        suppress_next_interword_space.set(false);
     };
     let append_normalized_text = |output: &mut String, source: &str| {
         let plain_text = normalize_latex_text(source);
@@ -11413,10 +11415,129 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
         if let Some(symbol) = text_symbol {
             append_normalized_text(&mut text, &source[chunk_start..command_start]);
             text.push_str(symbol);
+            suppress_next_interword_space.set(matches!(symbol, "'" | "\"" | "<" | "|" | "/"));
             found_structured_inline = true;
             chunk_start = skip_ascii_whitespace(source, command_name_end);
             scan_index = chunk_start;
             continue;
+        }
+        if matches!(command, "protect" | "relax" | "leavevmode" | "unskip") {
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            found_structured_inline = true;
+            chunk_start = command_name_end;
+            scan_index = command_name_end;
+            continue;
+        }
+        if command == "ignorespaces" {
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            found_structured_inline = true;
+            chunk_start = skip_ascii_whitespace(source, command_name_end);
+            scan_index = chunk_start;
+            continue;
+        }
+        if matches!(
+            command,
+            "NoCaseChange"
+                | "MakeSentenceCase"
+                | "MakeTitleCase"
+                | "emph"
+                | "mbox"
+                | "hbox"
+                | "fbox"
+                | "framebox"
+                | "makebox"
+                | "texttt"
+                | "textsf"
+                | "textsc"
+                | "textbf"
+                | "textit"
+                | "textrm"
+                | "textup"
+                | "textmd"
+                | "textnormal"
+                | "textsuperscript"
+                | "textsubscript"
+        ) {
+            let mut argument_index = skip_ascii_whitespace(source, command_name_end);
+            if argument_index < source.len() && source[argument_index..].starts_with('*') {
+                argument_index += 1;
+            }
+            loop {
+                argument_index = skip_ascii_whitespace(source, argument_index);
+                let Some((_, _, _, after_option)) =
+                    read_bracket_source_argument(source, argument_index)
+                else {
+                    break;
+                };
+                argument_index = after_option;
+            }
+            if let Some((visible_text, _, _, command_after)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                if matches!(command, "textsuperscript" | "textsubscript") {
+                    text.push_str(&visible_text);
+                } else {
+                    append_text(&mut text, &visible_text);
+                }
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
+        if command == "raisebox" {
+            let lift_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, after_lift)) = read_braced_source_argument(source, lift_index) {
+                let mut text_index = after_lift;
+                loop {
+                    text_index = skip_ascii_whitespace(source, text_index);
+                    let Some((_, _, _, after_option)) =
+                        read_bracket_source_argument(source, text_index)
+                    else {
+                        break;
+                    };
+                    text_index = after_option;
+                }
+                if let Some((visible_text, _, _, command_after)) =
+                    read_braced_source_argument(source, text_index)
+                {
+                    append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                    let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                    append_text(&mut text, &visible_text);
+                    found_structured_inline = true;
+                    chunk_start = command_after;
+                    scan_index = command_after;
+                    continue;
+                }
+            }
+        }
+        if command == "parbox" {
+            let mut width_index = skip_ascii_whitespace(source, command_name_end);
+            loop {
+                width_index = skip_ascii_whitespace(source, width_index);
+                let Some((_, _, _, after_option)) =
+                    read_bracket_source_argument(source, width_index)
+                else {
+                    break;
+                };
+                width_index = after_option;
+            }
+            if let Some((_, _, _, after_width)) = read_braced_source_argument(source, width_index) {
+                let text_index = skip_ascii_whitespace(source, after_width);
+                if let Some((visible_text, _, _, command_after)) =
+                    read_braced_source_argument(source, text_index)
+                {
+                    append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                    let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                    append_text(&mut text, &visible_text);
+                    found_structured_inline = true;
+                    chunk_start = command_after;
+                    scan_index = command_after;
+                    continue;
+                }
+            }
         }
         if matches!(command, "bibinfo" | "bibfield") {
             let field_index = skip_ascii_whitespace(source, command_name_end);
@@ -15462,6 +15583,62 @@ Fallback text.
             "textgreater",
             "textbar",
             "slash",
+        ] {
+            assert!(!item_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_textstyle_and_box_wrappers_in_bibliography_items() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\NoCaseChange{NASA}. \MakeSentenceCase{alpha title}. \MakeTitleCase*{beta title}. \protect\relax\leavevmode\ignorespaces   \emph{Emph}. Trimmed \unskip. \mbox{Stable}. \hbox{Fixed}. \fbox{Framed}. \framebox[2em][c]{Wide}. \raisebox{0.5ex}[1ex][0ex]{Raised}. \parbox[t]{4em}{Paragraph}. \makebox[3em][l]{Inline}. \texttt{Code}. \textsf{Sans}. \textsc{Caps}. \textbf{Bold}. \textit{Italic}. \textrm{Roman}. \textup{Upright}. \textmd{Medium}. \textnormal{Normal}. Edition\textsuperscript{2}\textsubscript{a}.\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .expect("bibliography item");
+        let expected = "NASA. alpha title. beta title. Emph. Trimmed. Stable. Fixed. Framed. Wide. Raised. Paragraph. Inline. Code. Sans. Caps. Bold. Italic. Roman. Upright. Medium. Normal. Edition2a.";
+
+        assert_eq!(item_text, expected);
+        for hidden in [
+            "NoCaseChange",
+            "MakeSentenceCase",
+            "MakeTitleCase",
+            "protect",
+            "relax",
+            "leavevmode",
+            "ignorespaces",
+            "unskip",
+            "emph",
+            "mbox",
+            "hbox",
+            "fbox",
+            "framebox",
+            "raisebox",
+            "parbox",
+            "makebox",
+            "texttt",
+            "textsf",
+            "textsc",
+            "textbf",
+            "textit",
+            "textrm",
+            "textup",
+            "textmd",
+            "textnormal",
+            "textsuperscript",
+            "textsubscript",
+            "2em",
+            "0.5ex",
+            "4em",
+            "3em",
         ] {
             assert!(!item_text.contains(hidden));
         }
