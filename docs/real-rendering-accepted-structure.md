@@ -302,9 +302,9 @@ The next implementation step has started with a narrow display-list spike:
 - unsupported `verbatim` environments now preserve their body text without
   applying LaTeX command normalization, so backslashes, braces, and code-like
   snippets remain visible in IR and display-list fallback text;
-- unsupported `lstlisting` and `minted` code environments now drop begin-time
-  listing options/language arguments from visible fallback text while preserving
-  the raw code body;
+- unsupported `lstlisting`, `minted`, and fancyvrb `Verbatim` code
+  environments now drop begin-time listing options/language arguments from
+  visible fallback text while preserving the raw code body;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`

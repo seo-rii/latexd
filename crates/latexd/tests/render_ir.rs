@@ -4412,6 +4412,48 @@ fn code_listing_fallback_preserves_raw_visible_text_without_begin_options() {
 }
 
 #[test]
+fn fancyvrb_fallback_preserves_raw_visible_text_without_begin_options() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        FANCYVRB_FALLBACK_SOURCE,
+        &SemanticAux::default(),
+    );
+    let fallback = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("Verbatim") =>
+            {
+                Some(fallback)
+            }
+            _ => None,
+        })
+        .expect("Verbatim fallback");
+
+    assert_eq!(
+        fallback.normalized_visible_text.as_deref(),
+        Some(r"\foo_{bar} {baz}")
+    );
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(r"\foo_{bar} {baz}"));
+    assert!(!extracted_text.contains("fontsize"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains(r"\foo_{bar} {baz}"));
+    assert!(!display_list_text.contains("fontsize"));
+}
+
+#[test]
 fn raw_fallback_inline_keys_are_redacted_in_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -5119,6 +5161,8 @@ const VERBATIM_FALLBACK_SOURCE: &str =
     r"\begin{document}\begin{verbatim}\alpha_{i} {raw}\end{verbatim}\end{document}";
 
 const CODE_LISTING_FALLBACK_SOURCE: &str = r#"\begin{document}\begin{lstlisting}[language=Rust]fn main() { println!("hi"); }\end{lstlisting}\begin{minted}{rust}let value = \alpha_{i} + {raw};\end{minted}\end{document}"#;
+
+const FANCYVRB_FALLBACK_SOURCE: &str = r"\begin{document}\begin{Verbatim}[fontsize=\small]\foo_{bar} {baz}\end{Verbatim}\end{document}";
 
 const GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\end{figure}\end{document}";
 

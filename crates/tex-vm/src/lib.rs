@@ -1526,26 +1526,24 @@ impl<'i> Vm<'i> {
                                     let normalized_visible_text =
                                         if matches!(other, "verbatim" | "verbatim*") {
                                             body_source.to_string()
-                                        } else if matches!(other, "lstlisting" | "minted") {
+                                        } else if matches!(
+                                            other,
+                                            "lstlisting" | "minted" | "Verbatim"
+                                        ) {
                                             let mut code_body_start =
                                                 skip_ascii_whitespace(body_source, 0);
-                                            if other == "lstlisting" {
-                                                if let Some((_, _, _, after)) =
-                                                    read_bracket_source_argument(
-                                                        body_source,
-                                                        code_body_start,
-                                                    )
-                                                {
-                                                    code_body_start = after;
-                                                }
+                                            let had_options = if let Some((_, _, _, after)) =
+                                                read_bracket_source_argument(
+                                                    body_source,
+                                                    code_body_start,
+                                                ) {
+                                                code_body_start = after;
+                                                true
                                             } else {
-                                                if let Some((_, _, _, after)) =
-                                                    read_bracket_source_argument(
-                                                        body_source,
-                                                        code_body_start,
-                                                    )
-                                                {
-                                                    code_body_start = after;
+                                                false
+                                            };
+                                            if other == "minted" {
+                                                if had_options {
                                                     code_body_start = skip_ascii_whitespace(
                                                         body_source,
                                                         code_body_start,
@@ -16568,6 +16566,30 @@ Fallback text.
 
             assert_eq!(visible, expected);
         }
+    }
+
+    #[test]
+    fn render_event_capture_preserves_fancyvrb_fallback_text() {
+        let source = r"\begin{document}\begin{Verbatim}[fontsize=\small]\foo_{bar} {baz}\end{Verbatim}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("Verbatim") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("Verbatim fallback visible text");
+
+        assert_eq!(visible, r"\foo_{bar} {baz}");
     }
 
     #[test]
