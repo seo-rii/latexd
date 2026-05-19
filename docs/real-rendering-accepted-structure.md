@@ -285,8 +285,9 @@ The next implementation step has started with a narrow display-list spike:
   `List` IR blocks, and display-list text runs with default or explicit item
   markers while preserving inline events inside list item content;
 - simple text/theorem environments such as `quote`, `quotation`, `center`,
-  `theorem`, and `proof` now survive as structured environment block events and
-  IR blocks instead of falling back to unsupported-environment raw text;
+  `theorem`, `proof`, `lemma`, `proposition`, `corollary`, `definition`,
+  `remark`, and `example` now survive as structured environment block events
+  and IR blocks instead of falling back to unsupported-environment raw text;
 - unsupported `tabular`-style environments now normalize column specs, cell
   separators, row breaks, and common rule commands into readable fallback text
   instead of leaking raw table syntax into extracted/display-list text;

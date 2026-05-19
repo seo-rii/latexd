@@ -4408,6 +4408,84 @@ fn simple_environment_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn theorem_like_environment_capture_survives_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        THEOREM_LIKE_ENVIRONMENT_SOURCE,
+        &SemanticAux::default(),
+    );
+    let environment_names = capture
+        .document_ir
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            IrBlock::Environment(environment) => Some(environment.name.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        environment_names,
+        vec![
+            "lemma",
+            "proposition",
+            "corollary",
+            "definition",
+            "remark",
+            "example"
+        ]
+    );
+    for environment in [
+        "lemma",
+        "proposition",
+        "corollary",
+        "definition",
+        "remark",
+        "example",
+    ] {
+        assert!(!capture.document_ir.blocks.iter().any(|block| {
+            matches!(
+                block,
+                IrBlock::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some(environment)
+            )
+        }));
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    for expected in [
+        "Lemma text.",
+        "Proposition text.",
+        "Corollary text.",
+        "Definition text.",
+        "Remark text.",
+        "Example text.",
+    ] {
+        assert!(extracted_text.contains(expected));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    for expected in [
+        "Lemma text.",
+        "Proposition text.",
+        "Corollary text.",
+        "Definition text.",
+        "Remark text.",
+        "Example text.",
+    ] {
+        assert!(display_list_text.contains(expected));
+    }
+}
+
+#[test]
 fn aux_resolved_references_and_citations_survive_ir_and_display_list() {
     let mut aux = SemanticAux::default();
     aux.labels.push(SemanticLabel {
@@ -4829,6 +4907,8 @@ const TABULAR_FALLBACK_SOURCE: &str = r"\begin{document}\begin{tabular}{ll}Alpha
 const LIST_SOURCE: &str = r"\begin{document}\begin{itemize}\item First \cite{key}\item[Custom] Second\end{itemize}\begin{enumerate}\item One\item Two\end{enumerate}\begin{description}\item[Term] Meaning \cite{key}\item[Other] More\end{description}\end{document}";
 
 const SIMPLE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{quote}Quoted \cite{key}.\end{quote}\begin{center}Centered text.\end{center}\begin{theorem}Theorem text.\end{theorem}\begin{proof}Proof text.\end{proof}\end{document}";
+
+const THEOREM_LIKE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{lemma}Lemma text.\end{lemma}\begin{proposition}Proposition text.\end{proposition}\begin{corollary}Corollary text.\end{corollary}\begin{definition}Definition text.\end{definition}\begin{remark}Remark text.\end{remark}\begin{example}Example text.\end{example}\end{document}";
 
 const AUX_RESOLUTION_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \cite{key}.\end{document}";

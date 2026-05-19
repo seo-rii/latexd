@@ -1150,7 +1150,8 @@ impl<'i> Vm<'i> {
                                     ),
                                 );
                             }
-                            "quote" | "quotation" | "center" | "theorem" | "proof"
+                            "quote" | "quotation" | "center" | "theorem" | "proof" | "lemma"
+                            | "proposition" | "corollary" | "definition" | "remark" | "example"
                                 if in_document =>
                             {
                                 self.emit_render_event(
@@ -1558,7 +1559,8 @@ impl<'i> Vm<'i> {
                                     ),
                                 );
                             }
-                            "quote" | "quotation" | "center" | "theorem" | "proof"
+                            "quote" | "quotation" | "center" | "theorem" | "proof" | "lemma"
+                            | "proposition" | "corollary" | "definition" | "remark" | "example"
                                 if in_document =>
                             {
                                 self.emit_render_event(
@@ -18599,6 +18601,54 @@ Fallback text.
                     Some("quote" | "center" | "theorem" | "proof")
                 )
         )));
+    }
+
+    #[test]
+    fn render_event_capture_records_theorem_like_environment_blocks_without_fallback() {
+        let source = r"\begin{document}\begin{lemma}Lemma text.\end{lemma}\begin{proposition}Proposition text.\end{proposition}\begin{corollary}Corollary text.\end{corollary}\begin{definition}Definition text.\end{definition}\begin{remark}Remark text.\end{remark}\begin{example}Example text.\end{example}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let environment_begins = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::Environment { name },
+                }) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let environment_ends = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::EndBlock(BeginBlockEvent {
+                    block: BlockKind::Environment { name },
+                }) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let expected = vec![
+            "lemma",
+            "proposition",
+            "corollary",
+            "definition",
+            "remark",
+            "example",
+        ];
+        assert_eq!(environment_begins, expected);
+        assert_eq!(environment_ends, expected);
+        for environment in expected {
+            assert!(!outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some(environment)
+            )));
+        }
     }
 
     #[test]
