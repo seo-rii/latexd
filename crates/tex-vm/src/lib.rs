@@ -11491,6 +11491,11 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 | "finentry"
                 | "unspace"
                 | "nopunct"
+                | "addabbrvspace"
+                | "addnbspace"
+                | "addthinspace"
+                | "addlowpenspace"
+                | "addhighpenspace"
         ) {
             append_normalized_text(&mut text, &source[chunk_start..command_start]);
             found_structured_inline = true;
@@ -11665,6 +11670,7 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 | "mkbibsubscript"
                 | "bibstring"
                 | "enquote"
+                | "parentext"
         ) {
             let mut argument_index = skip_ascii_whitespace(source, command_name_end);
             if argument_index < source.len() && source[argument_index..].starts_with('*') {
@@ -11681,7 +11687,7 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 };
                 let decorated_text = match command {
                     "mkbibquote" | "enquote" => format!("\"{visible_text}\""),
-                    "mkbibparens" => format!("({visible_text})"),
+                    "mkbibparens" | "parentext" => format!("({visible_text})"),
                     "mkbibbrackets" => format!("[{visible_text}]"),
                     "mkbibbraces" => format!("{{{visible_text}}}"),
                     _ => visible_text,
@@ -15707,6 +15713,39 @@ Fallback text.
             "addhyphen",
             "textendash",
             "textemdash",
+        ] {
+            assert!(!item_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_parentext_and_spacing_helpers_in_bibliography_items() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Alpha\addabbrvspace Beta\addnbspace Gamma\addthinspace Delta\addlowpenspace Epsilon\addhighpenspace Zeta\parentext{Supplement}.\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .expect("bibliography item");
+
+        assert_eq!(
+            item_text,
+            "Alpha Beta Gamma Delta Epsilon Zeta (Supplement)."
+        );
+        for hidden in [
+            "addabbrvspace",
+            "addnbspace",
+            "addthinspace",
+            "addlowpenspace",
+            "addhighpenspace",
+            "parentext",
         ] {
             assert!(!item_text.contains(hidden));
         }

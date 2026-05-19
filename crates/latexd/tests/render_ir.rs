@@ -507,6 +507,50 @@ fn bibliography_item_dash_and_slash_helpers_attach_correctly() {
 }
 
 #[test]
+fn bibliography_item_parentext_and_spacing_helpers_render_visible_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        PARENTEXT_SPACING_BIBLIOGRAPHY_SOURCE,
+        &SemanticAux::default(),
+    );
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+    let expected = "Alpha Beta Gamma Delta Epsilon Zeta (Supplement).";
+
+    assert_eq!(bibliography.items[0].content, expected);
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(expected), "{extracted_text}");
+    for hidden in [
+        "addabbrvspace",
+        "addnbspace",
+        "addthinspace",
+        "addlowpenspace",
+        "addhighpenspace",
+        "parentext",
+    ] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+}
+
+#[test]
 fn bibliography_item_bibinfo_bibfield_wrappers_hide_field_names() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -4093,6 +4137,8 @@ const MKBIB_SUPER_SUB_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebi
 const LOW_LEVEL_PUNCTUATION_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Alpha\adddotspace Beta\unspace\isdot\nopunct Gamma\isdot \bibopenparen Delta\bibcloseparen \bibopenbracket Epsilon\bibclosebracket \bibopenbrace Zeta\bibclosebrace\end{thebibliography}\end{document}";
 
 const DASH_SLASH_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Pages 10\bibrangedash20\addcomma\addspace Vol\adddot 2\addslash Issue 3\addhyphen4\textendash5\textemdash appendix.\end{thebibliography}\end{document}";
+
+const PARENTEXT_SPACING_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Alpha\addabbrvspace Beta\addnbspace Gamma\addthinspace Delta\addlowpenspace Epsilon\addhighpenspace Zeta\parentext{Supplement}.\end{thebibliography}\end{document}";
 
 const BIBINFO_BIBFIELD_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\bibinfo{doi}{10.1000/example}. \bibfield{journal}{Journal of Tests}.\end{thebibliography}\end{document}";
 

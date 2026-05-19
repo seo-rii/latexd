@@ -149,6 +149,9 @@ The next implementation step has started with a narrow display-list spike:
 - bibliography dash and slash helpers such as `\bibrangedash`, `\addslash`,
   `\addhyphen`, `\textendash`, and `\textemdash` now render visible
   punctuation with the expected attachment spacing;
+- bibliography spacing helpers such as `\addabbrvspace`, `\addnbspace`, and
+  `\addthinspace` are consumed as non-visible separators, while
+  `\parentext{...}` renders parenthesized visible text;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and
