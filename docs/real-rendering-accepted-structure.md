@@ -299,6 +299,8 @@ The next implementation step has started with a narrow display-list spike:
   and IR blocks instead of falling back to unsupported-environment raw text;
 - `minipage` now uses the structured environment path while consuming layout
   position/width arguments so they do not appear as visible text;
+- `multicols` and `multicols*` now use the structured environment path while
+  consuming column-count arguments so they do not appear as visible text;
 - `algorithm`, `algorithm*`, `algorithmic`, and `algorithmic*` now use the
   same structured environment path, preserving captions, labels, and body text
   without emitting RawFallback;

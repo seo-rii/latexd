@@ -961,6 +961,8 @@ impl<'i> Vm<'i> {
             "algorithmic*",
             "subequations",
             "minipage",
+            "multicols",
+            "multicols*",
         ] {
             structured_environments.insert(environment.to_string());
         }
@@ -1285,6 +1287,13 @@ impl<'i> Vm<'i> {
                                         index = after_width;
                                     } else {
                                         index = argument_index;
+                                    }
+                                } else if matches!(other, "multicols" | "multicols*") {
+                                    let argument_index = skip_ascii_whitespace(source, index);
+                                    if let Some((_, _, _, after_columns)) =
+                                        read_braced_source_argument(source, argument_index)
+                                    {
+                                        index = after_columns;
                                     }
                                 }
                                 self.emit_render_event(
@@ -19409,6 +19418,47 @@ Fallback text.
                         text.text.contains("0.5") || text.text.contains("textwidth"),
                     RenderEvent::RawFallback(fallback) =>
                         fallback.environment.as_deref() == Some("minipage"),
+                    _ => false,
+                })
+        );
+    }
+
+    #[test]
+    fn render_event_capture_records_multicols_without_layout_arguments() {
+        let source = r"\begin{document}\begin{multicols}{2}Column \cite{key} text.\end{multicols}\begin{multicols*}{3}Wide text.\end{multicols*}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for environment in ["multicols", "multicols*"] {
+            assert!(outcome.render_events.iter().any(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::BeginBlock(BeginBlockEvent {
+                        block: BlockKind::Environment { name },
+                    }) if name == environment
+                )
+            }));
+        }
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::InlineCitation(citation)
+                    if citation.keys == vec!["key".to_string()]
+            )
+        }));
+        assert!(
+            !outcome
+                .render_events
+                .iter()
+                .any(|event| match &event.event {
+                    RenderEvent::Text(text) => text.text.contains('2') || text.text.contains('3'),
+                    RenderEvent::RawFallback(fallback) => matches!(
+                        fallback.environment.as_deref(),
+                        Some("multicols" | "multicols*")
+                    ),
                     _ => false,
                 })
         );
