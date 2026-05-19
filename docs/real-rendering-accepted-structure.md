@@ -141,6 +141,8 @@ The next implementation step has started with a narrow display-list spike:
 - common bibliography punctuation helpers such as `\addcomma`, `\addcolon`,
   `\addsemicolon`, `\adddot`, `\addspace`, `\newunit`, and `\finentry` now
   render visible punctuation without leaking helper command names;
+- `\mkbibsuperscript{...}` and `\mkbibsubscript{...}` now attach their visible
+  text to the preceding run instead of inserting artificial interword spaces;
 - VM render-event capture now emits `InlineReference` events for `ref`,
   `eqref`, `pageref`, `autoref`, `nameref`, `cref`/`Cref`, and common
   one-argument aliases such as `subref`, `vref`, `fullref`, `namecref`, and

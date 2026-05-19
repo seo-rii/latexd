@@ -11634,7 +11634,11 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                     "mkbibbraces" => format!("{{{visible_text}}}"),
                     _ => visible_text,
                 };
-                append_text(&mut text, &decorated_text);
+                if matches!(command, "mkbibsuperscript" | "mkbibsubscript") {
+                    text.push_str(&decorated_text);
+                } else {
+                    append_text(&mut text, &decorated_text);
+                }
                 found_structured_inline = true;
                 chunk_start = command_after;
                 scan_index = command_after;
@@ -15566,6 +15570,29 @@ Fallback text.
             "adddot",
             "finentry",
         ] {
+            assert!(!item_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_attaches_mkbib_super_sub_wrappers_in_bibliography_items() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Edition\mkbibsuperscript{2}\mkbibsubscript{a} \mkbibbraces{Supplement}.\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .expect("bibliography item");
+
+        assert_eq!(item_text, "Edition2a {Supplement}.");
+        for hidden in ["mkbibsuperscript", "mkbibsubscript", "mkbibbraces"] {
             assert!(!item_text.contains(hidden));
         }
     }
