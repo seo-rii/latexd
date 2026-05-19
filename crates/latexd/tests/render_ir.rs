@@ -5035,6 +5035,60 @@ fn acknowledgements_environment_capture_survives_ir_without_fallback() {
 }
 
 #[test]
+fn keywords_environment_capture_survives_ir_without_fallback() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        KEYWORDS_ENVIRONMENT_SOURCE,
+        &SemanticAux::default(),
+    );
+    let environment_names = capture
+        .document_ir
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            IrBlock::Environment(environment) => Some(environment.name.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    for environment in ["keywords", "keyword", "IEEEkeywords"] {
+        assert!(environment_names.contains(&environment));
+    }
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if matches!(
+                    fallback.environment.as_deref(),
+                    Some("keywords" | "keyword" | "IEEEkeywords")
+                )
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("vision; [?]"));
+    assert!(extracted_text.contains("single keyword"));
+    assert!(extracted_text.contains("systems, latex"));
+    assert!(!extracted_text.contains(r"\cite"));
+    assert!(!extracted_text.contains("{key}"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("vision; [?]"));
+    assert!(display_list_text.contains("single keyword"));
+    assert!(display_list_text.contains("systems, latex"));
+    assert!(!display_list_text.contains(r"\cite"));
+    assert!(!display_list_text.contains("{key}"));
+}
+
+#[test]
 fn appendices_environment_capture_preserves_nested_headings() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -6061,6 +6115,8 @@ const LIST_SOURCE: &str = r"\begin{document}\begin{itemize}\item First \cite{key
 const SIMPLE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{quote}Quoted \cite{key}.\end{quote}\begin{center}Centered text.\end{center}\begin{theorem}Theorem text.\end{theorem}\begin{proof}Proof text.\end{proof}\end{document}";
 
 const ACKNOWLEDGEMENTS_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{acknowledgements}Thanks \cite{grant}.\end{acknowledgements}\begin{acknowledgments}US spelling.\end{acknowledgments}\begin{acknowledgement}Singular.\end{acknowledgement}\begin{acknowledgment}Singular US.\end{acknowledgment}\end{document}";
+
+const KEYWORDS_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{keywords}vision; \cite{key}\end{keywords}\begin{keyword}single keyword\end{keyword}\begin{IEEEkeywords}systems, latex\end{IEEEkeywords}\end{document}";
 
 const APPENDICES_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{appendices}\section{Extra}Appendix \ref{sec:intro} text.\end{appendices}\begin{subappendices}\subsection{More}More text.\end{subappendices}\end{document}";
 
