@@ -950,6 +950,24 @@ impl<'i> Vm<'i> {
         let mut text_start = 0usize;
         let mut in_document = false;
         let mut section_macros = HashMap::<String, (usize, usize)>::new();
+        let mut structured_environments = HashSet::<String>::new();
+        for environment in ["quote", "quotation", "center"] {
+            structured_environments.insert(environment.to_string());
+        }
+        let mut theorem_like_environments = HashSet::<String>::new();
+        for environment in [
+            "theorem",
+            "proof",
+            "lemma",
+            "proposition",
+            "corollary",
+            "definition",
+            "remark",
+            "example",
+        ] {
+            theorem_like_environments.insert(environment.to_string());
+            structured_environments.insert(environment.to_string());
+        }
         while index < bytes.len() {
             if bytes[index] != b'\\' {
                 if in_document && bytes[index] == b'$' {
@@ -1059,6 +1077,35 @@ impl<'i> Vm<'i> {
                         }
                     }
                 }
+                "newtheorem" => {
+                    let environment_index = skip_ascii_whitespace(source, index);
+                    if let Some((environment, _, _, after_environment)) =
+                        read_braced_source_argument(source, environment_index)
+                    {
+                        let environment = environment.trim();
+                        if !environment.is_empty() {
+                            theorem_like_environments.insert(environment.to_string());
+                            structured_environments.insert(environment.to_string());
+                        }
+                        let mut after_definition = skip_ascii_whitespace(source, after_environment);
+                        if let Some((_, _, _, after_shared_counter)) =
+                            read_bracket_source_argument(source, after_definition)
+                        {
+                            after_definition = skip_ascii_whitespace(source, after_shared_counter);
+                        }
+                        if let Some((_, _, _, after_title)) =
+                            read_braced_source_argument(source, after_definition)
+                        {
+                            after_definition = skip_ascii_whitespace(source, after_title);
+                            if let Some((_, _, _, after_within_counter)) =
+                                read_bracket_source_argument(source, after_definition)
+                            {
+                                after_definition = after_within_counter;
+                            }
+                        }
+                        index = after_definition;
+                    }
+                }
                 "title" | "author" | "date" => {
                     if let Some((value, content_start, content_end, after)) =
                         read_braced_source_argument(source, index)
@@ -1150,14 +1197,11 @@ impl<'i> Vm<'i> {
                                     ),
                                 );
                             }
-                            "quote" | "quotation" | "center" | "theorem" | "proof" | "lemma"
-                            | "proposition" | "corollary" | "definition" | "remark" | "example"
-                                if in_document =>
-                            {
+                            other if in_document && structured_environments.contains(other) => {
                                 self.emit_render_event(
                                     RenderEvent::BeginBlock(BeginBlockEvent {
                                         block: BlockKind::Environment {
-                                            name: environment.to_string(),
+                                            name: other.to_string(),
                                         },
                                     }),
                                     SourceProvenance::file(
@@ -1166,17 +1210,7 @@ impl<'i> Vm<'i> {
                                         index as u32,
                                     ),
                                 );
-                                if matches!(
-                                    environment,
-                                    "theorem"
-                                        | "proof"
-                                        | "lemma"
-                                        | "proposition"
-                                        | "corollary"
-                                        | "definition"
-                                        | "remark"
-                                        | "example"
-                                ) {
+                                if theorem_like_environments.contains(other) {
                                     let title_index = skip_ascii_whitespace(source, index);
                                     if let Some((title, title_start, title_end, after_title)) =
                                         read_bracket_source_argument(source, title_index)
@@ -1599,14 +1633,11 @@ impl<'i> Vm<'i> {
                                     ),
                                 );
                             }
-                            "quote" | "quotation" | "center" | "theorem" | "proof" | "lemma"
-                            | "proposition" | "corollary" | "definition" | "remark" | "example"
-                                if in_document =>
-                            {
+                            other if in_document && structured_environments.contains(other) => {
                                 self.emit_render_event(
                                     RenderEvent::EndBlock(BeginBlockEvent {
                                         block: BlockKind::Environment {
-                                            name: environment.to_string(),
+                                            name: other.to_string(),
                                         },
                                     }),
                                     SourceProvenance::file(
@@ -18712,6 +18743,43 @@ Fallback text.
         assert!(texts.contains(&"Sketch"));
         assert!(!texts.iter().any(|text| text.contains("[Sharp bound]")));
         assert!(!texts.iter().any(|text| text.contains("[Sketch]")));
+    }
+
+    #[test]
+    fn render_event_capture_records_newtheorem_defined_environment_blocks() {
+        let source = r"\newtheorem{claim}{Claim}\begin{document}\begin{claim}[Named claim]Claim body.\end{claim}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let environment_begins = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::Environment { name },
+                }) => Some(name.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let texts = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(environment_begins, vec!["claim"]);
+        assert!(texts.contains(&"Named claim"));
+        assert!(!texts.iter().any(|text| text.contains("[Named claim]")));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("claim")
+        )));
     }
 
     #[test]
