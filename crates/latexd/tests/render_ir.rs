@@ -1174,6 +1174,65 @@ fn sideways_float_capture_survives_ir_without_fallback() {
 }
 
 #[test]
+fn wrap_float_capture_survives_ir_without_fallback() {
+    let capture =
+        capture_internal_render_ir("main.tex", WRAP_FLOAT_SOURCE, &SemanticAux::default());
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Graphic(graphic)
+                if graphic.path == "figures/wrapped.pdf"
+                    && graphic.options.as_deref() == Some("width=3cm")
+                    && graphic.caption.as_deref() == Some("Wrapped figure.")
+        )
+    }));
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Wrapped figure."));
+    assert!(extracted_text.contains("Wrapped table."));
+    assert!(!extracted_text.contains("0.35"));
+    assert!(!extracted_text.contains("0.4"));
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if matches!(
+                    fallback.environment.as_deref(),
+                    Some("wrapfigure" | "wraptable")
+                )
+        )
+    }));
+
+    let label_keys = capture
+        .document_ir
+        .labels
+        .iter()
+        .map(|label| label.key.as_str())
+        .collect::<Vec<_>>();
+    assert!(label_keys.contains(&"fig:wrap"));
+    assert!(label_keys.contains(&"tab:wrap"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Wrapped figure."));
+    assert!(display_list_text.contains("Wrapped table."));
+    assert!(!display_list_text.contains("0.35"));
+    assert!(!display_list_text.contains("0.4"));
+    assert!(
+        capture.page_display_lists[0].ops.iter().any(
+            |op| matches!(op, DrawOp::Image(image) if image.asset_ref == "figures/wrapped.pdf")
+        )
+    );
+}
+
+#[test]
 fn captionof_capture_uses_long_caption_without_type_or_short_title_leakage() {
     let capture = capture_internal_render_ir("main.tex", CAPTIONOF_SOURCE, &SemanticAux::default());
 
@@ -5575,6 +5634,8 @@ const STARRED_FLOAT_GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}
 const STARRED_TABLE_SOURCE: &str = r"\def\caption#1{#1}\begin{document}\begin{table*}\caption{Wide table.}\end{table*}\end{document}";
 
 const SIDEWAYS_FLOAT_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{sidewaysfigure}\includegraphics[width=4cm]{figures/rotated.pdf}\caption{Rotated figure.}\label{fig:rot}\end{sidewaysfigure}\begin{sidewaystable}\caption{Rotated table.}\label{tab:rot}\end{sidewaystable}\end{document}";
+
+const WRAP_FLOAT_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{wrapfigure}{r}{0.35\textwidth}\includegraphics[width=3cm]{figures/wrapped.pdf}\caption{Wrapped figure.}\label{fig:wrap}\end{wrapfigure}\begin{wraptable}{l}{0.4\textwidth}\caption{Wrapped table.}\label{tab:wrap}\end{wraptable}\end{document}";
 
 const FIGURE_TABLE_LABEL_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\label{fig:plot}\end{figure}\begin{table}\caption{Table caption.}\label{tab:data}\end{table}\end{document}";
 

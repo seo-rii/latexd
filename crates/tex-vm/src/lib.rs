@@ -1425,13 +1425,15 @@ impl<'i> Vm<'i> {
                                 }
                             }
                             "figure" | "figure*" | "sidewaysfigure" | "sidewaysfigure*"
-                            | "table" | "table*" | "sidewaystable" | "sidewaystable*"
+                            | "wrapfigure" | "wrapfigure*" | "table" | "table*"
+                            | "sidewaystable" | "sidewaystable*" | "wraptable" | "wraptable*"
                                 if in_document =>
                             {
                                 let block = match environment {
                                     "figure" | "figure*" | "sidewaysfigure" | "sidewaysfigure*" => {
                                         BlockKind::Figure
                                     }
+                                    "wrapfigure" | "wrapfigure*" => BlockKind::Figure,
                                     _ => BlockKind::Table,
                                 };
                                 self.emit_render_event(
@@ -16905,6 +16907,53 @@ Fallback text.
                 if matches!(
                     fallback.environment.as_deref(),
                     Some("sidewaysfigure" | "sidewaystable")
+            )
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_wrap_floats_without_fallback() {
+        let source = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{wrapfigure}{r}{0.35\textwidth}\includegraphics[width=3cm]{figures/wrapped.pdf}\caption{Wrapped figure.}\label{fig:wrap}\end{wrapfigure}\begin{wraptable}{l}{0.4\textwidth}\caption{Wrapped table.}\label{tab:wrap}\end{wraptable}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Figure
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Table
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/wrapped.pdf"
+                    && graphic.options.as_deref() == Some("width=3cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Wrapped figure."
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Wrapped table."
+        )));
+        for key in ["fig:wrap", "tab:wrap"] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::LabelDefinition(label) if label.key == key
+            )));
+        }
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if matches!(
+                    fallback.environment.as_deref(),
+                    Some("wrapfigure" | "wraptable")
                 )
         )));
     }
