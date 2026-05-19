@@ -1189,8 +1189,8 @@ impl<'i> Vm<'i> {
                                     index = raw_end;
                                 }
                             }
-                            "figure" | "table" if in_document => {
-                                let block = if environment == "figure" {
+                            "figure" | "figure*" | "table" | "table*" if in_document => {
+                                let block = if environment.starts_with("figure") {
                                     BlockKind::Figure
                                 } else {
                                     BlockKind::Table
@@ -16253,6 +16253,36 @@ Fallback text.
         assert!(!outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Text(text) if text.text.contains('*')
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_starred_float_graphics_without_fallback() {
+        let source = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure*}\includegraphics[width=6cm]{figures/wide.pdf}\caption{Wide figure.}\end{figure*}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Figure
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/wide.pdf"
+                    && graphic.options.as_deref() == Some("width=6cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Wide figure."
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("figure*")
         )));
     }
 

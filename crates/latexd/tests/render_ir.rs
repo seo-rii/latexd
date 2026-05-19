@@ -1062,6 +1062,36 @@ fn starred_graphic_capture_derives_display_list_image_without_visible_star() {
 }
 
 #[test]
+fn starred_float_graphic_capture_derives_display_list_image_without_fallback() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        STARRED_FLOAT_GRAPHIC_SOURCE,
+        &SemanticAux::default(),
+    );
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Graphic(graphic)
+                if graphic.path == "figures/wide.pdf"
+                    && graphic.caption.as_deref() == Some("Wide figure.")
+        )
+    }));
+    assert!(
+        capture.page_display_lists[0].ops.iter().any(|op| {
+            matches!(op, DrawOp::Image(image) if image.asset_ref == "figures/wide.pdf")
+        })
+    );
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("figure*")
+        )
+    }));
+}
+
+#[test]
 fn captionof_capture_uses_long_caption_without_type_or_short_title_leakage() {
     let capture = capture_internal_render_ir("main.tex", CAPTIONOF_SOURCE, &SemanticAux::default());
 
@@ -4583,6 +4613,8 @@ const RAW_FALLBACK_INLINE_KEY_SOURCE: &str = r"\begin{document}\begin{unknownenv
 const GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\end{figure}\end{document}";
 
 const STARRED_GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics*[width=3cm]{figures/starred.pdf}\caption{Starred plot.}\end{figure}\end{document}";
+
+const STARRED_FLOAT_GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure*}\includegraphics[width=6cm]{figures/wide.pdf}\caption{Wide figure.}\end{figure*}\end{document}";
 
 const FIGURE_TABLE_LABEL_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\label{fig:plot}\end{figure}\begin{table}\caption{Table caption.}\label{tab:data}\end{table}\end{document}";
 
