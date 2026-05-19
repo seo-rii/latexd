@@ -416,6 +416,54 @@ fn bibliography_item_mkbib_super_sub_wrappers_attach_to_text() {
 }
 
 #[test]
+fn bibliography_item_low_level_punctuation_helpers_render_delimiters() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        LOW_LEVEL_PUNCTUATION_BIBLIOGRAPHY_SOURCE,
+        &SemanticAux::default(),
+    );
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+    let expected = "Alpha. Beta. Gamma. (Delta) [Epsilon] {Zeta}";
+
+    assert_eq!(bibliography.items[0].content, expected);
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(expected), "{extracted_text}");
+    for hidden in [
+        "adddotspace",
+        "unspace",
+        "isdot",
+        "nopunct",
+        "bibopenparen",
+        "bibcloseparen",
+        "bibopenbracket",
+        "bibclosebracket",
+        "bibopenbrace",
+        "bibclosebrace",
+    ] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+}
+
+#[test]
 fn bibliography_item_bibinfo_bibfield_wrappers_hide_field_names() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -3998,6 +4046,8 @@ const BIBSTRING_ACRO_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebib
 const PUNCTUATION_HELPER_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Alpha\addcomma\addspace Beta\newunit Gamma\addcolon\addspace Delta\addsemicolon\addspace Epsilon\adddot\finentry\end{thebibliography}\end{document}";
 
 const MKBIB_SUPER_SUB_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Edition\mkbibsuperscript{2}\mkbibsubscript{a} \mkbibbraces{Supplement}.\end{thebibliography}\end{document}";
+
+const LOW_LEVEL_PUNCTUATION_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Alpha\adddotspace Beta\unspace\isdot\nopunct Gamma\isdot \bibopenparen Delta\bibcloseparen \bibopenbracket Epsilon\bibclosebracket \bibopenbrace Zeta\bibclosebrace\end{thebibliography}\end{document}";
 
 const BIBINFO_BIBFIELD_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\bibinfo{doi}{10.1000/example}. \bibfield{journal}{Journal of Tests}.\end{thebibliography}\end{document}";
 

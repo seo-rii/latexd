@@ -11426,6 +11426,8 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
             "addcolon" => Some(":"),
             "addsemicolon" => Some(";"),
             "adddot" => Some("."),
+            "adddotspace" => Some("."),
+            "isdot" => Some("."),
             _ => None,
         };
         if let Some(punctuation) = punctuation_helper {
@@ -11436,9 +11438,53 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
             scan_index = command_name_end;
             continue;
         }
+        let open_delimiter = match command {
+            "bibopenparen" => Some("("),
+            "bibopenbracket" => Some("["),
+            "bibopenbrace" => Some("{"),
+            _ => None,
+        };
+        if let Some(delimiter) = open_delimiter {
+            let preceding_source = &source[chunk_start..command_start];
+            append_normalized_text(&mut text, preceding_source);
+            if preceding_source.chars().any(char::is_whitespace)
+                && !text.is_empty()
+                && !text.ends_with([' ', '(', '[', '{'])
+            {
+                text.push(' ');
+            }
+            text.push_str(delimiter);
+            suppress_next_interword_space.set(true);
+            found_structured_inline = true;
+            chunk_start = command_name_end;
+            scan_index = command_name_end;
+            continue;
+        }
+        let close_delimiter = match command {
+            "bibcloseparen" => Some(")"),
+            "bibclosebracket" => Some("]"),
+            "bibclosebrace" => Some("}"),
+            _ => None,
+        };
+        if let Some(delimiter) = close_delimiter {
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            text.push_str(delimiter);
+            found_structured_inline = true;
+            chunk_start = command_name_end;
+            scan_index = command_name_end;
+            continue;
+        }
         if matches!(
             command,
-            "protect" | "relax" | "leavevmode" | "unskip" | "addspace" | "newunit" | "finentry"
+            "protect"
+                | "relax"
+                | "leavevmode"
+                | "unskip"
+                | "addspace"
+                | "newunit"
+                | "finentry"
+                | "unspace"
+                | "nopunct"
         ) {
             append_normalized_text(&mut text, &source[chunk_start..command_start]);
             found_structured_inline = true;
@@ -15593,6 +15639,40 @@ Fallback text.
 
         assert_eq!(item_text, "Edition2a {Supplement}.");
         for hidden in ["mkbibsuperscript", "mkbibsubscript", "mkbibbraces"] {
+            assert!(!item_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_low_level_punctuation_helpers_in_bibliography_items() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Alpha\adddotspace Beta\unspace\isdot\nopunct Gamma\isdot \bibopenparen Delta\bibcloseparen \bibopenbracket Epsilon\bibclosebracket \bibopenbrace Zeta\bibclosebrace\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .expect("bibliography item");
+
+        assert_eq!(item_text, "Alpha. Beta. Gamma. (Delta) [Epsilon] {Zeta}");
+        for hidden in [
+            "adddotspace",
+            "unspace",
+            "isdot",
+            "nopunct",
+            "bibopenparen",
+            "bibcloseparen",
+            "bibopenbracket",
+            "bibclosebracket",
+            "bibopenbrace",
+            "bibclosebrace",
+        ] {
             assert!(!item_text.contains(hidden));
         }
     }
