@@ -1165,7 +1165,8 @@ impl<'i> Vm<'i> {
                                 );
                             }
                             "equation" | "equation*" | "displaymath" | "align" | "align*"
-                            | "gather" | "gather*" | "multline" | "multline*"
+                            | "flalign" | "flalign*" | "gather" | "gather*" | "multline"
+                            | "multline*"
                                 if in_document =>
                             {
                                 let end_marker = format!("\\end{{{environment}}}");
@@ -16570,7 +16571,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_math_environment() {
-        let source = r"\begin{document}\begin{equation}\frac{a}{b}\end{equation}\end{document}";
+        let source = r"\begin{document}\begin{equation}\frac{a}{b}\end{equation}\begin{flalign*}a&=b\end{flalign*}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -16579,15 +16580,20 @@ Fallback text.
         let display_math = outcome
             .render_events
             .iter()
-            .find(|event| matches!(&event.event, RenderEvent::DisplayMath(_)))
-            .expect("display math event");
+            .filter(|event| matches!(&event.event, RenderEvent::DisplayMath(_)))
+            .collect::<Vec<_>>();
 
+        assert_eq!(display_math.len(), 2);
         assert!(matches!(
-            &display_math.event,
+            &display_math[0].event,
             RenderEvent::DisplayMath(math) if math.raw_source == r"\frac{a}{b}"
         ));
         assert!(matches!(
-            &display_math.meta.source.primary,
+            &display_math[1].event,
+            RenderEvent::DisplayMath(math) if math.raw_source == r"a&=b"
+        ));
+        assert!(matches!(
+            &display_math[0].meta.source.primary,
             tex_render_model::ProvenanceSpan::File(span)
                 if span.path == Utf8PathBuf::from("main.tex")
                     && &source[span.start_utf8 as usize..span.end_utf8 as usize]
@@ -16597,6 +16603,11 @@ Fallback text.
             &event.event,
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("equation")
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("flalign*")
         )));
     }
 
