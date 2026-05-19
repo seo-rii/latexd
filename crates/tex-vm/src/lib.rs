@@ -15801,7 +15801,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_preserves_starred_wrappers_in_bibliography_items() {
-        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\MakeSentenceCase*{alpha title}. \MakeTitleCase*{beta title}. \mkbibquote*{Alpha Title}. \mkbibparens*{2024}. \mkbibbrackets*{note}. \mkbibbraces*{Supplement}.\end{thebibliography}\end{document}";
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\MakeSentenceCase*{alpha title}. \MakeTitleCase*{beta title}. \mkbibquote*{Alpha Title}. \mkbibparens*{2024}. \mkbibbrackets*{note}. \mkbibbraces*{Supplement}. \mkbibemph*{Emph}. \mkbibbold*{Bold}. \mkbibitalic*{Italic}.\end{thebibliography}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -15815,7 +15815,7 @@ Fallback text.
                 _ => None,
             })
             .expect("bibliography item");
-        let expected = r#"alpha title. beta title. "Alpha Title". (2024). [note]. {Supplement}."#;
+        let expected = r#"alpha title. beta title. "Alpha Title". (2024). [note]. {Supplement}. Emph. Bold. Italic."#;
 
         assert_eq!(item_text, expected);
         for hidden in [
@@ -15825,6 +15825,9 @@ Fallback text.
             "mkbibparens",
             "mkbibbrackets",
             "mkbibbraces",
+            "mkbibemph",
+            "mkbibbold",
+            "mkbibitalic",
         ] {
             assert!(!item_text.contains(hidden));
         }

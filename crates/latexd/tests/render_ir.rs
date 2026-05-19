@@ -629,7 +629,7 @@ fn bibliography_item_starred_wrappers_render_visible_text() {
             _ => None,
         })
         .expect("bibliography block");
-    let expected = r#"alpha title. beta title. "Alpha Title". (2024). [note]. {Supplement}."#;
+    let expected = r#"alpha title. beta title. "Alpha Title". (2024). [note]. {Supplement}. Emph. Bold. Italic."#;
 
     assert_eq!(bibliography.items[0].content, expected);
     let extracted_text = capture.document_ir.extracted_text();
@@ -641,6 +641,9 @@ fn bibliography_item_starred_wrappers_render_visible_text() {
         "mkbibparens",
         "mkbibbrackets",
         "mkbibbraces",
+        "mkbibemph",
+        "mkbibbold",
+        "mkbibitalic",
     ] {
         assert!(!extracted_text.contains(hidden));
     }
@@ -4385,7 +4388,7 @@ const NAMEDASH_URLPREFIX_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{th
 
 const NAME_AFFIX_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\mkbibnamefamily{Doe}, \mkbibnameaffix{Jr.}.\end{thebibliography}\end{document}";
 
-const STARRED_WRAPPER_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\MakeSentenceCase*{alpha title}. \MakeTitleCase*{beta title}. \mkbibquote*{Alpha Title}. \mkbibparens*{2024}. \mkbibbrackets*{note}. \mkbibbraces*{Supplement}.\end{thebibliography}\end{document}";
+const STARRED_WRAPPER_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\MakeSentenceCase*{alpha title}. \MakeTitleCase*{beta title}. \mkbibquote*{Alpha Title}. \mkbibparens*{2024}. \mkbibbrackets*{note}. \mkbibbraces*{Supplement}. \mkbibemph*{Emph}. \mkbibbold*{Bold}. \mkbibitalic*{Italic}.\end{thebibliography}\end{document}";
 
 const BIBINFO_BIBFIELD_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}\bibinfo{doi}{10.1000/example}. \bibfield{journal}{Journal of Tests}.\end{thebibliography}\end{document}";
 
