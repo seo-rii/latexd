@@ -4403,6 +4403,10 @@ impl<'i> Vm<'i> {
         limit: usize,
     ) -> Option<usize> {
         let mut argument_index = skip_ascii_whitespace(source, argument_index);
+        if argument_index < limit && source[argument_index..].starts_with('*') {
+            argument_index += 1;
+            argument_index = skip_ascii_whitespace(source, argument_index);
+        }
         let mut options = None;
         if let Some((value, _, _, after)) = read_bracket_source_argument(source, argument_index) {
             if after > limit {
@@ -16170,6 +16174,31 @@ Fallback text.
             &event.event,
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("figure")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_starred_graphics_without_visible_star() {
+        let source = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics*[width=3cm]{figures/starred.pdf}\caption{Starred plot.}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/starred.pdf"
+                    && graphic.options.as_deref() == Some("width=3cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Starred plot."
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text.contains('*')
         )));
     }
 
