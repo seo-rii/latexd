@@ -47,6 +47,7 @@ struct PendingPage {
     ops: Vec<DrawOp>,
     source_spans: Vec<SourceSpan>,
     text: String,
+    hash_input: String,
 }
 
 #[derive(Clone)]
@@ -431,7 +432,9 @@ pub fn build_page_display_lists(
     let mut pages = Vec::new();
     let finish_page =
         |pages: &mut Vec<PageDisplayList>, page_index: usize, pending: PendingPage| {
-            let content_hash = blake3::hash(pending.text.as_bytes()).to_hex().to_string();
+            let content_hash = blake3::hash(pending.hash_input.as_bytes())
+                .to_hex()
+                .to_string();
             let page_id = blake3::hash(
                 format!(
                     "display-list:{page_index}:{}:{}:{content_hash}",
@@ -450,11 +453,13 @@ pub fn build_page_display_lists(
                 content_hash,
             });
         };
-    let mut pending = PendingPage {
+    let new_pending_page = || PendingPage {
         ops: Vec::new(),
         source_spans: Vec::new(),
         text: String::new(),
+        hash_input: format!("options:{options:?}"),
     };
+    let mut pending = new_pending_page();
     let mut page_index = 0usize;
     let mut y = options.margin_top_pt;
     let record_source_spans = |source: &SourceProvenance, source_spans: &mut Vec<SourceSpan>| {
@@ -578,22 +583,20 @@ pub fn build_page_display_lists(
                     {
                         finish_page(&mut pages, page_index, pending);
                         page_index += 1;
-                        pending = PendingPage {
-                            ops: Vec::new(),
-                            source_spans: Vec::new(),
-                            text: String::new(),
-                        };
+                        pending = new_pending_page();
                         y = options.margin_top_pt;
                     }
 
                     if !pending.text.is_empty() {
                         pending.text.push('\n');
+                        pending.hash_input.push('\n');
                     }
                     let line_text = line_segments
                         .iter()
                         .map(|segment| segment.text.as_str())
                         .collect::<String>();
                     pending.text.push_str(&line_text);
+                    pending.hash_input.push_str(&line_text);
 
                     if line_segments.is_empty() {
                         record_source_spans(&logical.source, &mut pending.source_spans);
@@ -627,9 +630,9 @@ pub fn build_page_display_lists(
                             source: source.clone(),
                         }));
                         if let Some(target) = segment.link_target {
-                            pending.text.push('\u{1f}');
-                            pending.text.push_str("link:");
-                            pending.text.push_str(&target);
+                            pending.hash_input.push('\u{1f}');
+                            pending.hash_input.push_str("link:");
+                            pending.hash_input.push_str(&target);
                             pending.ops.push(DrawOp::LinkAnnotation(LinkAnnotation {
                                 rect: Rect {
                                     x,
@@ -661,18 +664,17 @@ pub fn build_page_display_lists(
                 {
                     finish_page(&mut pages, page_index, pending);
                     page_index += 1;
-                    pending = PendingPage {
-                        ops: Vec::new(),
-                        source_spans: Vec::new(),
-                        text: String::new(),
-                    };
+                    pending = new_pending_page();
                     y = options.margin_top_pt;
                 }
 
                 if !pending.text.is_empty() {
                     pending.text.push('\n');
+                    pending.hash_input.push('\n');
                 }
-                pending.text.push_str(&format!("[image: {}]", logical.path));
+                let image_text = format!("[image: {}]", logical.path);
+                pending.text.push_str(&image_text);
+                pending.hash_input.push_str(&image_text);
                 if let ProvenanceSpan::File(span) = &logical.source.primary {
                     if !pending.source_spans.contains(span) {
                         pending.source_spans.push(span.clone());
@@ -700,8 +702,10 @@ pub fn build_page_display_lists(
                 if let Some(caption) = &logical.caption {
                     if !pending.text.is_empty() {
                         pending.text.push('\n');
+                        pending.hash_input.push('\n');
                     }
                     pending.text.push_str(caption);
+                    pending.hash_input.push_str(caption);
                     let caption_source = logical
                         .caption_source
                         .clone()
@@ -735,6 +739,7 @@ pub fn build_page_display_lists(
 
     if pending.ops.is_empty() && pages.is_empty() {
         pending.text = String::new();
+        pending.hash_input = format!("options:{options:?}");
         finish_page(&mut pages, page_index, pending);
     } else if !pending.ops.is_empty() {
         finish_page(&mut pages, page_index, pending);
@@ -1045,6 +1050,29 @@ mod tests {
 
         assert_ne!(left[0].content_hash, right[0].content_hash);
         assert_ne!(left[0].page_id, right[0].page_id);
+    }
+
+    #[test]
+    fn layout_options_affect_page_content_hash() {
+        let source = SourceProvenance::file("main.tex", 0, 5);
+        let document = DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+            content: vec![InlineNode::Text {
+                text: "hello".to_string(),
+                source: source.clone(),
+            }],
+            source,
+        })]);
+        let default = build_page_display_lists(&document, PageDisplayListOptions::default());
+        let larger_font = build_page_display_lists(
+            &document,
+            PageDisplayListOptions {
+                body_font_size_pt: 13.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+
+        assert_ne!(default[0].content_hash, larger_font[0].content_hash);
+        assert_ne!(default[0].page_id, larger_font[0].page_id);
     }
 
     #[test]

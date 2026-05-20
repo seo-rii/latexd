@@ -495,6 +495,9 @@ The next implementation step has started with a narrow display-list spike:
 - `PageDisplayList.content_hash` now includes link annotation targets so
   renderer/cache reuse is invalidated when a hyperlink changes but visible text
   stays the same;
+- display-list hash input is now separated from visible text and seeded with
+  layout options, so font size, spacing, margin, and wrapping policy changes
+  invalidate page ids even when visible text is unchanged;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:
