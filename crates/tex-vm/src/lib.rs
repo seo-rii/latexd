@@ -13933,6 +13933,32 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 continue;
             }
         }
+        if command == "IEEEauthorrefmark" {
+            let argument_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, command_after)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
+        if matches!(command, "IEEEauthorblockN" | "IEEEauthorblockA") {
+            let argument_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((visible_text, _, _, command_after)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                append_text(&mut text, &visible_text);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
         if command == "urlstyle" {
             let style_index = skip_ascii_whitespace(source, command_name_end);
             if let Some((_, _, _, command_after)) = read_braced_source_argument(source, style_index)

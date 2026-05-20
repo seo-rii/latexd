@@ -267,6 +267,64 @@ fn llncs_frontmatter_survives_ir_and_display_list() {
 }
 
 #[test]
+fn class_frontmatter_shims_survive_ir_and_display_list() {
+    let cases = [
+        (
+            "revtex",
+            REVTEX_FRONTMATTER_SOURCE,
+            "REVTeX Paper",
+            vec!["Alice", "alice@example.test", "Quantum Lab"],
+            vec!["affiliation", "email"],
+        ),
+        (
+            "wacv",
+            WACV_FRONTMATTER_SOURCE,
+            "WACV Paper",
+            vec!["Alice", "Vision Lab"],
+            vec!["affiliation"],
+        ),
+        (
+            "ieee",
+            IEEE_FRONTMATTER_SOURCE,
+            "IEEE Paper",
+            vec!["Alice Smith and Bob Jones Vision Lab"],
+            vec!["IEEEauthor", "IEEEauthorrefmark"],
+        ),
+    ];
+
+    for (case, source, expected_title, expected_authors, hidden) in cases {
+        let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+        let title = capture
+            .document_ir
+            .blocks
+            .iter()
+            .find_map(|block| match block {
+                IrBlock::TitleBlock(title) => Some(title),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{case} title block"));
+
+        assert_eq!(title.title.as_deref(), Some(expected_title), "{case}");
+        assert_eq!(
+            title.authors.iter().map(String::as_str).collect::<Vec<_>>(),
+            expected_authors,
+            "{case}"
+        );
+        let extracted_text = capture.document_ir.extracted_text();
+        assert!(
+            extracted_text.contains(expected_title),
+            "{case}: {extracted_text}"
+        );
+        for author in expected_authors {
+            assert!(extracted_text.contains(author), "{case}: {extracted_text}");
+        }
+        for hidden in hidden {
+            assert!(!extracted_text.contains(hidden), "{case}: {extracted_text}");
+        }
+    }
+}
+
+#[test]
 fn footnote_bodies_survive_ir_and_display_list_without_raw_braces() {
     let capture =
         capture_internal_render_ir("main.tex", FOOTNOTE_BODY_SOURCE, &SemanticAux::default());
@@ -8631,6 +8689,12 @@ const TITLE_INLINE_KEY_SOURCE: &str =
 const AUTHBLK_FRONTMATTER_SOURCE: &str = r"\usepackage{authblk}\title{Quantum Paper}\author[1]{Nai-Hui Chia\thanks{nc67@rice.edu}}\author[2]{Atsuya Hasegawa}\affil[1]{\textit{Department of Computer Science}}\affil[2]{Graduate School of Mathematics}\begin{document}\maketitle\end{document}";
 
 const LLNCS_FRONTMATTER_SOURCE: &str = r"\documentclass{llncs}\title{LNCS Paper}\author{Alice \inst{1}\orcidID{0000} \and Bob \inst{2}}\institute{Lab One \email{alice@example.test} \and Lab Two}\begin{document}\maketitle\end{document}";
+
+const REVTEX_FRONTMATTER_SOURCE: &str = r"\documentclass{revtex4-2}\title{REVTeX Paper}\author{Alice}\email{alice@example.test}\affiliation{Quantum Lab}\begin{document}\maketitle\end{document}";
+
+const WACV_FRONTMATTER_SOURCE: &str = r"\usepackage{wacv}\title{WACV Paper}\author{Alice}\affiliation{Vision Lab}\begin{document}\maketitle\end{document}";
+
+const IEEE_FRONTMATTER_SOURCE: &str = r"\documentclass{IEEEtran}\title{IEEE Paper}\author{\IEEEauthorblockN{Alice Smith\IEEEauthorrefmark{1} \and Bob Jones\IEEEauthorrefmark{2}}\IEEEauthorblockA{Vision Lab}}\begin{document}\maketitle\end{document}";
 
 const FOOTNOTE_BODY_SOURCE: &str = r"\begin{document}Text\footnote{Note \cite{key} and \ref{sec:intro}.} after.\footnotetext[1]{Loose note.}\end{document}";
 
