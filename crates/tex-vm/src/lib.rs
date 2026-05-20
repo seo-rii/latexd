@@ -999,6 +999,7 @@ impl<'i> Vm<'i> {
         let mut in_document = false;
         let mut no_hyper_depth = 0usize;
         let mut section_macros = HashMap::<String, (usize, usize)>::new();
+        let mut readable_wrapper_macros = HashMap::<String, (usize, usize, String)>::new();
         let mut structured_environments = HashSet::<String>::new();
         for environment in [
             "quote",
@@ -1282,9 +1283,11 @@ impl<'i> Vm<'i> {
                         read_braced_source_argument(source, index)
                     {
                         let mut after_signature = after_target;
-                        if let Some((_, _, _, after_arity)) =
+                        let mut parameter_count = 0usize;
+                        if let Some((arity, _, _, after_arity)) =
                             read_bracket_source_argument(source, after_signature)
                         {
+                            parameter_count = arity.trim().parse::<usize>().unwrap_or(0);
                             after_signature = after_arity;
                         }
                         if let Some((body, _, _, after_body)) =
@@ -1294,6 +1297,12 @@ impl<'i> Vm<'i> {
                             if body.contains("\\section") && body.contains("#1") {
                                 section_macros
                                     .insert(macro_name.to_string(), (command_start, after_body));
+                            }
+                            if parameter_count == 1 && body.contains("#1") && !body.contains("#2") {
+                                readable_wrapper_macros.insert(
+                                    macro_name.to_string(),
+                                    (command_start, after_body, body.to_string()),
+                                );
                             }
                             index = after_body;
                         }
@@ -5488,6 +5497,45 @@ impl<'i> Vm<'i> {
                             }),
                         );
                         index = after;
+                    } else if let Some((definition_start, definition_end, body)) =
+                        readable_wrapper_macros.get(command)
+                    {
+                        let argument_index = skip_ascii_whitespace(source, index);
+                        if let Some((argument, content_start, content_end, after)) =
+                            read_braced_source_argument(source, argument_index)
+                        {
+                            let visible_source = body.replace("#1", argument);
+                            let text =
+                                normalize_latex_text_with_inline_placeholders(&visible_source);
+                            if !text.is_empty() {
+                                self.emit_render_event(
+                                    RenderEvent::Text(TextEvent { text }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        content_start as u32,
+                                        content_end as u32,
+                                    )
+                                    .with_expansion_frame(
+                                        ExpansionFrame {
+                                            call_span: ProvenanceSpan::File(SourceSpan {
+                                                path: source_path.to_owned(),
+                                                start_utf8: command_start as u32,
+                                                end_utf8: after as u32,
+                                            }),
+                                            definition_span: Some(ProvenanceSpan::File(
+                                                SourceSpan {
+                                                    path: source_path.to_owned(),
+                                                    start_utf8: *definition_start as u32,
+                                                    end_utf8: *definition_end as u32,
+                                                },
+                                            )),
+                                            command_name: Some(command.to_string()),
+                                        },
+                                    ),
+                                );
+                            }
+                            index = after;
+                        }
                     }
                 }
                 _ => {}
@@ -12873,6 +12921,58 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 continue;
             }
         }
+        if command == "color" {
+            let argument_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, command_after)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
+        if matches!(command, "textcolor" | "colorbox") {
+            let color_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, after_color)) = read_braced_source_argument(source, color_index) {
+                let text_index = skip_ascii_whitespace(source, after_color);
+                if let Some((visible_text, _, _, command_after)) =
+                    read_braced_source_argument(source, text_index)
+                {
+                    append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                    let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                    append_text(&mut text, &visible_text);
+                    found_structured_inline = true;
+                    chunk_start = command_after;
+                    scan_index = command_after;
+                    continue;
+                }
+            }
+        }
+        if command == "fcolorbox" {
+            let frame_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, after_frame)) = read_braced_source_argument(source, frame_index) {
+                let color_index = skip_ascii_whitespace(source, after_frame);
+                if let Some((_, _, _, after_color)) =
+                    read_braced_source_argument(source, color_index)
+                {
+                    let text_index = skip_ascii_whitespace(source, after_color);
+                    if let Some((visible_text, _, _, command_after)) =
+                        read_braced_source_argument(source, text_index)
+                    {
+                        append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                        let visible_text =
+                            normalize_latex_text_with_inline_placeholders(visible_text);
+                        append_text(&mut text, &visible_text);
+                        found_structured_inline = true;
+                        chunk_start = command_after;
+                        scan_index = command_after;
+                        continue;
+                    }
+                }
+            }
+        }
         if matches!(
             command,
             "NoCaseChange"
@@ -20160,6 +20260,37 @@ Fallback text.
         assert!(visible_text.contains("Nested before visible text after."));
         assert!(!visible_text.contains("{visible text}"));
         assert!(!visible_text.contains("unknowntext"));
+    }
+
+    #[test]
+    fn render_event_capture_records_declared_readable_top_level_wrappers() {
+        let source = r"\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}\begin{document}A \reviewnote{check \cite{key}, \ref{sec:intro}, and \href{https://hidden.test}{paper}} B.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(
+            visible_text.contains("A TODO: check [?], [?], and paper B."),
+            "{visible_text}"
+        );
+        assert!(!visible_text.contains("reviewnote"));
+        assert!(!visible_text.contains("color"));
+        assert!(!visible_text.contains("red"));
+        assert!(!visible_text.contains("key"));
+        assert!(!visible_text.contains("sec:intro"));
+        assert!(!visible_text.contains("https://hidden.test"));
     }
 
     #[test]

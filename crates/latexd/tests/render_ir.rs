@@ -4216,6 +4216,45 @@ fn nested_text_wrapper_unknown_command_survives_ir_without_raw_braces() {
 }
 
 #[test]
+fn declared_top_level_wrapper_survives_ir_without_raw_command_noise() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        DECLARED_TOP_LEVEL_WRAPPER_SOURCE,
+        &SemanticAux::default(),
+    );
+
+    let expected_text = "A TODO: check [?], [?], and paper B.";
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(expected_text), "{extracted_text}");
+    assert!(!extracted_text.contains("reviewnote"));
+    assert!(!extracted_text.contains("color"));
+    assert!(!extracted_text.contains("red"));
+    assert!(!extracted_text.contains("key"));
+    assert!(!extracted_text.contains("sec:intro"));
+    assert!(!extracted_text.contains("https://hidden.test"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains(expected_text),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("reviewnote"));
+    assert!(!display_list_text.contains("color"));
+    assert!(!display_list_text.contains("red"));
+    assert!(!display_list_text.contains("key"));
+    assert!(!display_list_text.contains("sec:intro"));
+    assert!(!display_list_text.contains("https://hidden.test"));
+}
+
+#[test]
 fn nested_text_wrapper_unknown_command_inline_events_survive_ir_without_raw_keys() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -7664,6 +7703,8 @@ const NESTED_TEXT_WRAPPER_WRAPPER_SOURCE: &str =
 
 const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_SOURCE: &str =
     r"\begin{document}Nested \emph{before \unknowntext{visible text} after}.\end{document}";
+
+const DECLARED_TOP_LEVEL_WRAPPER_SOURCE: &str = r"\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}\begin{document}A \reviewnote{check \cite{key}, \ref{sec:intro}, and \href{https://hidden.test}{paper}} B.\end{document}";
 
 const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_INLINE_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{see \cite{key}, \citep*{starred}, \ref{sec:intro}, \crefrange*{fig:a}{fig:b}, and \ref*{sec:starred}} after}.\end{document}";
 

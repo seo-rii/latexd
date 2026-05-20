@@ -219,6 +219,11 @@ The next implementation step has started with a narrow display-list spike:
 - `\footnote{...}` and `\footnotetext[...]{...}` now preserve their body text
   through the same nested inline-event path as text wrappers, so citation and
   reference placeholders survive without leaking raw braces or optional marks;
+- top-level one-argument wrapper macros declared with `\newcommand`-style
+  definitions and a visible `#1` body now preserve the expanded readable text
+  in RenderEvents/IR; this covers author-note/color wrappers such as
+  `\newcommand{\note}[1]{{\color{red}[TODO: #1]}}` without leaking the wrapper
+  command, color name, braces, or raw citation/reference keys;
 - `\href` and `\url` now survive as inline link events, `Link` IR nodes, text
   runs, and `LinkAnnotation` display-list operations without leaking hidden
   `\href` targets into visible body text; `\url` supports both braced and
