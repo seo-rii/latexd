@@ -965,6 +965,7 @@ impl<'i> Vm<'i> {
             "frontmatter",
             "widetext",
             "strip",
+            "fullwidth",
             "spacing",
             "onehalfspace",
             "doublespace",
@@ -19650,6 +19651,38 @@ Fallback text.
             &event.event,
             RenderEvent::RawFallback(fallback)
                 if matches!(fallback.environment.as_deref(), Some("widetext" | "strip"))
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_fullwidth_without_fallback() {
+        let source =
+            r"\begin{document}\begin{fullwidth}Full \cite{key} text.\end{fullwidth}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::Environment { name },
+                }) if name == "fullwidth"
+            )
+        }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::InlineCitation(citation)
+                    if citation.keys == vec!["key".to_string()]
+            )
+        }));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("fullwidth")
         )));
     }
 

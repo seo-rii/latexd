@@ -309,8 +309,9 @@ The next implementation step has started with a narrow display-list spike:
 - `frontmatter` now acts as a structured wrapper so title/author/date metadata,
   abstract content, and body text are captured instead of being swallowed by
   RawFallback;
-- `widetext` and `strip` now act as structured wrappers so their body text and
-  inline events are captured instead of being swallowed by RawFallback;
+- `widetext`, `strip`, and `fullwidth` now act as structured wrappers so their
+  body text and inline events are captured instead of being swallowed by
+  RawFallback;
 - `spacing`, `onehalfspace`, `doublespace`, and `singlespace` now act as
   structured wrappers while consuming line-spacing arguments so they do not
   appear as visible text;
