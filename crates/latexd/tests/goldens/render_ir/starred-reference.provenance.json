@@ -1,0 +1,332 @@
+{
+  "events": [
+    {
+      "event": {
+        "command": "ref",
+        "keys": [
+          "sec:intro"
+        ]
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 3,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 36,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 20
+          },
+          "related": [
+            {
+              "role": "reference_key",
+              "span": {
+                "end_utf8": 35,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 26
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event": {
+        "command": "autoref",
+        "keys": [
+          "fig:plot"
+        ]
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 6,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 57,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 38
+          },
+          "related": [
+            {
+              "role": "reference_key",
+              "span": {
+                "end_utf8": 56,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 48
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event": {
+        "command": "Cref",
+        "keys": [
+          "tab:data"
+        ]
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 9,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 75,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 59
+          },
+          "related": [
+            {
+              "role": "reference_key",
+              "span": {
+                "end_utf8": 74,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 66
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event": {
+        "command": "eqref",
+        "keys": [
+          "eq:main"
+        ]
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 12,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 93,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 77
+          },
+          "related": [
+            {
+              "role": "reference_key",
+              "span": {
+                "end_utf8": 92,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 85
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event": {
+        "command": "nameref",
+        "keys": [
+          "sec:name"
+        ]
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 17,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 118,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 99
+          },
+          "related": [
+            {
+              "role": "reference_key",
+              "span": {
+                "end_utf8": 117,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 109
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "ir": [
+    {
+      "command": "ref",
+      "display_text": "[?]",
+      "keys": [
+        "sec:intro"
+      ],
+      "source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 36,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 20
+        },
+        "related": [
+          {
+            "role": "reference_key",
+            "span": {
+              "end_utf8": 35,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 26
+            }
+          }
+        ]
+      }
+    },
+    {
+      "command": "autoref",
+      "display_text": "[?]",
+      "keys": [
+        "fig:plot"
+      ],
+      "source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 57,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 38
+        },
+        "related": [
+          {
+            "role": "reference_key",
+            "span": {
+              "end_utf8": 56,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 48
+            }
+          }
+        ]
+      }
+    },
+    {
+      "command": "Cref",
+      "display_text": "[?]",
+      "keys": [
+        "tab:data"
+      ],
+      "source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 75,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 59
+        },
+        "related": [
+          {
+            "role": "reference_key",
+            "span": {
+              "end_utf8": 74,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 66
+            }
+          }
+        ]
+      }
+    },
+    {
+      "command": "eqref",
+      "display_text": "(?)",
+      "keys": [
+        "eq:main"
+      ],
+      "source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 93,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 77
+        },
+        "related": [
+          {
+            "role": "reference_key",
+            "span": {
+              "end_utf8": 92,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 85
+            }
+          }
+        ]
+      }
+    },
+    {
+      "command": "nameref",
+      "display_text": "[?]",
+      "keys": [
+        "sec:name"
+      ],
+      "source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 118,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 99
+        },
+        "related": [
+          {
+            "role": "reference_key",
+            "span": {
+              "end_utf8": 117,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 109
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "source": "\\begin{document}See \\ref*{sec:intro}, \\autoref*{fig:plot}, \\Cref*{tab:data}, \\eqref*{eq:main}, and \\nameref*{sec:name}.\\end{document}"
+}

@@ -4340,6 +4340,92 @@ fn starred_reference_capture_survives_ir_without_visible_keys() {
 }
 
 #[test]
+fn starred_reference_provenance_preserves_starred_invocation_and_key_spans() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        STARRED_REFERENCE_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let references = paragraph
+        .content
+        .iter()
+        .filter_map(|node| match node {
+            InlineNode::Reference(reference) => Some(reference),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let mut provenance_cases = Vec::new();
+    for (reference, invocation_text, key_text) in [
+        (references[0], r"\ref*{sec:intro}", "sec:intro"),
+        (references[1], r"\autoref*{fig:plot}", "fig:plot"),
+        (references[2], r"\Cref*{tab:data}", "tab:data"),
+        (references[3], r"\eqref*{eq:main}", "eq:main"),
+        (references[4], r"\nameref*{sec:name}", "sec:name"),
+    ] {
+        assert!(matches!(
+            &reference.source.primary,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == "main.tex"
+                    && &STARRED_REFERENCE_SOURCE
+                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                        == invocation_text
+        ));
+        assert!(reference.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::ReferenceKey
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &STARRED_REFERENCE_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == key_text
+                )
+        }));
+
+        provenance_cases.push(serde_json::json!({
+            "command": reference.command,
+            "keys": reference.keys,
+            "display_text": reference.display_text,
+            "source": reference.source,
+        }));
+    }
+
+    let event_cases = capture
+        .events
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::InlineReference(reference) => Some(serde_json::json!({
+                "event": reference,
+                "meta": envelope.meta,
+            })),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let provenance_snapshot = serde_json::json!({
+        "source": STARRED_REFERENCE_SOURCE,
+        "events": event_cases,
+        "ir": provenance_cases,
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/starred-reference.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn reference_alias_capture_survives_ir_without_visible_keys() {
     let capture =
         capture_internal_render_ir("main.tex", REFERENCE_ALIAS_SOURCE, &SemanticAux::default());
