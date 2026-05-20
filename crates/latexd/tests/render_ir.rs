@@ -4686,6 +4686,109 @@ fn class_file_macros_are_reused_in_document_ir_and_display_list() {
 }
 
 #[test]
+fn conditional_file_inputs_survive_ir_and_display_list() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        CONDITIONAL_FILE_INPUT_MAIN_SOURCE,
+        &SemanticAux::default(),
+        &[
+            ("sections/setup.tex", CONDITIONAL_FILE_INPUT_SETUP_SOURCE),
+            ("sections/config.cfg", CONDITIONAL_FILE_INPUT_CONFIG_SOURCE),
+            ("body.tex", CONDITIONAL_FILE_INPUT_BODY_SOURCE),
+        ],
+    );
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Heading(heading)
+                if matches!(
+                    heading.content.first(),
+                    Some(InlineNode::Text { text, .. }) if text == "From Config"
+                )
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    for expected in [
+        "From Config",
+        "TODO: found [?]",
+        "Body [?].",
+        "after",
+        "fallback",
+    ] {
+        assert!(
+            extracted_text.contains(expected),
+            "{expected} missing in {extracted_text}"
+        );
+    }
+    for hidden in [
+        "InputIfFileExists",
+        "IfFileExists",
+        "input",
+        "sections",
+        "setup",
+        "config",
+        "body",
+        "ghost",
+        "missing",
+        "mysection",
+        "reviewnote",
+        "color",
+        "red",
+        "key",
+    ] {
+        assert!(
+            !extracted_text.contains(hidden),
+            "{hidden} leaked in {extracted_text}"
+        );
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    for expected in [
+        "From Config",
+        "TODO: found [?]",
+        "Body [?].",
+        "after",
+        "fallback",
+    ] {
+        assert!(
+            display_list_text.contains(expected),
+            "{expected} missing in {display_list_text}"
+        );
+    }
+    for hidden in [
+        "InputIfFileExists",
+        "IfFileExists",
+        "input",
+        "sections",
+        "setup",
+        "config",
+        "body",
+        "ghost",
+        "missing",
+        "mysection",
+        "reviewnote",
+        "color",
+        "red",
+        "key",
+    ] {
+        assert!(
+            !display_list_text.contains(hidden),
+            "{hidden} leaked in {display_list_text}"
+        );
+    }
+}
+
+#[test]
 fn includeonly_limits_render_ir_include_files() {
     let capture = capture_internal_render_ir_with_mounted_files(
         "main.tex",
@@ -8316,6 +8419,15 @@ const PACKAGE_MACRO_SOURCE: &str = r"\ProvidesPackage{macros}\newcommand{\mysect
 const CLASS_MACRO_MAIN_SOURCE: &str = r"\documentclass{wrapper}\begin{document}\mysection{From Class}\reviewnote{class \cite{key}}\end{document}";
 
 const CLASS_MACRO_SOURCE: &str = r"\ProvidesClass{wrapper}\newcommand{\mysection}[1]{\section{#1}}\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}";
+
+const CONDITIONAL_FILE_INPUT_MAIN_SOURCE: &str = r"\input{sections/setup}\begin{document}\mysection{From Config}\IfFileExists{sections/config.cfg}{\reviewnote{found \cite{key}}}{missing}\InputIfFileExists{body.tex}{ after}{missing}\IfFileExists{ghost.cfg}{ghost}{fallback}\end{document}";
+
+const CONDITIONAL_FILE_INPUT_SETUP_SOURCE: &str = r"\InputIfFileExists{config.cfg}{}{}";
+
+const CONDITIONAL_FILE_INPUT_CONFIG_SOURCE: &str =
+    r"\newcommand{\mysection}[1]{\section{#1}}\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}";
+
+const CONDITIONAL_FILE_INPUT_BODY_SOURCE: &str = r"Body \cite{body}.";
 
 const INCLUDEONLY_MAIN_SOURCE: &str =
     r"\includeonly{first}\begin{document}A \include{first} B \include{second} C\end{document}";

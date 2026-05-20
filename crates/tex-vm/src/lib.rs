@@ -2777,6 +2777,72 @@ impl<'i> Vm<'i> {
                         index = after_include;
                     }
                 }
+                "IfFileExists" | "InputIfFileExists" => {
+                    let path_index = skip_ascii_whitespace(source, index);
+                    if let Some((path_text, _, _, after_path)) =
+                        read_braced_source_argument(source, path_index)
+                        && let Some((then_body, _, _, after_then)) =
+                            read_braced_source_argument(source, after_path)
+                        && let Some((else_body, _, _, after_else)) =
+                            read_braced_source_argument(source, after_then)
+                    {
+                        let mut path =
+                            normalize_relative_path(Utf8Path::new(path_text.trim())).ok();
+                        if let Some(parent) = source_path.parent()
+                            && let Some(candidate) = path.as_ref()
+                            && !candidate.is_absolute()
+                        {
+                            let parent_path = parent.join(candidate);
+                            if self.resolve_existing_project_path(&parent_path).is_some() {
+                                path = Some(parent_path);
+                            }
+                        }
+                        let path = path
+                            .map(|path| self.resolve_existing_project_path(&path).unwrap_or(path));
+                        let exists = path.as_ref().is_some_and(|path| self.path_exists(path));
+                        if command == "InputIfFileExists"
+                            && let Some(path) = path.as_ref().filter(|_| exists)
+                        {
+                            if scan_state.active_input_paths.contains(path) {
+                                self.emit_render_event(
+                                    RenderEvent::Diagnostic(RenderDiagnosticEvent {
+                                        message: format!("skipped cyclic input {path}"),
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        command_start as u32,
+                                        after_path as u32,
+                                    ),
+                                );
+                            } else if include_depth < 16 {
+                                let included_source =
+                                    self.mounted_files.get(path).cloned().or_else(|| {
+                                        self.file_root.as_ref().and_then(|root| {
+                                            fs::read_to_string(root.join(path)).ok()
+                                        })
+                                    });
+                                if let Some(included_source) = included_source {
+                                    self.capture_render_events_from_source(
+                                        path,
+                                        &included_source,
+                                        in_document,
+                                        include_depth + 1,
+                                        scan_state,
+                                    );
+                                }
+                            }
+                        }
+                        let selected_body = if exists { then_body } else { else_body };
+                        self.capture_render_events_from_source(
+                            source_path,
+                            selected_body,
+                            in_document,
+                            include_depth,
+                            scan_state,
+                        );
+                        index = after_else;
+                    }
+                }
                 "input" | "include" => {
                     let path_index = skip_ascii_whitespace(source, index);
                     let path_argument = if let Some((path_text, _, _, after_path)) =
@@ -20929,6 +20995,65 @@ Fallback text.
             .join("");
         assert!(visible_text.contains("TODO: class [?]"), "{visible_text}");
         for hidden in ["wrapper", "mysection", "reviewnote", "color", "red", "key"] {
+            assert!(
+                !visible_text.contains(hidden),
+                "{hidden} leaked in {visible_text}"
+            );
+        }
+    }
+
+    #[test]
+    fn render_event_capture_scans_conditional_file_inputs_and_selected_branches() {
+        let source = r"\input{sections/setup}\begin{document}\mysection{From Config}\IfFileExists{sections/config.cfg}{\reviewnote{found \cite{key}}}{missing}\InputIfFileExists{body.tex}{ after}{missing}\IfFileExists{ghost.cfg}{ghost}{fallback}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("sections/setup.tex", r"\InputIfFileExists{config.cfg}{}{}");
+        vm.mount_file(
+            "sections/config.cfg",
+            r"\newcommand{\mysection}[1]{\section{#1}}\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}",
+        );
+        vm.mount_file("body.tex", r"Body \cite{body}.");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Heading(heading) if heading.text == "From Config"
+        )));
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        for expected in ["TODO: found [?]", "Body .", "after", "fallback"] {
+            assert!(
+                visible_text.contains(expected),
+                "{expected} missing in {visible_text}"
+            );
+        }
+        for hidden in [
+            "InputIfFileExists",
+            "IfFileExists",
+            "input",
+            "sections",
+            "setup",
+            "config",
+            "body",
+            "ghost",
+            "missing",
+            "mysection",
+            "reviewnote",
+            "color",
+            "red",
+            "key",
+        ] {
             assert!(
                 !visible_text.contains(hidden),
                 "{hidden} leaked in {visible_text}"
