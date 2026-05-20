@@ -1,7 +1,7 @@
 use tex_render_model::{
-    BibliographyBlock, DocumentIr, DrawOp, FontFamilyRequest, FontRequest, FontRole, FontSeries,
-    FontShape, InlineNode, IrBlock, LinkAnnotation, PageDisplayList, Point, PositionedImage,
-    PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan,
+    BibliographyBlock, Destination, DocumentIr, DrawOp, FontFamilyRequest, FontRequest, FontRole,
+    FontSeries, FontShape, InlineNode, IrBlock, LinkAnnotation, PageDisplayList, Point,
+    PositionedImage, PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -430,6 +430,20 @@ pub fn build_page_display_lists(
     }
 
     let mut pages = Vec::new();
+    let mut pending_labels = document_ir.labels.clone();
+    pending_labels.sort_by(
+        |left, right| match (&left.source.primary, &right.source.primary) {
+            (ProvenanceSpan::File(left), ProvenanceSpan::File(right)) => left
+                .path
+                .cmp(&right.path)
+                .then(left.start_utf8.cmp(&right.start_utf8)),
+            (ProvenanceSpan::File(_), ProvenanceSpan::Generated(_)) => std::cmp::Ordering::Less,
+            (ProvenanceSpan::Generated(_), ProvenanceSpan::File(_)) => std::cmp::Ordering::Greater,
+            (ProvenanceSpan::Generated(left), ProvenanceSpan::Generated(right)) => {
+                left.stable_id.cmp(&right.stable_id)
+            }
+        },
+    );
     let finish_page =
         |pages: &mut Vec<PageDisplayList>, page_index: usize, pending: PendingPage| {
             let content_hash = blake3::hash(pending.hash_input.as_bytes())
@@ -476,6 +490,36 @@ pub fn build_page_display_lists(
             }
         }
     };
+    let mut emit_due_destinations =
+        |current_source: &SourceProvenance, point: Point, pending: &mut PendingPage| {
+            let ProvenanceSpan::File(current_span) = &current_source.primary else {
+                return;
+            };
+            let mut index = 0usize;
+            while index < pending_labels.len() {
+                let should_emit = match &pending_labels[index].source.primary {
+                    ProvenanceSpan::File(label_span) => {
+                        label_span.path == current_span.path
+                            && label_span.start_utf8 <= current_span.start_utf8
+                    }
+                    ProvenanceSpan::Generated(_) => false,
+                };
+                if should_emit {
+                    let label = pending_labels.remove(index);
+                    record_source_spans(&label.source, &mut pending.source_spans);
+                    pending.hash_input.push('\u{1f}');
+                    pending.hash_input.push_str("dest:");
+                    pending.hash_input.push_str(&label.key);
+                    pending.ops.push(DrawOp::NamedDestination(Destination {
+                        name: label.key,
+                        point,
+                        source: label.source,
+                    }));
+                } else {
+                    index += 1;
+                }
+            }
+        };
 
     for logical in logical_items {
         match logical {
@@ -591,6 +635,11 @@ pub fn build_page_display_lists(
                         pending.text.push('\n');
                         pending.hash_input.push('\n');
                     }
+                    let destination_source = line_segments
+                        .first()
+                        .map(|segment| &segment.source)
+                        .unwrap_or(&logical.source);
+                    emit_due_destinations(destination_source, Point { x: line_x, y }, &mut pending);
                     let line_text = line_segments
                         .iter()
                         .map(|segment| segment.text.as_str())
@@ -672,6 +721,14 @@ pub fn build_page_display_lists(
                     pending.text.push('\n');
                     pending.hash_input.push('\n');
                 }
+                emit_due_destinations(
+                    &logical.source,
+                    Point {
+                        x: options.margin_left_pt,
+                        y,
+                    },
+                    &mut pending,
+                );
                 let image_text = format!("[image: {}]", logical.path);
                 pending.text.push_str(&image_text);
                 pending.hash_input.push_str(&image_text);
@@ -736,6 +793,21 @@ pub fn build_page_display_lists(
             }
         }
     }
+    drop(emit_due_destinations);
+    for label in pending_labels.drain(..) {
+        record_source_spans(&label.source, &mut pending.source_spans);
+        pending.hash_input.push('\u{1f}');
+        pending.hash_input.push_str("dest:");
+        pending.hash_input.push_str(&label.key);
+        pending.ops.push(DrawOp::NamedDestination(Destination {
+            name: label.key,
+            point: Point {
+                x: options.margin_left_pt,
+                y,
+            },
+            source: label.source,
+        }));
+    }
 
     if pending.ops.is_empty() && pages.is_empty() {
         pending.text = String::new();
@@ -752,8 +824,9 @@ pub fn build_page_display_lists(
 mod tests {
     use tex_render_model::{
         AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint,
-        DocumentIr, DrawOp, GraphicBlock, HeadingBlock, InlineNode, IrBlock, LinkInline, ListBlock,
-        ListItemIr, ListKind, ParagraphBlock, ReferenceInline, SourceProvenance, TitleBlock,
+        DocumentIr, DrawOp, GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr,
+        LinkInline, ListBlock, ListItemIr, ListKind, ParagraphBlock, ReferenceInline,
+        SourceProvenance, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists};
@@ -1073,6 +1146,38 @@ mod tests {
 
         assert_ne!(default[0].content_hash, larger_font[0].content_hash);
         assert_ne!(default[0].page_id, larger_font[0].page_id);
+    }
+
+    #[test]
+    fn label_definitions_emit_named_destinations_near_following_content() {
+        let label_source = SourceProvenance::file("main.tex", 5, 22);
+        let paragraph_source = SourceProvenance::file("main.tex", 23, 28);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::with_labels(
+                vec![IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "hello".to_string(),
+                        source: paragraph_source.clone(),
+                    }],
+                    source: paragraph_source,
+                })],
+                vec![LabelDefinitionIr {
+                    key: "sec:intro".to_string(),
+                    source: label_source,
+                }],
+            ),
+            PageDisplayListOptions::default(),
+        );
+
+        assert!(display_lists[0].ops.iter().any(|op| {
+            matches!(
+                op,
+                DrawOp::NamedDestination(destination)
+                    if destination.name == "sec:intro"
+                        && destination.point.x == 72.0
+                        && destination.point.y == 72.0
+            )
+        }));
     }
 
     #[test]

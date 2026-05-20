@@ -498,6 +498,9 @@ The next implementation step has started with a narrow display-list spike:
 - display-list hash input is now separated from visible text and seeded with
   layout options, so font size, spacing, margin, and wrapping policy changes
   invalidate page ids even when visible text is unchanged;
+- `LabelDefinitionIr` metadata now emits `NamedDestination` display-list ops
+  near the following visible content, giving PDF/SVG backends a real
+  destination surface instead of label-only IR metadata;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:
