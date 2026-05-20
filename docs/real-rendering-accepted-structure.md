@@ -80,6 +80,8 @@ The next implementation step has started with a narrow display-list spike:
   display-list image operations carry the concrete asset path when available;
 - `\graphicspath{{...}}` declarations now contribute search directories for
   later `\includegraphics` asset resolution without emitting visible text;
+- `\DeclareGraphicsExtensions{...}` now controls extensionless graphics search
+  order, so projects can prefer formats such as `.png` before `.pdf`;
 - VM render-event capture now emits `GraphicRef`/`Caption` events for
   `\includegraphics`/`\includegraphics*`, `\caption`, and `\caption*`,
   including inside `figure`/`figure*`, `sidewaysfigure`/`sidewaysfigure*`,

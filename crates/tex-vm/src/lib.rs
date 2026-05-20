@@ -724,6 +724,7 @@ struct RenderEventScanState {
     active_input_paths: Vec<Utf8PathBuf>,
     include_only: Option<HashSet<Utf8PathBuf>>,
     graphic_paths: Vec<Utf8PathBuf>,
+    graphic_extensions: Vec<String>,
     section_macros: HashMap<String, (usize, usize)>,
     readable_wrapper_macros: HashMap<String, (usize, usize, String)>,
     structured_environments: HashSet<String>,
@@ -1115,7 +1116,11 @@ impl<'i> Vm<'i> {
         let mut in_document = initial_in_document;
         scan_state.active_input_paths.push(source_path.to_owned());
         let capture_includegraphics_in_range =
-            |vm: &mut Self, range_start: usize, range_end: usize, graphic_paths: &[Utf8PathBuf]| {
+            |vm: &mut Self,
+             range_start: usize,
+             range_end: usize,
+             graphic_paths: &[Utf8PathBuf],
+             graphic_extensions: &[String]| {
                 let mut range_index = range_start;
                 while range_index < range_end {
                     let Some(relative_command) = source[range_index..range_end].find('\\') else {
@@ -1151,6 +1156,7 @@ impl<'i> Vm<'i> {
                             nested_command_index,
                             range_end,
                             graphic_paths,
+                            graphic_extensions,
                         )
                     {
                         range_index = after_graphic;
@@ -1390,6 +1396,24 @@ impl<'i> Vm<'i> {
                                 scan_state.graphic_paths.push(path);
                             }
                             path_index = after_path;
+                        }
+                        index = after;
+                    }
+                }
+                "DeclareGraphicsExtensions" => {
+                    let argument_index = skip_ascii_whitespace(source, index);
+                    if let Some((extensions, _, _, after)) =
+                        read_braced_source_argument(source, argument_index)
+                    {
+                        let extensions = extensions
+                            .split(',')
+                            .map(str::trim)
+                            .map(|extension| extension.trim_start_matches('.'))
+                            .filter(|extension| !extension.is_empty())
+                            .map(ToOwned::to_owned)
+                            .collect::<Vec<_>>();
+                        if !extensions.is_empty() {
+                            scan_state.graphic_extensions = extensions;
                         }
                         index = after;
                     }
@@ -1848,6 +1872,7 @@ impl<'i> Vm<'i> {
                                                         body_command_index,
                                                         body_end,
                                                         &scan_state.graphic_paths,
+                                                        &scan_state.graphic_extensions,
                                                     )
                                                 {
                                                     body_index = after;
@@ -1915,6 +1940,7 @@ impl<'i> Vm<'i> {
                                                         subfloat_body_start,
                                                         subfloat_body_end,
                                                         &scan_state.graphic_paths,
+                                                        &scan_state.graphic_extensions,
                                                     );
                                                     if let Some((
                                                         caption_text,
@@ -1986,6 +2012,7 @@ impl<'i> Vm<'i> {
                                                             subcaption_body_start,
                                                             subcaption_body_end,
                                                             &scan_state.graphic_paths,
+                                                            &scan_state.graphic_extensions,
                                                         );
                                                         self.emit_render_event(
                                                             RenderEvent::Caption(CaptionEvent {
@@ -5793,6 +5820,7 @@ impl<'i> Vm<'i> {
                         index,
                         source.len(),
                         &scan_state.graphic_paths,
+                        &scan_state.graphic_extensions,
                     ) {
                         index = after;
                     }
@@ -6057,6 +6085,7 @@ impl<'i> Vm<'i> {
         argument_index: usize,
         limit: usize,
         graphic_paths: &[Utf8PathBuf],
+        graphic_extensions: &[String],
     ) -> Option<usize> {
         let mut argument_index = skip_ascii_whitespace(source, argument_index);
         if argument_index < limit && source[argument_index..].starts_with('*') {
@@ -6099,6 +6128,14 @@ impl<'i> Vm<'i> {
                 }
             }
 
+            let extensions = if graphic_extensions.is_empty() {
+                vec!["pdf", "png", "jpg", "jpeg", "eps", "svg"]
+            } else {
+                graphic_extensions
+                    .iter()
+                    .map(String::as_str)
+                    .collect::<Vec<_>>()
+            };
             'candidate: for candidate in candidates {
                 if let Some(path) = self.resolve_existing_project_path(&candidate) {
                     resolved_path = path.as_str().to_owned();
@@ -6107,7 +6144,7 @@ impl<'i> Vm<'i> {
                 if candidate.extension().is_some() {
                     continue;
                 }
-                for extension in ["pdf", "png", "jpg", "jpeg", "eps", "svg"] {
+                for extension in &extensions {
                     if let Some(path) =
                         self.resolve_existing_project_path(&candidate.with_extension(extension))
                     {
@@ -18473,6 +18510,25 @@ Fallback text.
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
+        vm.mount_file("figures/plot.png", "fake png");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.png"
+                    && graphic.options.as_deref() == Some("width=5cm")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_honors_declared_graphic_extension_order() {
+        let source = r"\DeclareGraphicsExtensions{.png,.pdf}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot}\caption{Plot caption.}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("figures/plot.pdf", "%PDF fake");
         vm.mount_file("figures/plot.png", "fake png");
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
