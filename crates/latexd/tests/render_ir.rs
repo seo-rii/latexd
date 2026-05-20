@@ -3062,6 +3062,53 @@ fn printbibliography_capture_creates_empty_bibliography_without_option_leakage()
 }
 
 #[test]
+fn printbibliography_reads_jobname_bbl_into_ir_and_display_list() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        PRINTBIBLIOGRAPHY_SOURCE,
+        &SemanticAux::default(),
+        &[("main.bbl", LEGACY_BIBLIOGRAPHY_BBL_SOURCE)],
+    );
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+
+    assert_eq!(bibliography.items.len(), 1);
+    assert_eq!(bibliography.items[0].key, "alpha");
+    assert_eq!(bibliography.items[0].content, "Author. Title [?].");
+
+    let extracted_text = capture.document_ir.extracted_text();
+    for expected in ["Before [?].", "Author. Title [?]."] {
+        assert!(extracted_text.contains(expected), "{extracted_text}");
+    }
+    for hidden in ["printbibliography", "heading", "none", "alpha", "beta"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    for expected in ["Before [?].", "Author. Title [?]."] {
+        assert!(display_list_text.contains(expected), "{display_list_text}");
+    }
+    for hidden in ["printbibliography", "heading", "none", "alpha", "beta"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn legacy_bibliography_capture_creates_empty_bibliography_without_database_leakage() {
     let capture = capture_internal_render_ir(
         "main.tex",

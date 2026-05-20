@@ -1102,6 +1102,42 @@ impl<'i> Vm<'i> {
         self.run(tokens)
     }
 
+    fn capture_jobname_bbl_render_events(
+        &mut self,
+        source_path: &Utf8Path,
+        include_depth: usize,
+        scan_state: &mut RenderEventScanState,
+    ) -> bool {
+        let bbl_candidate = self
+            .entry_source_path
+            .as_ref()
+            .map(|path| path.as_path())
+            .unwrap_or(source_path)
+            .with_extension("bbl");
+        let Some(path) = self.resolve_existing_project_path(&bbl_candidate) else {
+            return false;
+        };
+        if scan_state.active_input_paths.contains(&path) || include_depth >= 16 {
+            return false;
+        }
+        let bbl_source = self.mounted_files.get(&path).cloned().or_else(|| {
+            self.file_root
+                .as_ref()
+                .and_then(|root| fs::read_to_string(root.join(&path)).ok())
+        });
+        let Some(bbl_source) = bbl_source else {
+            return false;
+        };
+        self.capture_render_events_from_source(
+            &path,
+            &bbl_source,
+            true,
+            include_depth + 1,
+            scan_state,
+        );
+        true
+    }
+
     fn capture_render_events_from_source(
         &mut self,
         source_path: &Utf8Path,
@@ -2616,26 +2652,33 @@ impl<'i> Vm<'i> {
                         };
                         after_options = after_option;
                     }
-                    self.emit_render_event(
-                        RenderEvent::BeginBlock(BeginBlockEvent {
-                            block: BlockKind::Bibliography,
-                        }),
-                        SourceProvenance::file(
-                            source_path.to_owned(),
-                            command_start as u32,
-                            after_options as u32,
-                        ),
+                    let scanned_bbl = self.capture_jobname_bbl_render_events(
+                        source_path,
+                        include_depth,
+                        scan_state,
                     );
-                    self.emit_render_event(
-                        RenderEvent::EndBlock(BeginBlockEvent {
-                            block: BlockKind::Bibliography,
-                        }),
-                        SourceProvenance::file(
-                            source_path.to_owned(),
-                            command_start as u32,
-                            after_options as u32,
-                        ),
-                    );
+                    if !scanned_bbl {
+                        self.emit_render_event(
+                            RenderEvent::BeginBlock(BeginBlockEvent {
+                                block: BlockKind::Bibliography,
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                command_start as u32,
+                                after_options as u32,
+                            ),
+                        );
+                        self.emit_render_event(
+                            RenderEvent::EndBlock(BeginBlockEvent {
+                                block: BlockKind::Bibliography,
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                command_start as u32,
+                                after_options as u32,
+                            ),
+                        );
+                    }
                     index = after_options;
                 }
                 "bibliographystyle" if in_document => {
@@ -2651,34 +2694,11 @@ impl<'i> Vm<'i> {
                     if let Some((_, _, _, after_database)) =
                         read_braced_source_argument(source, database_index)
                     {
-                        let bbl_candidate = self
-                            .entry_source_path
-                            .as_ref()
-                            .map(|path| path.as_path())
-                            .unwrap_or(source_path)
-                            .with_extension("bbl");
-                        let resolved_bbl_path = self.resolve_existing_project_path(&bbl_candidate);
-                        let mut scanned_bbl = false;
-                        if let Some(path) = resolved_bbl_path
-                            && !scan_state.active_input_paths.contains(&path)
-                            && include_depth < 16
-                        {
-                            let bbl_source = self.mounted_files.get(&path).cloned().or_else(|| {
-                                self.file_root
-                                    .as_ref()
-                                    .and_then(|root| fs::read_to_string(root.join(&path)).ok())
-                            });
-                            if let Some(bbl_source) = bbl_source {
-                                self.capture_render_events_from_source(
-                                    &path,
-                                    &bbl_source,
-                                    true,
-                                    include_depth + 1,
-                                    scan_state,
-                                );
-                                scanned_bbl = true;
-                            }
-                        }
+                        let scanned_bbl = self.capture_jobname_bbl_render_events(
+                            source_path,
+                            include_depth,
+                            scan_state,
+                        );
                         if !scanned_bbl {
                             self.emit_render_event(
                                 RenderEvent::BeginBlock(BeginBlockEvent {
