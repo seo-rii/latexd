@@ -1252,6 +1252,34 @@ fn extensionless_graphic_assets_resolve_before_ir_and_display_list() {
 }
 
 #[test]
+fn graphicspath_assets_resolve_before_ir_and_display_list() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        GRAPHICSPATH_SOURCE,
+        &SemanticAux::default(),
+        &[("figures/plot.png", "fake png")],
+    );
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Graphic(graphic)
+                if graphic.path == "figures/plot.png"
+                    && graphic.caption.as_deref() == Some("Plot caption.")
+        )
+    }));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.png"
+        )
+    }));
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+    assert!(pdf_text.contains("[image: figures/plot.png]"));
+    assert!(!pdf_text.contains("[image: plot]"));
+}
+
+#[test]
 fn starred_graphic_capture_derives_display_list_image_without_visible_star() {
     let capture =
         capture_internal_render_ir("main.tex", STARRED_GRAPHIC_SOURCE, &SemanticAux::default());
@@ -8445,6 +8473,8 @@ const FANCYVRB_FALLBACK_SOURCE: &str = r"\begin{document}\begin{Verbatim}[fontsi
 const GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\end{figure}\end{document}";
 
 const EXTENSIONLESS_GRAPHIC_SOURCE: &str = r"\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot}\caption{Plot caption.}\end{figure}\end{document}";
+
+const GRAPHICSPATH_SOURCE: &str = r"\graphicspath{{figures/}{unused/}}\begin{document}\begin{figure}\includegraphics[width=5cm]{plot}\caption{Plot caption.}\end{figure}\end{document}";
 
 const STARRED_GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics*[width=3cm]{figures/starred.pdf}\caption{Starred plot.}\end{figure}\end{document}";
 

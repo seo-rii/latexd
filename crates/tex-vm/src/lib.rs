@@ -723,6 +723,7 @@ struct RenderEventScanState {
     no_hyper_depth: usize,
     active_input_paths: Vec<Utf8PathBuf>,
     include_only: Option<HashSet<Utf8PathBuf>>,
+    graphic_paths: Vec<Utf8PathBuf>,
     section_macros: HashMap<String, (usize, usize)>,
     readable_wrapper_macros: HashMap<String, (usize, usize, String)>,
     structured_environments: HashSet<String>,
@@ -1114,7 +1115,7 @@ impl<'i> Vm<'i> {
         let mut in_document = initial_in_document;
         scan_state.active_input_paths.push(source_path.to_owned());
         let capture_includegraphics_in_range =
-            |vm: &mut Self, range_start: usize, range_end: usize| {
+            |vm: &mut Self, range_start: usize, range_end: usize, graphic_paths: &[Utf8PathBuf]| {
                 let mut range_index = range_start;
                 while range_index < range_end {
                     let Some(relative_command) = source[range_index..range_end].find('\\') else {
@@ -1149,6 +1150,7 @@ impl<'i> Vm<'i> {
                             nested_command_start,
                             nested_command_index,
                             range_end,
+                            graphic_paths,
                         )
                     {
                         range_index = after_graphic;
@@ -1365,6 +1367,31 @@ impl<'i> Vm<'i> {
                             }
                         }
                         index = after_definition;
+                    }
+                }
+                "graphicspath" => {
+                    let argument_index = skip_ascii_whitespace(source, index);
+                    if let Some((paths, _, _, after)) =
+                        read_braced_source_argument(source, argument_index)
+                    {
+                        let mut path_index = 0usize;
+                        while path_index < paths.len() {
+                            path_index = skip_ascii_whitespace(paths, path_index);
+                            let Some((path, _, _, after_path)) =
+                                read_braced_source_argument(paths, path_index)
+                            else {
+                                path_index += 1;
+                                continue;
+                            };
+                            let normalized_path = normalize_latex_text(path);
+                            if let Ok(path) =
+                                normalize_relative_path(Utf8Path::new(normalized_path.trim()))
+                            {
+                                scan_state.graphic_paths.push(path);
+                            }
+                            path_index = after_path;
+                        }
+                        index = after;
                     }
                 }
                 "title" | "author" | "date" | "affil" => {
@@ -1820,6 +1847,7 @@ impl<'i> Vm<'i> {
                                                         body_command_start,
                                                         body_command_index,
                                                         body_end,
+                                                        &scan_state.graphic_paths,
                                                     )
                                                 {
                                                     body_index = after;
@@ -1886,6 +1914,7 @@ impl<'i> Vm<'i> {
                                                         self,
                                                         subfloat_body_start,
                                                         subfloat_body_end,
+                                                        &scan_state.graphic_paths,
                                                     );
                                                     if let Some((
                                                         caption_text,
@@ -1956,6 +1985,7 @@ impl<'i> Vm<'i> {
                                                             self,
                                                             subcaption_body_start,
                                                             subcaption_body_end,
+                                                            &scan_state.graphic_paths,
                                                         );
                                                         self.emit_render_event(
                                                             RenderEvent::Caption(CaptionEvent {
@@ -5762,6 +5792,7 @@ impl<'i> Vm<'i> {
                         command_start,
                         index,
                         source.len(),
+                        &scan_state.graphic_paths,
                     ) {
                         index = after;
                     }
@@ -6025,6 +6056,7 @@ impl<'i> Vm<'i> {
         command_start: usize,
         argument_index: usize,
         limit: usize,
+        graphic_paths: &[Utf8PathBuf],
     ) -> Option<usize> {
         let mut argument_index = skip_ascii_whitespace(source, argument_index);
         if argument_index < limit && source[argument_index..].starts_with('*') {
@@ -6048,13 +6080,24 @@ impl<'i> Vm<'i> {
         let normalized_path = normalize_latex_text(path);
         let mut resolved_path = normalized_path.clone();
         if let Ok(path) = normalize_relative_path(Utf8Path::new(normalized_path.trim())) {
+            let image_path = path;
             let mut candidates = Vec::new();
             if let Some(parent) = source_path.parent()
-                && !path.is_absolute()
+                && !image_path.is_absolute()
             {
-                candidates.push(parent.join(&path));
+                candidates.push(parent.join(&image_path));
             }
-            candidates.push(path);
+            candidates.push(image_path.clone());
+            if !image_path.is_absolute() {
+                for graphic_path in graphic_paths {
+                    if let Some(parent) = source_path.parent()
+                        && !graphic_path.is_absolute()
+                    {
+                        candidates.push(parent.join(graphic_path).join(&image_path));
+                    }
+                    candidates.push(graphic_path.join(&image_path));
+                }
+            }
 
             'candidate: for candidate in candidates {
                 if let Some(path) = self.resolve_existing_project_path(&candidate) {
@@ -18420,6 +18463,24 @@ Fallback text.
             &event.event,
             RenderEvent::GraphicRef(graphic)
                 if graphic.path == "figures/plot.pdf"
+                    && graphic.options.as_deref() == Some("width=5cm")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_resolves_graphicspath_assets() {
+        let source = r"\graphicspath{{figures/}{unused/}}\begin{document}\begin{figure}\includegraphics[width=5cm]{plot}\caption{Plot caption.}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("figures/plot.png", "fake png");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.png"
                     && graphic.options.as_deref() == Some("width=5cm")
         )));
     }

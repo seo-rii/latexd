@@ -78,6 +78,8 @@ The next implementation step has started with a narrow display-list spike:
   existing mounted/file-root candidates such as `.pdf`, `.png`, `.jpg`,
   `.jpeg`, `.eps`, and `.svg` before entering `GraphicRef` events, so IR and
   display-list image operations carry the concrete asset path when available;
+- `\graphicspath{{...}}` declarations now contribute search directories for
+  later `\includegraphics` asset resolution without emitting visible text;
 - VM render-event capture now emits `GraphicRef`/`Caption` events for
   `\includegraphics`/`\includegraphics*`, `\caption`, and `\caption*`,
   including inside `figure`/`figure*`, `sidewaysfigure`/`sidewaysfigure*`,
