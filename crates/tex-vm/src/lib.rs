@@ -958,6 +958,7 @@ impl<'i> Vm<'i> {
             "flushleft",
             "flushright",
             "samepage",
+            "titlepage",
             "acknowledgements",
             "acknowledgments",
             "acknowledgement",
@@ -19829,6 +19830,38 @@ Fallback text.
             &event.event,
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("samepage")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_titlepage_without_fallback() {
+        let source =
+            r"\begin{document}\begin{titlepage}Title \cite{key} text.\end{titlepage}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::Environment { name },
+                }) if name == "titlepage"
+            )
+        }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::InlineCitation(citation)
+                    if citation.keys == vec!["key".to_string()]
+            )
+        }));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("titlepage")
         )));
     }
 

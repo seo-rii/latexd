@@ -319,6 +319,8 @@ The next implementation step has started with a narrow display-list spike:
   `Large` now act as structured wrappers so style hints do not hide body text;
 - `samepage` now acts as a structured wrapper so page-break hints do not hide
   body text behind RawFallback;
+- `titlepage` now acts as a structured wrapper so title-page content is
+  preserved until dedicated title-page layout exists;
 - `spacing`, `onehalfspace`, `doublespace`, and `singlespace` now act as
   structured wrappers while consuming line-spacing arguments so they do not
   appear as visible text;

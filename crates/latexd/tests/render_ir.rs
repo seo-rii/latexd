@@ -5487,6 +5487,57 @@ fn samepage_wrapper_capture_survives_ir_without_fallback() {
 }
 
 #[test]
+fn titlepage_wrapper_capture_survives_ir_without_fallback() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        TITLEPAGE_WRAPPER_SOURCE,
+        &SemanticAux::default(),
+    );
+    let environment = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Environment(environment) if environment.name == "titlepage" => {
+                Some(environment)
+            }
+            _ => None,
+        })
+        .expect("titlepage environment");
+    assert!(environment.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Citation(citation)
+                if citation.keys == vec!["key".to_string()] && citation.display_text == "[?]"
+        )
+    }));
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback) if fallback.environment.as_deref() == Some("titlepage")
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Title [?] text."));
+    assert!(!extracted_text.contains("{key}"));
+    assert!(!extracted_text.contains("titlepage"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Title [?] text."));
+    assert!(!display_list_text.contains("{key}"));
+    assert!(!display_list_text.contains("titlepage"));
+}
+
+#[test]
 fn spacing_wrappers_capture_hides_layout_arguments() {
     let capture =
         capture_internal_render_ir("main.tex", SPACING_WRAPPER_SOURCE, &SemanticAux::default());
@@ -6684,6 +6735,9 @@ const FLUSH_ALIGNMENT_SOURCE: &str = r"\begin{document}\begin{flushleft}Left \ci
 
 const SAMEPAGE_WRAPPER_SOURCE: &str =
     r"\begin{document}\begin{samepage}Together \cite{key} text.\end{samepage}\end{document}";
+
+const TITLEPAGE_WRAPPER_SOURCE: &str =
+    r"\begin{document}\begin{titlepage}Title \cite{key} text.\end{titlepage}\end{document}";
 
 const SPACING_WRAPPER_SOURCE: &str = r"\begin{document}\begin{spacing}{1.5}Spaced \cite{key} text.\end{spacing}\begin{onehalfspace}Half text.\end{onehalfspace}\begin{doublespace}Double text.\end{doublespace}\begin{singlespace}Single text.\end{singlespace}\end{document}";
 
