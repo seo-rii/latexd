@@ -231,7 +231,8 @@ The next implementation step has started with a narrow display-list spike:
   enter the RenderEvent/IR path as document fragments, so arXiv-style split
   body files can contribute headings, paragraphs, citations, and references
   instead of leaking only the input filename. Scanner state for declared
-  section/wrapper/environment rules is shared with included files, and active
+  section/wrapper/environment rules is shared with included files, including
+  preamble macro files that are loaded before `\begin{document}`, and active
   input stacks now skip cyclic `\input`/`\include` recursion with a diagnostic
   instead of repeatedly rendering the same file;
 - `\href` and `\url` now survive as inline link events, `Link` IR nodes, text

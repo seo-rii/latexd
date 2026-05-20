@@ -2620,7 +2620,7 @@ impl<'i> Vm<'i> {
                         index = after_key;
                     }
                 }
-                "input" | "include" if in_document => {
+                "input" | "include" => {
                     let path_index = skip_ascii_whitespace(source, index);
                     let path_argument = if let Some((path_text, _, _, after_path)) =
                         read_braced_source_argument(source, path_index)
@@ -2685,7 +2685,7 @@ impl<'i> Vm<'i> {
                                     self.capture_render_events_from_source(
                                         &path,
                                         &included_source,
-                                        true,
+                                        in_document,
                                         include_depth + 1,
                                         scan_state,
                                     );
@@ -20635,6 +20635,51 @@ Fallback text.
             .join("");
         assert!(visible_text.contains("TODO: check [?]"), "{visible_text}");
         for hidden in ["mysection", "reviewnote", "color", "red", "key"] {
+            assert!(
+                !visible_text.contains(hidden),
+                "{hidden} leaked in {visible_text}"
+            );
+        }
+    }
+
+    #[test]
+    fn render_event_capture_uses_macros_declared_in_preamble_input_files() {
+        let source = r"\input{macros}\begin{document}\mysection{From Preamble}\reviewnote{check \cite{key}}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file(
+            "macros.tex",
+            r"\newcommand{\mysection}[1]{\section{#1}}\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}",
+        );
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Heading(heading) if heading.text == "From Preamble"
+        )));
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("TODO: check [?]"), "{visible_text}");
+        for hidden in [
+            "input",
+            "macros",
+            "mysection",
+            "reviewnote",
+            "color",
+            "red",
+            "key",
+        ] {
             assert!(
                 !visible_text.contains(hidden),
                 "{hidden} leaked in {visible_text}"

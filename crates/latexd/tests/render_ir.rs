@@ -4499,6 +4499,79 @@ fn input_files_reuse_declared_section_and_wrapper_state() {
 }
 
 #[test]
+fn preamble_input_macros_are_reused_in_document_ir_and_display_list() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        PREAMBLE_INPUT_MACRO_MAIN_SOURCE,
+        &SemanticAux::default(),
+        &[("macros.tex", PREAMBLE_INPUT_MACRO_SOURCE)],
+    );
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Heading(heading)
+                if matches!(
+                    heading.content.first(),
+                    Some(InlineNode::Text { text, .. }) if text == "From Preamble"
+                )
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    for expected in ["From Preamble", "TODO: check [?]"] {
+        assert!(
+            extracted_text.contains(expected),
+            "{expected} missing in {extracted_text}"
+        );
+    }
+    for hidden in [
+        "input",
+        "macros",
+        "mysection",
+        "reviewnote",
+        "color",
+        "red",
+        "key",
+    ] {
+        assert!(
+            !extracted_text.contains(hidden),
+            "{hidden} leaked in {extracted_text}"
+        );
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    for expected in ["From Preamble", "TODO: check [?]"] {
+        assert!(
+            display_list_text.contains(expected),
+            "{expected} missing in {display_list_text}"
+        );
+    }
+    for hidden in [
+        "input",
+        "macros",
+        "mysection",
+        "reviewnote",
+        "color",
+        "red",
+        "key",
+    ] {
+        assert!(
+            !display_list_text.contains(hidden),
+            "{hidden} leaked in {display_list_text}"
+        );
+    }
+}
+
+#[test]
 fn cyclic_input_files_are_skipped_once_in_ir_and_display_list() {
     let capture = capture_internal_render_ir_with_mounted_files(
         "main.tex",
@@ -8013,6 +8086,11 @@ const UNBRACED_INCLUDE_CHILD_SOURCE: &str = "Second body.";
 const INPUT_SHARED_STATE_MAIN_SOURCE: &str = r"\newcommand{\mysection}[1]{\section{#1}}\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}\begin{document}\input{child}\end{document}";
 
 const INPUT_SHARED_STATE_CHILD_SOURCE: &str = r"\mysection{Included}\reviewnote{check \cite{key}}";
+
+const PREAMBLE_INPUT_MACRO_MAIN_SOURCE: &str = r"\input{macros}\begin{document}\mysection{From Preamble}\reviewnote{check \cite{key}}\end{document}";
+
+const PREAMBLE_INPUT_MACRO_SOURCE: &str =
+    r"\newcommand{\mysection}[1]{\section{#1}}\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}";
 
 const CYCLIC_INPUT_MAIN_SOURCE: &str =
     r"\begin{document}Root start. \input{child} Root end.\end{document}";
