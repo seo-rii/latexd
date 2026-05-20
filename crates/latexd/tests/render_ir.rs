@@ -48,6 +48,8 @@ fn compact_render_ir_capture_matches_goldens() {
     let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
     assert!(pdf_text.starts_with("%PDF-1.4"));
     assert!(pdf_text.contains("(A Paper) Tj"));
+    assert!(pdf_text.contains("([?]) Tj"));
+    assert!(!pdf_text.contains("key"));
 }
 
 #[test]
@@ -8521,9 +8523,13 @@ fn aux_resolved_references_and_citations_survive_ir_and_display_list() {
                             if &AUX_RESOLUTION_SOURCE
                                 [span.start_utf8 as usize..span.end_utf8 as usize]
                                 == "key"
-                    )
+                )
         )
     }));
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+    assert!(pdf_text.contains("([7]) Tj"));
+    assert!(!pdf_text.contains("key"));
+    assert!(!pdf_text.contains("sec:intro"));
 }
 
 #[test]
