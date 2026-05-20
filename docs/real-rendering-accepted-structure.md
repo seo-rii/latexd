@@ -90,6 +90,9 @@ The next implementation step has started with a narrow display-list spike:
 - graphic layout wrappers such as `\resizebox`, `\scalebox`, `\rotatebox`,
   and `\reflectbox` now suppress layout arguments while preserving nested
   graphics through the same `GraphicRef` capture path;
+- alignment/box wrappers such as `\adjustbox`, `\centerline`, `\makebox`,
+  `\framebox`, `\fbox`, and `\mbox` also suppress wrapper arguments while
+  preserving nested graphics;
 - VM render-event capture now emits `GraphicRef`/`Caption` events for
   `\includegraphics`/`\includegraphics*`, `\caption`, and `\caption*`,
   including inside `figure`/`figure*`, `sidewaysfigure`/`sidewaysfigure*`,

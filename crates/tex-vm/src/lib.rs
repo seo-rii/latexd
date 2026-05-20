@@ -1862,7 +1862,8 @@ impl<'i> Vm<'i> {
                                                 }
                                             }
                                             "resizebox" | "scalebox" | "rotatebox"
-                                            | "reflectbox" => {
+                                            | "reflectbox" | "adjustbox" | "centerline"
+                                            | "makebox" | "framebox" | "fbox" | "mbox" => {
                                                 if let Some(after) = self
                                                     .capture_graphic_box_wrapper_events(
                                                         source_path,
@@ -5852,7 +5853,10 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
-                "resizebox" | "scalebox" | "rotatebox" | "reflectbox" if in_document => {
+                "resizebox" | "scalebox" | "rotatebox" | "reflectbox" | "adjustbox"
+                | "centerline" | "makebox" | "framebox" | "fbox" | "mbox"
+                    if in_document =>
+                {
                     if let Some(after) = self.capture_graphic_box_wrapper_events(
                         source_path,
                         source,
@@ -6180,7 +6184,8 @@ impl<'i> Vm<'i> {
                     graphic_paths,
                     graphic_extensions,
                 ),
-                "resizebox" | "scalebox" | "rotatebox" | "reflectbox" => self
+                "resizebox" | "scalebox" | "rotatebox" | "reflectbox" | "adjustbox"
+                | "centerline" | "makebox" | "framebox" | "fbox" | "mbox" => self
                     .capture_graphic_box_wrapper_events(
                         source_path,
                         source,
@@ -6302,6 +6307,73 @@ impl<'i> Vm<'i> {
             "reflectbox" => {
                 let (_, body_start, body_end, after_body) =
                     read_braced_source_argument(source, argument_index)?;
+                if after_body > limit {
+                    return None;
+                }
+                self.capture_graphics_in_source_range(
+                    source_path,
+                    source,
+                    body_start,
+                    body_end,
+                    graphic_paths,
+                    graphic_extensions,
+                );
+                Some(after_body)
+            }
+            "adjustbox" => {
+                let (_, _, _, after_options) = read_braced_source_argument(source, argument_index)?;
+                if after_options > limit {
+                    return None;
+                }
+                let body_index = skip_ascii_whitespace(source, after_options);
+                let (_, body_start, body_end, after_body) =
+                    read_braced_source_argument(source, body_index)?;
+                if after_body > limit {
+                    return None;
+                }
+                self.capture_graphics_in_source_range(
+                    source_path,
+                    source,
+                    body_start,
+                    body_end,
+                    graphic_paths,
+                    graphic_extensions,
+                );
+                Some(after_body)
+            }
+            "centerline" | "fbox" | "mbox" => {
+                let (_, body_start, body_end, after_body) =
+                    read_braced_source_argument(source, argument_index)?;
+                if after_body > limit {
+                    return None;
+                }
+                self.capture_graphics_in_source_range(
+                    source_path,
+                    source,
+                    body_start,
+                    body_end,
+                    graphic_paths,
+                    graphic_extensions,
+                );
+                Some(after_body)
+            }
+            "makebox" | "framebox" => {
+                let mut body_index = argument_index;
+                for _ in 0..2 {
+                    body_index = skip_ascii_whitespace(source, body_index);
+                    let Some((_, _, _, after_option)) =
+                        read_bracket_source_argument(source, body_index)
+                    else {
+                        break;
+                    };
+                    if after_option > limit {
+                        return None;
+                    }
+                    body_index = after_option;
+                }
+                body_index = skip_ascii_whitespace(source, body_index);
+                let (_, body_start, body_end, after_body) =
+                    read_braced_source_argument(source, body_index)?;
                 if after_body > limit {
                     return None;
                 }
@@ -18950,6 +19022,33 @@ Fallback text.
             &event.event,
             RenderEvent::Text(text)
                 if ["0.8", "0.4", "0.5", "origin", "90", "textwidth", "textheight"]
+                    .iter()
+                    .any(|hidden| text.text.contains(hidden))
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_graphics_inside_alignment_box_wrappers() {
+        let source = r"\begin{document}\adjustbox{width=\textwidth,center}{\includegraphics{figures/plot}}\centerline{\includegraphics{figures/other}}\makebox[\textwidth][c]{\epsfbox{figures/third}}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("figures/plot.pdf", "%PDF fake");
+        vm.mount_file("figures/other.pdf", "%PDF fake");
+        vm.mount_file("figures/third.eps", "fake eps");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for path in ["figures/plot.pdf", "figures/other.pdf", "figures/third.eps"] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::GraphicRef(graphic) if graphic.path == path
+            )));
+        }
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if ["textwidth", "center", "adjustbox", "centerline", "makebox"]
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));

@@ -1421,6 +1421,50 @@ fn graphic_layout_box_wrappers_preserve_images_without_argument_leakage() {
 }
 
 #[test]
+fn graphic_alignment_box_wrappers_preserve_images_without_argument_leakage() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        GRAPHIC_ALIGNMENT_BOX_WRAPPER_SOURCE,
+        &SemanticAux::default(),
+        &[
+            ("figures/plot.pdf", "%PDF fake"),
+            ("figures/other.pdf", "%PDF fake"),
+            ("figures/third.eps", "fake eps"),
+        ],
+    );
+
+    for path in ["figures/plot.pdf", "figures/other.pdf", "figures/third.eps"] {
+        assert!(capture.document_ir.blocks.iter().any(|block| {
+            matches!(
+                block,
+                IrBlock::Graphic(graphic) if graphic.path == path
+            )
+        }));
+        assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+            matches!(
+                op,
+                DrawOp::Image(image) if image.asset_ref == path
+            )
+        }));
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    for hidden in ["textwidth", "center", "adjustbox", "centerline", "makebox"] {
+        assert!(!extracted_text.contains(hidden));
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn starred_graphic_capture_derives_display_list_image_without_visible_star() {
     let capture =
         capture_internal_render_ir("main.tex", STARRED_GRAPHIC_SOURCE, &SemanticAux::default());
@@ -8624,6 +8668,8 @@ const LEGACY_EPSFIG_SOURCE: &str = r"\begin{document}\begin{figure}\epsfig{file=
 const LEGACY_EPSF_FILE_SOURCE: &str = r"\begin{document}\begin{figure}\epsfbox{figures/plot}\caption{Plot caption.}\end{figure}\end{document}";
 
 const GRAPHIC_LAYOUT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\resizebox{0.8\textwidth}{0.4\textheight}{\includegraphics[width=5cm]{figures/plot}}\scalebox{0.5}{\epsfbox{figures/other}}\rotatebox[origin=c]{90}{\psfig{figure=figures/third.eps,width=2cm}}\end{document}";
+
+const GRAPHIC_ALIGNMENT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\adjustbox{width=\textwidth,center}{\includegraphics{figures/plot}}\centerline{\includegraphics{figures/other}}\makebox[\textwidth][c]{\epsfbox{figures/third}}\end{document}";
 
 const STARRED_GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics*[width=3cm]{figures/starred.pdf}\caption{Starred plot.}\end{figure}\end{document}";
 
