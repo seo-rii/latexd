@@ -2656,27 +2656,42 @@ impl<'i> Vm<'i> {
                                     package_path = Some(parent_path);
                                 }
                             }
-                            if let Some(path) = package_path
+                            let resolved_package_path = package_path
                                 .as_ref()
-                                .and_then(|path| self.resolve_existing_project_path(path))
-                                && !scan_state.active_input_paths.contains(&path)
-                                && include_depth < 16
-                            {
-                                let package_source =
-                                    self.mounted_files.get(&path).cloned().or_else(|| {
-                                        self.file_root.as_ref().and_then(|root| {
-                                            fs::read_to_string(root.join(&path)).ok()
-                                        })
-                                    });
-                                if let Some(package_source) = package_source {
-                                    self.capture_render_events_from_source(
-                                        &path,
-                                        &package_source,
-                                        false,
-                                        include_depth + 1,
-                                        scan_state,
-                                    );
+                                .and_then(|path| self.resolve_existing_project_path(path));
+                            if let Some(path) = resolved_package_path {
+                                if !scan_state.active_input_paths.contains(&path)
+                                    && include_depth < 16
+                                {
+                                    let package_source =
+                                        self.mounted_files.get(&path).cloned().or_else(|| {
+                                            self.file_root.as_ref().and_then(|root| {
+                                                fs::read_to_string(root.join(&path)).ok()
+                                            })
+                                        });
+                                    if let Some(package_source) = package_source {
+                                        self.capture_render_events_from_source(
+                                            &path,
+                                            &package_source,
+                                            false,
+                                            include_depth + 1,
+                                            scan_state,
+                                        );
+                                    }
                                 }
+                            } else if let Some(path) = package_path.as_ref()
+                                && builtin_latex_module_source("package", path).is_none()
+                            {
+                                self.emit_render_event(
+                                    RenderEvent::Diagnostic(RenderDiagnosticEvent {
+                                        message: format!("missing package {path}"),
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        command_start as u32,
+                                        after_packages as u32,
+                                    ),
+                                );
                             }
                         }
                         index = after_packages;
@@ -2712,27 +2727,41 @@ impl<'i> Vm<'i> {
                                 class_path = Some(parent_path);
                             }
                         }
-                        if let Some(path) = class_path
+                        let resolved_class_path = class_path
                             .as_ref()
-                            .and_then(|path| self.resolve_existing_project_path(path))
-                            && !scan_state.active_input_paths.contains(&path)
-                            && include_depth < 16
-                        {
-                            let class_source =
-                                self.mounted_files.get(&path).cloned().or_else(|| {
-                                    self.file_root
-                                        .as_ref()
-                                        .and_then(|root| fs::read_to_string(root.join(&path)).ok())
-                                });
-                            if let Some(class_source) = class_source {
-                                self.capture_render_events_from_source(
-                                    &path,
-                                    &class_source,
-                                    false,
-                                    include_depth + 1,
-                                    scan_state,
-                                );
+                            .and_then(|path| self.resolve_existing_project_path(path));
+                        if let Some(path) = resolved_class_path {
+                            if !scan_state.active_input_paths.contains(&path) && include_depth < 16
+                            {
+                                let class_source =
+                                    self.mounted_files.get(&path).cloned().or_else(|| {
+                                        self.file_root.as_ref().and_then(|root| {
+                                            fs::read_to_string(root.join(&path)).ok()
+                                        })
+                                    });
+                                if let Some(class_source) = class_source {
+                                    self.capture_render_events_from_source(
+                                        &path,
+                                        &class_source,
+                                        false,
+                                        include_depth + 1,
+                                        scan_state,
+                                    );
+                                }
                             }
+                        } else if let Some(path) = class_path.as_ref()
+                            && builtin_latex_module_source("class", path).is_none()
+                        {
+                            self.emit_render_event(
+                                RenderEvent::Diagnostic(RenderDiagnosticEvent {
+                                    message: format!("missing class {path}"),
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    command_start as u32,
+                                    after_class as u32,
+                                ),
+                            );
                         }
                         index = after_class;
                     }
@@ -20995,6 +21024,42 @@ Fallback text.
             .join("");
         assert!(visible_text.contains("TODO: class [?]"), "{visible_text}");
         for hidden in ["wrapper", "mysection", "reviewnote", "color", "red", "key"] {
+            assert!(
+                !visible_text.contains(hidden),
+                "{hidden} leaked in {visible_text}"
+            );
+        }
+    }
+
+    #[test]
+    fn render_event_capture_reports_missing_package_and_class_files() {
+        let source =
+            r"\documentclass{ghost}\usepackage{missing}\begin{document}Visible.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for missing in ["missing class ghost.cls", "missing package missing.sty"] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Diagnostic(diagnostic) if diagnostic.message.contains(missing)
+            )));
+        }
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("Visible."), "{visible_text}");
+        for hidden in ["documentclass", "usepackage", "ghost", "missing"] {
             assert!(
                 !visible_text.contains(hidden),
                 "{hidden} leaked in {visible_text}"

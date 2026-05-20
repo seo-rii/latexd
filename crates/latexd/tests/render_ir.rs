@@ -4686,6 +4686,51 @@ fn class_file_macros_are_reused_in_document_ir_and_display_list() {
 }
 
 #[test]
+fn missing_package_and_class_files_emit_render_diagnostics_without_visible_leakage() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        MISSING_PACKAGE_CLASS_MAIN_SOURCE,
+        &SemanticAux::default(),
+    );
+
+    for missing in ["missing class ghost.cls", "missing package missing.sty"] {
+        assert!(capture.events.events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Diagnostic(diagnostic) if diagnostic.message.contains(missing)
+        )));
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Visible."), "{extracted_text}");
+    for hidden in ["documentclass", "usepackage", "ghost", "missing"] {
+        assert!(
+            !extracted_text.contains(hidden),
+            "{hidden} leaked in {extracted_text}"
+        );
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("Visible."),
+        "{display_list_text}"
+    );
+    for hidden in ["documentclass", "usepackage", "ghost", "missing"] {
+        assert!(
+            !display_list_text.contains(hidden),
+            "{hidden} leaked in {display_list_text}"
+        );
+    }
+}
+
+#[test]
 fn conditional_file_inputs_survive_ir_and_display_list() {
     let capture = capture_internal_render_ir_with_mounted_files(
         "main.tex",
@@ -8419,6 +8464,9 @@ const PACKAGE_MACRO_SOURCE: &str = r"\ProvidesPackage{macros}\newcommand{\mysect
 const CLASS_MACRO_MAIN_SOURCE: &str = r"\documentclass{wrapper}\begin{document}\mysection{From Class}\reviewnote{class \cite{key}}\end{document}";
 
 const CLASS_MACRO_SOURCE: &str = r"\ProvidesClass{wrapper}\newcommand{\mysection}[1]{\section{#1}}\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}";
+
+const MISSING_PACKAGE_CLASS_MAIN_SOURCE: &str =
+    r"\documentclass{ghost}\usepackage{missing}\begin{document}Visible.\end{document}";
 
 const CONDITIONAL_FILE_INPUT_MAIN_SOURCE: &str = r"\input{sections/setup}\begin{document}\mysection{From Config}\IfFileExists{sections/config.cfg}{\reviewnote{found \cite{key}}}{missing}\InputIfFileExists{body.tex}{ after}{missing}\IfFileExists{ghost.cfg}{ghost}{fallback}\end{document}";
 
