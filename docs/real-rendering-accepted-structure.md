@@ -355,6 +355,9 @@ The next implementation step has started with a narrow display-list spike:
   `paracol.sty` resolves through the builtin package shim surface;
 - `threeparttable`, `measuredfigure`, and `tablenotes` now act as structured
   wrappers, with `tablenotes` options consumed before table-note body capture;
+- `subfigure`/`subfigure*` and `subtable`/`subtable*` now act as structured
+  wrappers while consuming minipage-like position/size arguments before body
+  capture;
 - `algorithm`, `algorithm*`, `algorithmic`, and `algorithmic*` now use the
   same structured environment path, preserving captions, labels, and body text
   without emitting RawFallback;

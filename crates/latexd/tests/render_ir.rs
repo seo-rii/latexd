@@ -6405,6 +6405,64 @@ fn threeparttable_capture_preserves_caption_and_notes_without_option_leakage() {
 }
 
 #[test]
+fn subcaption_wrappers_capture_hides_layout_arguments() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        SUBCAPTION_WRAPPER_SOURCE,
+        &SemanticAux::default(),
+    );
+    let environment_names = capture
+        .document_ir
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            IrBlock::Environment(environment) => Some(environment.name.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(environment_names.contains(&"subfigure"));
+    assert!(environment_names.contains(&"subtable"));
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if matches!(fallback.environment.as_deref(), Some("subfigure" | "subtable"))
+        )
+    }));
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Graphic(graphic)
+                if graphic.path == "figures/panel-a.pdf"
+                    && graphic.options.as_deref() == Some("width=4cm")
+                    && graphic.caption.as_deref() == Some("Panel [?].")
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Panel [?]."));
+    assert!(extracted_text.contains("Panel table."));
+    for hidden in ["0.45", "0.4", "textwidth", "{key}"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Panel [?]."));
+    assert!(display_list_text.contains("Panel table."));
+    for hidden in ["0.45", "0.4", "textwidth", "{key}"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn algorithm_environment_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -7306,6 +7364,8 @@ const MULTICOLS_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{multicols}{2
 const PARACOL_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{paracol}{2}Column \cite{key} text.\end{paracol}\begin{paracol*}{3}Wide text.\end{paracol*}\end{document}";
 
 const THREEPARTTABLE_SOURCE: &str = r"\begin{document}\begin{threeparttable}\caption{Measured table.}\begin{tabular}{ll}A & B \\\end{tabular}\begin{tablenotes}[flushleft]\item Note \cite{key}.\end{tablenotes}\end{threeparttable}\end{document}";
+
+const SUBCAPTION_WRAPPER_SOURCE: &str = r"\begin{document}\begin{subfigure}[b]{0.45\textwidth}\includegraphics[width=4cm]{figures/panel-a.pdf}\caption{Panel \cite{key}.}\end{subfigure}\begin{subtable}{0.4\textwidth}\caption{Panel table.}\end{subtable}\end{document}";
 
 const ALGORITHM_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{algorithm}\caption{Procedure.}\label{alg:first}Step text.\end{algorithm}\begin{algorithm*}Wide step.\end{algorithm*}\end{document}";
 
