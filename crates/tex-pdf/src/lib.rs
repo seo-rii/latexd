@@ -381,6 +381,25 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                         ));
                     }
                 }
+                if let Some(clusters) = &run.clusters {
+                    let encoded_clusters = clusters
+                        .iter()
+                        .map(|cluster| {
+                            format!(
+                                "{}:{}:{}:{}",
+                                cluster.text_start_utf8,
+                                cluster.text_end_utf8,
+                                cluster.glyph_start,
+                                cluster.glyph_end
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(";");
+                    source_attrs.push_str(&format!(
+                        " data-text-clusters=\"{}\"",
+                        escape_xml_text(&encoded_clusters)
+                    ));
+                }
                 if !run.source.related.is_empty() {
                     let role_name = |role| match role {
                         tex_render_model::SourceSpanRole::Invocation => "invocation",
@@ -631,7 +650,7 @@ mod tests {
     use tex_render_model::{
         Destination, DrawOp, ExpansionFrame, FontFamilyRequest, FontRequest, FontRole, FontSeries,
         FontShape, LinkAnnotation, PageDisplayList, Point, PositionedImage, PositionedTextRun,
-        ProvenanceSpan, Rect, SourceProvenance, SourceSpan, SourceSpanRole,
+        ProvenanceSpan, Rect, SourceProvenance, SourceSpan, SourceSpanRole, TextCluster,
     };
 
     use super::{
@@ -854,6 +873,41 @@ mod tests {
 
         assert!(text.contains("/F10 9 Tf 1 0 0 1 72 720 Tm (Code) Tj"));
         assert!(text.contains("/BaseFont /Courier-Bold"));
+    }
+
+    #[test]
+    fn display_list_svg_exposes_text_clusters() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::TextRun(PositionedTextRun {
+                origin: Point { x: 72.0, y: 72.0 },
+                text: "aé".to_string(),
+                font: FontRequest {
+                    family: FontFamilyRequest::Serif,
+                    series: FontSeries::Regular,
+                    shape: FontShape::Upright,
+                    size_pt: 11.0,
+                    role: FontRole::Body,
+                },
+                size_pt: 11.0,
+                approximate_advance_pt: 11.0,
+                glyphs: None,
+                clusters: Some(vec![TextCluster {
+                    text_start_utf8: 0,
+                    text_end_utf8: 3,
+                    glyph_start: 0,
+                    glyph_end: 2,
+                }]),
+                source: SourceProvenance::file("main.tex", 0, 3),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let svg = render_display_list_svg(&page);
+
+        assert!(svg.contains("data-text-clusters=\"0:3:0:2\""));
     }
 
     #[test]

@@ -8706,6 +8706,7 @@ fn compact_render_ir_capture_writes_debug_artifacts() {
     assert!(display_list_svg.contains("data-source-related-roles=\""));
     assert!(display_list_svg.contains("data-source-related-spans=\""));
     assert!(display_list_svg.contains("emit_site"));
+    assert!(display_list_svg.contains("data-text-clusters=\""));
     assert!(
         fs::read(paths.display_list_pdf)
             .expect("display list pdf")

@@ -520,6 +520,8 @@ The next implementation step has started with a narrow display-list spike:
 - `PageDisplayList` text runs now carry approximate whole-run `TextCluster`
   entries, giving later text extraction and source-sync work a concrete metadata
   surface before real shaping lands;
+- display-list SVG debug output exposes those clusters as `data-text-clusters`
+  attributes, so debug artifacts carry the same text-index metadata as JSON;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:
