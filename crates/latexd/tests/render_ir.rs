@@ -2777,6 +2777,53 @@ fn legacy_bibliography_capture_creates_empty_bibliography_without_database_leaka
 }
 
 #[test]
+fn legacy_bibliography_reads_jobname_bbl_into_ir_and_display_list() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        LEGACY_BIBLIOGRAPHY_WITH_BBL_SOURCE,
+        &SemanticAux::default(),
+        &[("main.bbl", LEGACY_BIBLIOGRAPHY_BBL_SOURCE)],
+    );
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+
+    assert_eq!(bibliography.items.len(), 1);
+    assert_eq!(bibliography.items[0].key, "alpha");
+    assert_eq!(bibliography.items[0].content, "Author. Title [?].");
+
+    let extracted_text = capture.document_ir.extracted_text();
+    for expected in ["Before [?].", "After.", "Author. Title [?]."] {
+        assert!(extracted_text.contains(expected), "{extracted_text}");
+    }
+    for hidden in ["bibliography", "refs", "alpha", "beta"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    for expected in ["Before [?].", "After.", "Author. Title [?]."] {
+        assert!(display_list_text.contains(expected), "{display_list_text}");
+    }
+    for hidden in ["bibliography", "refs", "alpha", "beta"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn nocite_capture_does_not_leak_hidden_keys_into_ir_or_display_list() {
     let capture = capture_internal_render_ir("main.tex", NOCITE_SOURCE, &SemanticAux::default());
     let paragraph = capture
@@ -8380,6 +8427,11 @@ const PRINTBIBLIOGRAPHY_SOURCE: &str =
     r"\begin{document}Before \textcite{alpha}.\printbibliography[heading=none]\end{document}";
 
 const LEGACY_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}Before \cite{alpha}.\bibliographystyle{plain}\bibliography{refs}\end{document}";
+
+const LEGACY_BIBLIOGRAPHY_WITH_BBL_SOURCE: &str =
+    r"\begin{document}Before \cite{alpha}. \bibliography{refs} After.\end{document}";
+
+const LEGACY_BIBLIOGRAPHY_BBL_SOURCE: &str = r"\begin{thebibliography}{1}\bibitem{alpha}Author. \newblock Title \cite{beta}.\end{thebibliography}";
 
 const NOCITE_SOURCE: &str =
     r"\begin{document}Before \nocite{hidden,other}\nocite{*}\cite{visible}.\end{document}";

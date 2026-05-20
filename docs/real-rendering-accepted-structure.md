@@ -249,6 +249,10 @@ The next implementation step has started with a narrow display-list spike:
 - `\href{target}{visible}` visible text now uses inline citation/reference
   placeholder redaction, keeping the link target annotation while hiding raw
   citation and label keys from extracted/display-list text;
+- legacy `\bibliography{...}` now scans a local `jobname.bbl` when it is
+  available, so BibTeX-style arXiv drops can produce structured
+  `BibliographyItem` events/IR/display-list text instead of an empty
+  bibliography block;
 - structured text normalization for captions, headings, metadata, bibliography,
   and fallback text now treats nested `\href{target}{visible}` as visible text
   only, preventing hidden targets from being concatenated into rendered text;
