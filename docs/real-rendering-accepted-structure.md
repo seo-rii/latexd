@@ -87,6 +87,9 @@ The next implementation step has started with a narrow display-list spike:
   `\includegraphics`, avoiding key-value argument leakage into body text;
 - legacy `\epsfbox{...}` and `\epsffile{...}` file-argument commands now emit
   `GraphicRef` events through the same resolved asset path;
+- graphic layout wrappers such as `\resizebox`, `\scalebox`, `\rotatebox`,
+  and `\reflectbox` now suppress layout arguments while preserving nested
+  graphics through the same `GraphicRef` capture path;
 - VM render-event capture now emits `GraphicRef`/`Caption` events for
   `\includegraphics`/`\includegraphics*`, `\caption`, and `\caption*`,
   including inside `figure`/`figure*`, `sidewaysfigure`/`sidewaysfigure*`,

@@ -1115,56 +1115,6 @@ impl<'i> Vm<'i> {
         let mut text_start = 0usize;
         let mut in_document = initial_in_document;
         scan_state.active_input_paths.push(source_path.to_owned());
-        let capture_includegraphics_in_range =
-            |vm: &mut Self,
-             range_start: usize,
-             range_end: usize,
-             graphic_paths: &[Utf8PathBuf],
-             graphic_extensions: &[String]| {
-                let mut range_index = range_start;
-                while range_index < range_end {
-                    let Some(relative_command) = source[range_index..range_end].find('\\') else {
-                        break;
-                    };
-                    let nested_command_start = range_index + relative_command;
-                    let mut nested_command_index = nested_command_start + 1;
-                    if nested_command_index >= range_end {
-                        break;
-                    }
-                    let nested_command = if source.as_bytes()[nested_command_index]
-                        .is_ascii_alphabetic()
-                        || source.as_bytes()[nested_command_index] == b'@'
-                    {
-                        let start = nested_command_index;
-                        while nested_command_index < range_end
-                            && (source.as_bytes()[nested_command_index].is_ascii_alphabetic()
-                                || source.as_bytes()[nested_command_index] == b'@')
-                        {
-                            nested_command_index += 1;
-                        }
-                        &source[start..nested_command_index]
-                    } else {
-                        let start = nested_command_index;
-                        nested_command_index += 1;
-                        &source[start..nested_command_index]
-                    };
-                    if nested_command == "includegraphics"
-                        && let Some(after_graphic) = vm.capture_includegraphics_event(
-                            source_path,
-                            source,
-                            nested_command_start,
-                            nested_command_index,
-                            range_end,
-                            graphic_paths,
-                            graphic_extensions,
-                        )
-                    {
-                        range_index = after_graphic;
-                        continue;
-                    }
-                    range_index = nested_command_index;
-                }
-            };
         while index < bytes.len() {
             if bytes[index] != b'\\' {
                 if in_document && bytes[index] == b'$' {
@@ -1911,6 +1861,23 @@ impl<'i> Vm<'i> {
                                                     continue;
                                                 }
                                             }
+                                            "resizebox" | "scalebox" | "rotatebox"
+                                            | "reflectbox" => {
+                                                if let Some(after) = self
+                                                    .capture_graphic_box_wrapper_events(
+                                                        source_path,
+                                                        source,
+                                                        body_command,
+                                                        body_command_index,
+                                                        body_end,
+                                                        &scan_state.graphic_paths,
+                                                        &scan_state.graphic_extensions,
+                                                    )
+                                                {
+                                                    body_index = after;
+                                                    continue;
+                                                }
+                                            }
                                             "caption" => {
                                                 if let Some(after) = self.capture_caption_event(
                                                     source_path,
@@ -1967,8 +1934,9 @@ impl<'i> Vm<'i> {
                                                     argument_index,
                                                 ) && after_subfloat <= body_end
                                                 {
-                                                    capture_includegraphics_in_range(
-                                                        self,
+                                                    self.capture_graphics_in_source_range(
+                                                        source_path,
+                                                        source,
                                                         subfloat_body_start,
                                                         subfloat_body_end,
                                                         &scan_state.graphic_paths,
@@ -2039,8 +2007,9 @@ impl<'i> Vm<'i> {
                                                         argument_index,
                                                     ) && after_subcaption <= body_end
                                                     {
-                                                        capture_includegraphics_in_range(
-                                                            self,
+                                                        self.capture_graphics_in_source_range(
+                                                            source_path,
+                                                            source,
                                                             subcaption_body_start,
                                                             subcaption_body_end,
                                                             &scan_state.graphic_paths,
@@ -5883,6 +5852,19 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
+                "resizebox" | "scalebox" | "rotatebox" | "reflectbox" if in_document => {
+                    if let Some(after) = self.capture_graphic_box_wrapper_events(
+                        source_path,
+                        source,
+                        command,
+                        index,
+                        source.len(),
+                        &scan_state.graphic_paths,
+                        &scan_state.graphic_extensions,
+                    ) {
+                        index = after;
+                    }
+                }
                 "caption" if in_document => {
                     if let Some(after) =
                         self.capture_caption_event(source_path, source, index, source.len())
@@ -6133,6 +6115,208 @@ impl<'i> Vm<'i> {
         }
         self.capture_text_events(source_path, source, text_start, source.len(), in_document);
         scan_state.active_input_paths.pop();
+    }
+
+    fn capture_graphics_in_source_range(
+        &mut self,
+        source_path: &Utf8Path,
+        source: &str,
+        range_start: usize,
+        range_end: usize,
+        graphic_paths: &[Utf8PathBuf],
+        graphic_extensions: &[String],
+    ) {
+        let mut range_index = range_start;
+        while range_index < range_end {
+            let Some(relative_command) = source[range_index..range_end].find('\\') else {
+                break;
+            };
+            let command_start = range_index + relative_command;
+            let mut command_index = command_start + 1;
+            if command_index >= range_end {
+                break;
+            }
+            let command = if source.as_bytes()[command_index].is_ascii_alphabetic()
+                || source.as_bytes()[command_index] == b'@'
+            {
+                let start = command_index;
+                while command_index < range_end
+                    && (source.as_bytes()[command_index].is_ascii_alphabetic()
+                        || source.as_bytes()[command_index] == b'@')
+                {
+                    command_index += 1;
+                }
+                &source[start..command_index]
+            } else {
+                let start = command_index;
+                command_index += 1;
+                &source[start..command_index]
+            };
+            let after = match command {
+                "includegraphics" => self.capture_includegraphics_event(
+                    source_path,
+                    source,
+                    command_start,
+                    command_index,
+                    range_end,
+                    graphic_paths,
+                    graphic_extensions,
+                ),
+                "epsfig" | "psfig" => self.capture_legacy_graphic_event(
+                    source_path,
+                    source,
+                    command_start,
+                    command_index,
+                    range_end,
+                    graphic_paths,
+                    graphic_extensions,
+                ),
+                "epsfbox" | "epsffile" => self.capture_legacy_graphic_file_event(
+                    source_path,
+                    source,
+                    command_start,
+                    command_index,
+                    range_end,
+                    graphic_paths,
+                    graphic_extensions,
+                ),
+                "resizebox" | "scalebox" | "rotatebox" | "reflectbox" => self
+                    .capture_graphic_box_wrapper_events(
+                        source_path,
+                        source,
+                        command,
+                        command_index,
+                        range_end,
+                        graphic_paths,
+                        graphic_extensions,
+                    ),
+                _ => None,
+            };
+            range_index = after.unwrap_or(command_index);
+        }
+    }
+
+    fn capture_graphic_box_wrapper_events(
+        &mut self,
+        source_path: &Utf8Path,
+        source: &str,
+        command: &str,
+        argument_index: usize,
+        limit: usize,
+        graphic_paths: &[Utf8PathBuf],
+        graphic_extensions: &[String],
+    ) -> Option<usize> {
+        let mut argument_index = skip_ascii_whitespace(source, argument_index);
+        if command == "resizebox"
+            && argument_index < limit
+            && source[argument_index..].starts_with('*')
+        {
+            argument_index += 1;
+            argument_index = skip_ascii_whitespace(source, argument_index);
+        }
+        match command {
+            "resizebox" => {
+                let (_, _, _, after_width) = read_braced_source_argument(source, argument_index)?;
+                if after_width > limit {
+                    return None;
+                }
+                let after_width = skip_ascii_whitespace(source, after_width);
+                let (_, _, _, after_height) = read_braced_source_argument(source, after_width)?;
+                if after_height > limit {
+                    return None;
+                }
+                let body_index = skip_ascii_whitespace(source, after_height);
+                let (_, body_start, body_end, after_body) =
+                    read_braced_source_argument(source, body_index)?;
+                if after_body > limit {
+                    return None;
+                }
+                self.capture_graphics_in_source_range(
+                    source_path,
+                    source,
+                    body_start,
+                    body_end,
+                    graphic_paths,
+                    graphic_extensions,
+                );
+                Some(after_body)
+            }
+            "scalebox" => {
+                let (_, _, _, after_scale) = read_braced_source_argument(source, argument_index)?;
+                if after_scale > limit {
+                    return None;
+                }
+                let mut body_index = skip_ascii_whitespace(source, after_scale);
+                if let Some((_, _, _, after_option)) =
+                    read_bracket_source_argument(source, body_index)
+                {
+                    if after_option > limit {
+                        return None;
+                    }
+                    body_index = skip_ascii_whitespace(source, after_option);
+                }
+                let (_, body_start, body_end, after_body) =
+                    read_braced_source_argument(source, body_index)?;
+                if after_body > limit {
+                    return None;
+                }
+                self.capture_graphics_in_source_range(
+                    source_path,
+                    source,
+                    body_start,
+                    body_end,
+                    graphic_paths,
+                    graphic_extensions,
+                );
+                Some(after_body)
+            }
+            "rotatebox" => {
+                if let Some((_, _, _, after_option)) =
+                    read_bracket_source_argument(source, argument_index)
+                {
+                    if after_option > limit {
+                        return None;
+                    }
+                    argument_index = skip_ascii_whitespace(source, after_option);
+                }
+                let (_, _, _, after_angle) = read_braced_source_argument(source, argument_index)?;
+                if after_angle > limit {
+                    return None;
+                }
+                let body_index = skip_ascii_whitespace(source, after_angle);
+                let (_, body_start, body_end, after_body) =
+                    read_braced_source_argument(source, body_index)?;
+                if after_body > limit {
+                    return None;
+                }
+                self.capture_graphics_in_source_range(
+                    source_path,
+                    source,
+                    body_start,
+                    body_end,
+                    graphic_paths,
+                    graphic_extensions,
+                );
+                Some(after_body)
+            }
+            "reflectbox" => {
+                let (_, body_start, body_end, after_body) =
+                    read_braced_source_argument(source, argument_index)?;
+                if after_body > limit {
+                    return None;
+                }
+                self.capture_graphics_in_source_range(
+                    source_path,
+                    source,
+                    body_start,
+                    body_end,
+                    graphic_paths,
+                    graphic_extensions,
+                );
+                Some(after_body)
+            }
+            _ => None,
+        }
     }
 
     fn capture_includegraphics_event(
@@ -18741,6 +18925,33 @@ Fallback text.
             &event.event,
             RenderEvent::GraphicRef(graphic)
                 if graphic.path == "figures/other.eps" && graphic.options.is_none()
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_graphics_inside_layout_box_wrappers() {
+        let source = r"\begin{document}\resizebox{0.8\textwidth}{0.4\textheight}{\includegraphics[width=5cm]{figures/plot}}\scalebox{0.5}{\epsfbox{figures/other}}\rotatebox[origin=c]{90}{\psfig{figure=figures/third.eps,width=2cm}}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("figures/plot.pdf", "%PDF fake");
+        vm.mount_file("figures/other.eps", "fake eps");
+        vm.mount_file("figures/third.eps", "fake eps");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for path in ["figures/plot.pdf", "figures/other.eps", "figures/third.eps"] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::GraphicRef(graphic) if graphic.path == path
+            )));
+        }
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if ["0.8", "0.4", "0.5", "origin", "90", "textwidth", "textheight"]
+                    .iter()
+                    .any(|hidden| text.text.contains(hidden))
         )));
     }
 
