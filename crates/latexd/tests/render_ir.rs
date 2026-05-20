@@ -369,6 +369,94 @@ fn compact_citation_provenance_preserves_invocation_and_key_spans() {
 }
 
 #[test]
+fn compact_heading_provenance_preserves_argument_and_invocation_spans() {
+    let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
+    let heading_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(&envelope.event, RenderEvent::Heading(heading) if heading.text == "Intro")
+        })
+        .expect("heading event");
+    let heading_block = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Heading(heading) if heading.level == 1 => Some(heading),
+            _ => None,
+        })
+        .expect("heading block");
+    let heading_text_source = heading_block
+        .content
+        .iter()
+        .find_map(|node| match node {
+            InlineNode::Text { text, source } if text == "Intro" => Some(source),
+            _ => None,
+        })
+        .expect("heading text source");
+    let heading_text_run = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "Intro" => Some(run),
+            _ => None,
+        })
+        .expect("heading text run");
+
+    for source in [
+        &heading_event.meta.source,
+        &heading_block.source,
+        heading_text_source,
+        &heading_text_run.source,
+    ] {
+        assert!(matches!(
+            &source.primary,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == "main.tex"
+                    && &COMPACT_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == "Intro"
+        ));
+        assert!(source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &COMPACT_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "\\section{Intro}"
+                )
+        }));
+    }
+
+    let provenance_snapshot = serde_json::json!({
+        "source": COMPACT_SOURCE,
+        "event": {
+            "event": heading_event.event,
+            "meta": heading_event.meta,
+        },
+        "ir": {
+            "level": heading_block.level,
+            "number": heading_block.number,
+            "source": heading_block.source,
+            "text_source": heading_text_source,
+        },
+        "display_list": {
+            "text": heading_text_run.text,
+            "source": heading_text_run.source,
+            "clusters": heading_text_run.clusters,
+        },
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/compact-heading.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn title_inline_keys_are_redacted_in_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", TITLE_INLINE_KEY_SOURCE, &SemanticAux::default());

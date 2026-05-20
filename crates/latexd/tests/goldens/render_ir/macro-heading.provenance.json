@@ -34,7 +34,17 @@
         "path": "main.tex",
         "start_utf8": 67
       },
-      "related": []
+      "related": [
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 73,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 56
+          }
+        }
+      ]
     },
     "text": "Intro"
   },
@@ -75,7 +85,17 @@
           "path": "main.tex",
           "start_utf8": 67
         },
-        "related": []
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 73,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 56
+            }
+          }
+        ]
       }
     }
   },
@@ -108,7 +128,17 @@
         "path": "main.tex",
         "start_utf8": 67
       },
-      "related": []
+      "related": [
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 73,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 56
+          }
+        }
+      ]
     },
     "text_source": {
       "expansion_stack": [
@@ -136,7 +166,17 @@
         "path": "main.tex",
         "start_utf8": 67
       },
-      "related": []
+      "related": [
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 73,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 56
+          }
+        }
+      ]
     }
   },
   "source": "\\newcommand{\\mysection}[1]{\\section{#1}}\\begin{document}\\mysection{Intro}\\end{document}"

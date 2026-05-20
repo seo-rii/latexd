@@ -2503,6 +2503,14 @@ impl<'i> Vm<'i> {
                                 source_path.to_owned(),
                                 content_start as u32,
                                 content_end as u32,
+                            )
+                            .with_related(
+                                SourceSpanRole::Invocation,
+                                ProvenanceSpan::File(SourceSpan {
+                                    path: source_path.to_owned(),
+                                    start_utf8: command_start as u32,
+                                    end_utf8: after as u32,
+                                }),
                             ),
                         );
                         index = after;
@@ -6126,6 +6134,14 @@ impl<'i> Vm<'i> {
                                 source_path.to_owned(),
                                 content_start as u32,
                                 content_end as u32,
+                            )
+                            .with_related(
+                                SourceSpanRole::Invocation,
+                                ProvenanceSpan::File(SourceSpan {
+                                    path: source_path.to_owned(),
+                                    start_utf8: command_start as u32,
+                                    end_utf8: after as u32,
+                                }),
                             )
                             .with_expansion_frame(ExpansionFrame {
                                 call_span: ProvenanceSpan::File(SourceSpan {
@@ -14698,7 +14714,7 @@ mod tests {
     use serde_json::json;
     use tex_render_model::{
         BeginBlockEvent, BlockKind, CitationStyleHint, HeadingEvent, ListKind, MetadataField,
-        RenderEvent, SpaceKind,
+        RenderEvent, SourceSpanRole, SpaceKind,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -20212,7 +20228,7 @@ Fallback text.
             .render_events
             .iter()
             .filter_map(|event| match &event.event {
-                RenderEvent::Heading(heading) => Some((heading, &event.meta.source.primary)),
+                RenderEvent::Heading(heading) => Some((heading, &event.meta.source)),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -20221,11 +20237,21 @@ Fallback text.
         assert_eq!(headings[0].0.level, 1);
         assert_eq!(headings[0].0.text, "Long Section");
         assert!(matches!(
-            headings[0].1,
+            &headings[0].1.primary,
             tex_render_model::ProvenanceSpan::File(span)
                 if span.path == Utf8PathBuf::from("main.tex")
                     && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "Long Section"
         ));
+        assert!(headings[0].1.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\section[Short]{Long Section}"
+                )
+        }));
         assert_eq!(headings[1].0.level, 2);
         assert_eq!(headings[1].0.text, "Methods");
         assert_eq!(headings[2].0.level, 3);
@@ -24160,6 +24186,16 @@ Fallback text.
                 if span.path == Utf8PathBuf::from("main.tex")
                     && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "Intro"
         ));
+        assert!(heading.meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\mysection{Intro}"
+                )
+        }));
         assert_eq!(heading.meta.source.expansion_stack.len(), 1);
         assert_eq!(
             heading.meta.source.expansion_stack[0]
