@@ -513,9 +513,9 @@ The next implementation step has started with a narrow display-list spike:
   text with different drawing semantics;
 - link annotations also hash their target and rect geometry, preventing equal
   visible text from reusing stale link hit boxes;
-- the display-list PDF backend now maps regular/bold/italic/bold-italic
-  `TextRun` style to separate built-in PDF font resources instead of rendering
-  all text through a single regular face;
+- the display-list PDF backend now maps serif/sans/mono `TextRun` family plus
+  regular/bold/italic/bold-italic style to separate built-in PDF font resources
+  instead of rendering all text through a single regular face;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:

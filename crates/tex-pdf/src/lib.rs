@@ -1,5 +1,5 @@
 use tex_layout::{DocumentLayout, LayoutOptions, PageLayout};
-use tex_render_model::{DrawOp, PageDisplayList};
+use tex_render_model::{DrawOp, FontFamilyRequest, FontSeries, FontShape, PageDisplayList};
 
 pub const PAGE_TEXT_LEFT_PT: f32 = 72.0;
 pub const PAGE_TEXT_TOP_PT: f32 = 72.0;
@@ -76,9 +76,12 @@ pub fn render_single_page_pdf(page: &PageLayout, options: &LayoutOptions) -> Vec
 pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
     let mut objects = Vec::new();
     let mut destination_entries = Vec::new();
-    let content_object_id = |index: usize| 7 + index * 2;
-    let page_object_id = |index: usize| 8 + index * 2;
-    let font_resources = "/F1 3 0 R /F2 4 0 R /F3 5 0 R /F4 6 0 R";
+    let content_object_id = |index: usize| 15 + index * 2;
+    let page_object_id = |index: usize| 16 + index * 2;
+    let font_resources = (1..=12)
+        .map(|slot| format!("/F{slot} {} 0 R", slot + 2))
+        .collect::<Vec<_>>()
+        .join(" ");
     for (index, page) in pages.iter().enumerate() {
         for op in &page.ops {
             if let DrawOp::NamedDestination(destination) = op {
@@ -114,23 +117,27 @@ pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
             .join(" "),
         pages.len()
     ));
-    objects.push(
-        "3 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n".to_string(),
-    );
-    objects.push(
-        "4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> endobj\n".to_string(),
-    );
-    objects.push(
-        "5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Oblique >> endobj\n"
-            .to_string(),
-    );
-    objects.push(
-        "6 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-BoldOblique >> endobj\n"
-            .to_string(),
-    );
+    for (object_id, base_font) in [
+        (3, "Times-Roman"),
+        (4, "Times-Bold"),
+        (5, "Times-Italic"),
+        (6, "Times-BoldItalic"),
+        (7, "Helvetica"),
+        (8, "Helvetica-Bold"),
+        (9, "Helvetica-Oblique"),
+        (10, "Helvetica-BoldOblique"),
+        (11, "Courier"),
+        (12, "Courier-Bold"),
+        (13, "Courier-Oblique"),
+        (14, "Courier-BoldOblique"),
+    ] {
+        objects.push(format!(
+            "{object_id} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /{base_font} >> endobj\n"
+        ));
+    }
 
     let mut annotation_objects = Vec::new();
-    let mut next_annotation_object_id = 7 + pages.len() * 2;
+    let mut next_annotation_object_id = 15 + pages.len() * 2;
     for (index, page) in pages.iter().enumerate() {
         let content_id = content_object_id(index);
         let page_id = page_object_id(index);
@@ -154,23 +161,51 @@ pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
                     ));
                 }
                 DrawOp::TextRun(run) => {
-                    let font_resource = match (run.font.series, run.font.shape) {
+                    let font_resource = match (&run.font.family, run.font.series, run.font.shape) {
                         (
-                            tex_render_model::FontSeries::Regular,
-                            tex_render_model::FontShape::Upright,
+                            FontFamilyRequest::Serif | FontFamilyRequest::Math,
+                            FontSeries::Regular,
+                            FontShape::Upright,
                         ) => "F1",
                         (
-                            tex_render_model::FontSeries::Bold,
-                            tex_render_model::FontShape::Upright,
+                            FontFamilyRequest::Serif | FontFamilyRequest::Math,
+                            FontSeries::Bold,
+                            FontShape::Upright,
                         ) => "F2",
                         (
-                            tex_render_model::FontSeries::Regular,
-                            tex_render_model::FontShape::Italic,
+                            FontFamilyRequest::Serif | FontFamilyRequest::Math,
+                            FontSeries::Regular,
+                            FontShape::Italic,
                         ) => "F3",
                         (
-                            tex_render_model::FontSeries::Bold,
-                            tex_render_model::FontShape::Italic,
+                            FontFamilyRequest::Serif | FontFamilyRequest::Math,
+                            FontSeries::Bold,
+                            FontShape::Italic,
                         ) => "F4",
+                        (
+                            FontFamilyRequest::Sans | FontFamilyRequest::Named(_),
+                            FontSeries::Regular,
+                            FontShape::Upright,
+                        ) => "F5",
+                        (
+                            FontFamilyRequest::Sans | FontFamilyRequest::Named(_),
+                            FontSeries::Bold,
+                            FontShape::Upright,
+                        ) => "F6",
+                        (
+                            FontFamilyRequest::Sans | FontFamilyRequest::Named(_),
+                            FontSeries::Regular,
+                            FontShape::Italic,
+                        ) => "F7",
+                        (
+                            FontFamilyRequest::Sans | FontFamilyRequest::Named(_),
+                            FontSeries::Bold,
+                            FontShape::Italic,
+                        ) => "F8",
+                        (FontFamilyRequest::Mono, FontSeries::Regular, FontShape::Upright) => "F9",
+                        (FontFamilyRequest::Mono, FontSeries::Bold, FontShape::Upright) => "F10",
+                        (FontFamilyRequest::Mono, FontSeries::Regular, FontShape::Italic) => "F11",
+                        (FontFamilyRequest::Mono, FontSeries::Bold, FontShape::Italic) => "F12",
                     };
                     stream.push_str("BT ");
                     stream.push_str(&format!("/{font_resource} {} Tf ", run.size_pt));
@@ -786,8 +821,39 @@ mod tests {
 
         assert!(text.contains("/F2 14 Tf 1 0 0 1 72 720 Tm (Bold) Tj"));
         assert!(text.contains("/F3 10 Tf 1 0 0 1 72 702 Tm (Italic) Tj"));
-        assert!(text.contains("/BaseFont /Helvetica-Bold"));
-        assert!(text.contains("/BaseFont /Helvetica-Oblique"));
+        assert!(text.contains("/BaseFont /Times-Bold"));
+        assert!(text.contains("/BaseFont /Times-Italic"));
+    }
+
+    #[test]
+    fn display_list_pdf_uses_text_run_font_family_resources() {
+        let pdf = render_display_list_pdf(&[PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::TextRun(PositionedTextRun {
+                origin: Point { x: 72.0, y: 72.0 },
+                text: "Code".to_string(),
+                font: FontRequest {
+                    family: FontFamilyRequest::Mono,
+                    series: FontSeries::Bold,
+                    shape: FontShape::Upright,
+                    size_pt: 9.0,
+                    role: FontRole::Mono,
+                },
+                size_pt: 9.0,
+                approximate_advance_pt: 18.0,
+                glyphs: None,
+                clusters: None,
+                source: SourceProvenance::file("main.tex", 0, 4),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        }]);
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(text.contains("/F10 9 Tf 1 0 0 1 72 720 Tm (Code) Tj"));
+        assert!(text.contains("/BaseFont /Courier-Bold"));
     }
 
     #[test]
@@ -980,7 +1046,7 @@ mod tests {
         let pdf_text = String::from_utf8_lossy(&pdf);
         let svg = render_display_list_svg(&page);
 
-        assert!(pdf_text.contains("/Annots [9 0 R]"));
+        assert!(pdf_text.contains("/Annots [17 0 R]"));
         assert!(pdf_text.contains("/Subtype /Link"));
         assert!(pdf_text.contains("/Rect [72 708 152 720]"));
         assert!(pdf_text.contains("/URI (https://example.com/a?b=1&c=2)"));
@@ -1007,7 +1073,7 @@ mod tests {
         let svg = render_display_list_svg(&page);
 
         assert!(pdf_text.contains("/Names << /Dests << /Names ["));
-        assert!(pdf_text.contains("(sec:intro&more) [8 0 R /XYZ 72 720 null]"));
+        assert!(pdf_text.contains("(sec:intro&more) [16 0 R /XYZ 72 720 null]"));
         assert!(svg.contains("data-destination-name=\"sec:intro&amp;more\""));
         assert!(svg.contains("data-destination-x=\"72\""));
         assert!(svg.contains("data-destination-y=\"72\""));
