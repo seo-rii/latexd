@@ -312,6 +312,8 @@ The next implementation step has started with a narrow display-list spike:
 - `widetext`, `strip`, and `fullwidth` now act as structured wrappers so their
   body text and inline events are captured instead of being swallowed by
   RawFallback;
+- `sloppypar` now acts as a structured wrapper so line-breaking hints do not
+  hide body text behind RawFallback;
 - `spacing`, `onehalfspace`, `doublespace`, and `singlespace` now act as
   structured wrappers while consuming line-spacing arguments so they do not
   appear as visible text;

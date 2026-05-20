@@ -5298,6 +5298,57 @@ fn fullwidth_wrapper_capture_survives_ir_without_fallback() {
 }
 
 #[test]
+fn sloppypar_wrapper_capture_survives_ir_without_fallback() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        SLOPPYPAR_WRAPPER_SOURCE,
+        &SemanticAux::default(),
+    );
+    let environment = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Environment(environment) if environment.name == "sloppypar" => {
+                Some(environment)
+            }
+            _ => None,
+        })
+        .expect("sloppypar environment");
+    assert!(environment.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Citation(citation)
+                if citation.keys == vec!["key".to_string()] && citation.display_text == "[?]"
+        )
+    }));
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback) if fallback.environment.as_deref() == Some("sloppypar")
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Loose [?] text."));
+    assert!(!extracted_text.contains("{key}"));
+    assert!(!extracted_text.contains("sloppypar"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Loose [?] text."));
+    assert!(!display_list_text.contains("{key}"));
+    assert!(!display_list_text.contains("sloppypar"));
+}
+
+#[test]
 fn spacing_wrappers_capture_hides_layout_arguments() {
     let capture =
         capture_internal_render_ir("main.tex", SPACING_WRAPPER_SOURCE, &SemanticAux::default());
@@ -6485,6 +6536,9 @@ const WIDE_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}\begin{widetext}Wide \c
 
 const FULLWIDTH_WRAPPER_SOURCE: &str =
     r"\begin{document}\begin{fullwidth}Full \cite{key} text.\end{fullwidth}\end{document}";
+
+const SLOPPYPAR_WRAPPER_SOURCE: &str =
+    r"\begin{document}\begin{sloppypar}Loose \cite{key} text.\end{sloppypar}\end{document}";
 
 const SPACING_WRAPPER_SOURCE: &str = r"\begin{document}\begin{spacing}{1.5}Spaced \cite{key} text.\end{spacing}\begin{onehalfspace}Half text.\end{onehalfspace}\begin{doublespace}Double text.\end{doublespace}\begin{singlespace}Single text.\end{singlespace}\end{document}";
 
