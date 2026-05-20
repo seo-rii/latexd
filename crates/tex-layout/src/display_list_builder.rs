@@ -11,6 +11,8 @@ pub struct PageDisplayListOptions {
     pub margin_left_pt: f32,
     pub margin_top_pt: f32,
     pub margin_bottom_pt: f32,
+    pub list_continuation_indent_pt: f32,
+    pub bibliography_continuation_indent_pt: f32,
     pub max_chars_per_line: usize,
     pub line_height_pt: f32,
     pub block_gap_pt: f32,
@@ -27,6 +29,8 @@ impl Default for PageDisplayListOptions {
             margin_left_pt: 72.0,
             margin_top_pt: 72.0,
             margin_bottom_pt: 72.0,
+            list_continuation_indent_pt: 18.0,
+            bibliography_continuation_indent_pt: 24.0,
             max_chars_per_line: 72,
             line_height_pt: 14.0,
             block_gap_pt: 7.0,
@@ -56,6 +60,7 @@ struct LogicalTextRun {
     font: FontRequest,
     size_pt: f32,
     gap_after_pt: f32,
+    continuation_indent_pt: f32,
 }
 
 struct LogicalImage {
@@ -192,6 +197,7 @@ pub fn build_page_display_lists(
                         font: title_font.clone(),
                         size_pt: options.title_font_size_pt,
                         gap_after_pt: options.block_gap_pt,
+                        continuation_indent_pt: 0.0,
                     }));
                 }
                 for (index, author) in block.authors.iter().enumerate() {
@@ -210,6 +216,7 @@ pub fn build_page_display_lists(
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
                         gap_after_pt: 0.0,
+                        continuation_indent_pt: 0.0,
                     }));
                 }
                 if let Some(date) = &block.date {
@@ -227,6 +234,7 @@ pub fn build_page_display_lists(
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
                         gap_after_pt: options.block_gap_pt,
+                        continuation_indent_pt: 0.0,
                     }));
                 }
             }
@@ -237,6 +245,7 @@ pub fn build_page_display_lists(
                     font: body_font.clone(),
                     size_pt: options.body_font_size_pt,
                     gap_after_pt: options.block_gap_pt,
+                    continuation_indent_pt: 0.0,
                 }));
             }
             IrBlock::Heading(block) => {
@@ -246,6 +255,7 @@ pub fn build_page_display_lists(
                     font: heading_font.clone(),
                     size_pt: options.heading_font_size_pt,
                     gap_after_pt: options.block_gap_pt,
+                    continuation_indent_pt: 0.0,
                 }));
             }
             IrBlock::Paragraph(block) => {
@@ -255,6 +265,7 @@ pub fn build_page_display_lists(
                     font: body_font.clone(),
                     size_pt: options.body_font_size_pt,
                     gap_after_pt: options.block_gap_pt,
+                    continuation_indent_pt: 0.0,
                 }));
             }
             IrBlock::Environment(block) => {
@@ -264,6 +275,7 @@ pub fn build_page_display_lists(
                     font: body_font.clone(),
                     size_pt: options.body_font_size_pt,
                     gap_after_pt: options.block_gap_pt,
+                    continuation_indent_pt: 0.0,
                 }));
             }
             IrBlock::List(block) => {
@@ -284,6 +296,7 @@ pub fn build_page_display_lists(
                         } else {
                             0.0
                         },
+                        continuation_indent_pt: options.list_continuation_indent_pt,
                     }));
                 }
                 if block.items.is_empty() {
@@ -293,6 +306,7 @@ pub fn build_page_display_lists(
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
                         gap_after_pt: options.block_gap_pt,
+                        continuation_indent_pt: options.list_continuation_indent_pt,
                     }));
                 }
             }
@@ -307,6 +321,7 @@ pub fn build_page_display_lists(
                     font: math_font.clone(),
                     size_pt: options.body_font_size_pt,
                     gap_after_pt: options.block_gap_pt,
+                    continuation_indent_pt: 0.0,
                 }));
             }
             IrBlock::Bibliography(block) => {
@@ -327,6 +342,7 @@ pub fn build_page_display_lists(
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
                         gap_after_pt: 0.0,
+                        continuation_indent_pt: options.bibliography_continuation_indent_pt,
                     }));
                 }
                 if items.is_empty() {
@@ -336,6 +352,7 @@ pub fn build_page_display_lists(
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
                         gap_after_pt: 0.0,
+                        continuation_indent_pt: options.bibliography_continuation_indent_pt,
                     }));
                 }
             }
@@ -362,6 +379,7 @@ pub fn build_page_display_lists(
                     font: body_font.clone(),
                     size_pt: options.body_font_size_pt,
                     gap_after_pt: options.block_gap_pt,
+                    continuation_indent_pt: 0.0,
                 }));
             }
         }
@@ -487,7 +505,13 @@ pub fn build_page_display_lists(
                     wrapped_lines.push(current_line);
                 }
 
-                for line_segments in wrapped_lines {
+                for (line_index, line_segments) in wrapped_lines.into_iter().enumerate() {
+                    let line_x = options.margin_left_pt
+                        + if line_index == 0 {
+                            0.0
+                        } else {
+                            logical.continuation_indent_pt
+                        };
                     if y + options.line_height_pt
                         > options.page_height_pt - options.margin_bottom_pt
                         && !pending.ops.is_empty()
@@ -514,10 +538,7 @@ pub fn build_page_display_lists(
                     if line_segments.is_empty() {
                         record_source_spans(&logical.source, &mut pending.source_spans);
                         pending.ops.push(DrawOp::TextRun(PositionedTextRun {
-                            origin: Point {
-                                x: options.margin_left_pt,
-                                y,
-                            },
+                            origin: Point { x: line_x, y },
                             text: String::new(),
                             font: logical.font.clone(),
                             size_pt: logical.size_pt,
@@ -530,7 +551,7 @@ pub fn build_page_display_lists(
                         continue;
                     }
 
-                    let mut x = options.margin_left_pt;
+                    let mut x = line_x;
                     for segment in line_segments {
                         record_source_spans(&segment.source, &mut pending.source_spans);
                         let advance = segment.text.chars().count() as f32 * logical.size_pt * 0.5;
@@ -662,8 +683,9 @@ pub fn build_page_display_lists(
 #[cfg(test)]
 mod tests {
     use tex_render_model::{
-        CitationInline, CitationStyleHint, DocumentIr, DrawOp, GraphicBlock, InlineNode, IrBlock,
-        LinkInline, ParagraphBlock, ReferenceInline, SourceProvenance, TitleBlock,
+        BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint, DocumentIr,
+        DrawOp, GraphicBlock, InlineNode, IrBlock, LinkInline, ListBlock, ListItemIr, ListKind,
+        ParagraphBlock, ReferenceInline, SourceProvenance, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists};
@@ -931,5 +953,68 @@ mod tests {
             )
         }));
         assert_eq!(display_lists[0].source_spans.len(), 2);
+    }
+
+    #[test]
+    fn indents_wrapped_list_item_continuation_lines() {
+        let source = SourceProvenance::file("main.tex", 0, 16);
+        let options = PageDisplayListOptions {
+            max_chars_per_line: 6,
+            ..PageDisplayListOptions::default()
+        };
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::List(ListBlock {
+                kind: ListKind::Unordered,
+                items: vec![ListItemIr {
+                    marker: "*".to_string(),
+                    content: vec![InlineNode::Text {
+                        text: "abcdefghi".to_string(),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                }],
+                source,
+            })]),
+            options.clone(),
+        );
+
+        let continuation = display_lists[0].ops.iter().find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "efghi" => Some(run),
+            _ => None,
+        });
+        assert_eq!(
+            continuation.map(|run| run.origin.x),
+            Some(options.margin_left_pt + options.list_continuation_indent_pt)
+        );
+    }
+
+    #[test]
+    fn indents_wrapped_bibliography_continuation_lines() {
+        let source = SourceProvenance::file("main.tex", 0, 20);
+        let options = PageDisplayListOptions {
+            max_chars_per_line: 6,
+            ..PageDisplayListOptions::default()
+        };
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Bibliography(BibliographyBlock {
+                items: vec![BibliographyItemIr {
+                    key: "key".to_string(),
+                    label: Some("1".to_string()),
+                    content: "abcdefghi".to_string(),
+                    source: source.clone(),
+                }],
+                source,
+            })]),
+            options.clone(),
+        );
+
+        let continuation = display_lists[0].ops.iter().find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "cdefgh" => Some(run),
+            _ => None,
+        });
+        assert_eq!(
+            continuation.map(|run| run.origin.x),
+            Some(options.margin_left_pt + options.bibliography_continuation_indent_pt)
+        );
     }
 }

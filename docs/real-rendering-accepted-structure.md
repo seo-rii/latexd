@@ -477,6 +477,9 @@ The next implementation step has started with a narrow display-list spike:
 - display-list SVG text elements also include bounded expansion stack depth,
   command names, call spans, and definition spans for macro provenance
   inspection;
+- `PageDisplayList` text placement now applies continuation-line indentation
+  for wrapped list items and bibliography entries, while keeping first-line
+  markers/labels at the normal text margin;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:
