@@ -158,6 +158,8 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\uline}[1]{#1}
 \providecommand{\hl}[1]{#1}
 \providecommand{\nicefrac}[2]{#1/#2}
+\providecommand{\excludecomment}[1]{}
+\providecommand{\includecomment}[1]{}
 ";
 
 const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
@@ -180,6 +182,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "caption.sty",
     "cite.sty",
     "cleveref.sty",
+    "comment.sty",
     "color.sty",
     "enumitem.sty",
     "etoolbox.sty",
@@ -20200,6 +20203,34 @@ Fallback text.
                     _ => false,
                 })
         );
+    }
+
+    #[test]
+    fn render_event_capture_loads_comment_package_shim() {
+        let source = r"\documentclass{article}\usepackage{comment}\excludecomment{draftnote}\begin{document}Visible.\begin{draftnote}Hidden.\end{draftnote}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package comment.sty"
+        }));
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && diagnostic.detail == "excludecomment"
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("comment.sty"))
+        );
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text.contains("Hidden")
+        )));
     }
 
     #[test]

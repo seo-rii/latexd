@@ -329,7 +329,8 @@ The next implementation step has started with a narrow display-list spike:
 - `comment` environment bodies are now skipped during render-event capture so
   non-visible notes do not leak into Document IR or display-list text;
 - `\excludecomment{...}` and `\includecomment{...}` now update render-event
-  capture policy for custom comment-package environments;
+  capture policy for custom comment-package environments, and `comment.sty`
+  resolves through the builtin package shim surface;
 - `spacing`, `onehalfspace`, `doublespace`, and `singlespace` now act as
   structured wrappers while consuming line-spacing arguments so they do not
   appear as visible text;
