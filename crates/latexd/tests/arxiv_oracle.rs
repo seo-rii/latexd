@@ -42,6 +42,7 @@ struct OracleCaseReport {
     toplevel: Utf8PathBuf,
     oracle_pdf: Utf8PathBuf,
     oracle_text: Utf8PathBuf,
+    oracle_page_count: usize,
     source_root: Utf8PathBuf,
     oracle_token_count: usize,
     oracle_unique_token_count: usize,
@@ -53,6 +54,8 @@ struct OracleCaseReport {
     extra_token_sample: Vec<String>,
     internal_text: Option<Utf8PathBuf>,
     internal_pdf: Option<Utf8PathBuf>,
+    internal_page_count: Option<usize>,
+    page_count_delta: Option<i64>,
     internal_build_failure: Option<String>,
     internal_diagnostics: Vec<String>,
 }
@@ -70,6 +73,13 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
         Ok(path) => path,
         Err(_) => {
             eprintln!("skipping: pdftotext is not installed");
+            return;
+        }
+    };
+    let pdfinfo = match which::which("pdfinfo") {
+        Ok(path) => path,
+        Err(_) => {
+            eprintln!("skipping: pdfinfo is not installed");
             return;
         }
     };
@@ -105,6 +115,8 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             oracle_case_artifact_path(&report_dir, &case.arxiv_id, &case.version, "oracle.txt");
         fs::write(oracle_text_path.as_std_path(), &oracle_text)
             .unwrap_or_else(|error| panic!("{} write oracle text failed: {error}", case.arxiv_id));
+        let oracle_page_count = extract_pdf_page_count(&pdfinfo, &oracle_pdf)
+            .unwrap_or_else(|error| panic!("{} oracle pdfinfo failed: {error}", case.arxiv_id));
         let oracle_tokens = tokenize(&oracle_text);
         assert!(
             oracle_tokens.len() >= case.min_oracle_tokens,
@@ -147,6 +159,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             toplevel: case.toplevel.clone(),
             oracle_pdf: oracle_pdf.clone(),
             oracle_text: oracle_text_path,
+            oracle_page_count,
             source_root: source_root.clone(),
             oracle_token_count: oracle_tokens.len(),
             oracle_unique_token_count: oracle_unique.len(),
@@ -158,6 +171,8 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             extra_token_sample: Vec::new(),
             internal_text: None,
             internal_pdf: None,
+            internal_page_count: None,
+            page_count_delta: None,
             internal_build_failure: None,
             internal_diagnostics: Vec::new(),
         };
@@ -195,6 +210,10 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                 .unwrap_or_else(|error| {
                     panic!("{} copy internal PDF failed: {error}", case.arxiv_id)
                 });
+                let internal_page_count = extract_pdf_page_count(&pdfinfo, &outcome.pdf_path)
+                    .unwrap_or_else(|error| {
+                        panic!("{} internal pdfinfo failed: {error}", case.arxiv_id)
+                    });
                 let internal_tokens = tokenize(&internal_text);
                 let internal_unique = unique_tokens(&internal_tokens);
                 let common = oracle_unique
@@ -212,6 +231,9 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                     ordered_difference_sample(&internal_tokens, &oracle_unique, 80);
                 report.internal_text = Some(internal_text_path);
                 report.internal_pdf = Some(internal_pdf_path);
+                report.internal_page_count = Some(internal_page_count);
+                report.page_count_delta =
+                    Some(internal_page_count as i64 - oracle_page_count as i64);
                 if strict {
                     assert!(
                         internal_tokens.len() >= case.min_internal_tokens,
@@ -300,6 +322,31 @@ fn extract_pdf_text(pdftotext: &std::path::Path, pdf_path: &Utf8Path) -> anyhow:
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
+fn extract_pdf_page_count(pdfinfo: &std::path::Path, pdf_path: &Utf8Path) -> anyhow::Result<usize> {
+    let output = Command::new(pdfinfo).arg(pdf_path.as_str()).output()?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "pdfinfo exited with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_pdfinfo_page_count(stdout.as_ref())
+}
+
+fn parse_pdfinfo_page_count(output: &str) -> anyhow::Result<usize> {
+    for line in output.lines() {
+        let Some(value) = line.strip_prefix("Pages:") else {
+            continue;
+        };
+        return value.trim().parse::<usize>().map_err(|error| {
+            anyhow::anyhow!("invalid pdfinfo Pages value {:?}: {error}", value.trim())
+        });
+    }
+    anyhow::bail!("pdfinfo output did not contain Pages")
+}
+
 fn copy_dir(source_root: &Utf8Path, target_root: &Utf8Path) {
     let mut stack = vec![(source_root.to_owned(), target_root.to_owned())];
     while let Some((source_dir, target_dir)) = stack.pop() {
@@ -378,4 +425,11 @@ fn arxiv_oracle_artifact_paths_are_report_local_and_safe() {
         oracle_case_artifact_path(&report_dir, "math/0301001", "v1", "internal.pdf"),
         Utf8PathBuf::from("/tmp/latexd-report/math_0301001-v1-internal.pdf")
     );
+}
+
+#[test]
+fn arxiv_oracle_parses_pdfinfo_page_count() {
+    let output = "Title:          A Paper\nPages:          17\nPage size:      612 x 792 pts\n";
+
+    assert_eq!(parse_pdfinfo_page_count(output).expect("page count"), 17);
 }

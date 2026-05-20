@@ -59,7 +59,7 @@ engineering plan.
 - Rust toolchain with Cargo.
 - Node.js and `pnpm` for the web preview workspace.
 - Ghostscript if you want the real raster/tile renderer path.
-- Optional: `pdftotext` for PDF text oracle checks.
+- Optional: `pdftotext` and `pdfinfo` for PDF text/page-count oracle checks.
 
 ## Quick Start
 
@@ -116,10 +116,10 @@ LATEXD_ARXIV_CC0_CORPUS=/tmp/latexd-arxiv-cc0 \
 ```
 
 Use `LATEXD_ARXIV_ORACLE_STRICT=1` when you want the test to fail on oracle
-threshold regressions. The oracle writes `cc0-smoke-report.json` plus per-case
-`*-oracle.txt`, `*-internal.txt`, and `*-internal.pdf` artifacts under
-`$LATEXD_ARXIV_CC0_CORPUS/reports` by default; override this with
-`LATEXD_ARXIV_ORACLE_REPORT_DIR`.
+threshold regressions. The oracle writes page-count fields,
+`cc0-smoke-report.json`, and per-case `*-oracle.txt`, `*-internal.txt`, and
+`*-internal.pdf` artifacts under `$LATEXD_ARXIV_CC0_CORPUS/reports` by default;
+override this with `LATEXD_ARXIV_ORACLE_REPORT_DIR`.
 
 ## Documentation
 
