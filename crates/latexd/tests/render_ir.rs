@@ -8790,6 +8790,69 @@ fn macro_heading_display_list_svg_preserves_expansion_provenance() {
     assert!(display_list_svg.contains("data-source-expansion-definitions=\"file:main.tex:"));
 }
 
+#[test]
+fn macro_heading_provenance_matches_golden() {
+    let capture =
+        capture_internal_render_ir("main.tex", MACRO_SECTION_SOURCE, &SemanticAux::default());
+    let heading_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(&envelope.event, RenderEvent::Heading(heading) if heading.text == "Intro")
+        })
+        .expect("heading event");
+    let heading_block = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Heading(heading) => Some(heading),
+            _ => None,
+        })
+        .expect("heading block");
+    let heading_text_source = heading_block
+        .content
+        .iter()
+        .find_map(|node| match node {
+            InlineNode::Text { text, source } if text == "Intro" => Some(source),
+            _ => None,
+        })
+        .expect("heading text source");
+    let heading_text_run = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "Intro" => Some(run),
+            _ => None,
+        })
+        .expect("heading text run");
+    let provenance_snapshot = serde_json::json!({
+        "source": MACRO_SECTION_SOURCE,
+        "event": {
+            "event": heading_event.event,
+            "meta": heading_event.meta,
+        },
+        "ir": {
+            "level": heading_block.level,
+            "number": heading_block.number,
+            "source": heading_block.source,
+            "text_source": heading_text_source,
+        },
+        "display_list": {
+            "text": heading_text_run.text,
+            "source": heading_text_run.source,
+            "clusters": heading_text_run.clusters,
+        },
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/macro-heading.provenance.json",
+        &provenance_json,
+    );
+}
+
 const COMPACT_SOURCE: &str = r"\title{A Paper}\author{Ada Lovelace}\date{May 1843}\begin{document}\maketitle\begin{abstract}Short abstract.\end{abstract}\section{Intro}Hello \cite{key}.\[x^2\]\begin{thebibliography}{1}\bibitem{key} Author. Title.\end{thebibliography}\begin{unknownenv}Fallback text.\end{unknownenv}\end{document}";
 
 const TITLE_INLINE_KEY_SOURCE: &str =

@@ -1381,9 +1381,10 @@ approximate.
 - `EventSink` is sufficient for the current internal capture path, but should
   be revisited if incremental replay needs independently persisted event
   segments or non-`Vec` sinks.
-- Golden normalization is still basic. Compact fixtures currently assert full
-  pretty JSON; future semantic/provenance goldens should be able to elide noisy
-  offsets while keeping exact provenance tests for targeted fixtures.
+- Semantic golden normalization now covers compact event, IR, and display-list
+  fixtures while eliding noisy source/cache fields. Exact provenance goldens are
+  still intentionally targeted; more source-span edge cases should be added as
+  VM coverage expands.
 - `DocumentIrBuilder` still lives in `tex-layout`. That remains acceptable for
   the first batch, but it should split into a dedicated IR-builder crate if it
   starts owning package/class semantic policy rather than layout-adjacent

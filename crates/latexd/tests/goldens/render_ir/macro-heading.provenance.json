@@ -1,0 +1,143 @@
+{
+  "display_list": {
+    "clusters": [
+      {
+        "glyph_end": 5,
+        "glyph_start": 0,
+        "text_end_utf8": 5,
+        "text_start_utf8": 0
+      }
+    ],
+    "source": {
+      "expansion_stack": [
+        {
+          "call_span": {
+            "end_utf8": 73,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 56
+          },
+          "command_name": "mysection",
+          "definition_span": {
+            "end_utf8": 40,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 0
+          }
+        }
+      ],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 72,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 67
+      },
+      "related": []
+    },
+    "text": "Intro"
+  },
+  "event": {
+    "event": {
+      "kind": "heading",
+      "level": 1,
+      "text": "Intro"
+    },
+    "meta": {
+      "confidence": "high",
+      "event_id": 1,
+      "mode_hint": "unknown",
+      "producer": "command",
+      "source": {
+        "expansion_stack": [
+          {
+            "call_span": {
+              "end_utf8": 73,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 56
+            },
+            "command_name": "mysection",
+            "definition_span": {
+              "end_utf8": 40,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 0
+            }
+          }
+        ],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 72,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 67
+        },
+        "related": []
+      }
+    }
+  },
+  "ir": {
+    "level": 1,
+    "number": null,
+    "source": {
+      "expansion_stack": [
+        {
+          "call_span": {
+            "end_utf8": 73,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 56
+          },
+          "command_name": "mysection",
+          "definition_span": {
+            "end_utf8": 40,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 0
+          }
+        }
+      ],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 72,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 67
+      },
+      "related": []
+    },
+    "text_source": {
+      "expansion_stack": [
+        {
+          "call_span": {
+            "end_utf8": 73,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 56
+          },
+          "command_name": "mysection",
+          "definition_span": {
+            "end_utf8": 40,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 0
+          }
+        }
+      ],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 72,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 67
+      },
+      "related": []
+    }
+  },
+  "source": "\\newcommand{\\mysection}[1]{\\section{#1}}\\begin{document}\\mysection{Intro}\\end{document}"
+}
