@@ -257,8 +257,22 @@ pub fn build_page_display_lists(
                 }));
             }
             IrBlock::Heading(block) => {
+                let mut segments = Vec::new();
+                if let Some(number) = &block.number {
+                    segments.push(LogicalTextSegment {
+                        text: number.clone(),
+                        source: block.source.clone(),
+                        link_target: None,
+                    });
+                    segments.push(LogicalTextSegment {
+                        text: " ".to_string(),
+                        source: block.source.clone(),
+                        link_target: None,
+                    });
+                }
+                segments.extend(inline_segments(&block.content));
                 logical_items.push(LogicalItem::Text(LogicalTextRun {
-                    segments: inline_segments(&block.content),
+                    segments,
                     source: block.source.clone(),
                     font: heading_font.clone(),
                     size_pt: options.heading_font_size_pt,
@@ -1013,6 +1027,34 @@ mod tests {
                 .iter()
                 .all(|run| run.approximate_advance_pt <= available_width)
         );
+    }
+
+    #[test]
+    fn heading_numbers_survive_display_list_text() {
+        let source = SourceProvenance::file("main.tex", 0, 16);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Heading(HeadingBlock {
+                level: 1,
+                number: Some("1".to_string()),
+                content: vec![InlineNode::Text {
+                    text: "Intro".to_string(),
+                    source: source.clone(),
+                }],
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+
+        let text = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .collect::<String>();
+
+        assert_eq!(text, "1 Intro");
     }
 
     #[test]

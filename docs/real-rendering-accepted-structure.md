@@ -501,6 +501,8 @@ The next implementation step has started with a narrow display-list spike:
 - `LabelDefinitionIr` metadata now emits `NamedDestination` display-list ops
   near the following visible content, giving PDF/SVG backends a real
   destination surface instead of label-only IR metadata;
+- numbered `HeadingBlock` values now render their semantic number prefix in
+  `PageDisplayList` text instead of dropping numbering decided before layout;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:
