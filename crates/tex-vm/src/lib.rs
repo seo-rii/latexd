@@ -722,6 +722,7 @@ fn default_filesw() -> bool {
 struct RenderEventScanState {
     no_hyper_depth: usize,
     active_input_paths: Vec<Utf8PathBuf>,
+    include_only: Option<HashSet<Utf8PathBuf>>,
     section_macros: HashMap<String, (usize, usize)>,
     readable_wrapper_macros: HashMap<String, (usize, usize, String)>,
     structured_environments: HashSet<String>,
@@ -2620,6 +2621,46 @@ impl<'i> Vm<'i> {
                         index = after_key;
                     }
                 }
+                "includeonly" => {
+                    let include_index = skip_ascii_whitespace(source, index);
+                    if let Some((include_text, _, _, after_include)) =
+                        read_braced_source_argument(source, include_index)
+                    {
+                        let mut include_only = HashSet::new();
+                        for include_path in include_text
+                            .split(',')
+                            .map(str::trim)
+                            .filter(|path| !path.is_empty())
+                        {
+                            let mut include_path =
+                                normalize_relative_path(Utf8Path::new(include_path))
+                                    .ok()
+                                    .map(|path| {
+                                        if path.extension().is_none() {
+                                            path.with_extension("tex")
+                                        } else {
+                                            path
+                                        }
+                                    });
+                            if let Some(parent) = source_path.parent()
+                                && let Some(path) = include_path.as_ref()
+                                && !path.is_absolute()
+                            {
+                                let parent_path = parent.join(path);
+                                if self.resolve_existing_project_path(&parent_path).is_some() {
+                                    include_path = Some(parent_path);
+                                }
+                            }
+                            if let Some(path) = include_path {
+                                include_only.insert(
+                                    self.resolve_existing_project_path(&path).unwrap_or(path),
+                                );
+                            }
+                        }
+                        scan_state.include_only = Some(include_only);
+                        index = after_include;
+                    }
+                }
                 "input" | "include" => {
                     let path_index = skip_ascii_whitespace(source, index);
                     let path_argument = if let Some((path_text, _, _, after_path)) =
@@ -2663,7 +2704,14 @@ impl<'i> Vm<'i> {
                             .as_ref()
                             .and_then(|path| self.resolve_existing_project_path(path))
                         {
-                            if scan_state.active_input_paths.contains(&path) {
+                            if command == "include"
+                                && scan_state
+                                    .include_only
+                                    .as_ref()
+                                    .is_some_and(|paths| !paths.contains(&path))
+                            {
+                                // \includeonly suppresses non-selected files without rendering a placeholder.
+                            } else if scan_state.active_input_paths.contains(&path) {
                                 self.emit_render_event(
                                     RenderEvent::Diagnostic(RenderDiagnosticEvent {
                                         message: format!("skipped cyclic input {path}"),
@@ -20680,6 +20728,40 @@ Fallback text.
             "red",
             "key",
         ] {
+            assert!(
+                !visible_text.contains(hidden),
+                "{hidden} leaked in {visible_text}"
+            );
+        }
+    }
+
+    #[test]
+    fn render_event_capture_respects_includeonly_for_include_files() {
+        let source = r"\includeonly{first}\begin{document}A \include{first} B \include{second} C\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("first.tex", "First body.");
+        vm.mount_file("second.tex", "Skipped body.");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(visible_text.contains("A"), "{visible_text}");
+        assert!(visible_text.contains("First body."), "{visible_text}");
+        assert!(visible_text.contains("B"), "{visible_text}");
+        assert!(visible_text.contains("C"), "{visible_text}");
+        for hidden in ["Skipped body.", "includeonly", "include", "first", "second"] {
             assert!(
                 !visible_text.contains(hidden),
                 "{hidden} leaked in {visible_text}"

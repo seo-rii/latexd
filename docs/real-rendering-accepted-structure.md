@@ -234,7 +234,8 @@ The next implementation step has started with a narrow display-list spike:
   section/wrapper/environment rules is shared with included files, including
   preamble macro files that are loaded before `\begin{document}`, and active
   input stacks now skip cyclic `\input`/`\include` recursion with a diagnostic
-  instead of repeatedly rendering the same file;
+  instead of repeatedly rendering the same file. `\includeonly` is also honored
+  so non-selected `\include` files do not appear in derived IR/display lists;
 - `\href` and `\url` now survive as inline link events, `Link` IR nodes, text
   runs, and `LinkAnnotation` display-list operations without leaking hidden
   `\href` targets into visible body text; `\url` supports both braced and
