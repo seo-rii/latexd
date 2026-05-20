@@ -22,7 +22,7 @@ pub use events::{
     RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
     SetDocumentMetadataEvent, SpaceEvent, SpaceKind, TextEvent,
 };
-pub use golden::{from_pretty_json, to_pretty_json};
+pub use golden::{from_pretty_json, to_pretty_json, to_semantic_pretty_json};
 pub use ir::{
     AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, DisplayMathBlock,
     DocumentIr, EnvironmentBlock, GraphicBlock, HeadingBlock, InlineNode, IrBlock,

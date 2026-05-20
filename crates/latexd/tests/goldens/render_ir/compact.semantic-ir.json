@@ -1,0 +1,104 @@
+{
+  "blocks": [
+    {
+      "author_sources": "<present>",
+      "authors": [
+        "Ada Lovelace"
+      ],
+      "date": "May 1843",
+      "date_source": "<present>",
+      "kind": "title_block",
+      "source": "<present>",
+      "title": "A Paper",
+      "title_source": "<present>"
+    },
+    {
+      "content": [
+        {
+          "kind": "text",
+          "source": "<present>",
+          "text": "Short"
+        },
+        {
+          "kind": "space",
+          "source": "<present>"
+        },
+        {
+          "kind": "text",
+          "source": "<present>",
+          "text": "abstract."
+        }
+      ],
+      "kind": "abstract",
+      "source": "<present>"
+    },
+    {
+      "content": [
+        {
+          "kind": "text",
+          "source": "<present>",
+          "text": "Intro"
+        }
+      ],
+      "kind": "heading",
+      "level": 1,
+      "source": "<present>"
+    },
+    {
+      "content": [
+        {
+          "kind": "text",
+          "source": "<present>",
+          "text": "Hello"
+        },
+        {
+          "kind": "space",
+          "source": "<present>"
+        },
+        {
+          "display_text": "[?]",
+          "keys": [
+            "key"
+          ],
+          "kind": "citation",
+          "source": "<present>",
+          "style_hint": "numeric"
+        },
+        {
+          "kind": "text",
+          "source": "<present>",
+          "text": "."
+        }
+      ],
+      "kind": "paragraph",
+      "source": "<present>"
+    },
+    {
+      "kind": "display_math",
+      "raw_source": "x^2",
+      "source": "<present>"
+    },
+    {
+      "items": [
+        {
+          "content": "Author. Title.",
+          "key": "key",
+          "source": "<present>"
+        }
+      ],
+      "kind": "bibliography",
+      "source": "<present>"
+    },
+    {
+      "environment": "unknownenv",
+      "kind": "raw_fallback",
+      "normalized_visible_text": "Fallback text.",
+      "reason": "unsupported_environment",
+      "source": "<present>",
+      "source_excerpt": "\\begin{unknownenv}Fallback text.\\end{unknownenv}",
+      "source_hash": "<present>",
+      "truncated": false
+    }
+  ],
+  "schema_version": 1
+}

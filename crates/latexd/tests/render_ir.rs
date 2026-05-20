@@ -5,6 +5,7 @@ use latexd::compiler::{capture_internal_render_ir, capture_internal_render_ir_wi
 use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{
     CitationStyleHint, DrawOp, ListKind, MetadataField, RenderEvent, to_pretty_json,
+    to_semantic_pretty_json,
 };
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole};
 
@@ -14,10 +15,15 @@ fn compact_render_ir_capture_matches_goldens() {
 
     let event_json = to_pretty_json(&capture.events).expect("event json");
     let ir_json = to_pretty_json(&capture.document_ir).expect("ir json");
+    let semantic_ir_json = to_semantic_pretty_json(&capture.document_ir).expect("semantic ir json");
     let display_list_json = to_pretty_json(&capture.page_display_lists).expect("display list json");
 
     assert_or_update_golden("tests/goldens/render_ir/compact.events.json", &event_json);
     assert_or_update_golden("tests/goldens/render_ir/compact.ir.json", &ir_json);
+    assert_or_update_golden(
+        "tests/goldens/render_ir/compact.semantic-ir.json",
+        &semantic_ir_json,
+    );
     assert_or_update_golden(
         "tests/goldens/render_ir/compact.display-list.json",
         &display_list_json,
