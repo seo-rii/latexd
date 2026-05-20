@@ -6354,6 +6354,57 @@ fn paracol_environment_capture_hides_column_arguments() {
 }
 
 #[test]
+fn threeparttable_capture_preserves_caption_and_notes_without_option_leakage() {
+    let capture =
+        capture_internal_render_ir("main.tex", THREEPARTTABLE_SOURCE, &SemanticAux::default());
+    let environment_names = capture
+        .document_ir
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            IrBlock::Environment(environment) => Some(environment.name.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(environment_names.contains(&"threeparttable"));
+    assert!(environment_names.contains(&"tablenotes"));
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if matches!(
+                    fallback.environment.as_deref(),
+                    Some("threeparttable" | "tablenotes")
+                )
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Measured table."));
+    assert!(extracted_text.contains("A | B"));
+    assert!(extracted_text.contains("Note [?]."));
+    for hidden in ["flushleft", "{key}"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Measured table."));
+    assert!(display_list_text.contains("A | B"));
+    assert!(display_list_text.contains("Note [?]."));
+    for hidden in ["flushleft", "{key}"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn algorithm_environment_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -7253,6 +7304,8 @@ const MINIPAGE_ENVIRONMENT_SOURCE: &str =
 const MULTICOLS_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{multicols}{2}Column \cite{key} text.\end{multicols}\begin{multicols*}{3}Wide text.\end{multicols*}\end{document}";
 
 const PARACOL_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{paracol}{2}Column \cite{key} text.\end{paracol}\begin{paracol*}{3}Wide text.\end{paracol*}\end{document}";
+
+const THREEPARTTABLE_SOURCE: &str = r"\begin{document}\begin{threeparttable}\caption{Measured table.}\begin{tabular}{ll}A & B \\\end{tabular}\begin{tablenotes}[flushleft]\item Note \cite{key}.\end{tablenotes}\end{threeparttable}\end{document}";
 
 const ALGORITHM_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{algorithm}\caption{Procedure.}\label{alg:first}Step text.\end{algorithm}\begin{algorithm*}Wide step.\end{algorithm*}\end{document}";
 

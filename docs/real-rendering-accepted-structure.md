@@ -353,6 +353,8 @@ The next implementation step has started with a narrow display-list spike:
   consuming column-count arguments so they do not appear as visible text;
 - `paracol` and `paracol*` now use the same structured environment path while
   `paracol.sty` resolves through the builtin package shim surface;
+- `threeparttable`, `measuredfigure`, and `tablenotes` now act as structured
+  wrappers, with `tablenotes` options consumed before table-note body capture;
 - `algorithm`, `algorithm*`, `algorithmic`, and `algorithmic*` now use the
   same structured environment path, preserving captions, labels, and body text
   without emitting RawFallback;
