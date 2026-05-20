@@ -233,9 +233,10 @@ The next implementation step has started with a narrow display-list spike:
   instead of leaking only the input filename. Scanner state for declared
   section/wrapper/environment rules is shared with included files, including
   preamble macro files that are loaded before `\begin{document}` and local
-  `.sty` files loaded through `\usepackage`/`\RequirePackage`, and active input
-  stacks now skip cyclic `\input`/`\include` recursion with a diagnostic instead
-  of repeatedly rendering the same file. `\includeonly` is also honored so
+  `.sty` files loaded through `\usepackage`/`\RequirePackage` and local `.cls`
+  files loaded through `\documentclass`/`\LoadClass`, and active input stacks
+  now skip cyclic `\input`/`\include` recursion with a diagnostic instead of
+  repeatedly rendering the same file. `\includeonly` is also honored so
   non-selected `\include` files do not appear in derived IR/display lists, while
   missing input/include files produce RenderEvent diagnostics instead of silently
   disappearing;

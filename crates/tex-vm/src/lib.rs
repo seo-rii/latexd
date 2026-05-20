@@ -2682,6 +2682,61 @@ impl<'i> Vm<'i> {
                         index = after_packages;
                     }
                 }
+                "documentclass" | "LoadClass" | "LoadClassWithOptions" => {
+                    let mut class_index = skip_ascii_whitespace(source, index);
+                    if command != "LoadClassWithOptions"
+                        && let Some((_, _, _, after_options)) =
+                            read_bracket_source_argument(source, class_index)
+                    {
+                        class_index = skip_ascii_whitespace(source, after_options);
+                    }
+                    if let Some((class_name, _, _, after_class)) =
+                        read_braced_source_argument(source, class_index)
+                    {
+                        let mut class_path =
+                            normalize_relative_path(Utf8Path::new(class_name.trim()))
+                                .ok()
+                                .map(|path| {
+                                    if path.extension().is_none() {
+                                        path.with_extension("cls")
+                                    } else {
+                                        path
+                                    }
+                                });
+                        if let Some(parent) = source_path.parent()
+                            && let Some(path) = class_path.as_ref()
+                            && !path.is_absolute()
+                        {
+                            let parent_path = parent.join(path);
+                            if self.resolve_existing_project_path(&parent_path).is_some() {
+                                class_path = Some(parent_path);
+                            }
+                        }
+                        if let Some(path) = class_path
+                            .as_ref()
+                            .and_then(|path| self.resolve_existing_project_path(path))
+                            && !scan_state.active_input_paths.contains(&path)
+                            && include_depth < 16
+                        {
+                            let class_source =
+                                self.mounted_files.get(&path).cloned().or_else(|| {
+                                    self.file_root
+                                        .as_ref()
+                                        .and_then(|root| fs::read_to_string(root.join(&path)).ok())
+                                });
+                            if let Some(class_source) = class_source {
+                                self.capture_render_events_from_source(
+                                    &path,
+                                    &class_source,
+                                    false,
+                                    include_depth + 1,
+                                    scan_state,
+                                );
+                            }
+                        }
+                        index = after_class;
+                    }
+                }
                 "includeonly" => {
                     let include_index = skip_ascii_whitespace(source, index);
                     if let Some((include_text, _, _, after_include)) =
@@ -20837,6 +20892,43 @@ Fallback text.
             .join("");
         assert!(visible_text.contains("TODO: package [?]"), "{visible_text}");
         for hidden in ["macros", "mysection", "reviewnote", "color", "red", "key"] {
+            assert!(
+                !visible_text.contains(hidden),
+                "{hidden} leaked in {visible_text}"
+            );
+        }
+    }
+
+    #[test]
+    fn render_event_capture_uses_macros_declared_in_class_files() {
+        let source = r"\documentclass{wrapper}\begin{document}\mysection{From Class}\reviewnote{class \cite{key}}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file(
+            "wrapper.cls",
+            r"\ProvidesClass{wrapper}\newcommand{\mysection}[1]{\section{#1}}\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}",
+        );
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Heading(heading) if heading.text == "From Class"
+        )));
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("TODO: class [?]"), "{visible_text}");
+        for hidden in ["wrapper", "mysection", "reviewnote", "color", "red", "key"] {
             assert!(
                 !visible_text.contains(hidden),
                 "{hidden} leaked in {visible_text}"
