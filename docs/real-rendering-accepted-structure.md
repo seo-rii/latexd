@@ -480,6 +480,9 @@ The next implementation step has started with a narrow display-list spike:
 - `PageDisplayList` text placement now applies continuation-line indentation
   for wrapped list items and bibliography entries, while keeping first-line
   markers/labels at the normal text margin;
+- abstract blocks now use their own first-line and continuation indentation in
+  `PageDisplayList` text placement instead of rendering flush with body
+  paragraphs;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:
