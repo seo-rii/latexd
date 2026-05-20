@@ -22,7 +22,7 @@ shaping, external asset conversion, or a real page builder in this batch.
 
 ## Current Implementation Status
 
-As of 2026-05-13, the first implementation batch is complete:
+As of 2026-05-20, the first implementation batch is complete:
 
 - `tex-render-model` owns shared provenance, event, IR, display-list skeleton,
   `AuxView`, and JSON golden helper types.
@@ -63,9 +63,15 @@ The next implementation step has started with a narrow display-list spike:
   text operations without consuming `DocumentIr` directly;
 - `latexd` internal captures now return the derived text-only
   `PageDisplayList` pages and display-list PDF bytes as debug/test artifacts;
+- display-list PDF tests now assert unresolved and aux-resolved citations render
+  labels/placeholders without exposing raw citation keys in visible PDF text;
 - the same capture can write `legacy-output.txt`, `events.json`,
   `document-ir.json`, `page-display-list.json`, `display-list-page-{n}.svg`,
   and `display-list.pdf` into a debug artifact directory;
+- ignored local arXiv oracle reports now persist official PDF text, internal
+  extracted text, internal PDFs, first-page official/internal PNG rasters, page
+  counts, and raster dimensions/non-white bounding boxes under the configured
+  report directory;
 - display-list PDF/SVG debug rendering now supports positioned text runs,
   simple `Rule` rectangles, and `Save`/`Restore` + `ClipRect` scopes;
 - display-list PDF/SVG debug rendering now exposes `Image` operations as
@@ -152,6 +158,9 @@ The next implementation step has started with a narrow display-list spike:
   so resource paths and options do not leak into rendered body text;
 - `printbibliography[...]` now emits an empty bibliography block boundary while
   consuming options without leaking raw biblatex command text;
+- when a local `jobname.bbl` is available, `printbibliography[...]` now reuses
+  the same `.bbl` scan path as legacy `\bibliography{...}` and emits
+  structured bibliography items instead of an empty block;
 - legacy BibTeX `bibliographystyle{...}` is consumed as non-visible metadata,
   and `bibliography{...}` emits an empty bibliography block boundary without
   leaking style or database names;
@@ -235,6 +244,10 @@ The next implementation step has started with a narrow display-list spike:
   survives metadata capture; affiliation lines are preserved as title-block
   author lines until a dedicated affiliation IR field exists, and `\thanks`
   text is separated instead of being concatenated into the author name;
+- class/package front matter shims now preserve visible title-block content for
+  `llncs`, `revtex4-2`, `wacv`, and `IEEEtran`, including `\institute`,
+  `\affiliation`, `\email`, and IEEE author-block wrappers without leaking
+  affiliation command names or numeric author markers;
 - `\footnote{...}` and `\footnotetext[...]{...}` now preserve their body text
   through the same nested inline-event path as text wrappers, so citation and
   reference placeholders survive without leaking raw braces or optional marks;
