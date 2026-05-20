@@ -41,6 +41,7 @@ struct OracleCaseReport {
     pdf_url: String,
     toplevel: Utf8PathBuf,
     oracle_pdf: Utf8PathBuf,
+    oracle_text: Utf8PathBuf,
     source_root: Utf8PathBuf,
     oracle_token_count: usize,
     oracle_unique_token_count: usize,
@@ -50,6 +51,7 @@ struct OracleCaseReport {
     common_unique_token_ratio: Option<f64>,
     missing_token_sample: Vec<String>,
     extra_token_sample: Vec<String>,
+    internal_text: Option<Utf8PathBuf>,
     internal_pdf: Option<Utf8PathBuf>,
     internal_build_failure: Option<String>,
     internal_diagnostics: Vec<String>,
@@ -99,6 +101,10 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
         };
         let oracle_text = extract_pdf_text(&pdftotext, &oracle_pdf)
             .unwrap_or_else(|error| panic!("{} oracle pdftotext failed: {error}", case.arxiv_id));
+        let oracle_text_path =
+            oracle_case_artifact_path(&report_dir, &case.arxiv_id, &case.version, "oracle.txt");
+        fs::write(oracle_text_path.as_std_path(), &oracle_text)
+            .unwrap_or_else(|error| panic!("{} write oracle text failed: {error}", case.arxiv_id));
         let oracle_tokens = tokenize(&oracle_text);
         assert!(
             oracle_tokens.len() >= case.min_oracle_tokens,
@@ -140,6 +146,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             pdf_url: case.pdf_url.clone(),
             toplevel: case.toplevel.clone(),
             oracle_pdf: oracle_pdf.clone(),
+            oracle_text: oracle_text_path,
             source_root: source_root.clone(),
             oracle_token_count: oracle_tokens.len(),
             oracle_unique_token_count: oracle_unique.len(),
@@ -149,6 +156,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             common_unique_token_ratio: None,
             missing_token_sample: Vec::new(),
             extra_token_sample: Vec::new(),
+            internal_text: None,
             internal_pdf: None,
             internal_build_failure: None,
             internal_diagnostics: Vec::new(),
@@ -165,6 +173,28 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                     extract_pdf_text(&pdftotext, &outcome.pdf_path).unwrap_or_else(|error| {
                         panic!("{} internal pdftotext failed: {error}", case.arxiv_id)
                     });
+                let internal_text_path = oracle_case_artifact_path(
+                    &report_dir,
+                    &case.arxiv_id,
+                    &case.version,
+                    "internal.txt",
+                );
+                fs::write(internal_text_path.as_std_path(), &internal_text).unwrap_or_else(
+                    |error| panic!("{} write internal text failed: {error}", case.arxiv_id),
+                );
+                let internal_pdf_path = oracle_case_artifact_path(
+                    &report_dir,
+                    &case.arxiv_id,
+                    &case.version,
+                    "internal.pdf",
+                );
+                fs::copy(
+                    outcome.pdf_path.as_std_path(),
+                    internal_pdf_path.as_std_path(),
+                )
+                .unwrap_or_else(|error| {
+                    panic!("{} copy internal PDF failed: {error}", case.arxiv_id)
+                });
                 let internal_tokens = tokenize(&internal_text);
                 let internal_unique = unique_tokens(&internal_tokens);
                 let common = oracle_unique
@@ -180,7 +210,8 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                     ordered_difference_sample(&oracle_tokens, &common, 80);
                 report.extra_token_sample =
                     ordered_difference_sample(&internal_tokens, &oracle_unique, 80);
-                report.internal_pdf = Some(outcome.pdf_path);
+                report.internal_text = Some(internal_text_path);
+                report.internal_pdf = Some(internal_pdf_path);
                 if strict {
                     assert!(
                         internal_tokens.len() >= case.min_internal_tokens,
@@ -317,4 +348,34 @@ fn ordered_difference_sample(
         }
     }
     sample
+}
+
+fn oracle_case_artifact_path(
+    report_dir: &Utf8Path,
+    arxiv_id: &str,
+    version: &str,
+    suffix: &str,
+) -> Utf8PathBuf {
+    let safe_arxiv_id = arxiv_id
+        .chars()
+        .map(|character| match character {
+            '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|' => '_',
+            character => character,
+        })
+        .collect::<String>();
+    report_dir.join(format!("{safe_arxiv_id}-{version}-{suffix}"))
+}
+
+#[test]
+fn arxiv_oracle_artifact_paths_are_report_local_and_safe() {
+    let report_dir = Utf8PathBuf::from("/tmp/latexd-report");
+
+    assert_eq!(
+        oracle_case_artifact_path(&report_dir, "2301.01234", "v2", "oracle.txt"),
+        Utf8PathBuf::from("/tmp/latexd-report/2301.01234-v2-oracle.txt")
+    );
+    assert_eq!(
+        oracle_case_artifact_path(&report_dir, "math/0301001", "v1", "internal.pdf"),
+        Utf8PathBuf::from("/tmp/latexd-report/math_0301001-v1-internal.pdf")
+    );
 }

@@ -116,7 +116,10 @@ LATEXD_ARXIV_CC0_CORPUS=/tmp/latexd-arxiv-cc0 \
 ```
 
 Use `LATEXD_ARXIV_ORACLE_STRICT=1` when you want the test to fail on oracle
-threshold regressions.
+threshold regressions. The oracle writes `cc0-smoke-report.json` plus per-case
+`*-oracle.txt`, `*-internal.txt`, and `*-internal.pdf` artifacts under
+`$LATEXD_ARXIV_CC0_CORPUS/reports` by default; override this with
+`LATEXD_ARXIV_ORACLE_REPORT_DIR`.
 
 ## Documentation
 
