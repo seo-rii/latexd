@@ -339,7 +339,17 @@
           "start_utf8": 156,
           "end_utf8": 159
         },
-        "related": [],
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 154,
+              "end_utf8": 161
+            }
+          }
+        ],
         "expansion_stack": [],
         "generated_by": "source",
         "expansion_stack_truncated": false

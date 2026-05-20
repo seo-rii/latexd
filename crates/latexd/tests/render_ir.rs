@@ -457,6 +457,87 @@ fn compact_heading_provenance_preserves_argument_and_invocation_spans() {
 }
 
 #[test]
+fn compact_display_math_provenance_preserves_body_and_delimiter_spans() {
+    let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
+    let display_math_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::DisplayMath(math) if math.raw_source == "x^2"
+            )
+        })
+        .expect("display math event");
+    let display_math_block = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::DisplayMath(math) if math.raw_source == "x^2" => Some(math),
+            _ => None,
+        })
+        .expect("display math block");
+    let display_math_text_run = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "x^2" => Some(run),
+            _ => None,
+        })
+        .expect("display math text run");
+
+    for source in [
+        &display_math_event.meta.source,
+        &display_math_block.source,
+        &display_math_text_run.source,
+    ] {
+        assert!(matches!(
+            &source.primary,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == "main.tex"
+                    && &COMPACT_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == "x^2"
+        ));
+        assert!(source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &COMPACT_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\[x^2\]"
+                )
+        }));
+    }
+
+    let provenance_snapshot = serde_json::json!({
+        "source": COMPACT_SOURCE,
+        "event": {
+            "event": display_math_event.event,
+            "meta": display_math_event.meta,
+        },
+        "ir": {
+            "raw_source": display_math_block.raw_source,
+            "normalized_text": display_math_block.normalized_text,
+            "source": display_math_block.source,
+        },
+        "display_list": {
+            "text": display_math_text_run.text,
+            "source": display_math_text_run.source,
+            "clusters": display_math_text_run.clusters,
+        },
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/display-math.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn title_inline_keys_are_redacted_in_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", TITLE_INLINE_KEY_SOURCE, &SemanticAux::default());

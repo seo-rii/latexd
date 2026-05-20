@@ -1,0 +1,96 @@
+{
+  "display_list": {
+    "clusters": [
+      {
+        "glyph_end": 3,
+        "glyph_start": 0,
+        "text_end_utf8": 3,
+        "text_start_utf8": 0
+      }
+    ],
+    "source": {
+      "expansion_stack": [],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 159,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 156
+      },
+      "related": [
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 161,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 154
+          }
+        }
+      ]
+    },
+    "text": "x^2"
+  },
+  "event": {
+    "event": {
+      "kind": "display_math",
+      "raw_source": "x^2"
+    },
+    "meta": {
+      "confidence": "high",
+      "event_id": 15,
+      "mode_hint": "unknown",
+      "producer": "command",
+      "source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 159,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 156
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 161,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 154
+            }
+          }
+        ]
+      }
+    }
+  },
+  "ir": {
+    "normalized_text": null,
+    "raw_source": "x^2",
+    "source": {
+      "expansion_stack": [],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 159,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 156
+      },
+      "related": [
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 161,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 154
+          }
+        }
+      ]
+    }
+  },
+  "source": "\\title{A Paper}\\author{Ada Lovelace}\\date{May 1843}\\begin{document}\\maketitle\\begin{abstract}Short abstract.\\end{abstract}\\section{Intro}Hello \\cite{key}.\\[x^2\\]\\begin{thebibliography}{1}\\bibitem{key} Author. Title.\\end{thebibliography}\\begin{unknownenv}Fallback text.\\end{unknownenv}\\end{document}"
+}

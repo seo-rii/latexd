@@ -1263,6 +1263,14 @@ impl<'i> Vm<'i> {
                                 source_path.to_owned(),
                                 math_start as u32,
                                 math_end as u32,
+                            )
+                            .with_related(
+                                SourceSpanRole::Invocation,
+                                ProvenanceSpan::File(SourceSpan {
+                                    path: source_path.to_owned(),
+                                    start_utf8: index as u32,
+                                    end_utf8: (math_end + delimiter_len) as u32,
+                                }),
                             ),
                         );
                         index = math_end + delimiter_len;
@@ -6002,6 +6010,14 @@ impl<'i> Vm<'i> {
                                 source_path.to_owned(),
                                 math_start as u32,
                                 math_end as u32,
+                            )
+                            .with_related(
+                                SourceSpanRole::Invocation,
+                                ProvenanceSpan::File(SourceSpan {
+                                    path: source_path.to_owned(),
+                                    start_utf8: command_start as u32,
+                                    end_utf8: (math_end + 2) as u32,
+                                }),
                             ),
                         );
                         index = math_end + 2;
@@ -6072,6 +6088,14 @@ impl<'i> Vm<'i> {
                                 source_path.to_owned(),
                                 math_start as u32,
                                 math_end as u32,
+                            )
+                            .with_related(
+                                SourceSpanRole::Invocation,
+                                ProvenanceSpan::File(SourceSpan {
+                                    path: source_path.to_owned(),
+                                    start_utf8: command_start as u32,
+                                    end_utf8: (math_end + 2) as u32,
+                                }),
                             ),
                         );
                         index = math_end + 2;
@@ -20114,6 +20138,16 @@ Fallback text.
                 if span.path == Utf8PathBuf::from("main.tex")
                     && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "x^2 + y^2"
         ));
+        assert!(inline_math.meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\(x^2 + y^2\)"
+                )
+        }));
     }
 
     #[test]
@@ -20145,6 +20179,16 @@ Fallback text.
                 if span.path == Utf8PathBuf::from("main.tex")
                     && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "x^2 + y^2"
         ));
+        assert!(inline_math.meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "$x^2 + y^2$"
+                )
+        }));
         assert!(matches!(
             &display_math.event,
             RenderEvent::DisplayMath(math) if math.raw_source == "z^2"
@@ -20155,6 +20199,16 @@ Fallback text.
                 if span.path == Utf8PathBuf::from("main.tex")
                     && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "z^2"
         ));
+        assert!(display_math.meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "$$z^2$$"
+                )
+        }));
     }
 
     #[test]
@@ -20262,11 +20316,20 @@ Fallback text.
                 RenderEvent::LabelDefinition(label) if label.key == "eq:bracket"
             )
         }));
-        assert!(outcome.render_events.iter().any(|event| {
-            matches!(
-                &event.event,
-                RenderEvent::DisplayMath(math) if math.raw_source == "y"
-            )
+        let display_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::DisplayMath(math) if math.raw_source == "y"))
+            .expect("display math event");
+        assert!(display_math.meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\[\label{eq:bracket}y\]"
+                )
         }));
         assert!(!outcome.render_events.iter().any(|event| {
             matches!(
