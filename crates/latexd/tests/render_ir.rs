@@ -1728,6 +1728,87 @@ fn graphic_provenance_preserves_invocation_and_path_argument_spans() {
 }
 
 #[test]
+fn caption_provenance_preserves_text_and_invocation_spans() {
+    let capture = capture_internal_render_ir("main.tex", GRAPHIC_SOURCE, &SemanticAux::default());
+    let caption_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(&envelope.event, RenderEvent::Caption(caption) if caption.text == "Plot caption.")
+        })
+        .expect("caption event");
+    let graphic_block = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Graphic(graphic) if graphic.path == "figures/plot.pdf" => Some(graphic),
+            _ => None,
+        })
+        .expect("graphic block");
+    let caption_source = graphic_block
+        .caption_source
+        .as_ref()
+        .expect("caption source");
+    let caption_text_run = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "Plot caption." => Some(run),
+            _ => None,
+        })
+        .expect("caption text run");
+
+    for source in [
+        &caption_event.meta.source,
+        caption_source,
+        &caption_text_run.source,
+    ] {
+        assert!(matches!(
+            &source.primary,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == "main.tex"
+                    && &GRAPHIC_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == "Plot caption."
+        ));
+        assert!(source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &GRAPHIC_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\caption{Plot caption.}"
+                )
+        }));
+    }
+
+    let provenance_snapshot = serde_json::json!({
+        "source": GRAPHIC_SOURCE,
+        "event": {
+            "event": caption_event.event,
+            "meta": caption_event.meta,
+        },
+        "ir": {
+            "caption": graphic_block.caption,
+            "caption_source": graphic_block.caption_source,
+        },
+        "display_list": {
+            "text": caption_text_run.text,
+            "source": caption_text_run.source,
+            "clusters": caption_text_run.clusters,
+        },
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/caption.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn extensionless_graphic_assets_resolve_before_ir_and_display_list() {
     let capture = capture_internal_render_ir_with_mounted_files(
         "main.tex",

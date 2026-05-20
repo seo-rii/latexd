@@ -1921,6 +1921,7 @@ impl<'i> Vm<'i> {
                                                 if let Some(after) = self.capture_caption_event(
                                                     source_path,
                                                     source,
+                                                    body_command_start,
                                                     body_command_index,
                                                     body_end,
                                                 ) {
@@ -5948,16 +5949,24 @@ impl<'i> Vm<'i> {
                     }
                 }
                 "caption" if in_document => {
-                    if let Some(after) =
-                        self.capture_caption_event(source_path, source, index, source.len())
-                    {
+                    if let Some(after) = self.capture_caption_event(
+                        source_path,
+                        source,
+                        command_start,
+                        index,
+                        source.len(),
+                    ) {
                         index = after;
                     }
                 }
                 "captionof" if in_document => {
-                    if let Some(after) =
-                        self.capture_captionof_event(source_path, source, index, source.len())
-                    {
+                    if let Some(after) = self.capture_captionof_event(
+                        source_path,
+                        source,
+                        command_start,
+                        index,
+                        source.len(),
+                    ) {
                         index = after;
                     }
                 }
@@ -6708,6 +6717,7 @@ impl<'i> Vm<'i> {
         &mut self,
         source_path: &Utf8Path,
         source: &str,
+        command_start: usize,
         argument_index: usize,
         limit: usize,
     ) -> Option<usize> {
@@ -6738,6 +6748,14 @@ impl<'i> Vm<'i> {
                 source_path.to_owned(),
                 content_start as u32,
                 content_end as u32,
+            )
+            .with_related(
+                SourceSpanRole::Invocation,
+                ProvenanceSpan::File(SourceSpan {
+                    path: source_path.to_owned(),
+                    start_utf8: command_start as u32,
+                    end_utf8: after as u32,
+                }),
             ),
         );
         Some(after)
@@ -6747,6 +6765,7 @@ impl<'i> Vm<'i> {
         &mut self,
         source_path: &Utf8Path,
         source: &str,
+        command_start: usize,
         argument_index: usize,
         limit: usize,
     ) -> Option<usize> {
@@ -6785,6 +6804,14 @@ impl<'i> Vm<'i> {
                 source_path.to_owned(),
                 content_start as u32,
                 content_end as u32,
+            )
+            .with_related(
+                SourceSpanRole::Invocation,
+                ProvenanceSpan::File(SourceSpan {
+                    path: source_path.to_owned(),
+                    start_utf8: command_start as u32,
+                    end_utf8: after as u32,
+                }),
             ),
         );
         Some(after)
@@ -19153,10 +19180,33 @@ Fallback text.
                                 == "figures/plot.pdf"
                 )
         }));
-        assert!(outcome.render_events.iter().any(|event| matches!(
-            &event.event,
-            RenderEvent::Caption(caption) if caption.text == "Plot caption."
-        )));
+        let caption_event = outcome
+            .render_events
+            .iter()
+            .find(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::Caption(caption) if caption.text == "Plot caption."
+                )
+            })
+            .expect("caption event");
+        assert!(matches!(
+            &caption_event.meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == "Plot caption."
+        ));
+        assert!(caption_event.meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\caption{Plot caption.}"
+                )
+        }));
         assert!(!outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::RawFallback(fallback)
