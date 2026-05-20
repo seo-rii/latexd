@@ -148,10 +148,22 @@ pub fn capture_internal_render_ir(
     source: &str,
     aux: &impl AuxView,
 ) -> InternalRenderIrCapture {
+    capture_internal_render_ir_with_mounted_files(source_path, source, aux, &[])
+}
+
+pub fn capture_internal_render_ir_with_mounted_files(
+    source_path: impl Into<Utf8PathBuf>,
+    source: &str,
+    aux: &impl AuxView,
+    mounted_files: &[(&str, &str)],
+) -> InternalRenderIrCapture {
     let source_path = source_path.into();
     let mut interner = ControlSequenceInterner::new();
     let mut vm = tex_vm::Vm::new(&mut interner);
     vm.set_entry_source_path(source_path.clone());
+    for (path, source) in mounted_files {
+        vm.mount_file(*path, *source);
+    }
     vm.enable_render_event_capture();
     let outcome = vm.run_plain(source);
     let events = RenderEventStream::new(Some(source_path.to_string()), outcome.render_events);

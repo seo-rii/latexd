@@ -983,7 +983,7 @@ impl<'i> Vm<'i> {
                 .entry_source_path
                 .clone()
                 .unwrap_or_else(|| Utf8PathBuf::from("texput.tex"));
-            self.capture_render_events_from_source(&source_path, source);
+            self.capture_render_events_from_source(&source_path, source, false, 0);
         }
         let tokens = {
             let interner = &mut *self.interner;
@@ -992,11 +992,17 @@ impl<'i> Vm<'i> {
         self.run(tokens)
     }
 
-    fn capture_render_events_from_source(&mut self, source_path: &Utf8Path, source: &str) {
+    fn capture_render_events_from_source(
+        &mut self,
+        source_path: &Utf8Path,
+        source: &str,
+        initial_in_document: bool,
+        include_depth: usize,
+    ) {
         let bytes = source.as_bytes();
         let mut index = 0usize;
         let mut text_start = 0usize;
-        let mut in_document = false;
+        let mut in_document = initial_in_document;
         let mut no_hyper_depth = 0usize;
         let mut section_macros = HashMap::<String, (usize, usize)>::new();
         let mut readable_wrapper_macros = HashMap::<String, (usize, usize, String)>::new();
@@ -2579,6 +2585,53 @@ impl<'i> Vm<'i> {
                         read_braced_source_argument(source, key_index)
                     {
                         index = after_key;
+                    }
+                }
+                "input" | "include" if in_document => {
+                    let path_index = skip_ascii_whitespace(source, index);
+                    if let Some((path_text, _, _, after_path)) =
+                        read_braced_source_argument(source, path_index)
+                    {
+                        let mut input_path =
+                            normalize_relative_path(Utf8Path::new(path_text.trim()))
+                                .ok()
+                                .map(|path| {
+                                    if path.extension().is_none() {
+                                        path.with_extension("tex")
+                                    } else {
+                                        path
+                                    }
+                                });
+                        if let Some(parent) = source_path.parent()
+                            && let Some(path) = input_path.as_ref()
+                            && !path.is_absolute()
+                        {
+                            let parent_path = parent.join(path);
+                            if self.resolve_existing_project_path(&parent_path).is_some() {
+                                input_path = Some(parent_path);
+                            }
+                        }
+                        if let Some(path) = input_path
+                            .as_ref()
+                            .and_then(|path| self.resolve_existing_project_path(path))
+                            && include_depth < 16
+                        {
+                            let included_source =
+                                self.mounted_files.get(&path).cloned().or_else(|| {
+                                    self.file_root
+                                        .as_ref()
+                                        .and_then(|root| fs::read_to_string(root.join(&path)).ok())
+                                });
+                            if let Some(included_source) = included_source {
+                                self.capture_render_events_from_source(
+                                    &path,
+                                    &included_source,
+                                    true,
+                                    include_depth + 1,
+                                );
+                            }
+                        }
+                        index = after_path;
                     }
                 }
                 "sisetup" => {
@@ -20389,6 +20442,52 @@ Fallback text.
                 "{hidden} leaked in {visible_text}"
             );
         }
+    }
+
+    #[test]
+    fn render_event_capture_scans_mounted_input_files() {
+        let source = r"\begin{document}Before. \input{child} After.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file(
+            "child.tex",
+            r"\section{Included}See \cite{key} and \ref{sec:intro}.",
+        );
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Heading(heading) if heading.text == "Included"
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineCitation(citation) if citation.keys == vec!["key".to_string()]
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineReference(reference)
+                if reference.keys == vec!["sec:intro".to_string()]
+        )));
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("Before."), "{visible_text}");
+        assert!(visible_text.contains("See  and ."), "{visible_text}");
+        assert!(visible_text.contains("After."), "{visible_text}");
+        assert!(!visible_text.contains("input"));
+        assert!(!visible_text.contains("child"));
+        assert!(!visible_text.contains("key"));
+        assert!(!visible_text.contains("sec:intro"));
     }
 
     #[test]

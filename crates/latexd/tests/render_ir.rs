@@ -1,7 +1,7 @@
 use std::{env, fs, path::Path};
 
 use camino::Utf8PathBuf;
-use latexd::compiler::capture_internal_render_ir;
+use latexd::compiler::{capture_internal_render_ir, capture_internal_render_ir_with_mounted_files};
 use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{
     CitationStyleHint, DrawOp, ListKind, MetadataField, RenderEvent, to_pretty_json,
@@ -4313,6 +4313,63 @@ fn color_decoration_commands_preserve_visible_text_without_color_noise() {
 }
 
 #[test]
+fn input_file_content_survives_ir_and_display_list() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        INPUT_MAIN_SOURCE,
+        &SemanticAux::default(),
+        &[("child.tex", INPUT_CHILD_SOURCE)],
+    );
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Heading(heading)
+                if matches!(
+                    heading.content.first(),
+                    Some(InlineNode::Text { text, .. }) if text == "Included"
+                )
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    for expected in ["Before.", "Included", "See [?] and [?].", "After."] {
+        assert!(
+            extracted_text.contains(expected),
+            "{expected} missing in {extracted_text}"
+        );
+    }
+    for hidden in ["input", "child", "key", "sec:intro"] {
+        assert!(
+            !extracted_text.contains(hidden),
+            "{hidden} leaked in {extracted_text}"
+        );
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    for expected in ["Before.", "Included", "See [?] and [?].", "After."] {
+        assert!(
+            display_list_text.contains(expected),
+            "{expected} missing in {display_list_text}"
+        );
+    }
+    for hidden in ["input", "child", "key", "sec:intro"] {
+        assert!(
+            !display_list_text.contains(hidden),
+            "{hidden} leaked in {display_list_text}"
+        );
+    }
+}
+
+#[test]
 fn nested_text_wrapper_unknown_command_inline_events_survive_ir_without_raw_keys() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -7765,6 +7822,10 @@ const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_SOURCE: &str =
 const DECLARED_TOP_LEVEL_WRAPPER_SOURCE: &str = r"\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}\begin{document}A \reviewnote{check \cite{key}, \ref{sec:intro}, and \href{https://hidden.test}{paper}} B.\end{document}";
 
 const COLOR_DECORATION_SOURCE: &str = r"\begin{document}A \color{magenta}colored word and \textcolor{cyan}{visible \cite{key}} plus \colorbox{yellow}{boxed \ref{sec:intro}} and \fcolorbox{black}{white}{framed \href{https://hidden.test}{paper}}.\end{document}";
+
+const INPUT_MAIN_SOURCE: &str = r"\begin{document}Before. \input{child} After.\end{document}";
+
+const INPUT_CHILD_SOURCE: &str = r"\section{Included}See \cite{key} and \ref{sec:intro}.";
 
 const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_INLINE_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{see \cite{key}, \citep*{starred}, \ref{sec:intro}, \crefrange*{fig:a}{fig:b}, and \ref*{sec:starred}} after}.\end{document}";
 
