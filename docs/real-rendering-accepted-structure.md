@@ -503,6 +503,8 @@ The next implementation step has started with a narrow display-list spike:
   destination surface instead of label-only IR metadata;
 - numbered `HeadingBlock` values now render their semantic number prefix in
   `PageDisplayList` text instead of dropping numbering decided before layout;
+- `DocumentIr::extracted_text()` also preserves numbered heading prefixes, so
+  text oracles and display-list rendering agree on semantic heading text;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:

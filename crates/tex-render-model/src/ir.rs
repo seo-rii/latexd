@@ -72,6 +72,10 @@ impl DocumentIr {
                     }
                 }
                 IrBlock::Heading(block) => {
+                    if let Some(number) = &block.number {
+                        text.push_str(number);
+                        text.push(' ');
+                    }
                     for node in &block.content {
                         match node {
                             InlineNode::Text { text: value, .. } => text.push_str(value),
@@ -385,4 +389,26 @@ pub struct LinkInline {
     pub target: String,
     pub display_text: String,
     pub source: SourceProvenance,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DocumentIr, HeadingBlock, InlineNode, IrBlock};
+    use crate::SourceProvenance;
+
+    #[test]
+    fn extracted_text_includes_heading_numbers() {
+        let source = SourceProvenance::file("main.tex", 0, 16);
+        let document = DocumentIr::new(vec![IrBlock::Heading(HeadingBlock {
+            level: 1,
+            number: Some("1".to_string()),
+            content: vec![InlineNode::Text {
+                text: "Intro".to_string(),
+                source: source.clone(),
+            }],
+            source,
+        })]);
+
+        assert_eq!(document.extracted_text(), "1 Intro");
+    }
 }
