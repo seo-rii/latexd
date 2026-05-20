@@ -43,6 +43,7 @@ struct OracleCaseReport {
     oracle_pdf: Utf8PathBuf,
     oracle_text: Utf8PathBuf,
     oracle_page_count: usize,
+    oracle_first_page_raster: Utf8PathBuf,
     source_root: Utf8PathBuf,
     oracle_token_count: usize,
     oracle_unique_token_count: usize,
@@ -56,6 +57,7 @@ struct OracleCaseReport {
     internal_pdf: Option<Utf8PathBuf>,
     internal_page_count: Option<usize>,
     page_count_delta: Option<i64>,
+    internal_first_page_raster: Option<Utf8PathBuf>,
     internal_build_failure: Option<String>,
     internal_diagnostics: Vec<String>,
 }
@@ -80,6 +82,13 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
         Ok(path) => path,
         Err(_) => {
             eprintln!("skipping: pdfinfo is not installed");
+            return;
+        }
+    };
+    let pdftoppm = match which::which("pdftoppm") {
+        Ok(path) => path,
+        Err(_) => {
+            eprintln!("skipping: pdftoppm is not installed");
             return;
         }
     };
@@ -117,6 +126,16 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             .unwrap_or_else(|error| panic!("{} write oracle text failed: {error}", case.arxiv_id));
         let oracle_page_count = extract_pdf_page_count(&pdfinfo, &oracle_pdf)
             .unwrap_or_else(|error| panic!("{} oracle pdfinfo failed: {error}", case.arxiv_id));
+        let oracle_raster_prefix = oracle_case_first_page_raster_prefix(
+            &report_dir,
+            &case.arxiv_id,
+            &case.version,
+            "oracle",
+        );
+        let oracle_first_page_raster =
+            rasterize_pdf_first_page(&pdftoppm, &oracle_pdf, &oracle_raster_prefix).unwrap_or_else(
+                |error| panic!("{} oracle first-page raster failed: {error}", case.arxiv_id),
+            );
         let oracle_tokens = tokenize(&oracle_text);
         assert!(
             oracle_tokens.len() >= case.min_oracle_tokens,
@@ -160,6 +179,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             oracle_pdf: oracle_pdf.clone(),
             oracle_text: oracle_text_path,
             oracle_page_count,
+            oracle_first_page_raster,
             source_root: source_root.clone(),
             oracle_token_count: oracle_tokens.len(),
             oracle_unique_token_count: oracle_unique.len(),
@@ -173,6 +193,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             internal_pdf: None,
             internal_page_count: None,
             page_count_delta: None,
+            internal_first_page_raster: None,
             internal_build_failure: None,
             internal_diagnostics: Vec::new(),
         };
@@ -214,6 +235,20 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                     .unwrap_or_else(|error| {
                         panic!("{} internal pdfinfo failed: {error}", case.arxiv_id)
                     });
+                let internal_raster_prefix = oracle_case_first_page_raster_prefix(
+                    &report_dir,
+                    &case.arxiv_id,
+                    &case.version,
+                    "internal",
+                );
+                let internal_first_page_raster =
+                    rasterize_pdf_first_page(&pdftoppm, &outcome.pdf_path, &internal_raster_prefix)
+                        .unwrap_or_else(|error| {
+                            panic!(
+                                "{} internal first-page raster failed: {error}",
+                                case.arxiv_id
+                            )
+                        });
                 let internal_tokens = tokenize(&internal_text);
                 let internal_unique = unique_tokens(&internal_tokens);
                 let common = oracle_unique
@@ -234,6 +269,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                 report.internal_page_count = Some(internal_page_count);
                 report.page_count_delta =
                     Some(internal_page_count as i64 - oracle_page_count as i64);
+                report.internal_first_page_raster = Some(internal_first_page_raster);
                 if strict {
                     assert!(
                         internal_tokens.len() >= case.min_internal_tokens,
@@ -347,6 +383,39 @@ fn parse_pdfinfo_page_count(output: &str) -> anyhow::Result<usize> {
     anyhow::bail!("pdfinfo output did not contain Pages")
 }
 
+fn rasterize_pdf_first_page(
+    pdftoppm: &std::path::Path,
+    pdf_path: &Utf8Path,
+    output_prefix: &Utf8Path,
+) -> anyhow::Result<Utf8PathBuf> {
+    let output = Command::new(pdftoppm)
+        .args([
+            "-png",
+            "-singlefile",
+            "-f",
+            "1",
+            "-l",
+            "1",
+            "-r",
+            "72",
+            pdf_path.as_str(),
+            output_prefix.as_str(),
+        ])
+        .output()?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "pdftoppm exited with {}: {}",
+            output.status,
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    let output_path = output_prefix.with_extension("png");
+    if !output_path.exists() {
+        anyhow::bail!("pdftoppm did not write expected output {output_path}");
+    }
+    Ok(output_path)
+}
+
 fn copy_dir(source_root: &Utf8Path, target_root: &Utf8Path) {
     let mut stack = vec![(source_root.to_owned(), target_root.to_owned())];
     while let Some((source_dir, target_dir)) = stack.pop() {
@@ -413,6 +482,15 @@ fn oracle_case_artifact_path(
     report_dir.join(format!("{safe_arxiv_id}-{version}-{suffix}"))
 }
 
+fn oracle_case_first_page_raster_prefix(
+    report_dir: &Utf8Path,
+    arxiv_id: &str,
+    version: &str,
+    variant: &str,
+) -> Utf8PathBuf {
+    oracle_case_artifact_path(report_dir, arxiv_id, version, &format!("{variant}-page-1"))
+}
+
 #[test]
 fn arxiv_oracle_artifact_paths_are_report_local_and_safe() {
     let report_dir = Utf8PathBuf::from("/tmp/latexd-report");
@@ -432,4 +510,14 @@ fn arxiv_oracle_parses_pdfinfo_page_count() {
     let output = "Title:          A Paper\nPages:          17\nPage size:      612 x 792 pts\n";
 
     assert_eq!(parse_pdfinfo_page_count(output).expect("page count"), 17);
+}
+
+#[test]
+fn arxiv_oracle_first_page_raster_paths_are_report_local() {
+    let report_dir = Utf8PathBuf::from("/tmp/latexd-report");
+
+    assert_eq!(
+        oracle_case_first_page_raster_prefix(&report_dir, "math/0301001", "v1", "oracle"),
+        Utf8PathBuf::from("/tmp/latexd-report/math_0301001-v1-oracle-page-1")
+    );
 }
