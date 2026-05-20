@@ -216,6 +216,9 @@ The next implementation step has started with a narrow display-list spike:
   survives metadata capture; affiliation lines are preserved as title-block
   author lines until a dedicated affiliation IR field exists, and `\thanks`
   text is separated instead of being concatenated into the author name;
+- `\footnote{...}` and `\footnotetext[...]{...}` now preserve their body text
+  through the same nested inline-event path as text wrappers, so citation and
+  reference placeholders survive without leaking raw braces or optional marks;
 - `\href` and `\url` now survive as inline link events, `Link` IR nodes, text
   runs, and `LinkAnnotation` display-list operations without leaking hidden
   `\href` targets into visible body text; `\url` supports both braced and

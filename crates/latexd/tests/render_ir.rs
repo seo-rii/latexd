@@ -232,6 +232,38 @@ fn authblk_frontmatter_survives_ir_and_display_list() {
 }
 
 #[test]
+fn footnote_bodies_survive_ir_and_display_list_without_raw_braces() {
+    let capture =
+        capture_internal_render_ir("main.tex", FOOTNOTE_BODY_SOURCE, &SemanticAux::default());
+    let extracted_text = capture.document_ir.extracted_text();
+
+    assert!(
+        extracted_text.contains("Text Note [?] and [?]. after. Loose note."),
+        "{extracted_text}"
+    );
+    for hidden in ["footnote", "footnotetext", "{", "}", "key", "sec:intro"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("Text Note [?] and [?]. after. Loose note."),
+        "{display_list_text}"
+    );
+    for hidden in ["footnote", "footnotetext", "{", "}", "key", "sec:intro"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn compact_ir_contains_expected_first_batch_structures() {
     let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
 
@@ -7449,6 +7481,8 @@ const TITLE_INLINE_KEY_SOURCE: &str =
     r"\title{See \cite{key} and \ref{sec:intro}.}\begin{document}\maketitle\end{document}";
 
 const AUTHBLK_FRONTMATTER_SOURCE: &str = r"\usepackage{authblk}\title{Quantum Paper}\author[1]{Nai-Hui Chia\thanks{nc67@rice.edu}}\author[2]{Atsuya Hasegawa}\affil[1]{\textit{Department of Computer Science}}\affil[2]{Graduate School of Mathematics}\begin{document}\maketitle\end{document}";
+
+const FOOTNOTE_BODY_SOURCE: &str = r"\begin{document}Text\footnote{Note \cite{key} and \ref{sec:intro}.} after.\footnotetext[1]{Loose note.}\end{document}";
 
 const STARRED_ABSTRACT_SOURCE: &str =
     r"\begin{document}\begin{abstract*}Starred \cite{key} abstract.\end{abstract*}\end{document}";

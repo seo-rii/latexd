@@ -2943,12 +2943,32 @@ impl<'i> Vm<'i> {
                 }
                 "emph" | "textbf" | "textit" | "texttt" | "textsc" | "textrm" | "textsf"
                 | "underline" | "mbox" | "textsuperscript" | "textsubscript" | "citetext"
+                | "footnote" | "footnotetext"
                     if in_document =>
                 {
+                    let detached_note = matches!(command, "footnote" | "footnotetext");
                     index = skip_ascii_whitespace(source, index);
+                    if detached_note
+                        && let Some((_, _, _, after_option)) =
+                            read_bracket_source_argument(source, index)
+                    {
+                        index = skip_ascii_whitespace(source, after_option);
+                    }
                     if let Some((text, content_start, content_end, after)) =
                         read_braced_source_argument(source, index)
                     {
+                        if detached_note {
+                            self.emit_render_event(
+                                RenderEvent::Space(SpaceEvent {
+                                    kind: SpaceKind::Interword,
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    command_start as u32,
+                                    content_start as u32,
+                                ),
+                            );
+                        }
                         if text.contains('\\') || text.contains('$') {
                             let mut inner_index = content_start;
                             let mut inner_text_start = content_start;
@@ -5186,6 +5206,14 @@ impl<'i> Vm<'i> {
                             );
                         }
                         index = after;
+                    }
+                }
+                "footnotemark" if in_document => {
+                    index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_option)) =
+                        read_bracket_source_argument(source, index)
+                    {
+                        index = after_option;
                     }
                 }
                 "%" | "&" | "$" | "#" | "_" | "{" | "}" if in_document => {
@@ -22151,6 +22179,48 @@ Fallback text.
             assert!(!author.contains("affil"));
             assert!(!author.contains("thanks"));
         }
+    }
+
+    #[test]
+    fn render_event_capture_records_footnote_bodies_with_inline_events() {
+        let source = r"\begin{document}Text\footnote{Note \cite{key} and \ref{sec:intro}.} after.\footnotetext[1]{Loose note.}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                RenderEvent::InlineCitation(_) | RenderEvent::InlineReference(_) => Some("[?]"),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(
+            visible_text.contains("Text Note [?] and [?]. after. Loose note."),
+            "{visible_text}"
+        );
+        for hidden in ["footnote", "footnotetext", "{", "}", "key", "sec:intro"] {
+            assert!(!visible_text.contains(hidden), "{visible_text}");
+        }
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::InlineCitation(citation) if citation.keys == vec!["key".to_string()]
+            )
+        }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::InlineReference(reference)
+                    if reference.keys == vec!["sec:intro".to_string()]
+            )
+        }));
     }
 
     #[test]
