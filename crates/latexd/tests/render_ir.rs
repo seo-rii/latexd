@@ -5300,6 +5300,55 @@ fn adjustwidth_wrappers_capture_hides_margin_arguments() {
 }
 
 #[test]
+fn addmargin_wrappers_capture_hides_margin_arguments() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        ADDMARGIN_WRAPPER_SOURCE,
+        &SemanticAux::default(),
+    );
+    let environment_names = capture
+        .document_ir
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            IrBlock::Environment(environment) => Some(environment.name.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(environment_names.contains(&"addmargin"));
+    assert!(environment_names.contains(&"addmargin*"));
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if matches!(fallback.environment.as_deref(), Some("addmargin" | "addmargin*"))
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Inset [?] text."));
+    assert!(extracted_text.contains("Star text."));
+    for argument in ["1em", "2em", "3em", "{key}"] {
+        assert!(!extracted_text.contains(argument));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Inset [?] text."));
+    assert!(display_list_text.contains("Star text."));
+    for argument in ["1em", "2em", "3em", "{key}"] {
+        assert!(!display_list_text.contains(argument));
+    }
+}
+
+#[test]
 fn appendices_environment_capture_preserves_nested_headings() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -6336,6 +6385,8 @@ const WIDE_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}\begin{widetext}Wide \c
 const SPACING_WRAPPER_SOURCE: &str = r"\begin{document}\begin{spacing}{1.5}Spaced \cite{key} text.\end{spacing}\begin{onehalfspace}Half text.\end{onehalfspace}\begin{doublespace}Double text.\end{doublespace}\begin{singlespace}Single text.\end{singlespace}\end{document}";
 
 const ADJUSTWIDTH_WRAPPER_SOURCE: &str = r"\begin{document}\begin{adjustwidth}{1cm}{2cm}Margin \cite{key} text.\end{adjustwidth}\begin{adjustwidth*}{-1em}{0pt}Star text.\end{adjustwidth*}\end{document}";
+
+const ADDMARGIN_WRAPPER_SOURCE: &str = r"\begin{document}\begin{addmargin}[1em]{2em}Inset \cite{key} text.\end{addmargin}\begin{addmargin*}{3em}Star text.\end{addmargin*}\end{document}";
 
 const APPENDICES_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{appendices}\section{Extra}Appendix \ref{sec:intro} text.\end{appendices}\begin{subappendices}\subsection{More}More text.\end{subappendices}\end{document}";
 

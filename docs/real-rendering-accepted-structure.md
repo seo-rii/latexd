@@ -316,6 +316,8 @@ The next implementation step has started with a narrow display-list spike:
   appear as visible text;
 - `adjustwidth` and `adjustwidth*` now act as structured wrappers while
   consuming margin arguments so they do not appear as visible text;
+- `addmargin` and `addmargin*` now act as structured wrappers while consuming
+  optional/required margin arguments so they do not appear as visible text;
 - `minipage` now uses the structured environment path while consuming layout
   position/width arguments so they do not appear as visible text;
 - `multicols` and `multicols*` now use the structured environment path while

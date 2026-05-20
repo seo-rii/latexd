@@ -971,6 +971,8 @@ impl<'i> Vm<'i> {
             "singlespace",
             "adjustwidth",
             "adjustwidth*",
+            "addmargin",
+            "addmargin*",
             "algorithm",
             "algorithm*",
             "algorithmic",
@@ -1333,6 +1335,21 @@ impl<'i> Vm<'i> {
                                         }
                                     }
                                     index = argument_index;
+                                } else if matches!(other, "addmargin" | "addmargin*") {
+                                    let mut argument_index = skip_ascii_whitespace(source, index);
+                                    if let Some((_, _, _, after_optional_margin)) =
+                                        read_bracket_source_argument(source, argument_index)
+                                    {
+                                        argument_index =
+                                            skip_ascii_whitespace(source, after_optional_margin);
+                                    }
+                                    if let Some((_, _, _, after_margin)) =
+                                        read_braced_source_argument(source, argument_index)
+                                    {
+                                        index = after_margin;
+                                    } else {
+                                        index = argument_index;
+                                    }
                                 }
                                 self.emit_render_event(
                                     RenderEvent::BeginBlock(BeginBlockEvent {
@@ -19683,6 +19700,46 @@ Fallback text.
                 RenderEvent::RawFallback(fallback) => matches!(
                     fallback.environment.as_deref(),
                     Some("adjustwidth" | "adjustwidth*")
+                ),
+                _ => false,
+            }
+        }));
+    }
+
+    #[test]
+    fn render_event_capture_records_addmargin_without_margin_arguments() {
+        let source = r"\begin{document}\begin{addmargin}[1em]{2em}Inset \cite{key} text.\end{addmargin}\begin{addmargin*}{3em}Star text.\end{addmargin*}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for environment in ["addmargin", "addmargin*"] {
+            assert!(outcome.render_events.iter().any(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::BeginBlock(BeginBlockEvent {
+                        block: BlockKind::Environment { name },
+                    }) if name == environment
+                )
+            }));
+        }
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::InlineCitation(citation)
+                    if citation.keys == vec!["key".to_string()]
+            )
+        }));
+        assert!(!outcome.render_events.iter().any(|event| {
+            match &event.event {
+                RenderEvent::Text(text) => ["1em", "2em", "3em"]
+                    .iter()
+                    .any(|argument| text.text.contains(argument)),
+                RenderEvent::RawFallback(fallback) => matches!(
+                    fallback.environment.as_deref(),
+                    Some("addmargin" | "addmargin*")
                 ),
                 _ => false,
             }
