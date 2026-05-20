@@ -82,6 +82,9 @@ The next implementation step has started with a narrow display-list spike:
   later `\includegraphics` asset resolution without emitting visible text;
 - `\DeclareGraphicsExtensions{...}` now controls extensionless graphics search
   order, so projects can prefer formats such as `.png` before `.pdf`;
+- legacy `\epsfig{file=...}` and `\psfig{figure=...}` commands now emit
+  `GraphicRef` events using the same asset resolution path as
+  `\includegraphics`, avoiding key-value argument leakage into body text;
 - VM render-event capture now emits `GraphicRef`/`Caption` events for
   `\includegraphics`/`\includegraphics*`, `\caption`, and `\caption*`,
   including inside `figure`/`figure*`, `sidewaysfigure`/`sidewaysfigure*`,

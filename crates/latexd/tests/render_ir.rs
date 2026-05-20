@@ -1311,6 +1311,35 @@ fn declared_graphic_extension_order_resolves_before_ir_and_display_list() {
 }
 
 #[test]
+fn legacy_epsfig_capture_survives_ir_and_display_list() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        LEGACY_EPSFIG_SOURCE,
+        &SemanticAux::default(),
+        &[("figures/plot.eps", "fake eps")],
+    );
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Graphic(graphic)
+                if graphic.path == "figures/plot.eps"
+                    && graphic.options.as_deref() == Some("file=figures/plot,width=5cm")
+                    && graphic.caption.as_deref() == Some("Plot caption.")
+        )
+    }));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.eps"
+        )
+    }));
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+    assert!(pdf_text.contains("[image: figures/plot.eps]"));
+    assert!(!pdf_text.contains("file=figures/plot"));
+}
+
+#[test]
 fn starred_graphic_capture_derives_display_list_image_without_visible_star() {
     let capture =
         capture_internal_render_ir("main.tex", STARRED_GRAPHIC_SOURCE, &SemanticAux::default());
@@ -8508,6 +8537,8 @@ const EXTENSIONLESS_GRAPHIC_SOURCE: &str = r"\begin{document}\begin{figure}\incl
 const GRAPHICSPATH_SOURCE: &str = r"\graphicspath{{figures/}{unused/}}\begin{document}\begin{figure}\includegraphics[width=5cm]{plot}\caption{Plot caption.}\end{figure}\end{document}";
 
 const DECLARED_GRAPHIC_EXTENSIONS_SOURCE: &str = r"\DeclareGraphicsExtensions{.png,.pdf}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot}\caption{Plot caption.}\end{figure}\end{document}";
+
+const LEGACY_EPSFIG_SOURCE: &str = r"\begin{document}\begin{figure}\epsfig{file=figures/plot,width=5cm}\caption{Plot caption.}\end{figure}\end{document}";
 
 const STARRED_GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics*[width=3cm]{figures/starred.pdf}\caption{Starred plot.}\end{figure}\end{document}";
 
