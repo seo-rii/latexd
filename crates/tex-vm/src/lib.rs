@@ -962,6 +962,13 @@ impl<'i> Vm<'i> {
             "flushright",
             "samepage",
             "titlepage",
+            "framed",
+            "shaded",
+            "snugshade",
+            "leftbar",
+            "oframed",
+            "tcolorbox",
+            "mdframed",
             "acknowledgements",
             "acknowledgments",
             "acknowledgement",
@@ -1368,6 +1375,13 @@ impl<'i> Vm<'i> {
                                         index = after_margin;
                                     } else {
                                         index = argument_index;
+                                    }
+                                } else if matches!(other, "tcolorbox" | "mdframed") {
+                                    let argument_index = skip_ascii_whitespace(source, index);
+                                    if let Some((_, _, _, after_options)) =
+                                        read_bracket_source_argument(source, argument_index)
+                                    {
+                                        index = after_options;
                                     }
                                 }
                                 self.emit_render_event(
@@ -20047,6 +20061,46 @@ Fallback text.
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("titlepage")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_records_boxed_wrappers_without_style_options() {
+        let source = r"\begin{document}\begin{framed}Frame \cite{key} text.\end{framed}\begin{shaded}Shade text.\end{shaded}\begin{tcolorbox}[colback=yellow]Color text.\end{tcolorbox}\begin{mdframed}[linecolor=red]Border text.\end{mdframed}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for environment in ["framed", "shaded", "tcolorbox", "mdframed"] {
+            assert!(outcome.render_events.iter().any(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::BeginBlock(BeginBlockEvent {
+                        block: BlockKind::Environment { name },
+                    }) if name == environment
+                )
+            }));
+        }
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::InlineCitation(citation)
+                    if citation.keys == vec!["key".to_string()]
+            )
+        }));
+        assert!(!outcome.render_events.iter().any(|event| {
+            match &event.event {
+                RenderEvent::Text(text) => ["colback", "yellow", "linecolor", "red"]
+                    .iter()
+                    .any(|argument| text.text.contains(argument)),
+                RenderEvent::RawFallback(fallback) => matches!(
+                    fallback.environment.as_deref(),
+                    Some("framed" | "shaded" | "tcolorbox" | "mdframed")
+                ),
+                _ => false,
+            }
+        }));
     }
 
     #[test]

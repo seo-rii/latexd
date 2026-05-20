@@ -323,6 +323,9 @@ The next implementation step has started with a narrow display-list spike:
   preserved until dedicated title-page layout exists;
 - `NoHyper` now acts as a structured wrapper while preserving visible `href` and
   `url` text without producing link annotations inside the suppressed region;
+- boxed emphasis environments such as `framed`, `shaded`, `tcolorbox`, and
+  `mdframed` now act as structured wrappers, with common style options consumed
+  before visible body text is captured;
 - `spacing`, `onehalfspace`, `doublespace`, and `singlespace` now act as
   structured wrappers while consuming line-spacing arguments so they do not
   appear as visible text;
