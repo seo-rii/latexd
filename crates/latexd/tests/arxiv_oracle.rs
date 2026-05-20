@@ -44,6 +44,7 @@ struct OracleCaseReport {
     oracle_text: Utf8PathBuf,
     oracle_page_count: usize,
     oracle_first_page_raster: Utf8PathBuf,
+    oracle_first_page_raster_smoke: RasterSmokeReport,
     source_root: Utf8PathBuf,
     oracle_token_count: usize,
     oracle_unique_token_count: usize,
@@ -58,8 +59,24 @@ struct OracleCaseReport {
     internal_page_count: Option<usize>,
     page_count_delta: Option<i64>,
     internal_first_page_raster: Option<Utf8PathBuf>,
+    internal_first_page_raster_smoke: Option<RasterSmokeReport>,
     internal_build_failure: Option<String>,
     internal_diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+struct RasterSmokeReport {
+    width_px: u32,
+    height_px: u32,
+    non_white_bbox: Option<RasterBoundingBox>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+struct RasterBoundingBox {
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
 }
 
 #[tokio::test]
@@ -136,6 +153,10 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             rasterize_pdf_first_page(&pdftoppm, &oracle_pdf, &oracle_raster_prefix).unwrap_or_else(
                 |error| panic!("{} oracle first-page raster failed: {error}", case.arxiv_id),
             );
+        let oracle_first_page_raster_smoke = extract_raster_smoke(&oracle_first_page_raster)
+            .unwrap_or_else(|error| {
+                panic!("{} oracle raster smoke failed: {error}", case.arxiv_id)
+            });
         let oracle_tokens = tokenize(&oracle_text);
         assert!(
             oracle_tokens.len() >= case.min_oracle_tokens,
@@ -180,6 +201,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             oracle_text: oracle_text_path,
             oracle_page_count,
             oracle_first_page_raster,
+            oracle_first_page_raster_smoke,
             source_root: source_root.clone(),
             oracle_token_count: oracle_tokens.len(),
             oracle_unique_token_count: oracle_unique.len(),
@@ -194,6 +216,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             internal_page_count: None,
             page_count_delta: None,
             internal_first_page_raster: None,
+            internal_first_page_raster_smoke: None,
             internal_build_failure: None,
             internal_diagnostics: Vec::new(),
         };
@@ -249,6 +272,10 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                                 case.arxiv_id
                             )
                         });
+                let internal_first_page_raster_smoke =
+                    extract_raster_smoke(&internal_first_page_raster).unwrap_or_else(|error| {
+                        panic!("{} internal raster smoke failed: {error}", case.arxiv_id)
+                    });
                 let internal_tokens = tokenize(&internal_text);
                 let internal_unique = unique_tokens(&internal_tokens);
                 let common = oracle_unique
@@ -270,6 +297,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                 report.page_count_delta =
                     Some(internal_page_count as i64 - oracle_page_count as i64);
                 report.internal_first_page_raster = Some(internal_first_page_raster);
+                report.internal_first_page_raster_smoke = Some(internal_first_page_raster_smoke);
                 if strict {
                     assert!(
                         internal_tokens.len() >= case.min_internal_tokens,
@@ -416,6 +444,66 @@ fn rasterize_pdf_first_page(
     Ok(output_path)
 }
 
+fn extract_raster_smoke(path: &Utf8Path) -> anyhow::Result<RasterSmokeReport> {
+    let bytes = fs::read(path.as_std_path())?;
+    let image = image::load_from_memory_with_format(&bytes, image::ImageFormat::Png)
+        .map_err(|error| anyhow::anyhow!("failed to decode PNG {}: {error}", path))?
+        .into_rgba8();
+    let (width, height) = image.dimensions();
+    raster_smoke_from_rgba(width, height, image.into_raw())
+}
+
+fn raster_smoke_from_rgba(
+    width_px: u32,
+    height_px: u32,
+    rgba: Vec<u8>,
+) -> anyhow::Result<RasterSmokeReport> {
+    let expected_len = width_px as usize * height_px as usize * 4;
+    if rgba.len() != expected_len {
+        anyhow::bail!(
+            "RGBA buffer length {} did not match expected {} for {}x{} image",
+            rgba.len(),
+            expected_len,
+            width_px,
+            height_px
+        );
+    }
+
+    let mut min_x = width_px;
+    let mut min_y = height_px;
+    let mut max_x = 0;
+    let mut max_y = 0;
+    let mut found = false;
+    for y in 0..height_px {
+        for x in 0..width_px {
+            let offset = (y as usize * width_px as usize + x as usize) * 4;
+            let red = rgba[offset];
+            let green = rgba[offset + 1];
+            let blue = rgba[offset + 2];
+            let alpha = rgba[offset + 3];
+            if alpha == 0 || (red >= 250 && green >= 250 && blue >= 250) {
+                continue;
+            }
+            found = true;
+            min_x = min_x.min(x);
+            min_y = min_y.min(y);
+            max_x = max_x.max(x);
+            max_y = max_y.max(y);
+        }
+    }
+
+    Ok(RasterSmokeReport {
+        width_px,
+        height_px,
+        non_white_bbox: found.then_some(RasterBoundingBox {
+            x: min_x,
+            y: min_y,
+            width: max_x - min_x + 1,
+            height: max_y - min_y + 1,
+        }),
+    })
+}
+
 fn copy_dir(source_root: &Utf8Path, target_root: &Utf8Path) {
     let mut stack = vec![(source_root.to_owned(), target_root.to_owned())];
     while let Some((source_dir, target_dir)) = stack.pop() {
@@ -519,5 +607,27 @@ fn arxiv_oracle_first_page_raster_paths_are_report_local() {
     assert_eq!(
         oracle_case_first_page_raster_prefix(&report_dir, "math/0301001", "v1", "oracle"),
         Utf8PathBuf::from("/tmp/latexd-report/math_0301001-v1-oracle-page-1")
+    );
+}
+
+#[test]
+fn arxiv_oracle_raster_smoke_reports_non_white_bbox() {
+    let rgba = vec![
+        255, 255, 255, 255, 10, 10, 10, 255, 255, 255, 255, 255, 255, 255, 255, 255, 240, 240, 240,
+        255, 255, 255, 255, 255,
+    ];
+
+    let smoke = raster_smoke_from_rgba(3, 2, rgba).expect("raster smoke");
+
+    assert_eq!(smoke.width_px, 3);
+    assert_eq!(smoke.height_px, 2);
+    assert_eq!(
+        smoke.non_white_bbox,
+        Some(RasterBoundingBox {
+            x: 1,
+            y: 0,
+            width: 1,
+            height: 2,
+        })
     );
 }
