@@ -38,7 +38,8 @@ As of 2026-05-20, the first implementation batch is complete:
 - `abstract*` and `onecolabstract` now follow the same semantic abstract
   event/IR path as `abstract` instead of falling back to unsupported raw text.
 - Focused provenance tests and goldens cover macro-expanded section text, title
-  metadata definition spans, and `\maketitle` emission spans.
+  metadata definition spans, `\maketitle` emission spans, and citation
+  invocation/key span separation.
 
 Still intentionally outside this batch:
 

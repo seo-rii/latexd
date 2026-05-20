@@ -260,10 +260,20 @@
             "primary": {
               "kind": "file",
               "path": "main.tex",
-              "start_utf8": 149,
-              "end_utf8": 152
+              "start_utf8": 143,
+              "end_utf8": 153
             },
-            "related": [],
+            "related": [
+              {
+                "role": "citation_key",
+                "span": {
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 149,
+                  "end_utf8": 152
+                }
+              }
+            ],
             "expansion_stack": [],
             "generated_by": "source",
             "expansion_stack_truncated": false

@@ -2530,10 +2530,13 @@ impl<'i> Vm<'i> {
                                 command: command.to_string(),
                                 style_hint,
                             }),
-                            SourceProvenance::file(
-                                source_path.to_owned(),
-                                content_start as u32,
-                                content_end as u32,
+                            Self::command_argument_provenance(
+                                source_path,
+                                command_start,
+                                after,
+                                content_start,
+                                content_end,
+                                SourceSpanRole::CitationKey,
                             ),
                         );
                         index = after;
@@ -3163,10 +3166,13 @@ impl<'i> Vm<'i> {
                                     command: command.to_string(),
                                     style_hint: CitationStyleHint::Textual,
                                 }),
-                                SourceProvenance::file(
-                                    source_path.to_owned(),
-                                    content_start as u32,
-                                    content_end as u32,
+                                Self::command_argument_provenance(
+                                    source_path,
+                                    command_start,
+                                    after_field,
+                                    content_start,
+                                    content_end,
+                                    SourceSpanRole::CitationKey,
                                 ),
                             );
                             index = after_field;
@@ -3224,10 +3230,13 @@ impl<'i> Vm<'i> {
                                 command: command.to_string(),
                                 style_hint,
                             }),
-                            SourceProvenance::file(
-                                source_path.to_owned(),
-                                content_start as u32,
-                                content_end as u32,
+                            Self::command_argument_provenance(
+                                source_path,
+                                command_start,
+                                after,
+                                content_start,
+                                content_end,
+                                SourceSpanRole::CitationKey,
                             ),
                         );
                         index = after;
@@ -3712,10 +3721,13 @@ impl<'i> Vm<'i> {
                                                     command: inner_command.to_string(),
                                                     style_hint,
                                                 }),
-                                                SourceProvenance::file(
-                                                    source_path.to_owned(),
-                                                    key_start as u32,
-                                                    key_end as u32,
+                                                Self::command_argument_provenance(
+                                                    source_path,
+                                                    inner_command_start,
+                                                    command_after,
+                                                    key_start,
+                                                    key_end,
+                                                    SourceSpanRole::CitationKey,
                                                 ),
                                             );
                                             inner_index = command_after;
@@ -3747,10 +3759,13 @@ impl<'i> Vm<'i> {
                                                             style_hint: CitationStyleHint::Textual,
                                                         },
                                                     ),
-                                                    SourceProvenance::file(
-                                                        source_path.to_owned(),
-                                                        key_start as u32,
-                                                        key_end as u32,
+                                                    Self::command_argument_provenance(
+                                                        source_path,
+                                                        inner_command_start,
+                                                        command_after,
+                                                        key_start,
+                                                        key_end,
+                                                        SourceSpanRole::CitationKey,
                                                     ),
                                                 );
                                                 inner_index = command_after;
@@ -3828,10 +3843,13 @@ impl<'i> Vm<'i> {
                                                     command: inner_command.to_string(),
                                                     style_hint,
                                                 }),
-                                                SourceProvenance::file(
-                                                    source_path.to_owned(),
-                                                    key_start as u32,
-                                                    key_end as u32,
+                                                Self::command_argument_provenance(
+                                                    source_path,
+                                                    inner_command_start,
+                                                    command_after,
+                                                    key_start,
+                                                    key_end,
+                                                    SourceSpanRole::CitationKey,
                                                 ),
                                             );
                                             inner_index = command_after;
@@ -4362,10 +4380,13 @@ impl<'i> Vm<'i> {
                                                                             style_hint,
                                                                         },
                                                                     ),
-                                                                    SourceProvenance::file(
-                                                                        source_path.to_owned(),
-                                                                        key_start as u32,
-                                                                        key_end as u32,
+                                                                    Self::command_argument_provenance(
+                                                                        source_path,
+                                                                        argument_command_start,
+                                                                        command_after,
+                                                                        key_start,
+                                                                        key_end,
+                                                                        SourceSpanRole::CitationKey,
                                                                     ),
                                                                 );
                                                                 argument_inner_index =
@@ -4420,10 +4441,13 @@ impl<'i> Vm<'i> {
                                                                                     CitationStyleHint::Textual,
                                                                             },
                                                                         ),
-                                                                        SourceProvenance::file(
-                                                                            source_path.to_owned(),
-                                                                            key_start as u32,
-                                                                            key_end as u32,
+                                                                        Self::command_argument_provenance(
+                                                                            source_path,
+                                                                            argument_command_start,
+                                                                            command_after,
+                                                                            key_start,
+                                                                            key_end,
+                                                                            SourceSpanRole::CitationKey,
                                                                         ),
                                                                     );
                                                                     argument_inner_index =
@@ -4538,10 +4562,13 @@ impl<'i> Vm<'i> {
                                                                             style_hint,
                                                                         },
                                                                     ),
-                                                                    SourceProvenance::file(
-                                                                        source_path.to_owned(),
-                                                                        key_start as u32,
-                                                                        key_end as u32,
+                                                                    Self::command_argument_provenance(
+                                                                        source_path,
+                                                                        argument_command_start,
+                                                                        command_after,
+                                                                        key_start,
+                                                                        key_end,
+                                                                        SourceSpanRole::CitationKey,
                                                                     ),
                                                                 );
                                                                 argument_inner_index =
@@ -5069,10 +5096,13 @@ impl<'i> Vm<'i> {
                                                                                                 style_hint,
                                                                                             },
                                                                                         ),
-                                                                                        SourceProvenance::file(
-                                                                                            source_path.to_owned(),
-                                                                                            key_start as u32,
-                                                                                            key_end as u32,
+                                                                                        Self::command_argument_provenance(
+                                                                                            source_path,
+                                                                                            nested_command_start,
+                                                                                            after_citation,
+                                                                                            key_start,
+                                                                                            key_end,
+                                                                                            SourceSpanRole::CitationKey,
                                                                                         ),
                                                                                     );
                                                                                     nested_index = after_citation;
@@ -5131,10 +5161,13 @@ impl<'i> Vm<'i> {
                                                                                                     style_hint: CitationStyleHint::Textual,
                                                                                                 },
                                                                                             ),
-                                                                                            SourceProvenance::file(
-                                                                                                source_path.to_owned(),
-                                                                                                key_start as u32,
-                                                                                                key_end as u32,
+                                                                                            Self::command_argument_provenance(
+                                                                                                source_path,
+                                                                                                nested_command_start,
+                                                                                                after_citation,
+                                                                                                key_start,
+                                                                                                key_end,
+                                                                                                SourceSpanRole::CitationKey,
                                                                                             ),
                                                                                         );
                                                                                         nested_index = after_citation;
@@ -5278,10 +5311,13 @@ impl<'i> Vm<'i> {
                                                                                                 style_hint,
                                                                                             },
                                                                                         ),
-                                                                                        SourceProvenance::file(
-                                                                                            source_path.to_owned(),
-                                                                                            key_start as u32,
-                                                                                            key_end as u32,
+                                                                                        Self::command_argument_provenance(
+                                                                                            source_path,
+                                                                                            nested_command_start,
+                                                                                            after_citation,
+                                                                                            key_start,
+                                                                                            key_end,
+                                                                                            SourceSpanRole::CitationKey,
                                                                                         ),
                                                                                     );
                                                                                     nested_index = after_citation;
@@ -6468,6 +6504,29 @@ impl<'i> Vm<'i> {
             SourceProvenance::file(source_path.to_owned(), command_start as u32, after as u32),
         );
         Some(after)
+    }
+
+    fn command_argument_provenance(
+        source_path: &Utf8Path,
+        command_start: usize,
+        command_end: usize,
+        argument_start: usize,
+        argument_end: usize,
+        argument_role: SourceSpanRole,
+    ) -> SourceProvenance {
+        SourceProvenance::file(
+            source_path.to_owned(),
+            command_start as u32,
+            command_end as u32,
+        )
+        .with_related(
+            argument_role,
+            ProvenanceSpan::File(SourceSpan {
+                path: source_path.to_owned(),
+                start_utf8: argument_start as u32,
+                end_utf8: argument_end as u32,
+            }),
+        )
     }
 
     fn capture_legacy_graphic_event(
@@ -20191,9 +20250,7 @@ Fallback text.
             .render_events
             .iter()
             .filter_map(|event| match &event.event {
-                RenderEvent::InlineCitation(citation) => {
-                    Some((citation, &event.meta.source.primary))
-                }
+                RenderEvent::InlineCitation(citation) => Some((citation, &event.meta.source)),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -20206,11 +20263,22 @@ Fallback text.
             vec!["alpha".to_string(), "beta".to_string()]
         );
         assert!(matches!(
-            citations[0].1,
+            &citations[0].1.primary,
             tex_render_model::ProvenanceSpan::File(span)
                 if span.path == Utf8PathBuf::from("main.tex")
-                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "alpha,beta"
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\citep[see][p.~3]{alpha,beta}"
         ));
+        assert!(citations[0].1.related.iter().any(|related| {
+            related.role == tex_render_model::SourceSpanRole::CitationKey
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "alpha,beta"
+                )
+        }));
         assert_eq!(citations[1].0.command, "citet");
         assert_eq!(citations[1].0.style_hint, CitationStyleHint::Textual);
         assert_eq!(citations[1].0.keys, vec!["gamma".to_string()]);

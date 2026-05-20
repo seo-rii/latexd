@@ -278,6 +278,97 @@ fn compact_title_provenance_matches_golden() {
 }
 
 #[test]
+fn compact_citation_provenance_preserves_invocation_and_key_spans() {
+    let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
+    let citation_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::InlineCitation(citation)
+                    if citation.keys.len() == 1 && citation.keys[0] == "key"
+            )
+        })
+        .expect("citation event");
+    let citation_inline = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => paragraph.content.iter().find_map(|node| match node {
+                InlineNode::Citation(citation)
+                    if citation.keys.len() == 1 && citation.keys[0] == "key" =>
+                {
+                    Some(citation)
+                }
+                _ => None,
+            }),
+            _ => None,
+        })
+        .expect("citation inline");
+    let citation_text_run = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "[?]" => Some(run),
+            _ => None,
+        })
+        .expect("citation text run");
+
+    for source in [
+        &citation_event.meta.source,
+        &citation_inline.source,
+        &citation_text_run.source,
+    ] {
+        assert!(matches!(
+            &source.primary,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == "main.tex"
+                    && &COMPACT_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == "\\cite{key}"
+        ));
+        assert!(source.related.iter().any(|related| {
+            related.role == SourceSpanRole::CitationKey
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &COMPACT_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "key"
+                )
+        }));
+    }
+
+    let provenance_snapshot = serde_json::json!({
+        "source": COMPACT_SOURCE,
+        "event": {
+            "event": citation_event.event,
+            "meta": citation_event.meta,
+        },
+        "ir": {
+            "keys": citation_inline.keys,
+            "style_hint": citation_inline.style_hint,
+            "resolved_label": citation_inline.resolved_label,
+            "display_text": citation_inline.display_text,
+            "source": citation_inline.source,
+        },
+        "display_list": {
+            "text": citation_text_run.text,
+            "source": citation_text_run.source,
+            "clusters": citation_text_run.clusters,
+        },
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/compact-citation.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn title_inline_keys_are_redacted_in_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", TITLE_INLINE_KEY_SOURCE, &SemanticAux::default());
@@ -2611,8 +2702,18 @@ fn citation_variant_capture_survives_ir_and_display_list() {
         &citations[0].source.primary,
         ProvenanceSpan::File(span)
             if &CITATION_VARIANTS_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
-                == "alpha,beta"
+                == r"\citep[see][p.~3]{alpha,beta}"
     ));
+    assert!(citations[0].source.related.iter().any(|related| {
+        related.role == SourceSpanRole::CitationKey
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if &CITATION_VARIANTS_SOURCE
+                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                        == "alpha,beta"
+            )
+    }));
     assert_eq!(citations[1].keys, vec!["gamma".to_string()]);
     assert_eq!(citations[1].style_hint, CitationStyleHint::Textual);
     assert_eq!(citations[2].keys, vec!["delta".to_string()]);
@@ -8718,8 +8819,18 @@ fn aux_resolved_references_and_citations_survive_ir_and_display_list() {
                         ProvenanceSpan::File(span)
                             if &AUX_RESOLUTION_SOURCE
                                 [span.start_utf8 as usize..span.end_utf8 as usize]
-                                == "key"
-                )
+                                == r"\cite{key}"
+                    )
+                    && run.source.related.iter().any(|related| {
+                        related.role == SourceSpanRole::CitationKey
+                            && matches!(
+                                &related.span,
+                                ProvenanceSpan::File(span)
+                                    if &AUX_RESOLUTION_SOURCE
+                                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                                        == "key"
+                            )
+                    })
         )
     }));
     let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);

@@ -1,0 +1,104 @@
+{
+  "display_list": {
+    "clusters": [
+      {
+        "glyph_end": 3,
+        "glyph_start": 0,
+        "text_end_utf8": 3,
+        "text_start_utf8": 0
+      }
+    ],
+    "source": {
+      "expansion_stack": [],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 153,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 143
+      },
+      "related": [
+        {
+          "role": "citation_key",
+          "span": {
+            "end_utf8": 152,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 149
+          }
+        }
+      ]
+    },
+    "text": "[?]"
+  },
+  "event": {
+    "event": {
+      "command": "cite",
+      "keys": [
+        "key"
+      ],
+      "kind": "inline_citation",
+      "style_hint": "numeric"
+    },
+    "meta": {
+      "confidence": "high",
+      "event_id": 13,
+      "mode_hint": "unknown",
+      "producer": "command",
+      "source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 153,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 143
+        },
+        "related": [
+          {
+            "role": "citation_key",
+            "span": {
+              "end_utf8": 152,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 149
+            }
+          }
+        ]
+      }
+    }
+  },
+  "ir": {
+    "display_text": "[?]",
+    "keys": [
+      "key"
+    ],
+    "resolved_label": null,
+    "source": {
+      "expansion_stack": [],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 153,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 143
+      },
+      "related": [
+        {
+          "role": "citation_key",
+          "span": {
+            "end_utf8": 152,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 149
+          }
+        }
+      ]
+    },
+    "style_hint": "numeric"
+  },
+  "source": "\\title{A Paper}\\author{Ada Lovelace}\\date{May 1843}\\begin{document}\\maketitle\\begin{abstract}Short abstract.\\end{abstract}\\section{Intro}Hello \\cite{key}.\\[x^2\\]\\begin{thebibliography}{1}\\bibitem{key} Author. Title.\\end{thebibliography}\\begin{unknownenv}Fallback text.\\end{unknownenv}\\end{document}"
+}
