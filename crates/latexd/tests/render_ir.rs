@@ -176,6 +176,108 @@ fn compact_title_ir_preserves_emit_and_metadata_provenance() {
 }
 
 #[test]
+fn compact_title_provenance_matches_golden() {
+    let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
+    let title_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::SetDocumentMetadata(event) if event.field == MetadataField::Title
+            )
+        })
+        .expect("title metadata event");
+    let author_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::SetDocumentMetadata(event) if event.field == MetadataField::Author
+            )
+        })
+        .expect("author metadata event");
+    let date_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::SetDocumentMetadata(event) if event.field == MetadataField::Date
+            )
+        })
+        .expect("date metadata event");
+    let flush_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| matches!(&envelope.event, RenderEvent::FlushTitleBlock(_)))
+        .expect("flush title event");
+    let title = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::TitleBlock(title) => Some(title),
+            _ => None,
+        })
+        .expect("title block");
+    let title_text_run = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "A Paper" => Some(run),
+            _ => None,
+        })
+        .expect("title text run");
+    let provenance_snapshot = serde_json::json!({
+        "source": COMPACT_SOURCE,
+        "events": {
+            "title": {
+                "event": title_event.event,
+                "meta": title_event.meta,
+            },
+            "author": {
+                "event": author_event.event,
+                "meta": author_event.meta,
+            },
+            "date": {
+                "event": date_event.event,
+                "meta": date_event.meta,
+            },
+            "flush": {
+                "event": flush_event.event,
+                "meta": flush_event.meta,
+            },
+        },
+        "ir": {
+            "title": title.title,
+            "title_source": title.title_source,
+            "authors": title.authors,
+            "author_sources": title.author_sources,
+            "date": title.date,
+            "date_source": title.date_source,
+            "block_source": title.source,
+        },
+        "display_list": {
+            "text": title_text_run.text,
+            "source": title_text_run.source,
+            "clusters": title_text_run.clusters,
+        },
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/compact-title.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn title_inline_keys_are_redacted_in_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", TITLE_INLINE_KEY_SOURCE, &SemanticAux::default());

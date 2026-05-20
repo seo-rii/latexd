@@ -37,8 +37,8 @@ As of 2026-05-20, the first implementation batch is complete:
   raw fallback.
 - `abstract*` and `onecolabstract` now follow the same semantic abstract
   event/IR path as `abstract` instead of falling back to unsupported raw text.
-- Focused provenance tests cover macro-expanded section text, title metadata
-  definition spans, and `\maketitle` emission spans.
+- Focused provenance tests and goldens cover macro-expanded section text, title
+  metadata definition spans, and `\maketitle` emission spans.
 
 Still intentionally outside this batch:
 

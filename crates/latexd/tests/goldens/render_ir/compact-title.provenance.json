@@ -1,0 +1,251 @@
+{
+  "display_list": {
+    "clusters": [
+      {
+        "glyph_end": 7,
+        "glyph_start": 0,
+        "text_end_utf8": 7,
+        "text_start_utf8": 0
+      }
+    ],
+    "source": {
+      "expansion_stack": [],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 14,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 7
+      },
+      "related": [
+        {
+          "role": "emit_site",
+          "span": {
+            "end_utf8": 77,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 67
+          }
+        }
+      ]
+    },
+    "text": "A Paper"
+  },
+  "events": {
+    "author": {
+      "event": {
+        "field": "author",
+        "kind": "set_document_metadata",
+        "value": "Ada Lovelace"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 2,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 35,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 23
+          },
+          "related": []
+        }
+      }
+    },
+    "date": {
+      "event": {
+        "field": "date",
+        "kind": "set_document_metadata",
+        "value": "May 1843"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 3,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 50,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 42
+          },
+          "related": []
+        }
+      }
+    },
+    "flush": {
+      "event": {
+        "kind": "flush_title_block"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 4,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 77,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 67
+          },
+          "related": []
+        }
+      }
+    },
+    "title": {
+      "event": {
+        "field": "title",
+        "kind": "set_document_metadata",
+        "value": "A Paper"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 1,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 14,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 7
+          },
+          "related": []
+        }
+      }
+    }
+  },
+  "ir": {
+    "author_sources": [
+      {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 35,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 23
+        },
+        "related": [
+          {
+            "role": "emit_site",
+            "span": {
+              "end_utf8": 77,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 67
+            }
+          }
+        ]
+      }
+    ],
+    "authors": [
+      "Ada Lovelace"
+    ],
+    "block_source": {
+      "expansion_stack": [],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 77,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 67
+      },
+      "related": [
+        {
+          "role": "metadata_definition",
+          "span": {
+            "end_utf8": 14,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 7
+          }
+        },
+        {
+          "role": "metadata_definition",
+          "span": {
+            "end_utf8": 35,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 23
+          }
+        },
+        {
+          "role": "metadata_definition",
+          "span": {
+            "end_utf8": 50,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 42
+          }
+        }
+      ]
+    },
+    "date": "May 1843",
+    "date_source": {
+      "expansion_stack": [],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 50,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 42
+      },
+      "related": [
+        {
+          "role": "emit_site",
+          "span": {
+            "end_utf8": 77,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 67
+          }
+        }
+      ]
+    },
+    "title": "A Paper",
+    "title_source": {
+      "expansion_stack": [],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 14,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 7
+      },
+      "related": [
+        {
+          "role": "emit_site",
+          "span": {
+            "end_utf8": 77,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 67
+          }
+        }
+      ]
+    }
+  },
+  "source": "\\title{A Paper}\\author{Ada Lovelace}\\date{May 1843}\\begin{document}\\maketitle\\begin{abstract}Short abstract.\\end{abstract}\\section{Intro}Hello \\cite{key}.\\[x^2\\]\\begin{thebibliography}{1}\\bibitem{key} Author. Title.\\end{thebibliography}\\begin{unknownenv}Fallback text.\\end{unknownenv}\\end{document}"
+}
