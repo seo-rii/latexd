@@ -254,6 +254,54 @@ fn starred_abstract_capture_survives_ir_without_fallback() {
 }
 
 #[test]
+fn onecolabstract_capture_survives_ir_without_fallback() {
+    let capture =
+        capture_internal_render_ir("main.tex", ONECOL_ABSTRACT_SOURCE, &SemanticAux::default());
+    let abstract_block = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Abstract(abstract_block) => Some(abstract_block),
+            _ => None,
+        })
+        .expect("abstract block");
+
+    assert!(abstract_block.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Citation(citation)
+                if citation.keys == vec!["key".to_string()] && citation.display_text == "[?]"
+        )
+    }));
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("onecolabstract")
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("One-column [?] abstract."));
+    assert!(!extracted_text.contains("key"));
+    assert!(!extracted_text.contains("onecolabstract"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("One-column [?] abstract."));
+    assert!(!display_list_text.contains("key"));
+    assert!(!display_list_text.contains("onecolabstract"));
+}
+
+#[test]
 fn bibliography_item_inline_keys_are_redacted_in_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -6177,6 +6225,8 @@ const TITLE_INLINE_KEY_SOURCE: &str =
 
 const STARRED_ABSTRACT_SOURCE: &str =
     r"\begin{document}\begin{abstract*}Starred \cite{key} abstract.\end{abstract*}\end{document}";
+
+const ONECOL_ABSTRACT_SOURCE: &str = r"\begin{document}\begin{onecolabstract}One-column \cite{key} abstract.\end{onecolabstract}\end{document}";
 
 const BIBLIOGRAPHY_ITEM_INLINE_KEY_SOURCE: &str = r"\begin{document}\begin{thebibliography}{1}\bibitem{entry} See \cite{cited} and \ref{sec:intro}.\end{thebibliography}\end{document}";
 

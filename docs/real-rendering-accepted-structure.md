@@ -35,8 +35,8 @@ As of 2026-05-13, the first implementation batch is complete:
 - Compact event and IR JSON goldens cover title, author, date, abstract,
   heading, paragraph text, unresolved citation, display math, bibliography, and
   raw fallback.
-- `abstract*` now follows the same semantic abstract event/IR path as
-  `abstract` instead of falling back to unsupported raw text.
+- `abstract*` and `onecolabstract` now follow the same semantic abstract
+  event/IR path as `abstract` instead of falling back to unsupported raw text.
 - Focused provenance tests cover macro-expanded section text, title metadata
   definition spans, and `\maketitle` emission spans.
 

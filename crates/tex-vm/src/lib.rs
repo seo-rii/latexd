@@ -1241,7 +1241,7 @@ impl<'i> Vm<'i> {
                             "document" => {
                                 in_document = true;
                             }
-                            "abstract" | "abstract*" if in_document => {
+                            "abstract" | "abstract*" | "onecolabstract" if in_document => {
                                 self.emit_render_event(
                                     RenderEvent::BeginBlock(BeginBlockEvent {
                                         block: BlockKind::Abstract,
@@ -1891,7 +1891,7 @@ impl<'i> Vm<'i> {
                             "document" => {
                                 in_document = false;
                             }
-                            "abstract" | "abstract*" if in_document => {
+                            "abstract" | "abstract*" | "onecolabstract" if in_document => {
                                 self.emit_render_event(
                                     RenderEvent::EndBlock(BeginBlockEvent {
                                         block: BlockKind::Abstract,
@@ -16102,6 +16102,34 @@ Fallback text.
             &event.event,
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("abstract*")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_onecolabstract_without_fallback() {
+        let source = r"\begin{document}\begin{onecolabstract}One-column \cite{key} abstract.\end{onecolabstract}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Abstract
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::EndBlock(block) if block.block == BlockKind::Abstract
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineCitation(citation) if citation.keys == vec!["key".to_string()]
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("onecolabstract")
         )));
     }
 
