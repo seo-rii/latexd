@@ -1434,12 +1434,20 @@ mod tests {
     #[test]
     fn builds_image_ops_from_graphic_blocks() {
         let source = SourceProvenance::file("main.tex", 0, 24);
+        let caption_related_span = tex_render_model::SourceSpan {
+            path: "main.tex".into(),
+            start_utf8: 39,
+            end_utf8: 48,
+        };
         let display_lists = build_page_display_lists(
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.pdf".to_string(),
                 options: Some("width=0.8\\linewidth".to_string()),
                 caption: Some("Plot caption.".to_string()),
-                caption_source: Some(SourceProvenance::file("main.tex", 25, 38)),
+                caption_source: Some(SourceProvenance::file("main.tex", 25, 38).with_related(
+                    tex_render_model::SourceSpanRole::EmitSite,
+                    tex_render_model::ProvenanceSpan::File(caption_related_span.clone()),
+                )),
                 source,
             })]),
             PageDisplayListOptions::default(),
@@ -1465,7 +1473,12 @@ mod tests {
                     )
             )
         }));
-        assert_eq!(display_lists[0].source_spans.len(), 2);
+        assert!(
+            display_lists[0]
+                .source_spans
+                .contains(&caption_related_span)
+        );
+        assert_eq!(display_lists[0].source_spans.len(), 3);
     }
 
     #[test]
