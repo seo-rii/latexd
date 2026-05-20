@@ -2739,6 +2739,17 @@ impl<'i> Vm<'i> {
                                     );
                                 }
                             }
+                        } else if let Some(path) = input_path.as_ref() {
+                            self.emit_render_event(
+                                RenderEvent::Diagnostic(RenderDiagnosticEvent {
+                                    message: format!("missing input {path}"),
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    command_start as u32,
+                                    after_path as u32,
+                                ),
+                            );
                         }
                         index = after_path;
                     }
@@ -20762,6 +20773,46 @@ Fallback text.
         assert!(visible_text.contains("B"), "{visible_text}");
         assert!(visible_text.contains("C"), "{visible_text}");
         for hidden in ["Skipped body.", "includeonly", "include", "first", "second"] {
+            assert!(
+                !visible_text.contains(hidden),
+                "{hidden} leaked in {visible_text}"
+            );
+        }
+    }
+
+    #[test]
+    fn render_event_capture_reports_missing_input_files() {
+        let source = r"\begin{document}Before \input{missing} Middle \include missing-two After\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for missing in ["missing.tex", "missing-two.tex"] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Diagnostic(diagnostic)
+                    if diagnostic.message.contains("missing input")
+                        && diagnostic.message.contains(missing)
+            )));
+        }
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        for expected in ["Before", "Middle", "After"] {
+            assert!(visible_text.contains(expected), "{visible_text}");
+        }
+        for hidden in ["input", "include", "missing"] {
             assert!(
                 !visible_text.contains(hidden),
                 "{hidden} leaked in {visible_text}"
