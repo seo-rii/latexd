@@ -489,6 +489,9 @@ The next implementation step has started with a narrow display-list spike:
   path instead of being emitted as one potentially overflowing text run;
 - wrapped `PageDisplayList` text now drops interword whitespace at the start of
   continuation lines so line breaks do not visibly indent body text by accident;
+- text wrapping now also applies an approximate page-width budget derived from
+  font size, page width, and indentation instead of relying only on a fixed
+  character count;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:

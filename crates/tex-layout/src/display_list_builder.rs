@@ -478,7 +478,18 @@ pub fn build_page_display_lists(
                 let mut wrapped_lines = Vec::new();
                 let mut current_line = Vec::new();
                 let mut current_len = 0usize;
-                let max_chars_per_line = options.max_chars_per_line.max(1);
+                let widest_indent = logical
+                    .first_line_indent_pt
+                    .max(logical.continuation_indent_pt);
+                let available_width_pt =
+                    (options.page_width_pt - options.margin_left_pt * 2.0 - widest_indent)
+                        .max(logical.size_pt * 0.5);
+                let width_limited_chars =
+                    (available_width_pt / (logical.size_pt * 0.5).max(0.1)).floor() as usize;
+                let max_chars_per_line = options
+                    .max_chars_per_line
+                    .max(1)
+                    .min(width_limited_chars.max(1));
                 let push_segment_text =
                     |mut text: &str,
                      source: &SourceProvenance,
@@ -733,8 +744,8 @@ pub fn build_page_display_lists(
 mod tests {
     use tex_render_model::{
         AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint,
-        DocumentIr, DrawOp, GraphicBlock, InlineNode, IrBlock, LinkInline, ListBlock, ListItemIr,
-        ListKind, ParagraphBlock, ReferenceInline, SourceProvenance, TitleBlock,
+        DocumentIr, DrawOp, GraphicBlock, HeadingBlock, InlineNode, IrBlock, LinkInline, ListBlock,
+        ListItemIr, ListKind, ParagraphBlock, ReferenceInline, SourceProvenance, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists};
@@ -886,6 +897,41 @@ mod tests {
             _ => None,
         });
         assert_eq!(gamma.map(|run| run.origin.x), Some(options.margin_left_pt));
+    }
+
+    #[test]
+    fn wraps_heading_text_by_approximate_available_width() {
+        let source = SourceProvenance::file("main.tex", 0, 70);
+        let options = PageDisplayListOptions::default();
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Heading(HeadingBlock {
+                level: 1,
+                number: None,
+                content: vec![InlineNode::Text {
+                    text: "x".repeat(70),
+                    source,
+                }],
+                source: SourceProvenance::file("main.tex", 0, 70),
+            })]),
+            options.clone(),
+        );
+
+        let available_width = options.page_width_pt - options.margin_left_pt * 2.0;
+        let heading_runs = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(heading_runs.len() > 1);
+        assert!(
+            heading_runs
+                .iter()
+                .all(|run| run.approximate_advance_pt <= available_width)
+        );
     }
 
     #[test]
