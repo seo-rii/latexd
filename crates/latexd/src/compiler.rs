@@ -30,7 +30,10 @@ use tex_pdf::{
     PAGE_FONT_SIZE_PT, PAGE_LINE_HEIGHT_PT, PAGE_TEXT_LEFT_PT, PAGE_TEXT_TOP_PT,
     render_display_list_pdf, render_display_list_svg, render_page_svg, render_single_page_pdf,
 };
-use tex_render_model::{AuxView, DocumentIr, PageDisplayList, RenderEventStream, to_pretty_json};
+use tex_render_model::{
+    AuxView, DocumentIr, PageDisplayList, ProvenanceSpan, RenderEvent, RenderEventStream,
+    to_pretty_json,
+};
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{VmModuleCheckpointKind, VmReplayFrame};
 use tex_world::{CompilerMode, ProjectManifest, normalize_relative_path};
@@ -78,6 +81,7 @@ pub struct InternalRenderIrCapture {
     pub document_ir: DocumentIr,
     pub page_display_lists: Vec<PageDisplayList>,
     pub display_list_pdf: Vec<u8>,
+    pub source_files: BTreeMap<Utf8PathBuf, String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,6 +92,7 @@ pub struct InternalRenderArtifactPaths {
     pub page_display_list: Utf8PathBuf,
     pub display_list_svgs: Vec<Utf8PathBuf>,
     pub display_list_pdf: Utf8PathBuf,
+    pub fallback_sources: Vec<Utf8PathBuf>,
 }
 
 impl InternalRenderIrCapture {
@@ -98,6 +103,19 @@ impl InternalRenderIrCapture {
         let output_dir = output_dir.as_ref();
         fs::create_dir_all(output_dir.as_std_path())
             .with_context(|| format!("failed to create render artifact dir {output_dir}"))?;
+
+        let fallback_sources = self
+            .events
+            .events
+            .iter()
+            .filter_map(|envelope| match &envelope.event {
+                RenderEvent::RawFallback(fallback) => fallback.full_source_artifact.as_deref(),
+                _ => None,
+            })
+            .map(|relative_path| output_dir.join(relative_path))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
 
         let paths = InternalRenderArtifactPaths {
             legacy_output: output_dir.join("legacy-output.txt"),
@@ -111,6 +129,7 @@ impl InternalRenderIrCapture {
                 .map(|(index, _)| output_dir.join(format!("display-list-page-{index}.svg")))
                 .collect(),
             display_list_pdf: output_dir.join("display-list.pdf"),
+            fallback_sources,
         };
 
         fs::write(paths.legacy_output.as_std_path(), &self.legacy_output)
@@ -138,6 +157,37 @@ impl InternalRenderIrCapture {
         }
         fs::write(paths.display_list_pdf.as_std_path(), &self.display_list_pdf)
             .with_context(|| format!("failed to write {}", paths.display_list_pdf))?;
+
+        for envelope in &self.events.events {
+            let RenderEvent::RawFallback(fallback) = &envelope.event else {
+                continue;
+            };
+            let Some(relative_path) = &fallback.full_source_artifact else {
+                continue;
+            };
+            let ProvenanceSpan::File(span) = &envelope.meta.source.primary else {
+                continue;
+            };
+            let Some(source) = self.source_files.get(&span.path) else {
+                continue;
+            };
+            let start = span.start_utf8 as usize;
+            let end = span.end_utf8 as usize;
+            if start > end
+                || end > source.len()
+                || !source.is_char_boundary(start)
+                || !source.is_char_boundary(end)
+            {
+                continue;
+            }
+            let artifact_path = output_dir.join(relative_path);
+            if let Some(parent) = artifact_path.parent() {
+                fs::create_dir_all(parent.as_std_path())
+                    .with_context(|| format!("failed to create fallback artifact dir {parent}"))?;
+            }
+            fs::write(artifact_path.as_std_path(), &source[start..end])
+                .with_context(|| format!("failed to write {artifact_path}"))?;
+        }
 
         Ok(paths)
     }
@@ -173,6 +223,11 @@ pub fn capture_internal_render_ir_with_mounted_files(
         tex_layout::PageDisplayListOptions::default(),
     );
     let display_list_pdf = render_display_list_pdf(&page_display_lists);
+    let mut source_files = BTreeMap::new();
+    source_files.insert(source_path.clone(), source.to_string());
+    for (path, source) in mounted_files {
+        source_files.insert(Utf8PathBuf::from(*path), (*source).to_string());
+    }
 
     InternalRenderIrCapture {
         legacy_output: outcome.output,
@@ -180,6 +235,7 @@ pub fn capture_internal_render_ir_with_mounted_files(
         document_ir,
         page_display_lists,
         display_list_pdf,
+        source_files,
     }
 }
 

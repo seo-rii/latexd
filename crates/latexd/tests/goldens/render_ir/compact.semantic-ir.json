@@ -91,6 +91,7 @@
     },
     {
       "environment": "unknownenv",
+      "full_source_artifact": "<present>",
       "kind": "raw_fallback",
       "normalized_visible_text": "Fallback text.",
       "reason": "unsupported_environment",

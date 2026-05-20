@@ -365,6 +365,7 @@
       "environment": "unknownenv",
       "reason": "unsupported_environment",
       "source_hash": "blake3:e7ef62ceaedd762cccde4ead4ff89b7d33fba9b8097346b0e683b69f647d47e9",
+      "full_source_artifact": "fallbacks/e7ef62ceaedd762cccde4ead4ff89b7d33fba9b8097346b0e683b69f647d47e9.tex",
       "truncated": false,
       "source": {
         "primary": {

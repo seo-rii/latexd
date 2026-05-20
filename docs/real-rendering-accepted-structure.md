@@ -1396,8 +1396,9 @@ approximate.
 - Source spans are persisted as UTF-8 byte offsets, but broader conversion from
   every VM token/macro span into precise output provenance still needs focused
   coverage.
-- Raw fallback stores bounded excerpts and visible text, but the full fallback
-  source/debug artifact format is still open.
+- Raw fallback stores bounded excerpts, visible text, source hashes, and
+  deterministic full-source debug artifact paths; internal debug artifact
+  writing materializes those source files from persisted source spans.
 - `PageDisplayList` text runs now expose approximate whole-run clusters, not
   real shaped glyph runs. A renderer-neutral font resolver, shaper, glyph ids,
   and cluster mapping are required before Skia or PDF fidelity work should be

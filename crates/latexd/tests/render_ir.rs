@@ -8983,6 +8983,51 @@ fn compact_render_ir_capture_writes_debug_artifacts() {
 }
 
 #[test]
+fn raw_fallback_debug_artifacts_write_full_source_files() {
+    let capture =
+        capture_internal_render_ir("main.tex", TIKZ_FALLBACK_SOURCE, &SemanticAux::default());
+    let fallback = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("tikzpicture") =>
+            {
+                Some(fallback)
+            }
+            _ => None,
+        })
+        .expect("tikz fallback");
+    let artifact = fallback
+        .full_source_artifact
+        .as_deref()
+        .expect("full source artifact");
+
+    assert!(artifact.starts_with("fallbacks/"));
+    assert!(artifact.ends_with(".tex"));
+
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let output_dir = Utf8PathBuf::from_path_buf(tempdir.path().join("render-artifacts"))
+        .expect("utf8 temp path");
+    let paths = capture
+        .write_debug_artifacts(&output_dir)
+        .expect("write debug artifacts");
+    let artifact_path = output_dir.join(artifact);
+    assert_eq!(paths.fallback_sources, vec![artifact_path.clone()]);
+
+    let written_source = fs::read_to_string(&artifact_path).expect("fallback source artifact");
+    assert!(matches!(
+        &fallback.source.primary,
+        ProvenanceSpan::File(span)
+            if written_source
+                == TIKZ_FALLBACK_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+    ));
+    assert!(written_source.contains(r"\draw (0,0) -- (1,1);"));
+    assert!(written_source.contains(r"\node {Should not render};"));
+}
+
+#[test]
 fn macro_heading_display_list_svg_preserves_expansion_provenance() {
     let capture =
         capture_internal_render_ir("main.tex", MACRO_SECTION_SOURCE, &SemanticAux::default());

@@ -2361,10 +2361,11 @@ impl<'i> Vm<'i> {
                                     let source_excerpt =
                                         raw_fallback_source[..source_excerpt_end].to_string();
                                     let truncated = source_excerpt_end < raw_fallback_source.len();
-                                    let source_hash = format!(
-                                        "blake3:{}",
-                                        blake3::hash(raw_fallback_source.as_bytes()).to_hex()
-                                    );
+                                    let source_digest =
+                                        blake3::hash(raw_fallback_source.as_bytes()).to_hex();
+                                    let source_hash = format!("blake3:{source_digest}");
+                                    let full_source_artifact =
+                                        format!("fallbacks/{source_digest}.tex");
                                     self.emit_render_event(
                                         RenderEvent::RawFallback(RawFallbackEvent {
                                             source_excerpt,
@@ -2373,7 +2374,7 @@ impl<'i> Vm<'i> {
                                             environment: Some(other.to_string()),
                                             reason: FallbackReason::UnsupportedEnvironment,
                                             source_hash: Some(source_hash),
-                                            full_source_artifact: None,
+                                            full_source_artifact: Some(full_source_artifact),
                                             truncated,
                                         }),
                                         SourceProvenance::file(
@@ -19008,6 +19009,16 @@ Fallback text.
 
             assert_eq!(fallback.normalized_visible_text.as_deref(), Some(expected));
             assert!(fallback.source_excerpt.contains("\\draw"));
+            let artifact = fallback
+                .full_source_artifact
+                .as_deref()
+                .expect("full source artifact");
+            assert!(artifact.starts_with("fallbacks/"));
+            assert!(artifact.ends_with(".tex"));
+            assert!(fallback.source_hash.as_deref().is_some_and(|hash| {
+                hash.strip_prefix("blake3:")
+                    .is_some_and(|digest| artifact == format!("fallbacks/{digest}.tex"))
+            }));
             assert!(!fallback.truncated);
             let visible = fallback
                 .normalized_visible_text
@@ -19052,6 +19063,15 @@ Fallback text.
         assert!(matches!(
             fallback.source_hash.as_deref(),
             Some(hash) if hash.starts_with("blake3:")
+        ));
+        assert!(matches!(
+            (
+                fallback.source_hash.as_deref(),
+                fallback.full_source_artifact.as_deref()
+            ),
+            (Some(hash), Some(artifact))
+                if hash.strip_prefix("blake3:")
+                    .is_some_and(|digest| artifact == format!("fallbacks/{digest}.tex"))
         ));
     }
 
