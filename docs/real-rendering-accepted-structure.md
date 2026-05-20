@@ -85,6 +85,8 @@ The next implementation step has started with a narrow display-list spike:
 - legacy `\epsfig{file=...}` and `\psfig{figure=...}` commands now emit
   `GraphicRef` events using the same asset resolution path as
   `\includegraphics`, avoiding key-value argument leakage into body text;
+- legacy `\epsfbox{...}` and `\epsffile{...}` file-argument commands now emit
+  `GraphicRef` events through the same resolved asset path;
 - VM render-event capture now emits `GraphicRef`/`Caption` events for
   `\includegraphics`/`\includegraphics*`, `\caption`, and `\caption*`,
   including inside `figure`/`figure*`, `sidewaysfigure`/`sidewaysfigure*`,

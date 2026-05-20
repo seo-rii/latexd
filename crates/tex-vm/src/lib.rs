@@ -1895,6 +1895,22 @@ impl<'i> Vm<'i> {
                                                     continue;
                                                 }
                                             }
+                                            "epsfbox" | "epsffile" => {
+                                                if let Some(after) = self
+                                                    .capture_legacy_graphic_file_event(
+                                                        source_path,
+                                                        source,
+                                                        body_command_start,
+                                                        body_command_index,
+                                                        body_end,
+                                                        &scan_state.graphic_paths,
+                                                        &scan_state.graphic_extensions,
+                                                    )
+                                                {
+                                                    body_index = after;
+                                                    continue;
+                                                }
+                                            }
                                             "caption" => {
                                                 if let Some(after) = self.capture_caption_event(
                                                     source_path,
@@ -5854,6 +5870,19 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
+                "epsfbox" | "epsffile" if in_document => {
+                    if let Some(after) = self.capture_legacy_graphic_file_event(
+                        source_path,
+                        source,
+                        command_start,
+                        index,
+                        source.len(),
+                        &scan_state.graphic_paths,
+                        &scan_state.graphic_extensions,
+                    ) {
+                        index = after;
+                    }
+                }
                 "caption" if in_document => {
                     if let Some(after) =
                         self.capture_caption_event(source_path, source, index, source.len())
@@ -6196,6 +6225,40 @@ impl<'i> Vm<'i> {
                 SourceProvenance::file(source_path.to_owned(), command_start as u32, after as u32),
             );
         }
+        Some(after)
+    }
+
+    fn capture_legacy_graphic_file_event(
+        &mut self,
+        source_path: &Utf8Path,
+        source: &str,
+        command_start: usize,
+        argument_index: usize,
+        limit: usize,
+        graphic_paths: &[Utf8PathBuf],
+        graphic_extensions: &[String],
+    ) -> Option<usize> {
+        let argument_index = skip_ascii_whitespace(source, argument_index);
+        let Some((path, _, _, after)) = read_braced_source_argument(source, argument_index) else {
+            return None;
+        };
+        if after > limit {
+            return None;
+        }
+        let normalized_path = normalize_latex_text(path);
+        let resolved_path = self.resolve_graphic_asset_path(
+            source_path,
+            &normalized_path,
+            graphic_paths,
+            graphic_extensions,
+        );
+        self.emit_render_event(
+            RenderEvent::GraphicRef(GraphicRefEvent {
+                path: resolved_path,
+                options: None,
+            }),
+            SourceProvenance::file(source_path.to_owned(), command_start as u32, after as u32),
+        );
         Some(after)
     }
 
@@ -18655,6 +18718,29 @@ Fallback text.
             RenderEvent::GraphicRef(graphic)
                 if graphic.path == "figures/other.eps"
                     && graphic.options.as_deref() == Some("figure=figures/other.eps,height=2cm")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_legacy_epsf_file_commands() {
+        let source = r"\begin{document}\begin{figure}\epsfbox{figures/plot}\epsffile{figures/other.eps}\caption{Plot caption.}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("figures/plot.eps", "fake eps");
+        vm.mount_file("figures/other.eps", "fake eps");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.eps" && graphic.options.is_none()
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/other.eps" && graphic.options.is_none()
         )));
     }
 
