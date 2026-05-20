@@ -6291,6 +6291,69 @@ fn multicols_environment_capture_hides_layout_arguments() {
 }
 
 #[test]
+fn paracol_environment_capture_hides_column_arguments() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        PARACOL_ENVIRONMENT_SOURCE,
+        &SemanticAux::default(),
+    );
+    let environments = capture
+        .document_ir
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            IrBlock::Environment(environment) => Some(environment),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(environments.iter().any(|environment| {
+        environment.name == "paracol"
+            && environment.content.iter().any(|node| {
+                matches!(
+                    node,
+                    InlineNode::Citation(citation)
+                        if citation.keys == vec!["key".to_string()]
+                )
+            })
+    }));
+    assert!(
+        environments
+            .iter()
+            .any(|environment| environment.name == "paracol*")
+    );
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if matches!(fallback.environment.as_deref(), Some("paracol" | "paracol*"))
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Column [?] text."));
+    assert!(extracted_text.contains("Wide text."));
+    for hidden in ["{2}", "{3}", "key"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Column [?] text."));
+    assert!(display_list_text.contains("Wide text."));
+    for hidden in ["{2}", "{3}", "key"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn algorithm_environment_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -7188,6 +7251,8 @@ const MINIPAGE_ENVIRONMENT_SOURCE: &str =
     r"\begin{document}\begin{minipage}[t]{0.5\textwidth}Box text.\end{minipage}\end{document}";
 
 const MULTICOLS_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{multicols}{2}Column \cite{key} text.\end{multicols}\begin{multicols*}{3}Wide text.\end{multicols*}\end{document}";
+
+const PARACOL_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{paracol}{2}Column \cite{key} text.\end{paracol}\begin{paracol*}{3}Wide text.\end{paracol*}\end{document}";
 
 const ALGORITHM_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{algorithm}\caption{Procedure.}\label{alg:first}Step text.\end{algorithm}\begin{algorithm*}Wide step.\end{algorithm*}\end{document}";
 

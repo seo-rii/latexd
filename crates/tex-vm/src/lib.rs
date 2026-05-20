@@ -210,6 +210,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "natbib.sty",
     "nicefrac.sty",
     "optidef.sty",
+    "paracol.sty",
     "pdflscape.sty",
     "silence.sty",
     "soul.sty",
@@ -1023,6 +1024,8 @@ impl<'i> Vm<'i> {
             "minipage",
             "multicols",
             "multicols*",
+            "paracol",
+            "paracol*",
         ] {
             structured_environments.insert(environment.to_string());
         }
@@ -1372,7 +1375,10 @@ impl<'i> Vm<'i> {
                                     } else {
                                         index = argument_index;
                                     }
-                                } else if matches!(other, "multicols" | "multicols*") {
+                                } else if matches!(
+                                    other,
+                                    "multicols" | "multicols*" | "paracol" | "paracol*"
+                                ) {
                                     let argument_index = skip_ascii_whitespace(source, index);
                                     if let Some((_, _, _, after_columns)) =
                                         read_braced_source_argument(source, argument_index)
@@ -17350,6 +17356,55 @@ Fallback text.
                     .any(|argument| text.text.contains(argument)),
                 RenderEvent::RawFallback(fallback) => {
                     matches!(fallback.environment.as_deref(), Some("CJK" | "CJK*"))
+                }
+                _ => false,
+            }
+        }));
+    }
+
+    #[test]
+    fn render_event_capture_records_paracol_without_column_arguments() {
+        let source = r"\documentclass{article}\usepackage{paracol}\begin{document}\begin{paracol}{2}Column \cite{key} text.\end{paracol}\begin{paracol*}{3}Wide text.\end{paracol*}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package paracol.sty"
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("paracol.sty"))
+        );
+        for environment in ["paracol", "paracol*"] {
+            assert!(outcome.render_events.iter().any(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::BeginBlock(BeginBlockEvent {
+                        block: BlockKind::Environment { name },
+                    }) if name == environment
+                )
+            }));
+        }
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineCitation(citation)
+                if citation.keys == vec!["key".to_string()]
+        )));
+        assert!(!outcome.render_events.iter().any(|event| {
+            match &event.event {
+                RenderEvent::Text(text) => ["{2}", "{3}", "key"]
+                    .iter()
+                    .any(|argument| text.text.contains(argument)),
+                RenderEvent::RawFallback(fallback) => {
+                    matches!(
+                        fallback.environment.as_deref(),
+                        Some("paracol" | "paracol*")
+                    )
                 }
                 _ => false,
             }
