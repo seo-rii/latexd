@@ -231,6 +231,8 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "optidef.sty",
     "paracol.sty",
     "pdflscape.sty",
+    "rotating.sty",
+    "sidecap.sty",
     "siunitx.sty",
     "silence.sty",
     "soul.sty",
@@ -1636,15 +1638,16 @@ impl<'i> Vm<'i> {
                                 }
                             }
                             "figure" | "figure*" | "sidewaysfigure" | "sidewaysfigure*"
-                            | "wrapfigure" | "wrapfigure*" | "table" | "table*"
-                            | "sidewaystable" | "sidewaystable*" | "wraptable" | "wraptable*"
+                            | "wrapfigure" | "wrapfigure*" | "SCfigure" | "SCfigure*" | "table"
+                            | "table*" | "sidewaystable" | "sidewaystable*" | "wraptable"
+                            | "wraptable*" | "SCtable" | "SCtable*"
                                 if in_document =>
                             {
                                 let block = match environment {
-                                    "figure" | "figure*" | "sidewaysfigure" | "sidewaysfigure*" => {
+                                    "figure" | "figure*" | "sidewaysfigure" | "sidewaysfigure*"
+                                    | "wrapfigure" | "wrapfigure*" | "SCfigure" | "SCfigure*" => {
                                         BlockKind::Figure
                                     }
-                                    "wrapfigure" | "wrapfigure*" => BlockKind::Figure,
                                     _ => BlockKind::Table,
                                 };
                                 self.emit_render_event(
@@ -17863,6 +17866,84 @@ Fallback text.
                 _ => false,
             }
         }));
+    }
+
+    #[test]
+    fn render_event_capture_loads_rotating_package_for_sideways_floats() {
+        let source = r"\documentclass{article}\usepackage{rotating}\begin{document}\begin{sidewaysfigure}\caption{Rotated figure.}\end{sidewaysfigure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package rotating.sty"
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("rotating.sty"))
+        );
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Rotated figure."
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("sidewaysfigure")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_sidecap_floats_without_fallback() {
+        let source = r"\documentclass{article}\usepackage{sidecap}\begin{document}\begin{SCfigure}[1][ht]\includegraphics[width=4cm]{figures/side.pdf}\caption{Side \cite{key}.}\label{fig:side}\end{SCfigure}\begin{SCtable}\caption{Side table.}\label{tab:side}\end{SCtable}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package sidecap.sty"
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("sidecap.sty"))
+        );
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Figure
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Table
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/side.pdf"
+                    && graphic.options.as_deref() == Some("width=4cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Side [?]."
+        )));
+        for key in ["fig:side", "tab:side"] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::LabelDefinition(label) if label.key == key
+            )));
+        }
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if matches!(fallback.environment.as_deref(), Some("SCfigure" | "SCtable"))
+        )));
     }
 
     #[test]

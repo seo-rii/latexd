@@ -78,7 +78,8 @@ The next implementation step has started with a narrow display-list spike:
   `\includegraphics`/`\includegraphics*`, `\caption`, and `\caption*`,
   including inside `figure`/`figure*`, `sidewaysfigure`/`sidewaysfigure*`,
   `wrapfigure`/`wrapfigure*`, `table`/`table*`,
-  `sidewaystable`/`sidewaystable*`, and `wraptable`/`wraptable*` blocks;
+  `sidewaystable`/`sidewaystable*`, `wraptable`/`wraptable*`, and
+  `SCfigure`/`SCtable` blocks;
 - captured caption text now redacts nested citation/reference commands to
   placeholders instead of leaking raw citation keys or label keys into
   `Graphic` IR captions and display-list text;
@@ -316,6 +317,9 @@ The next implementation step has started with a narrow display-list spike:
 - `landscape` now acts as a structured wrapper, with `lscape.sty` and
   `pdflscape.sty` available through builtin package shims until page-orientation
   layout is modeled;
+- `rotating.sty` and `sidecap.sty` now resolve through builtin package shims,
+  with `sidewaysfigure`/`sidewaystable` and `SCfigure`/`SCtable` preserving
+  captions, graphics, and labels without RawFallback;
 - `CJK` and `CJK*` now act as structured wrappers, with `CJK.sty` and
   `CJKutf8.sty` available through builtin package shims and encoding/font
   arguments consumed before body capture;
