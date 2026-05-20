@@ -171,6 +171,67 @@ fn title_inline_keys_are_redacted_in_ir_and_display_list() {
 }
 
 #[test]
+fn authblk_frontmatter_survives_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        AUTHBLK_FRONTMATTER_SOURCE,
+        &SemanticAux::default(),
+    );
+    let title = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::TitleBlock(title) => Some(title),
+            _ => None,
+        })
+        .expect("title block");
+
+    assert_eq!(title.title.as_deref(), Some("Quantum Paper"));
+    assert_eq!(
+        title.authors,
+        vec![
+            "Nai-Hui Chia nc67@rice.edu",
+            "Atsuya Hasegawa",
+            "Department of Computer Science",
+            "Graduate School of Mathematics"
+        ]
+    );
+    let extracted_text = capture.document_ir.extracted_text();
+    for visible in [
+        "Quantum Paper",
+        "Nai-Hui Chia nc67@rice.edu",
+        "Atsuya Hasegawa",
+        "Department of Computer Science",
+        "Graduate School of Mathematics",
+    ] {
+        assert!(extracted_text.contains(visible), "{extracted_text}");
+    }
+    for hidden in ["[1]", "[2]", "affil", "thanks"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    for visible in [
+        "Quantum Paper",
+        "Nai-Hui Chia nc67@rice.edu",
+        "Atsuya Hasegawa",
+        "Department of Computer Science",
+        "Graduate School of Mathematics",
+    ] {
+        assert!(display_list_text.contains(visible), "{display_list_text}");
+    }
+}
+
+#[test]
 fn compact_ir_contains_expected_first_batch_structures() {
     let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
 
@@ -7386,6 +7447,8 @@ const COMPACT_SOURCE: &str = r"\title{A Paper}\author{Ada Lovelace}\date{May 184
 
 const TITLE_INLINE_KEY_SOURCE: &str =
     r"\title{See \cite{key} and \ref{sec:intro}.}\begin{document}\maketitle\end{document}";
+
+const AUTHBLK_FRONTMATTER_SOURCE: &str = r"\usepackage{authblk}\title{Quantum Paper}\author[1]{Nai-Hui Chia\thanks{nc67@rice.edu}}\author[2]{Atsuya Hasegawa}\affil[1]{\textit{Department of Computer Science}}\affil[2]{Graduate School of Mathematics}\begin{document}\maketitle\end{document}";
 
 const STARRED_ABSTRACT_SOURCE: &str =
     r"\begin{document}\begin{abstract*}Starred \cite{key} abstract.\end{abstract*}\end{document}";

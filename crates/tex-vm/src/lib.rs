@@ -153,6 +153,8 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\urlstyle}[1]{}
 \providecommand{\textcolor}[2]{#2}
 \providecommand{\color}[1]{}
+\providecommand{\affil}[2][]{#2}
+\providecommand{\thanks}[1]{#1}
 \providecommand{\todo}[1]{}
 \providecommand{\sout}[1]{#1}
 \providecommand{\uline}[1]{#1}
@@ -1330,13 +1332,22 @@ impl<'i> Vm<'i> {
                         index = after_definition;
                     }
                 }
-                "title" | "author" | "date" => {
+                "title" | "author" | "date" | "affil" => {
+                    let mut argument_index = skip_ascii_whitespace(source, index);
+                    loop {
+                        let Some((_, _, _, after_option)) =
+                            read_bracket_source_argument(source, argument_index)
+                        else {
+                            break;
+                        };
+                        argument_index = skip_ascii_whitespace(source, after_option);
+                    }
                     if let Some((value, content_start, content_end, after)) =
-                        read_braced_source_argument(source, index)
+                        read_braced_source_argument(source, argument_index)
                     {
                         let field = match command {
                             "title" => MetadataField::Title,
-                            "author" => MetadataField::Author,
+                            "author" | "affil" => MetadataField::Author,
                             "date" => MetadataField::Date,
                             _ => unreachable!(),
                         };
@@ -12820,6 +12831,20 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 continue;
             }
         }
+        if command == "thanks" {
+            let argument_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((visible_text, _, _, command_after)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                append_text(&mut text, &visible_text);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
         if matches!(
             command,
             "NoCaseChange"
@@ -22074,6 +22099,58 @@ Fallback text.
                 if span.path == Utf8PathBuf::from("main.tex")
                     && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "\\maketitle"
         ));
+    }
+
+    #[test]
+    fn render_event_capture_records_authblk_optional_authors_and_affiliations() {
+        let source = r"\usepackage{authblk}\title{Quantum Paper}\author[1]{Nai-Hui Chia\thanks{nc67@rice.edu}}\author[2]{Atsuya Hasegawa}\affil[1]{\textit{Department of Computer Science}}\affil[2]{Graduate School of Mathematics}\begin{document}\maketitle\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package authblk.sty"
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("authblk.sty"))
+        );
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && matches!(diagnostic.detail.as_str(), "affil" | "thanks")
+        }));
+        let authors = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::SetDocumentMetadata(metadata)
+                    if metadata.field == MetadataField::Author =>
+                {
+                    Some(metadata.value.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            authors,
+            vec![
+                "Nai-Hui Chia nc67@rice.edu",
+                "Atsuya Hasegawa",
+                "Department of Computer Science",
+                "Graduate School of Mathematics"
+            ]
+        );
+        for author in authors {
+            assert!(!author.contains("[1]"));
+            assert!(!author.contains("[2]"));
+            assert!(!author.contains("affil"));
+            assert!(!author.contains("thanks"));
+        }
     }
 
     #[test]

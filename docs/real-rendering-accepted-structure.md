@@ -212,6 +212,10 @@ The next implementation step has started with a narrow display-list spike:
 - metadata values such as `\title{...}` now use inline citation/reference
   placeholder redaction before becoming `TitleBlock` text, preventing raw keys
   from leaking into extracted or display-list text;
+- authblk-style `\author[...]{...}` and `\affil[...]{...}` front matter now
+  survives metadata capture; affiliation lines are preserved as title-block
+  author lines until a dedicated affiliation IR field exists, and `\thanks`
+  text is separated instead of being concatenated into the author name;
 - `\href` and `\url` now survive as inline link events, `Link` IR nodes, text
   runs, and `LinkAnnotation` display-list operations without leaking hidden
   `\href` targets into visible body text; `\url` supports both braced and
