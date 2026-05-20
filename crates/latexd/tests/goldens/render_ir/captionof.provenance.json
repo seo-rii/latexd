@@ -1,0 +1,297 @@
+{
+  "cases": [
+    {
+      "caption": "Long Figure Title",
+      "display_list": {
+        "clusters": [
+          {
+            "glyph_end": 17,
+            "glyph_start": 0,
+            "text_end_utf8": 17,
+            "text_start_utf8": 0
+          }
+        ],
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 66,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 49
+          },
+          "related": [
+            {
+              "role": "invocation",
+              "span": {
+                "end_utf8": 67,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 16
+              }
+            }
+          ]
+        },
+        "text": "Long Figure Title"
+      },
+      "event": {
+        "event": {
+          "kind": "caption",
+          "text": "Long Figure Title"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 1,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 66,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 49
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 67,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 16
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir": {
+        "inline_source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 66,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 49
+          },
+          "related": [
+            {
+              "role": "invocation",
+              "span": {
+                "end_utf8": 67,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 16
+              }
+            }
+          ]
+        },
+        "paragraph": {
+          "content": [
+            {
+              "kind": "text",
+              "source": {
+                "expansion_stack": [],
+                "expansion_stack_truncated": false,
+                "generated_by": "source",
+                "primary": {
+                  "end_utf8": 66,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 49
+                },
+                "related": [
+                  {
+                    "role": "invocation",
+                    "span": {
+                      "end_utf8": 67,
+                      "kind": "file",
+                      "path": "main.tex",
+                      "start_utf8": 16
+                    }
+                  }
+                ]
+              },
+              "text": "Long Figure Title"
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 66,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 49
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 67,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 16
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "caption": "Long Table Title",
+      "display_list": {
+        "clusters": [
+          {
+            "glyph_end": 16,
+            "glyph_start": 0,
+            "text_end_utf8": 16,
+            "text_start_utf8": 0
+          }
+        ],
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 143,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 127
+          },
+          "related": [
+            {
+              "role": "invocation",
+              "span": {
+                "end_utf8": 144,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 108
+              }
+            }
+          ]
+        },
+        "text": "Long Table Title"
+      },
+      "event": {
+        "event": {
+          "kind": "caption",
+          "text": "Long Table Title"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 7,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 143,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 127
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 144,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 108
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir": {
+        "inline_source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 143,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 127
+          },
+          "related": [
+            {
+              "role": "invocation",
+              "span": {
+                "end_utf8": 144,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 108
+              }
+            }
+          ]
+        },
+        "paragraph": {
+          "content": [
+            {
+              "kind": "text",
+              "source": {
+                "expansion_stack": [],
+                "expansion_stack_truncated": false,
+                "generated_by": "source",
+                "primary": {
+                  "end_utf8": 143,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 127
+                },
+                "related": [
+                  {
+                    "role": "invocation",
+                    "span": {
+                      "end_utf8": 144,
+                      "kind": "file",
+                      "path": "main.tex",
+                      "start_utf8": 108
+                    }
+                  }
+                ]
+              },
+              "text": "Long Table Title"
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 143,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 127
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 144,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 108
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "source": "\\begin{document}\\captionof{figure}[Short Figure]{Long Figure Title}\\label{fig:first}See \\autoref{fig:first}.\\captionof*{table}{Long Table Title}\\label{tab:first}See \\autoref{tab:first}.\\end{document}"
+}

@@ -2427,6 +2427,114 @@ fn captionof_capture_uses_long_caption_without_type_or_short_title_leakage() {
 }
 
 #[test]
+fn captionof_provenance_preserves_long_caption_and_invocation_spans() {
+    let capture = capture_internal_render_ir("main.tex", CAPTIONOF_SOURCE, &SemanticAux::default());
+
+    let mut provenance_cases = Vec::new();
+    for (caption_text, invocation_text) in [
+        (
+            "Long Figure Title",
+            r"\captionof{figure}[Short Figure]{Long Figure Title}",
+        ),
+        ("Long Table Title", r"\captionof*{table}{Long Table Title}"),
+    ] {
+        let caption_event = capture
+            .events
+            .events
+            .iter()
+            .find(|envelope| {
+                matches!(&envelope.event, RenderEvent::Caption(caption) if caption.text == caption_text)
+            })
+            .expect("captionof event");
+        let paragraph = capture
+            .document_ir
+            .blocks
+            .iter()
+            .find_map(|block| match block {
+                IrBlock::Paragraph(paragraph)
+                    if paragraph.content.iter().any(
+                        |inline| matches!(inline, InlineNode::Text { text, .. } if text == caption_text),
+                    ) =>
+                {
+                    Some(paragraph)
+                }
+                _ => None,
+            })
+            .expect("captionof paragraph");
+        let inline_source = paragraph
+            .content
+            .iter()
+            .find_map(|inline| match inline {
+                InlineNode::Text { text, source } if text == caption_text => Some(source),
+                _ => None,
+            })
+            .expect("captionof inline source");
+        let caption_text_run = capture.page_display_lists[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::TextRun(run) if run.text == caption_text => Some(run),
+                _ => None,
+            })
+            .expect("captionof text run");
+
+        for source in [
+            &caption_event.meta.source,
+            &paragraph.source,
+            inline_source,
+            &caption_text_run.source,
+        ] {
+            assert!(matches!(
+                &source.primary,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &CAPTIONOF_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == caption_text
+            ));
+            assert!(source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &CAPTIONOF_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+        }
+
+        provenance_cases.push(serde_json::json!({
+            "caption": caption_text,
+            "event": {
+                "event": caption_event.event,
+                "meta": caption_event.meta,
+            },
+            "ir": {
+                "paragraph": paragraph,
+                "inline_source": inline_source,
+            },
+            "display_list": {
+                "text": caption_text_run.text,
+                "source": caption_text_run.source,
+                "clusters": caption_text_run.clusters,
+            },
+        }));
+    }
+
+    let provenance_snapshot = serde_json::json!({
+        "source": CAPTIONOF_SOURCE,
+        "cases": provenance_cases,
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/captionof.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn starred_caption_capture_survives_ir_without_visible_star_or_label_key() {
     let capture =
         capture_internal_render_ir("main.tex", STARRED_CAPTION_SOURCE, &SemanticAux::default());
