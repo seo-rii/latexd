@@ -74,6 +74,10 @@ The next implementation step has started with a narrow display-list spike:
   IR blocks and derive `Image` display-list operations with caption text;
 - `Graphic` IR blocks retain caption provenance separately from image command
   provenance, and display-list caption text uses the caption source span;
+- extensionless `\includegraphics{...}` asset references now resolve to
+  existing mounted/file-root candidates such as `.pdf`, `.png`, `.jpg`,
+  `.jpeg`, `.eps`, and `.svg` before entering `GraphicRef` events, so IR and
+  display-list image operations carry the concrete asset path when available;
 - VM render-event capture now emits `GraphicRef`/`Caption` events for
   `\includegraphics`/`\includegraphics*`, `\caption`, and `\caption*`,
   including inside `figure`/`figure*`, `sidewaysfigure`/`sidewaysfigure*`,

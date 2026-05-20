@@ -6045,9 +6045,38 @@ impl<'i> Vm<'i> {
         if after > limit {
             return None;
         }
+        let normalized_path = normalize_latex_text(path);
+        let mut resolved_path = normalized_path.clone();
+        if let Ok(path) = normalize_relative_path(Utf8Path::new(normalized_path.trim())) {
+            let mut candidates = Vec::new();
+            if let Some(parent) = source_path.parent()
+                && !path.is_absolute()
+            {
+                candidates.push(parent.join(&path));
+            }
+            candidates.push(path);
+
+            'candidate: for candidate in candidates {
+                if let Some(path) = self.resolve_existing_project_path(&candidate) {
+                    resolved_path = path.as_str().to_owned();
+                    break;
+                }
+                if candidate.extension().is_some() {
+                    continue;
+                }
+                for extension in ["pdf", "png", "jpg", "jpeg", "eps", "svg"] {
+                    if let Some(path) =
+                        self.resolve_existing_project_path(&candidate.with_extension(extension))
+                    {
+                        resolved_path = path.as_str().to_owned();
+                        break 'candidate;
+                    }
+                }
+            }
+        }
         self.emit_render_event(
             RenderEvent::GraphicRef(GraphicRefEvent {
-                path: normalize_latex_text(path),
+                path: resolved_path,
                 options,
             }),
             SourceProvenance::file(source_path.to_owned(), command_start as u32, after as u32),
@@ -18374,6 +18403,24 @@ Fallback text.
             &event.event,
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("figure")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_resolves_extensionless_graphic_assets() {
+        let source = r"\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot}\caption{Plot caption.}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("figures/plot.pdf", "%PDF fake");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.options.as_deref() == Some("width=5cm")
         )));
     }
 
