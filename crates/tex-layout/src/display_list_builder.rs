@@ -627,6 +627,9 @@ pub fn build_page_display_lists(
                             source: source.clone(),
                         }));
                         if let Some(target) = segment.link_target {
+                            pending.text.push('\u{1f}');
+                            pending.text.push_str("link:");
+                            pending.text.push_str(&target);
                             pending.ops.push(DrawOp::LinkAnnotation(LinkAnnotation {
                                 rect: Rect {
                                     x,
@@ -1001,17 +1004,47 @@ mod tests {
         }));
         assert!(display_lists[0].ops.iter().any(|op| {
             matches!(
-                op,
-                DrawOp::LinkAnnotation(link)
-                    if link.target == "https://example.test/paper"
-                        && link.rect.width > 0.0
-                        && matches!(
-                            &link.source.primary,
-                            tex_render_model::ProvenanceSpan::File(span)
-                                if span.start_utf8 == 6 && span.end_utf8 == 16
-                        )
+            op,
+            DrawOp::LinkAnnotation(link)
+                if link.target == "https://example.test/paper"
+                    && link.rect.width > 0.0
+                    && matches!(
+                        &link.source.primary,
+                        tex_render_model::ProvenanceSpan::File(span)
+                            if span.start_utf8 == 6 && span.end_utf8 == 16
+                    )
             )
         }));
+    }
+
+    #[test]
+    fn link_annotation_targets_affect_page_content_hash() {
+        let source = SourceProvenance::file("main.tex", 0, 16);
+        let left = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Link(LinkInline {
+                    target: "https://example.test/a".to_string(),
+                    display_text: "paper".to_string(),
+                    source: source.clone(),
+                })],
+                source: source.clone(),
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let right = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Link(LinkInline {
+                    target: "https://example.test/b".to_string(),
+                    display_text: "paper".to_string(),
+                    source: source.clone(),
+                })],
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+
+        assert_ne!(left[0].content_hash, right[0].content_hash);
+        assert_ne!(left[0].page_id, right[0].page_id);
     }
 
     #[test]

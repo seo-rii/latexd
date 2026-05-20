@@ -492,6 +492,9 @@ The next implementation step has started with a narrow display-list spike:
 - text wrapping now also applies an approximate page-width budget derived from
   font size, page width, and indentation instead of relying only on a fixed
   character count;
+- `PageDisplayList.content_hash` now includes link annotation targets so
+  renderer/cache reuse is invalidated when a hyperlink changes but visible text
+  stays the same;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:
