@@ -231,8 +231,9 @@ The next implementation step has started with a narrow display-list spike:
   path as document fragments, so arXiv-style split body files can contribute
   headings, paragraphs, citations, and references instead of leaking only the
   input filename. Scanner state for declared section/wrapper/environment rules
-  is shared with included files; stronger cyclic include handling is still
-  follow-up work;
+  is shared with included files, and active input stacks now skip cyclic
+  `\input`/`\include` recursion with a diagnostic instead of repeatedly
+  rendering the same file;
 - `\href` and `\url` now survive as inline link events, `Link` IR nodes, text
   runs, and `LinkAnnotation` display-list operations without leaking hidden
   `\href` targets into visible body text; `\url` supports both braced and

@@ -4427,6 +4427,53 @@ fn input_files_reuse_declared_section_and_wrapper_state() {
 }
 
 #[test]
+fn cyclic_input_files_are_skipped_once_in_ir_and_display_list() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        CYCLIC_INPUT_MAIN_SOURCE,
+        &SemanticAux::default(),
+        &[("child.tex", CYCLIC_INPUT_CHILD_SOURCE)],
+    );
+
+    assert!(capture.events.events.iter().any(|event| matches!(
+        &event.event,
+        RenderEvent::Diagnostic(diagnostic) if diagnostic.message.contains("cyclic")
+    )));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert_eq!(extracted_text.matches("Child start.").count(), 1);
+    assert_eq!(extracted_text.matches("Child end.").count(), 1);
+    assert!(extracted_text.contains("Root start."));
+    assert!(extracted_text.contains("Root end."));
+    for hidden in ["input", "child"] {
+        assert!(
+            !extracted_text.contains(hidden),
+            "{hidden} leaked in {extracted_text}"
+        );
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert_eq!(display_list_text.matches("Child start.").count(), 1);
+    assert_eq!(display_list_text.matches("Child end.").count(), 1);
+    assert!(display_list_text.contains("Root start."));
+    assert!(display_list_text.contains("Root end."));
+    for hidden in ["input", "child"] {
+        assert!(
+            !display_list_text.contains(hidden),
+            "{hidden} leaked in {display_list_text}"
+        );
+    }
+}
+
+#[test]
 fn nested_text_wrapper_unknown_command_inline_events_survive_ir_without_raw_keys() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -7887,6 +7934,11 @@ const INPUT_CHILD_SOURCE: &str = r"\section{Included}See \cite{key} and \ref{sec
 const INPUT_SHARED_STATE_MAIN_SOURCE: &str = r"\newcommand{\mysection}[1]{\section{#1}}\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}\begin{document}\input{child}\end{document}";
 
 const INPUT_SHARED_STATE_CHILD_SOURCE: &str = r"\mysection{Included}\reviewnote{check \cite{key}}";
+
+const CYCLIC_INPUT_MAIN_SOURCE: &str =
+    r"\begin{document}Root start. \input{child} Root end.\end{document}";
+
+const CYCLIC_INPUT_CHILD_SOURCE: &str = r"Child start. \input{child} Child end.";
 
 const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_INLINE_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{see \cite{key}, \citep*{starred}, \ref{sec:intro}, \crefrange*{fig:a}{fig:b}, and \ref*{sec:starred}} after}.\end{document}";
 

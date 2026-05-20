@@ -11,9 +11,9 @@ use tex_render_model::{
     ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
     InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
     LineBreakEvent, LineBreakReason, ListItemEvent, ListKind, MathSourceEvent, MetadataField,
-    ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent, RenderEvent,
-    RenderEventEnvelope, SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole,
-    SpaceEvent, SpaceKind, TextEvent,
+    ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent,
+    RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent,
+    SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind, TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -721,6 +721,7 @@ fn default_filesw() -> bool {
 #[derive(Debug, Default)]
 struct RenderEventScanState {
     no_hyper_depth: usize,
+    active_input_paths: Vec<Utf8PathBuf>,
     section_macros: HashMap<String, (usize, usize)>,
     readable_wrapper_macros: HashMap<String, (usize, usize, String)>,
     structured_environments: HashSet<String>,
@@ -1110,6 +1111,7 @@ impl<'i> Vm<'i> {
         let mut index = 0usize;
         let mut text_start = 0usize;
         let mut in_document = initial_in_document;
+        scan_state.active_input_paths.push(source_path.to_owned());
         let capture_includegraphics_in_range =
             |vm: &mut Self, range_start: usize, range_end: usize| {
                 let mut range_index = range_start;
@@ -2645,22 +2647,34 @@ impl<'i> Vm<'i> {
                         if let Some(path) = input_path
                             .as_ref()
                             .and_then(|path| self.resolve_existing_project_path(path))
-                            && include_depth < 16
                         {
-                            let included_source =
-                                self.mounted_files.get(&path).cloned().or_else(|| {
-                                    self.file_root
-                                        .as_ref()
-                                        .and_then(|root| fs::read_to_string(root.join(&path)).ok())
-                                });
-                            if let Some(included_source) = included_source {
-                                self.capture_render_events_from_source(
-                                    &path,
-                                    &included_source,
-                                    true,
-                                    include_depth + 1,
-                                    scan_state,
+                            if scan_state.active_input_paths.contains(&path) {
+                                self.emit_render_event(
+                                    RenderEvent::Diagnostic(RenderDiagnosticEvent {
+                                        message: format!("skipped cyclic input {path}"),
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        command_start as u32,
+                                        after_path as u32,
+                                    ),
                                 );
+                            } else if include_depth < 16 {
+                                let included_source =
+                                    self.mounted_files.get(&path).cloned().or_else(|| {
+                                        self.file_root.as_ref().and_then(|root| {
+                                            fs::read_to_string(root.join(&path)).ok()
+                                        })
+                                    });
+                                if let Some(included_source) = included_source {
+                                    self.capture_render_events_from_source(
+                                        &path,
+                                        &included_source,
+                                        true,
+                                        include_depth + 1,
+                                        scan_state,
+                                    );
+                                }
                             }
                         }
                         index = after_path;
@@ -5683,6 +5697,7 @@ impl<'i> Vm<'i> {
             text_start = index;
         }
         self.capture_text_events(source_path, source, text_start, source.len(), in_document);
+        scan_state.active_input_paths.pop();
     }
 
     fn capture_includegraphics_event(
@@ -11692,6 +11707,14 @@ impl<'i> Vm<'i> {
             .resolve_existing_project_path(path)
             .unwrap_or_else(|| path.to_path_buf());
         if label != "input" && self.loaded_modules.contains(&path) {
+            return;
+        }
+        if label == "input" && self.source_stack.iter().any(|frame| frame.path == path) {
+            self.diagnostics.push(VmDiagnostic {
+                kind: VmDiagnosticKind::ExplicitError,
+                detail: format!("cyclic input {path}"),
+            });
+            self.transcript.push(format!("input skipped cyclic {path}"));
             return;
         }
 
@@ -20557,6 +20580,41 @@ Fallback text.
                 "{hidden} leaked in {visible_text}"
             );
         }
+    }
+
+    #[test]
+    fn render_event_capture_skips_cyclic_input_files_once() {
+        let source = r"\begin{document}Root start. \input{child} Root end.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("child.tex", r"Child start. \input{child} Child end.");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert_eq!(visible_text.matches("Child start.").count(), 1);
+        assert_eq!(visible_text.matches("Child end.").count(), 1);
+        assert!(visible_text.contains("Root start."));
+        assert!(visible_text.contains("Root end."));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Diagnostic(diagnostic) if diagnostic.message.contains("cyclic")
+        )));
+        assert!(outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::ExplicitError
+                && diagnostic.detail.contains("cyclic")
+        }));
     }
 
     #[test]
