@@ -487,6 +487,12 @@ pub fn build_page_display_lists(
                      current_len: &mut usize,
                      wrapped_lines: &mut Vec<Vec<LogicalTextSegment>>| {
                         while !text.is_empty() {
+                            if *current_len == 0 {
+                                text = text.trim_start_matches(char::is_whitespace);
+                                if text.is_empty() {
+                                    break;
+                                }
+                            }
                             let remaining_line_chars =
                                 max_chars_per_line.saturating_sub(*current_len);
                             let take_chars = remaining_line_chars.max(1).min(text.chars().count());
@@ -839,6 +845,47 @@ mod tests {
                             if span.start_utf8 == 30 && span.end_utf8 == 33
                 )
         }));
+    }
+
+    #[test]
+    fn wrapped_lines_do_not_start_with_interword_space() {
+        let source = SourceProvenance::file("main.tex", 0, 22);
+        let options = PageDisplayListOptions {
+            max_chars_per_line: 10,
+            ..PageDisplayListOptions::default()
+        };
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![
+                    InlineNode::Text {
+                        text: "alpha".to_string(),
+                        source: source.clone(),
+                    },
+                    InlineNode::Space {
+                        source: source.clone(),
+                    },
+                    InlineNode::Text {
+                        text: "beta".to_string(),
+                        source: source.clone(),
+                    },
+                    InlineNode::Space {
+                        source: source.clone(),
+                    },
+                    InlineNode::Text {
+                        text: "gamma".to_string(),
+                        source: source.clone(),
+                    },
+                ],
+                source,
+            })]),
+            options.clone(),
+        );
+
+        let gamma = display_lists[0].ops.iter().find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "gamma" => Some(run),
+            _ => None,
+        });
+        assert_eq!(gamma.map(|run| run.origin.x), Some(options.margin_left_pt));
     }
 
     #[test]

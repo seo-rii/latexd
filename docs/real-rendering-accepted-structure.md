@@ -487,6 +487,8 @@ The next implementation step has started with a narrow display-list spike:
   the final item before subsequent document blocks;
 - graphic captions now flow through the normal `PageDisplayList` text wrapping
   path instead of being emitted as one potentially overflowing text run;
+- wrapped `PageDisplayList` text now drops interword whitespace at the start of
+  continuation lines so line breaks do not visibly indent body text by accident;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:
