@@ -949,12 +949,14 @@ impl<'i> Vm<'i> {
         let mut index = 0usize;
         let mut text_start = 0usize;
         let mut in_document = false;
+        let mut no_hyper_depth = 0usize;
         let mut section_macros = HashMap::<String, (usize, usize)>::new();
         let mut structured_environments = HashSet::<String>::new();
         for environment in [
             "quote",
             "quotation",
             "verse",
+            "NoHyper",
             "center",
             "flushleft",
             "flushright",
@@ -1380,6 +1382,9 @@ impl<'i> Vm<'i> {
                                         index as u32,
                                     ),
                                 );
+                                if other == "NoHyper" {
+                                    no_hyper_depth += 1;
+                                }
                                 if theorem_like_environments.contains(other) {
                                     let title_index = skip_ascii_whitespace(source, index);
                                     if let Some((title, title_start, title_end, after_title)) =
@@ -1963,6 +1968,9 @@ impl<'i> Vm<'i> {
                                         index as u32,
                                     ),
                                 );
+                                if other == "NoHyper" {
+                                    no_hyper_depth = no_hyper_depth.saturating_sub(1);
+                                }
                             }
                             _ => {}
                         }
@@ -2321,25 +2329,38 @@ impl<'i> Vm<'i> {
                         if let Some((text, content_start, content_end, after)) =
                             read_braced_source_argument(source, after_target)
                         {
+                            let text = normalize_latex_text_with_inline_placeholders(text);
                             self.emit_render_event(
-                                RenderEvent::InlineLink(InlineLinkEvent {
-                                    target: target.trim().to_string(),
-                                    text: normalize_latex_text_with_inline_placeholders(text),
-                                    command: command.to_string(),
-                                }),
-                                SourceProvenance::file(
-                                    source_path.to_owned(),
-                                    content_start as u32,
-                                    content_end as u32,
-                                )
-                                .with_related(
-                                    SourceSpanRole::Argument,
-                                    ProvenanceSpan::File(SourceSpan {
-                                        path: source_path.to_owned(),
-                                        start_utf8: target_start as u32,
-                                        end_utf8: target_end as u32,
-                                    }),
-                                ),
+                                if no_hyper_depth > 0 {
+                                    RenderEvent::Text(TextEvent { text })
+                                } else {
+                                    RenderEvent::InlineLink(InlineLinkEvent {
+                                        target: target.trim().to_string(),
+                                        text,
+                                        command: command.to_string(),
+                                    })
+                                },
+                                if no_hyper_depth > 0 {
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        content_start as u32,
+                                        content_end as u32,
+                                    )
+                                } else {
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        content_start as u32,
+                                        content_end as u32,
+                                    )
+                                    .with_related(
+                                        SourceSpanRole::Argument,
+                                        ProvenanceSpan::File(SourceSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: target_start as u32,
+                                            end_utf8: target_end as u32,
+                                        }),
+                                    )
+                                },
                             );
                             index = after;
                         }
@@ -2412,12 +2433,19 @@ impl<'i> Vm<'i> {
                     if let Some((target, content_start, content_end, after)) =
                         read_url_like_source_argument(source, index)
                     {
+                        let target = target.trim().to_string();
                         self.emit_render_event(
-                            RenderEvent::InlineLink(InlineLinkEvent {
-                                target: target.trim().to_string(),
-                                text: target.trim().to_string(),
-                                command: command.to_string(),
-                            }),
+                            if no_hyper_depth > 0 {
+                                RenderEvent::Text(TextEvent {
+                                    text: target.clone(),
+                                })
+                            } else {
+                                RenderEvent::InlineLink(InlineLinkEvent {
+                                    target: target.clone(),
+                                    text: target,
+                                    command: command.to_string(),
+                                })
+                            },
                             SourceProvenance::file(
                                 source_path.to_owned(),
                                 content_start as u32,
@@ -2876,28 +2904,41 @@ impl<'i> Vm<'i> {
                                                 read_braced_source_argument(source, text_index)
                                                 && command_after <= content_end
                                             {
+                                                let text =
+                                                    normalize_latex_text_with_inline_placeholders(
+                                                        text,
+                                                    );
                                                 self.emit_render_event(
-                                                    RenderEvent::InlineLink(InlineLinkEvent {
-                                                        target: target.trim().to_string(),
-                                                        text:
-                                                            normalize_latex_text_with_inline_placeholders(
-                                                                text,
-                                                            ),
-                                                        command: inner_command.to_string(),
-                                                    }),
-                                                    SourceProvenance::file(
-                                                        source_path.to_owned(),
-                                                        text_start as u32,
-                                                        text_end as u32,
-                                                    )
-                                                    .with_related(
-                                                        SourceSpanRole::Argument,
-                                                        ProvenanceSpan::File(SourceSpan {
-                                                            path: source_path.to_owned(),
-                                                            start_utf8: target_start as u32,
-                                                            end_utf8: target_end as u32,
-                                                        }),
-                                                    ),
+                                                    if no_hyper_depth > 0 {
+                                                        RenderEvent::Text(TextEvent { text })
+                                                    } else {
+                                                        RenderEvent::InlineLink(InlineLinkEvent {
+                                                            target: target.trim().to_string(),
+                                                            text,
+                                                            command: inner_command.to_string(),
+                                                        })
+                                                    },
+                                                    if no_hyper_depth > 0 {
+                                                        SourceProvenance::file(
+                                                            source_path.to_owned(),
+                                                            text_start as u32,
+                                                            text_end as u32,
+                                                        )
+                                                    } else {
+                                                        SourceProvenance::file(
+                                                            source_path.to_owned(),
+                                                            text_start as u32,
+                                                            text_end as u32,
+                                                        )
+                                                        .with_related(
+                                                            SourceSpanRole::Argument,
+                                                            ProvenanceSpan::File(SourceSpan {
+                                                                path: source_path.to_owned(),
+                                                                start_utf8: target_start as u32,
+                                                                end_utf8: target_end as u32,
+                                                            }),
+                                                        )
+                                                    },
                                                 );
                                                 inner_index = command_after;
                                             }
@@ -2915,12 +2956,19 @@ impl<'i> Vm<'i> {
                                             read_url_like_source_argument(source, argument_index)
                                             && command_after <= content_end
                                         {
+                                            let target = target.trim().to_string();
                                             self.emit_render_event(
-                                                RenderEvent::InlineLink(InlineLinkEvent {
-                                                    target: target.trim().to_string(),
-                                                    text: target.trim().to_string(),
-                                                    command: inner_command.to_string(),
-                                                }),
+                                                if no_hyper_depth > 0 {
+                                                    RenderEvent::Text(TextEvent {
+                                                        text: target.clone(),
+                                                    })
+                                                } else {
+                                                    RenderEvent::InlineLink(InlineLinkEvent {
+                                                        target: target.clone(),
+                                                        text: target,
+                                                        command: inner_command.to_string(),
+                                                    })
+                                                },
                                                 SourceProvenance::file(
                                                     source_path.to_owned(),
                                                     target_start as u32,
@@ -3610,41 +3658,60 @@ impl<'i> Vm<'i> {
                                                                     source, text_index,
                                                                 ) && command_after <= text_end
                                                                 {
+                                                                    let text =
+                                                                        normalize_latex_text_with_inline_placeholders(
+                                                                            text,
+                                                                        );
                                                                     self.emit_render_event(
-                                                                        RenderEvent::InlineLink(
-                                                                            InlineLinkEvent {
-                                                                                target: target
-                                                                                    .trim()
-                                                                                    .to_string(),
-                                                                                text:
-                                                                                    normalize_latex_text_with_inline_placeholders(
-                                                                                        text,
-                                                                                    ),
-                                                                                command:
-                                                                                    argument_command
+                                                                        if no_hyper_depth > 0 {
+                                                                            RenderEvent::Text(
+                                                                                TextEvent { text },
+                                                                            )
+                                                                        } else {
+                                                                            RenderEvent::InlineLink(
+                                                                                InlineLinkEvent {
+                                                                                    target: target
+                                                                                        .trim()
                                                                                         .to_string(),
-                                                                            },
-                                                                        ),
-                                                                        SourceProvenance::file(
-                                                                            source_path.to_owned(),
-                                                                            text_start as u32,
-                                                                            link_text_end as u32,
-                                                                        )
-                                                                        .with_related(
-                                                                            SourceSpanRole::Argument,
-                                                                            ProvenanceSpan::File(
-                                                                                SourceSpan {
-                                                                                    path: source_path
-                                                                                        .to_owned(),
-                                                                                    start_utf8:
-                                                                                        target_start
-                                                                                            as u32,
-                                                                                    end_utf8:
-                                                                                        target_end
-                                                                                            as u32,
+                                                                                    text,
+                                                                                    command:
+                                                                                        argument_command
+                                                                                            .to_string(),
                                                                                 },
-                                                                            ),
-                                                                        ),
+                                                                            )
+                                                                        },
+                                                                        if no_hyper_depth > 0 {
+                                                                            SourceProvenance::file(
+                                                                                source_path
+                                                                                    .to_owned(),
+                                                                                text_start as u32,
+                                                                                link_text_end
+                                                                                    as u32,
+                                                                            )
+                                                                        } else {
+                                                                            SourceProvenance::file(
+                                                                                source_path
+                                                                                    .to_owned(),
+                                                                                text_start as u32,
+                                                                                link_text_end
+                                                                                    as u32,
+                                                                            )
+                                                                            .with_related(
+                                                                                SourceSpanRole::Argument,
+                                                                                ProvenanceSpan::File(
+                                                                                    SourceSpan {
+                                                                                        path: source_path
+                                                                                            .to_owned(),
+                                                                                        start_utf8:
+                                                                                            target_start
+                                                                                                as u32,
+                                                                                        end_utf8:
+                                                                                            target_end
+                                                                                                as u32,
+                                                                                    },
+                                                                                ),
+                                                                            )
+                                                                        },
                                                                     );
                                                                     argument_inner_index =
                                                                         command_after;
@@ -3667,20 +3734,28 @@ impl<'i> Vm<'i> {
                                                                 argument_index,
                                                             ) && command_after <= text_end
                                                             {
+                                                                let target =
+                                                                    target.trim().to_string();
                                                                 self.emit_render_event(
-                                                                    RenderEvent::InlineLink(
-                                                                        InlineLinkEvent {
-                                                                            target: target
-                                                                                .trim()
-                                                                                .to_string(),
-                                                                            text: target
-                                                                                .trim()
-                                                                                .to_string(),
-                                                                            command:
-                                                                                argument_command
-                                                                                    .to_string(),
-                                                                        },
-                                                                    ),
+                                                                    if no_hyper_depth > 0 {
+                                                                        RenderEvent::Text(
+                                                                            TextEvent {
+                                                                                text: target
+                                                                                    .clone(),
+                                                                            },
+                                                                        )
+                                                                    } else {
+                                                                        RenderEvent::InlineLink(
+                                                                            InlineLinkEvent {
+                                                                                target: target
+                                                                                    .clone(),
+                                                                                text: target,
+                                                                                command:
+                                                                                    argument_command
+                                                                                        .to_string(),
+                                                                            },
+                                                                        )
+                                                                    },
                                                                     SourceProvenance::file(
                                                                         source_path.to_owned(),
                                                                         target_start as u32,
@@ -4187,6 +4262,8 @@ impl<'i> Vm<'i> {
                                                                                         text_index,
                                                                                     ) && after_link <= visible_text_end
                                                                                     {
+                                                                                        let text =
+                                                                                            normalize_latex_text_with_inline_placeholders(text);
                                                                                         self.capture_text_events(
                                                                                             source_path,
                                                                                             source,
@@ -4195,28 +4272,40 @@ impl<'i> Vm<'i> {
                                                                                             true,
                                                                                         );
                                                                                         self.emit_render_event(
-                                                                                            RenderEvent::InlineLink(
-                                                                                                InlineLinkEvent {
-                                                                                                    target: target.trim().to_string(),
-                                                                                                    text: normalize_latex_text_with_inline_placeholders(text),
-                                                                                                    command: nested_command.to_string(),
-                                                                                                },
-                                                                                            ),
-                                                                                            SourceProvenance::file(
-                                                                                                source_path.to_owned(),
-                                                                                                link_text_start as u32,
-                                                                                                link_text_end as u32,
-                                                                                            )
-                                                                                            .with_related(
-                                                                                                SourceSpanRole::Argument,
-                                                                                                ProvenanceSpan::File(
-                                                                                                    SourceSpan {
-                                                                                                        path: source_path.to_owned(),
-                                                                                                        start_utf8: target_start as u32,
-                                                                                                        end_utf8: target_end as u32,
+                                                                                            if no_hyper_depth > 0 {
+                                                                                                RenderEvent::Text(TextEvent { text })
+                                                                                            } else {
+                                                                                                RenderEvent::InlineLink(
+                                                                                                    InlineLinkEvent {
+                                                                                                        target: target.trim().to_string(),
+                                                                                                        text,
+                                                                                                        command: nested_command.to_string(),
                                                                                                     },
-                                                                                                ),
-                                                                                            ),
+                                                                                                )
+                                                                                            },
+                                                                                            if no_hyper_depth > 0 {
+                                                                                                SourceProvenance::file(
+                                                                                                    source_path.to_owned(),
+                                                                                                    link_text_start as u32,
+                                                                                                    link_text_end as u32,
+                                                                                                )
+                                                                                            } else {
+                                                                                                SourceProvenance::file(
+                                                                                                    source_path.to_owned(),
+                                                                                                    link_text_start as u32,
+                                                                                                    link_text_end as u32,
+                                                                                                )
+                                                                                                .with_related(
+                                                                                                    SourceSpanRole::Argument,
+                                                                                                    ProvenanceSpan::File(
+                                                                                                        SourceSpan {
+                                                                                                            path: source_path.to_owned(),
+                                                                                                            start_utf8: target_start as u32,
+                                                                                                            end_utf8: target_end as u32,
+                                                                                                        },
+                                                                                                    ),
+                                                                                                )
+                                                                                            },
                                                                                         );
                                                                                         nested_index = after_link;
                                                                                         nested_text_start = nested_index;
@@ -4240,6 +4329,8 @@ impl<'i> Vm<'i> {
                                                                                     argument_index,
                                                                                 ) && after_url <= visible_text_end
                                                                                 {
+                                                                                    let target =
+                                                                                        target.trim().to_string();
                                                                                     self.capture_text_events(
                                                                                         source_path,
                                                                                         source,
@@ -4248,13 +4339,21 @@ impl<'i> Vm<'i> {
                                                                                         true,
                                                                                     );
                                                                                     self.emit_render_event(
-                                                                                        RenderEvent::InlineLink(
-                                                                                            InlineLinkEvent {
-                                                                                                target: target.trim().to_string(),
-                                                                                                text: target.trim().to_string(),
-                                                                                                command: nested_command.to_string(),
-                                                                                            },
-                                                                                        ),
+                                                                                        if no_hyper_depth > 0 {
+                                                                                            RenderEvent::Text(
+                                                                                                TextEvent {
+                                                                                                    text: target.clone(),
+                                                                                                },
+                                                                                            )
+                                                                                        } else {
+                                                                                            RenderEvent::InlineLink(
+                                                                                                InlineLinkEvent {
+                                                                                                    target: target.clone(),
+                                                                                                    text: target,
+                                                                                                    command: nested_command.to_string(),
+                                                                                                },
+                                                                                            )
+                                                                                        },
                                                                                         SourceProvenance::file(
                                                                                             source_path.to_owned(),
                                                                                             target_start as u32,
@@ -18548,6 +18647,59 @@ Fallback text.
             &event.event,
             RenderEvent::Text(text) if text.text.contains("https://example.test/paper")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_nohyper_preserves_visible_text_without_links() {
+        let source = r"\begin{document}\begin{NoHyper}Read \href{https://hidden.test}{paper} and \url{https://visible.test/raw} with \cite{key}.\end{NoHyper}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(BeginBlockEvent {
+                block: BlockKind::Environment { name }
+            }) if name == "NoHyper"
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::EndBlock(BeginBlockEvent {
+                block: BlockKind::Environment { name }
+            }) if name == "NoHyper"
+        )));
+        assert!(
+            !outcome
+                .render_events
+                .iter()
+                .any(|event| matches!(&event.event, RenderEvent::InlineLink(_)))
+        );
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("NoHyper")
+        )));
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                RenderEvent::InlineCitation(_) => Some("[?]"),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(
+            visible_text.contains("Read paper and https://visible.test/raw with [?]."),
+            "{visible_text}"
+        );
+        assert!(!visible_text.contains("https://hidden.test"));
+        assert!(!visible_text.contains(r"\href"));
+        assert!(!visible_text.contains("{key}"));
     }
 
     #[test]

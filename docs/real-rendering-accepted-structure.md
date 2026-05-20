@@ -321,6 +321,8 @@ The next implementation step has started with a narrow display-list spike:
   body text behind RawFallback;
 - `titlepage` now acts as a structured wrapper so title-page content is
   preserved until dedicated title-page layout exists;
+- `NoHyper` now acts as a structured wrapper while preserving visible `href` and
+  `url` text without producing link annotations inside the suppressed region;
 - `spacing`, `onehalfspace`, `doublespace`, and `singlespace` now act as
   structured wrappers while consuming line-spacing arguments so they do not
   appear as visible text;

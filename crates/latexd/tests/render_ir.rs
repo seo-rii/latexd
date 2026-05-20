@@ -3362,6 +3362,73 @@ fn hyperref_visible_text_survives_ir_without_targets() {
 }
 
 #[test]
+fn nohyper_suppresses_links_while_preserving_visible_text() {
+    let capture = capture_internal_render_ir("main.tex", NOHYPER_SOURCE, &SemanticAux::default());
+    let environment = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Environment(environment) if environment.name == "NoHyper" => Some(environment),
+            _ => None,
+        })
+        .expect("NoHyper environment");
+
+    assert!(environment.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Text { text, .. } if text == "paper"
+        )
+    }));
+    assert!(environment.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Text { text, .. } if text == "https://visible.test/raw"
+        )
+    }));
+    assert!(environment.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Citation(citation)
+                if citation.keys == vec!["key".to_string()] && citation.display_text == "[?]"
+        )
+    }));
+    assert!(
+        !environment
+            .content
+            .iter()
+            .any(|node| matches!(node, InlineNode::Link(_)))
+    );
+
+    let expected = "Read paper and https://visible.test/raw with [?].";
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(expected), "{extracted_text}");
+    assert!(!extracted_text.contains("https://hidden.test"));
+    assert!(!extracted_text.contains(r"\href"));
+    assert!(!extracted_text.contains("{key}"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    assert!(!display_list_text.contains("https://hidden.test"));
+    assert!(!display_list_text.contains(r"\href"));
+    assert!(!display_list_text.contains("{key}"));
+    assert!(
+        !capture.page_display_lists[0]
+            .ops
+            .iter()
+            .any(|op| matches!(op, DrawOp::LinkAnnotation(_)))
+    );
+}
+
+#[test]
 fn url_text_wrapper_capture_survives_ir_without_link_annotations() {
     let capture =
         capture_internal_render_ir("main.tex", URL_TEXT_WRAPPER_SOURCE, &SemanticAux::default());
@@ -6711,6 +6778,8 @@ const LINK_SOURCE: &str = r"\begin{document}Read \href{https://example.test/pape
 const LINK_TEXT_INLINE_KEY_SOURCE: &str = r"\begin{document}Read \href{https://hidden.test}{see \cite{cited}, \citep*{starred}, \ref{sec:intro}, and \ref*{sec:starred}}.\end{document}";
 
 const HYPERREF_VISIBLE_TEXT_SOURCE: &str = r"\begin{document}Read \hyperref[sec:intro]{intro}, \hyperlink{hidden-anchor}{anchor text}, and \hypertarget{target-id}{target text}.\end{document}";
+
+const NOHYPER_SOURCE: &str = r"\begin{document}\begin{NoHyper}Read \href{https://hidden.test}{paper} and \url{https://visible.test/raw} with \cite{key}.\end{NoHyper}\end{document}";
 
 const URL_TEXT_WRAPPER_SOURCE: &str = r"\begin{document}Use \nolinkurl{https://example.test/paper}, \nolinkurl|https://example.test/delimited|, at \path{/tmp/archive} and \path|/var/tmp| via \detokenize{\foo+*}.\end{document}";
 
