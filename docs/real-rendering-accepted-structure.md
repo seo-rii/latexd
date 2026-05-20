@@ -508,6 +508,9 @@ The next implementation step has started with a narrow display-list spike:
 - inline and display math now prefer optional `normalized_text` in extracted
   text and `PageDisplayList` text runs while retaining raw math source as the
   canonical fallback;
+- `PageDisplayList.content_hash` now includes text-run renderer attributes such
+  as origin, font request, and size so renderer caches distinguish equal visible
+  text with different drawing semantics;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:

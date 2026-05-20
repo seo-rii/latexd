@@ -656,6 +656,10 @@ pub fn build_page_display_lists(
                         pending.text.push('\n');
                         pending.hash_input.push('\n');
                     }
+                    pending.hash_input.push_str(&format!(
+                        "\u{1e}text_run:{line_x:.3}:{y:.3}:{:?}:{:.3}\u{1f}",
+                        logical.font, logical.size_pt
+                    ));
                     let destination_source = line_segments
                         .first()
                         .map(|segment| &segment.source)
@@ -1233,6 +1237,36 @@ mod tests {
 
         assert_ne!(default[0].content_hash, larger_font[0].content_hash);
         assert_ne!(default[0].page_id, larger_font[0].page_id);
+    }
+
+    #[test]
+    fn text_run_style_affects_page_content_hash() {
+        let source = SourceProvenance::file("main.tex", 0, 5);
+        let paragraph = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: "Intro".to_string(),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let heading = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Heading(HeadingBlock {
+                level: 1,
+                number: None,
+                content: vec![InlineNode::Text {
+                    text: "Intro".to_string(),
+                    source: source.clone(),
+                }],
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+
+        assert_ne!(paragraph[0].content_hash, heading[0].content_hash);
+        assert_ne!(paragraph[0].page_id, heading[0].page_id);
     }
 
     #[test]
