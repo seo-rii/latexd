@@ -313,6 +313,9 @@ The next implementation step has started with a narrow display-list spike:
 - `widetext`, `strip`, and `fullwidth` now act as structured wrappers so their
   body text and inline events are captured instead of being swallowed by
   RawFallback;
+- `landscape` now acts as a structured wrapper, with `lscape.sty` and
+  `pdflscape.sty` available through builtin package shims until page-orientation
+  layout is modeled;
 - `sloppypar` now acts as a structured wrapper so line-breaking hints do not
   hide body text behind RawFallback;
 - font-size declaration environments such as `small`, `footnotesize`, and
