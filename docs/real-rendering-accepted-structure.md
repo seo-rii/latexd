@@ -80,6 +80,9 @@ The next implementation step has started with a narrow display-list spike:
   `wrapfigure`/`wrapfigure*`, `table`/`table*`,
   `sidewaystable`/`sidewaystable*`, `wraptable`/`wraptable*`, and
   `SCfigure`/`SCtable` blocks;
+- command-style subfigures such as `\subfloat[caption]{...}` and
+  `\subcaptionbox{caption}[layout]{...}` now preserve nested graphics and
+  captions without leaking layout arguments or raw citation keys;
 - captured caption text now redacts nested citation/reference commands to
   placeholders instead of leaking raw citation keys or label keys into
   `Graphic` IR captions and display-list text;

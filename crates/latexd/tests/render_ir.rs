@@ -6650,6 +6650,57 @@ fn subcaption_wrappers_capture_hides_layout_arguments() {
 }
 
 #[test]
+fn subfloat_commands_capture_as_graphics_with_captions() {
+    let capture =
+        capture_internal_render_ir("main.tex", SUBFLOAT_COMMAND_SOURCE, &SemanticAux::default());
+
+    for (path, options, caption) in [
+        ("figures/a.pdf", Some("width=3cm"), "Panel [?]."),
+        ("figures/b.pdf", Some("width=2cm"), "Box [?]."),
+    ] {
+        assert!(capture.document_ir.blocks.iter().any(|block| {
+            matches!(
+                block,
+                IrBlock::Graphic(graphic)
+                    if graphic.path == path
+                        && graphic.options.as_deref() == options
+                        && graphic.caption.as_deref() == Some(caption)
+            )
+        }));
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Panel [?]."));
+    assert!(extracted_text.contains("Box [?]."));
+    for hidden in ["subfloat", "subcaptionbox", "0.4", "textwidth", "key"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Panel [?]."));
+    assert!(display_list_text.contains("Box [?]."));
+    for hidden in ["subfloat", "subcaptionbox", "0.4", "textwidth", "key"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+    for path in ["figures/a.pdf", "figures/b.pdf"] {
+        assert!(
+            capture.page_display_lists[0]
+                .ops
+                .iter()
+                .any(|op| matches!(op, DrawOp::Image(image) if image.asset_ref == path))
+        );
+    }
+}
+
+#[test]
 fn algorithm_environment_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -7561,6 +7612,8 @@ const PARACOL_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{paracol}{2}Col
 const THREEPARTTABLE_SOURCE: &str = r"\begin{document}\begin{threeparttable}\caption{Measured table.}\begin{tabular}{ll}A & B \\\end{tabular}\begin{tablenotes}[flushleft]\item Note \cite{key}.\end{tablenotes}\end{threeparttable}\end{document}";
 
 const SUBCAPTION_WRAPPER_SOURCE: &str = r"\begin{document}\begin{subfigure}[b]{0.45\textwidth}\includegraphics[width=4cm]{figures/panel-a.pdf}\caption{Panel \cite{key}.}\end{subfigure}\begin{subtable}{0.4\textwidth}\caption{Panel table.}\end{subtable}\end{document}";
+
+const SUBFLOAT_COMMAND_SOURCE: &str = r"\begin{document}\begin{figure}\subfloat[Panel \cite{key}.]{\includegraphics[width=3cm]{figures/a.pdf}}\subcaptionbox{Box \cite{key}.}[0.4\textwidth]{\includegraphics[width=2cm]{figures/b.pdf}}\end{figure}\end{document}";
 
 const ALGORITHM_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{algorithm}\caption{Procedure.}\label{alg:first}Step text.\end{algorithm}\begin{algorithm*}Wide step.\end{algorithm*}\end{document}";
 

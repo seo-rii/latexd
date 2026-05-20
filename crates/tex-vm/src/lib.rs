@@ -158,6 +158,8 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\uline}[1]{#1}
 \providecommand{\hl}[1]{#1}
 \providecommand{\nicefrac}[2]{#1/#2}
+\providecommand{\subfloat}[2][]{#2}
+\providecommand{\subcaptionbox}[2]{#2}
 \providecommand{\excludecomment}[1]{}
 \providecommand{\includecomment}[1]{}
 \providecommand{\linenumbers}{}
@@ -1074,6 +1076,50 @@ impl<'i> Vm<'i> {
         }
         let mut hidden_environments = HashSet::<String>::new();
         hidden_environments.insert("comment".to_string());
+        let capture_includegraphics_in_range =
+            |vm: &mut Self, range_start: usize, range_end: usize| {
+                let mut range_index = range_start;
+                while range_index < range_end {
+                    let Some(relative_command) = source[range_index..range_end].find('\\') else {
+                        break;
+                    };
+                    let nested_command_start = range_index + relative_command;
+                    let mut nested_command_index = nested_command_start + 1;
+                    if nested_command_index >= range_end {
+                        break;
+                    }
+                    let nested_command = if source.as_bytes()[nested_command_index]
+                        .is_ascii_alphabetic()
+                        || source.as_bytes()[nested_command_index] == b'@'
+                    {
+                        let start = nested_command_index;
+                        while nested_command_index < range_end
+                            && (source.as_bytes()[nested_command_index].is_ascii_alphabetic()
+                                || source.as_bytes()[nested_command_index] == b'@')
+                        {
+                            nested_command_index += 1;
+                        }
+                        &source[start..nested_command_index]
+                    } else {
+                        let start = nested_command_index;
+                        nested_command_index += 1;
+                        &source[start..nested_command_index]
+                    };
+                    if nested_command == "includegraphics"
+                        && let Some(after_graphic) = vm.capture_includegraphics_event(
+                            source_path,
+                            source,
+                            nested_command_start,
+                            nested_command_index,
+                            range_end,
+                        )
+                    {
+                        range_index = after_graphic;
+                        continue;
+                    }
+                    range_index = nested_command_index;
+                }
+            };
         while index < bytes.len() {
             if bytes[index] != b'\\' {
                 if in_document && bytes[index] == b'$' {
@@ -1720,6 +1766,141 @@ impl<'i> Vm<'i> {
                                                 ) {
                                                     body_index = after;
                                                     continue;
+                                                }
+                                            }
+                                            "subfloat" => {
+                                                let mut argument_index = skip_ascii_whitespace(
+                                                    source,
+                                                    body_command_index,
+                                                );
+                                                let mut caption = None;
+                                                loop {
+                                                    argument_index = skip_ascii_whitespace(
+                                                        source,
+                                                        argument_index,
+                                                    );
+                                                    let Some((
+                                                        value,
+                                                        caption_start,
+                                                        caption_end,
+                                                        after_option,
+                                                    )) = read_bracket_source_argument(
+                                                        source,
+                                                        argument_index,
+                                                    )
+                                                    else {
+                                                        break;
+                                                    };
+                                                    if after_option > body_end {
+                                                        break;
+                                                    }
+                                                    caption = Some((
+                                                        normalize_latex_text_with_inline_placeholders(
+                                                            value,
+                                                        ),
+                                                        caption_start,
+                                                        caption_end,
+                                                    ));
+                                                    argument_index = after_option;
+                                                }
+                                                if let Some((
+                                                    _,
+                                                    subfloat_body_start,
+                                                    subfloat_body_end,
+                                                    after_subfloat,
+                                                )) = read_braced_source_argument(
+                                                    source,
+                                                    argument_index,
+                                                ) && after_subfloat <= body_end
+                                                {
+                                                    capture_includegraphics_in_range(
+                                                        self,
+                                                        subfloat_body_start,
+                                                        subfloat_body_end,
+                                                    );
+                                                    if let Some((
+                                                        caption_text,
+                                                        caption_start,
+                                                        caption_end,
+                                                    )) = caption
+                                                    {
+                                                        self.emit_render_event(
+                                                            RenderEvent::Caption(CaptionEvent {
+                                                                text: caption_text,
+                                                            }),
+                                                            SourceProvenance::file(
+                                                                source_path.to_owned(),
+                                                                caption_start as u32,
+                                                                caption_end as u32,
+                                                            ),
+                                                        );
+                                                    }
+                                                    body_index = after_subfloat;
+                                                    continue;
+                                                }
+                                            }
+                                            "subcaptionbox" => {
+                                                let caption_index = skip_ascii_whitespace(
+                                                    source,
+                                                    body_command_index,
+                                                );
+                                                if let Some((
+                                                    caption,
+                                                    caption_start,
+                                                    caption_end,
+                                                    after_caption,
+                                                )) = read_braced_source_argument(
+                                                    source,
+                                                    caption_index,
+                                                ) && after_caption <= body_end
+                                                {
+                                                    let mut argument_index = after_caption;
+                                                    loop {
+                                                        argument_index = skip_ascii_whitespace(
+                                                            source,
+                                                            argument_index,
+                                                        );
+                                                        let Some((_, _, _, after_option)) =
+                                                            read_bracket_source_argument(
+                                                                source,
+                                                                argument_index,
+                                                            )
+                                                        else {
+                                                            break;
+                                                        };
+                                                        if after_option > body_end {
+                                                            break;
+                                                        }
+                                                        argument_index = after_option;
+                                                    }
+                                                    if let Some((
+                                                        _,
+                                                        subcaption_body_start,
+                                                        subcaption_body_end,
+                                                        after_subcaption,
+                                                    )) = read_braced_source_argument(
+                                                        source,
+                                                        argument_index,
+                                                    ) && after_subcaption <= body_end
+                                                    {
+                                                        capture_includegraphics_in_range(
+                                                            self,
+                                                            subcaption_body_start,
+                                                            subcaption_body_end,
+                                                        );
+                                                        self.emit_render_event(
+                                                            RenderEvent::Caption(CaptionEvent {
+                                                                text: normalize_latex_text_with_inline_placeholders(caption),
+                                                            }),
+                                                            SourceProvenance::file(
+                                                                source_path.to_owned(),
+                                                                caption_start as u32,
+                                                                caption_end as u32,
+                                                            ),
+                                                        );
+                                                        body_index = after_subcaption;
+                                                        continue;
+                                                    }
                                                 }
                                             }
                                             "label" => {
@@ -17866,6 +18047,51 @@ Fallback text.
                 _ => false,
             }
         }));
+    }
+
+    #[test]
+    fn render_event_capture_records_subfloat_commands_without_option_leakage() {
+        let source = r"\documentclass{article}\usepackage{subfig}\usepackage{subcaption}\begin{document}\begin{figure}\subfloat[Panel \cite{key}.]{\includegraphics[width=3cm]{figures/a.pdf}}\subcaptionbox{Box \cite{key}.}[0.4\textwidth]{\includegraphics[width=2cm]{figures/b.pdf}}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for package in ["subfig.sty", "subcaption.sty"] {
+            assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+                diagnostic.kind == VmDiagnosticKind::MissingFile
+                    && diagnostic.detail == format!("package {package}")
+            }));
+            assert!(outcome.loaded_modules.contains(&Utf8PathBuf::from(package)));
+        }
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && matches!(diagnostic.detail.as_str(), "subfloat" | "subcaptionbox")
+        }));
+        for (path, options) in [
+            ("figures/a.pdf", Some("width=3cm")),
+            ("figures/b.pdf", Some("width=2cm")),
+        ] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::GraphicRef(graphic)
+                    if graphic.path == path && graphic.options.as_deref() == options
+            )));
+        }
+        for caption in ["Panel [?].", "Box [?]."] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Caption(event) if event.text == caption
+            )));
+        }
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if ["subfloat", "subcaptionbox", "0.4", "textwidth", "key"]
+                    .iter()
+                    .any(|hidden| text.text.contains(hidden))
+        )));
     }
 
     #[test]
