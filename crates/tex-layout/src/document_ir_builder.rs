@@ -754,13 +754,13 @@ mod tests {
                 RenderEvent::RawFallback(RawFallbackEvent {
                     source_excerpt: "\\begin{unknownenv}Fallback text.\\end{unknownenv}"
                         .to_string(),
-                    expanded_text: None,
+                    expanded_text: Some("Expanded fallback text.".to_string()),
                     normalized_visible_text: Some("Fallback text.".to_string()),
                     environment: Some("unknownenv".to_string()),
                     reason: tex_render_model::FallbackReason::UnsupportedEnvironment,
-                    source_hash: None,
-                    full_source_artifact: None,
-                    truncated: false,
+                    source_hash: Some("blake3:raw-fallback".to_string()),
+                    full_source_artifact: Some("fallbacks/raw-1.tex".to_string()),
+                    truncated: true,
                 }),
                 SourceProvenance::file("main.tex", 0, 48),
             )],
@@ -768,6 +768,19 @@ mod tests {
         let ir = build_document_ir(&stream, &());
 
         assert_eq!(ir.extracted_text(), "Fallback text.");
+        let IrBlock::RawFallback(fallback) = &ir.blocks[0] else {
+            panic!("expected raw fallback block");
+        };
+        assert_eq!(
+            fallback.expanded_text.as_deref(),
+            Some("Expanded fallback text.")
+        );
+        assert_eq!(fallback.source_hash.as_deref(), Some("blake3:raw-fallback"));
+        assert_eq!(
+            fallback.full_source_artifact.as_deref(),
+            Some("fallbacks/raw-1.tex")
+        );
+        assert!(fallback.truncated);
     }
 
     #[test]

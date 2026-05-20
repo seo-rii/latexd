@@ -472,6 +472,9 @@ The next implementation step has started with a narrow display-list spike:
 - unsupported `lstlisting`, `minted`, and fancyvrb `Verbatim` code
   environments now drop begin-time listing options/language arguments from
   visible fallback text while preserving the raw code body;
+- `RawFallbackIr` now preserves event-level `expanded_text`, `source_hash`,
+  `full_source_artifact`, and `truncated` metadata instead of reducing fallback
+  blocks to only visible text and reason fields;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`

@@ -339,10 +339,18 @@ pub struct GraphicBlock {
 pub struct RawFallbackIr {
     pub source_excerpt: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expanded_text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub normalized_visible_text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub environment: Option<String>,
     pub reason: crate::FallbackReason,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub full_source_artifact: Option<String>,
+    #[serde(default)]
+    pub truncated: bool,
     pub source: SourceProvenance,
 }
 
@@ -350,9 +358,13 @@ impl RawFallbackIr {
     pub fn from_event(event: &RawFallbackEvent, source: SourceProvenance) -> Self {
         Self {
             source_excerpt: event.source_excerpt.clone(),
+            expanded_text: event.expanded_text.clone(),
             normalized_visible_text: event.normalized_visible_text.clone(),
             environment: event.environment.clone(),
             reason: event.reason,
+            source_hash: event.source_hash.clone(),
+            full_source_artifact: event.full_source_artifact.clone(),
+            truncated: event.truncated,
             source,
         }
     }

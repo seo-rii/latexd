@@ -354,6 +354,7 @@
       "normalized_visible_text": "Fallback text.",
       "environment": "unknownenv",
       "reason": "unsupported_environment",
+      "truncated": false,
       "source": {
         "primary": {
           "kind": "file",
