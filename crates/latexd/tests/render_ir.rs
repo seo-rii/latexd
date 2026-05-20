@@ -1647,6 +1647,87 @@ fn graphic_render_ir_capture_derives_display_list_image() {
 }
 
 #[test]
+fn graphic_provenance_preserves_invocation_and_path_argument_spans() {
+    let capture = capture_internal_render_ir("main.tex", GRAPHIC_SOURCE, &SemanticAux::default());
+    let graphic_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::GraphicRef(graphic) if graphic.path == "figures/plot.pdf"
+            )
+        })
+        .expect("graphic event");
+    let graphic_block = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Graphic(graphic) if graphic.path == "figures/plot.pdf" => Some(graphic),
+            _ => None,
+        })
+        .expect("graphic block");
+    let image_op = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.pdf" => Some(image),
+            _ => None,
+        })
+        .expect("image op");
+
+    for source in [
+        &graphic_event.meta.source,
+        &graphic_block.source,
+        &image_op.source,
+    ] {
+        assert!(matches!(
+            &source.primary,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == "main.tex"
+                    && &GRAPHIC_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\includegraphics[width=5cm]{figures/plot.pdf}"
+        ));
+        assert!(source.related.iter().any(|related| {
+            related.role == SourceSpanRole::ArgumentContent
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &GRAPHIC_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "figures/plot.pdf"
+                )
+        }));
+    }
+
+    let provenance_snapshot = serde_json::json!({
+        "source": GRAPHIC_SOURCE,
+        "event": {
+            "event": graphic_event.event,
+            "meta": graphic_event.meta,
+        },
+        "ir": {
+            "path": graphic_block.path,
+            "options": graphic_block.options,
+            "caption": graphic_block.caption,
+            "source": graphic_block.source,
+        },
+        "display_list": {
+            "asset_ref": image_op.asset_ref,
+            "source": image_op.source,
+        },
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/graphic.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn extensionless_graphic_assets_resolve_before_ir_and_display_list() {
     let capture = capture_internal_render_ir_with_mounted_files(
         "main.tex",

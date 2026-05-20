@@ -6500,7 +6500,9 @@ impl<'i> Vm<'i> {
             options = Some(normalize_latex_text(value));
             argument_index = after;
         }
-        let Some((path, _, _, after)) = read_braced_source_argument(source, argument_index) else {
+        let Some((path, path_start, path_end, after)) =
+            read_braced_source_argument(source, argument_index)
+        else {
             return None;
         };
         if after > limit {
@@ -6518,7 +6520,15 @@ impl<'i> Vm<'i> {
                 path: resolved_path,
                 options,
             }),
-            SourceProvenance::file(source_path.to_owned(), command_start as u32, after as u32),
+            SourceProvenance::file(source_path.to_owned(), command_start as u32, after as u32)
+                .with_related(
+                    SourceSpanRole::ArgumentContent,
+                    ProvenanceSpan::File(SourceSpan {
+                        path: source_path.to_owned(),
+                        start_utf8: path_start as u32,
+                        end_utf8: path_end as u32,
+                    }),
+                ),
         );
         Some(after)
     }
@@ -6604,7 +6614,9 @@ impl<'i> Vm<'i> {
         graphic_extensions: &[String],
     ) -> Option<usize> {
         let argument_index = skip_ascii_whitespace(source, argument_index);
-        let Some((path, _, _, after)) = read_braced_source_argument(source, argument_index) else {
+        let Some((path, path_start, path_end, after)) =
+            read_braced_source_argument(source, argument_index)
+        else {
             return None;
         };
         if after > limit {
@@ -6622,7 +6634,15 @@ impl<'i> Vm<'i> {
                 path: resolved_path,
                 options: None,
             }),
-            SourceProvenance::file(source_path.to_owned(), command_start as u32, after as u32),
+            SourceProvenance::file(source_path.to_owned(), command_start as u32, after as u32)
+                .with_related(
+                    SourceSpanRole::ArgumentContent,
+                    ProvenanceSpan::File(SourceSpan {
+                        path: source_path.to_owned(),
+                        start_utf8: path_start as u32,
+                        end_utf8: path_end as u32,
+                    }),
+                ),
         );
         Some(after)
     }
@@ -19104,12 +19124,35 @@ Fallback text.
             &event.event,
             RenderEvent::BeginBlock(block) if block.block == BlockKind::Figure
         )));
-        assert!(outcome.render_events.iter().any(|event| matches!(
-            &event.event,
-            RenderEvent::GraphicRef(graphic)
-                if graphic.path == "figures/plot.pdf"
-                    && graphic.options.as_deref() == Some("width=5cm")
-        )));
+        let graphic_event = outcome
+            .render_events
+            .iter()
+            .find(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::GraphicRef(graphic)
+                        if graphic.path == "figures/plot.pdf"
+                            && graphic.options.as_deref() == Some("width=5cm")
+                )
+            })
+            .expect("graphic event");
+        assert!(matches!(
+            &graphic_event.meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\includegraphics[width=5cm]{figures/plot.pdf}"
+        ));
+        assert!(graphic_event.meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::ArgumentContent
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "figures/plot.pdf"
+                )
+        }));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Caption(caption) if caption.text == "Plot caption."
