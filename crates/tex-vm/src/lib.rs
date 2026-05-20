@@ -160,6 +160,14 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\nicefrac}[2]{#1/#2}
 \providecommand{\excludecomment}[1]{}
 \providecommand{\includecomment}[1]{}
+\providecommand{\linenumbers}{}
+\providecommand{\nolinenumbers}{}
+\providecommand{\runninglinenumbers}{}
+\providecommand{\pagewiselinenumbers}{}
+\providecommand{\switchlinenumbers}{}
+\providecommand{\internallinenumbers}{}
+\providecommand{\modulolinenumbers}[1][]{}
+\providecommand{\resetlinenumber}[1][]{}
 ";
 
 const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
@@ -199,6 +207,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "inputenc.sty",
     "keyval.sty",
     "latexsym.sty",
+    "lineno.sty",
     "lipsum.sty",
     "longtable.sty",
     "lscape.sty",
@@ -2182,6 +2191,25 @@ impl<'i> Vm<'i> {
                         read_braced_source_argument(source, resource_index)
                     {
                         index = after_resource;
+                    }
+                }
+                "linenumbers"
+                | "nolinenumbers"
+                | "runninglinenumbers"
+                | "pagewiselinenumbers"
+                | "switchlinenumbers"
+                | "internallinenumbers"
+                    if in_document => {}
+                "modulolinenumbers" | "resetlinenumber" if in_document => {
+                    let argument_index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_option)) =
+                        read_bracket_source_argument(source, argument_index)
+                    {
+                        index = after_option;
+                    } else if let Some((_, _, _, after_argument)) =
+                        read_braced_source_argument(source, argument_index)
+                    {
+                        index = after_argument;
                     }
                 }
                 "printbibliography" if in_document => {
@@ -20580,6 +20608,45 @@ Fallback text.
         assert!(!outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Text(text) if text.text.contains("Hidden")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_loads_lineno_package_shim_without_command_leakage() {
+        let source = r"\documentclass{article}\usepackage{lineno}\begin{document}\linenumbers\modulolinenumbers[2]Visible \cite{key} text.\resetlinenumber[7]\nolinenumbers After.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package lineno.sty"
+        }));
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && matches!(
+                    diagnostic.detail.as_str(),
+                    "linenumbers" | "modulolinenumbers" | "resetlinenumber" | "nolinenumbers"
+                )
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("lineno.sty"))
+        );
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineCitation(citation)
+                if citation.keys == vec!["key".to_string()]
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if ["linenumbers", "modulo", "[2]", "[7]", "key"]
+                    .iter()
+                    .any(|hidden| text.text.contains(hidden))
         )));
     }
 

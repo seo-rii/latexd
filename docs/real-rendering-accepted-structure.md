@@ -340,6 +340,9 @@ The next implementation step has started with a narrow display-list spike:
 - `\excludecomment{...}` and `\includecomment{...}` now update render-event
   capture policy for custom comment-package environments, and `comment.sty`
   resolves through the builtin package shim surface;
+- `lineno.sty` now resolves through the builtin package shim surface, and
+  line-numbering commands such as `\linenumbers`, `\modulolinenumbers`, and
+  `\resetlinenumber` are consumed without visible text leakage;
 - `spacing`, `onehalfspace`, `doublespace`, and `singlespace` now act as
   structured wrappers while consuming line-spacing arguments so they do not
   appear as visible text;

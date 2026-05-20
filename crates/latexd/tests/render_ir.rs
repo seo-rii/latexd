@@ -2363,6 +2363,33 @@ fn addbibresource_definition_does_not_leak_into_ir_or_display_list() {
 }
 
 #[test]
+fn lineno_commands_do_not_leak_into_ir_or_display_list() {
+    let capture =
+        capture_internal_render_ir("main.tex", LINENO_COMMAND_SOURCE, &SemanticAux::default());
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Visible [?] text."));
+    assert!(extracted_text.contains("After."));
+    for hidden in ["linenumbers", "modulo", "[2]", "[7]", "{key}"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Visible [?] text."));
+    assert!(display_list_text.contains("After."));
+    for hidden in ["linenumbers", "modulo", "[2]", "[7]", "{key}"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn printbibliography_capture_creates_empty_bibliography_without_option_leakage() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -7218,6 +7245,8 @@ const CITATION_ENTRY_ALIAS_SOURCE: &str = r"\begin{document}\onlinecite{online} 
 const DEFCITEALIAS_SOURCE: &str = r"\begin{document}\defcitealias{alpha}{Paper I}Alias \citetalias{alpha}, \citepalias{alpha}, and \Citetalias{alpha}.\end{document}";
 
 const ADDBIBRESOURCE_SOURCE: &str = r"\begin{document}\addbibresource[location=local]{refs.bib}Bib \textcite{alpha} and \parencite{beta}.\end{document}";
+
+const LINENO_COMMAND_SOURCE: &str = r"\begin{document}\linenumbers\modulolinenumbers[2]Visible \cite{key} text.\resetlinenumber[7]\nolinenumbers After.\end{document}";
 
 const PRINTBIBLIOGRAPHY_SOURCE: &str =
     r"\begin{document}Before \textcite{alpha}.\printbibliography[heading=none]\end{document}";
