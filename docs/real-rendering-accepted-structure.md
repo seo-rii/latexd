@@ -314,6 +314,8 @@ The next implementation step has started with a narrow display-list spike:
   RawFallback;
 - `sloppypar` now acts as a structured wrapper so line-breaking hints do not
   hide body text behind RawFallback;
+- font-size declaration environments such as `small`, `footnotesize`, and
+  `Large` now act as structured wrappers so style hints do not hide body text;
 - `spacing`, `onehalfspace`, `doublespace`, and `singlespace` now act as
   structured wrappers while consuming line-spacing arguments so they do not
   appear as visible text;
