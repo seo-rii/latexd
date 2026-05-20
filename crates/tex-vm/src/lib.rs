@@ -718,6 +718,16 @@ fn default_filesw() -> bool {
     true
 }
 
+#[derive(Debug, Default)]
+struct RenderEventScanState {
+    no_hyper_depth: usize,
+    section_macros: HashMap<String, (usize, usize)>,
+    readable_wrapper_macros: HashMap<String, (usize, usize, String)>,
+    structured_environments: HashSet<String>,
+    theorem_like_environments: HashSet<String>,
+    hidden_environments: HashSet<String>,
+}
+
 #[derive(Debug)]
 pub struct Vm<'i> {
     interner: &'i mut ControlSequenceInterner,
@@ -983,7 +993,103 @@ impl<'i> Vm<'i> {
                 .entry_source_path
                 .clone()
                 .unwrap_or_else(|| Utf8PathBuf::from("texput.tex"));
-            self.capture_render_events_from_source(&source_path, source, false, 0);
+            let mut scan_state = RenderEventScanState::default();
+            for environment in [
+                "quote",
+                "quotation",
+                "verse",
+                "NoHyper",
+                "center",
+                "flushleft",
+                "flushright",
+                "samepage",
+                "titlepage",
+                "framed",
+                "shaded",
+                "snugshade",
+                "leftbar",
+                "oframed",
+                "tcolorbox",
+                "mdframed",
+                "displayquote",
+                "displayquotation",
+                "acknowledgements",
+                "acknowledgments",
+                "acknowledgement",
+                "acknowledgment",
+                "keywords",
+                "keyword",
+                "IEEEkeywords",
+                "frontmatter",
+                "widetext",
+                "strip",
+                "fullwidth",
+                "landscape",
+                "landscape*",
+                "CJK",
+                "CJK*",
+                "sloppypar",
+                "tiny",
+                "scriptsize",
+                "footnotesize",
+                "small",
+                "normalsize",
+                "large",
+                "Large",
+                "LARGE",
+                "huge",
+                "Huge",
+                "spacing",
+                "onehalfspace",
+                "doublespace",
+                "singlespace",
+                "adjustwidth",
+                "adjustwidth*",
+                "addmargin",
+                "addmargin*",
+                "algorithm",
+                "algorithm*",
+                "algorithmic",
+                "algorithmic*",
+                "subequations",
+                "appendices",
+                "subappendices",
+                "minipage",
+                "multicols",
+                "multicols*",
+                "paracol",
+                "paracol*",
+                "threeparttable",
+                "measuredfigure",
+                "tablenotes",
+                "subfigure",
+                "subfigure*",
+                "subtable",
+                "subtable*",
+            ] {
+                scan_state
+                    .structured_environments
+                    .insert(environment.to_string());
+            }
+            for environment in [
+                "theorem",
+                "proof",
+                "lemma",
+                "proposition",
+                "corollary",
+                "definition",
+                "remark",
+                "example",
+            ] {
+                scan_state
+                    .theorem_like_environments
+                    .insert(environment.to_string());
+                scan_state
+                    .structured_environments
+                    .insert(environment.to_string());
+            }
+            scan_state.hidden_environments.insert("comment".to_string());
+            self.capture_render_events_from_source(&source_path, source, false, 0, &mut scan_state);
         }
         let tokens = {
             let interner = &mut *self.interner;
@@ -998,106 +1104,12 @@ impl<'i> Vm<'i> {
         source: &str,
         initial_in_document: bool,
         include_depth: usize,
+        scan_state: &mut RenderEventScanState,
     ) {
         let bytes = source.as_bytes();
         let mut index = 0usize;
         let mut text_start = 0usize;
         let mut in_document = initial_in_document;
-        let mut no_hyper_depth = 0usize;
-        let mut section_macros = HashMap::<String, (usize, usize)>::new();
-        let mut readable_wrapper_macros = HashMap::<String, (usize, usize, String)>::new();
-        let mut structured_environments = HashSet::<String>::new();
-        for environment in [
-            "quote",
-            "quotation",
-            "verse",
-            "NoHyper",
-            "center",
-            "flushleft",
-            "flushright",
-            "samepage",
-            "titlepage",
-            "framed",
-            "shaded",
-            "snugshade",
-            "leftbar",
-            "oframed",
-            "tcolorbox",
-            "mdframed",
-            "displayquote",
-            "displayquotation",
-            "acknowledgements",
-            "acknowledgments",
-            "acknowledgement",
-            "acknowledgment",
-            "keywords",
-            "keyword",
-            "IEEEkeywords",
-            "frontmatter",
-            "widetext",
-            "strip",
-            "fullwidth",
-            "landscape",
-            "landscape*",
-            "CJK",
-            "CJK*",
-            "sloppypar",
-            "tiny",
-            "scriptsize",
-            "footnotesize",
-            "small",
-            "normalsize",
-            "large",
-            "Large",
-            "LARGE",
-            "huge",
-            "Huge",
-            "spacing",
-            "onehalfspace",
-            "doublespace",
-            "singlespace",
-            "adjustwidth",
-            "adjustwidth*",
-            "addmargin",
-            "addmargin*",
-            "algorithm",
-            "algorithm*",
-            "algorithmic",
-            "algorithmic*",
-            "subequations",
-            "appendices",
-            "subappendices",
-            "minipage",
-            "multicols",
-            "multicols*",
-            "paracol",
-            "paracol*",
-            "threeparttable",
-            "measuredfigure",
-            "tablenotes",
-            "subfigure",
-            "subfigure*",
-            "subtable",
-            "subtable*",
-        ] {
-            structured_environments.insert(environment.to_string());
-        }
-        let mut theorem_like_environments = HashSet::<String>::new();
-        for environment in [
-            "theorem",
-            "proof",
-            "lemma",
-            "proposition",
-            "corollary",
-            "definition",
-            "remark",
-            "example",
-        ] {
-            theorem_like_environments.insert(environment.to_string());
-            structured_environments.insert(environment.to_string());
-        }
-        let mut hidden_environments = HashSet::<String>::new();
-        hidden_environments.insert("comment".to_string());
         let capture_includegraphics_in_range =
             |vm: &mut Self, range_start: usize, range_end: usize| {
                 let mut range_index = range_start;
@@ -1301,11 +1313,12 @@ impl<'i> Vm<'i> {
                         {
                             let macro_name = target.trim().trim_start_matches('\\');
                             if body.contains("\\section") && body.contains("#1") {
-                                section_macros
+                                scan_state
+                                    .section_macros
                                     .insert(macro_name.to_string(), (command_start, after_body));
                             }
                             if parameter_count == 1 && body.contains("#1") && !body.contains("#2") {
-                                readable_wrapper_macros.insert(
+                                scan_state.readable_wrapper_macros.insert(
                                     macro_name.to_string(),
                                     (command_start, after_body, body.to_string()),
                                 );
@@ -1325,8 +1338,12 @@ impl<'i> Vm<'i> {
                     {
                         let environment = environment.trim();
                         if !environment.is_empty() {
-                            theorem_like_environments.insert(environment.to_string());
-                            structured_environments.insert(environment.to_string());
+                            scan_state
+                                .theorem_like_environments
+                                .insert(environment.to_string());
+                            scan_state
+                                .structured_environments
+                                .insert(environment.to_string());
                         }
                         let mut after_definition = skip_ascii_whitespace(source, after_environment);
                         if let Some((_, _, _, after_shared_counter)) =
@@ -1397,10 +1414,14 @@ impl<'i> Vm<'i> {
                         let environment = environment.trim();
                         if !environment.is_empty() {
                             if command == "excludecomment" {
-                                hidden_environments.insert(environment.to_string());
+                                scan_state
+                                    .hidden_environments
+                                    .insert(environment.to_string());
                             } else {
-                                hidden_environments.remove(environment);
-                                structured_environments.insert(environment.to_string());
+                                scan_state.hidden_environments.remove(environment);
+                                scan_state
+                                    .structured_environments
+                                    .insert(environment.to_string());
                             }
                         }
                         index = after;
@@ -1416,7 +1437,10 @@ impl<'i> Vm<'i> {
                             "document" => {
                                 in_document = true;
                             }
-                            other if in_document && hidden_environments.contains(other) => {
+                            other
+                                if in_document
+                                    && scan_state.hidden_environments.contains(other) =>
+                            {
                                 let end_marker = format!("\\end{{{other}}}");
                                 if let Some(relative_end) = source[index..].find(&end_marker) {
                                     index += relative_end + end_marker.len();
@@ -1469,7 +1493,10 @@ impl<'i> Vm<'i> {
                                     ),
                                 );
                             }
-                            other if in_document && structured_environments.contains(other) => {
+                            other
+                                if in_document
+                                    && scan_state.structured_environments.contains(other) =>
+                            {
                                 if matches!(
                                     other,
                                     "minipage"
@@ -1595,9 +1622,9 @@ impl<'i> Vm<'i> {
                                     ),
                                 );
                                 if other == "NoHyper" {
-                                    no_hyper_depth += 1;
+                                    scan_state.no_hyper_depth += 1;
                                 }
-                                if theorem_like_environments.contains(other) {
+                                if scan_state.theorem_like_environments.contains(other) {
                                     let title_index = skip_ascii_whitespace(source, index);
                                     if let Some((title, title_start, title_end, after_title)) =
                                         read_bracket_source_argument(source, title_index)
@@ -2303,7 +2330,10 @@ impl<'i> Vm<'i> {
                                     ),
                                 );
                             }
-                            other if in_document && structured_environments.contains(other) => {
+                            other
+                                if in_document
+                                    && scan_state.structured_environments.contains(other) =>
+                            {
                                 self.emit_render_event(
                                     RenderEvent::EndBlock(BeginBlockEvent {
                                         block: BlockKind::Environment {
@@ -2317,7 +2347,8 @@ impl<'i> Vm<'i> {
                                     ),
                                 );
                                 if other == "NoHyper" {
-                                    no_hyper_depth = no_hyper_depth.saturating_sub(1);
+                                    scan_state.no_hyper_depth =
+                                        scan_state.no_hyper_depth.saturating_sub(1);
                                 }
                             }
                             _ => {}
@@ -2628,6 +2659,7 @@ impl<'i> Vm<'i> {
                                     &included_source,
                                     true,
                                     include_depth + 1,
+                                    scan_state,
                                 );
                             }
                         }
@@ -2858,7 +2890,7 @@ impl<'i> Vm<'i> {
                         {
                             let text = normalize_latex_text_with_inline_placeholders(text);
                             self.emit_render_event(
-                                if no_hyper_depth > 0 {
+                                if scan_state.no_hyper_depth > 0 {
                                     RenderEvent::Text(TextEvent { text })
                                 } else {
                                     RenderEvent::InlineLink(InlineLinkEvent {
@@ -2867,7 +2899,7 @@ impl<'i> Vm<'i> {
                                         command: command.to_string(),
                                     })
                                 },
-                                if no_hyper_depth > 0 {
+                                if scan_state.no_hyper_depth > 0 {
                                     SourceProvenance::file(
                                         source_path.to_owned(),
                                         content_start as u32,
@@ -2962,7 +2994,7 @@ impl<'i> Vm<'i> {
                     {
                         let target = target.trim().to_string();
                         self.emit_render_event(
-                            if no_hyper_depth > 0 {
+                            if scan_state.no_hyper_depth > 0 {
                                 RenderEvent::Text(TextEvent {
                                     text: target.clone(),
                                 })
@@ -3511,7 +3543,7 @@ impl<'i> Vm<'i> {
                                                         text,
                                                     );
                                                 self.emit_render_event(
-                                                    if no_hyper_depth > 0 {
+                                                    if scan_state.no_hyper_depth > 0 {
                                                         RenderEvent::Text(TextEvent { text })
                                                     } else {
                                                         RenderEvent::InlineLink(InlineLinkEvent {
@@ -3520,7 +3552,7 @@ impl<'i> Vm<'i> {
                                                             command: inner_command.to_string(),
                                                         })
                                                     },
-                                                    if no_hyper_depth > 0 {
+                                                    if scan_state.no_hyper_depth > 0 {
                                                         SourceProvenance::file(
                                                             source_path.to_owned(),
                                                             text_start as u32,
@@ -3560,7 +3592,7 @@ impl<'i> Vm<'i> {
                                         {
                                             let target = target.trim().to_string();
                                             self.emit_render_event(
-                                                if no_hyper_depth > 0 {
+                                                if scan_state.no_hyper_depth > 0 {
                                                     RenderEvent::Text(TextEvent {
                                                         text: target.clone(),
                                                     })
@@ -4265,7 +4297,7 @@ impl<'i> Vm<'i> {
                                                                             text,
                                                                         );
                                                                     self.emit_render_event(
-                                                                        if no_hyper_depth > 0 {
+                                                                        if scan_state.no_hyper_depth > 0 {
                                                                             RenderEvent::Text(
                                                                                 TextEvent { text },
                                                                             )
@@ -4282,7 +4314,7 @@ impl<'i> Vm<'i> {
                                                                                 },
                                                                             )
                                                                         },
-                                                                        if no_hyper_depth > 0 {
+                                                                        if scan_state.no_hyper_depth > 0 {
                                                                             SourceProvenance::file(
                                                                                 source_path
                                                                                     .to_owned(),
@@ -4339,7 +4371,7 @@ impl<'i> Vm<'i> {
                                                                 let target =
                                                                     target.trim().to_string();
                                                                 self.emit_render_event(
-                                                                    if no_hyper_depth > 0 {
+                                                                    if scan_state.no_hyper_depth > 0 {
                                                                         RenderEvent::Text(
                                                                             TextEvent {
                                                                                 text: target
@@ -4874,7 +4906,7 @@ impl<'i> Vm<'i> {
                                                                                             true,
                                                                                         );
                                                                                         self.emit_render_event(
-                                                                                            if no_hyper_depth > 0 {
+                                                                                            if scan_state.no_hyper_depth > 0 {
                                                                                                 RenderEvent::Text(TextEvent { text })
                                                                                             } else {
                                                                                                 RenderEvent::InlineLink(
@@ -4885,7 +4917,7 @@ impl<'i> Vm<'i> {
                                                                                                     },
                                                                                                 )
                                                                                             },
-                                                                                            if no_hyper_depth > 0 {
+                                                                                            if scan_state.no_hyper_depth > 0 {
                                                                                                 SourceProvenance::file(
                                                                                                     source_path.to_owned(),
                                                                                                     link_text_start as u32,
@@ -4941,7 +4973,7 @@ impl<'i> Vm<'i> {
                                                                                         true,
                                                                                     );
                                                                                     self.emit_render_event(
-                                                                                        if no_hyper_depth > 0 {
+                                                                                        if scan_state.no_hyper_depth > 0 {
                                                                                             RenderEvent::Text(
                                                                                                 TextEvent {
                                                                                                     text: target.clone(),
@@ -5575,7 +5607,7 @@ impl<'i> Vm<'i> {
                 }
                 _ if in_document => {
                     if let Some((definition_start, definition_end)) =
-                        section_macros.get(command).copied()
+                        scan_state.section_macros.get(command).copied()
                         && let Some((heading, content_start, content_end, after)) =
                             read_braced_source_argument(source, index)
                     {
@@ -5606,7 +5638,7 @@ impl<'i> Vm<'i> {
                         );
                         index = after;
                     } else if let Some((definition_start, definition_end, body)) =
-                        readable_wrapper_macros.get(command)
+                        scan_state.readable_wrapper_macros.get(command)
                     {
                         let argument_index = skip_ascii_whitespace(source, index);
                         if let Some((argument, content_start, content_end, after)) =
@@ -20488,6 +20520,43 @@ Fallback text.
         assert!(!visible_text.contains("child"));
         assert!(!visible_text.contains("key"));
         assert!(!visible_text.contains("sec:intro"));
+    }
+
+    #[test]
+    fn render_event_capture_shares_declared_wrappers_with_input_files() {
+        let source = r"\newcommand{\mysection}[1]{\section{#1}}\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}\begin{document}\input{child}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file(
+            "child.tex",
+            r"\mysection{Included}\reviewnote{check \cite{key}}",
+        );
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Heading(heading) if heading.text == "Included"
+        )));
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("TODO: check [?]"), "{visible_text}");
+        for hidden in ["mysection", "reviewnote", "color", "red", "key"] {
+            assert!(
+                !visible_text.contains(hidden),
+                "{hidden} leaked in {visible_text}"
+            );
+        }
     }
 
     #[test]
