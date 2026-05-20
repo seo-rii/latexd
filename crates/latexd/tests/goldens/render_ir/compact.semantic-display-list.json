@@ -1,0 +1,277 @@
+[
+  {
+    "content_hash": "<present>",
+    "height_pt": 792.0,
+    "ops": [
+      {
+        "approximate_advance_pt": 63.0,
+        "clusters": "<present>",
+        "font": {
+          "family": "serif",
+          "role": "heading",
+          "series": "bold",
+          "shape": "upright",
+          "size_pt": 18.0
+        },
+        "kind": "text_run",
+        "origin": {
+          "x": 72.0,
+          "y": 72.0
+        },
+        "size_pt": 18.0,
+        "source": "<present>",
+        "text": "A Paper"
+      },
+      {
+        "approximate_advance_pt": 66.0,
+        "clusters": "<present>",
+        "font": {
+          "family": "serif",
+          "role": "body",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0
+        },
+        "kind": "text_run",
+        "origin": {
+          "x": 72.0,
+          "y": 93.0
+        },
+        "size_pt": 11.0,
+        "source": "<present>",
+        "text": "Ada Lovelace"
+      },
+      {
+        "approximate_advance_pt": 44.0,
+        "clusters": "<present>",
+        "font": {
+          "family": "serif",
+          "role": "body",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0
+        },
+        "kind": "text_run",
+        "origin": {
+          "x": 72.0,
+          "y": 107.0
+        },
+        "size_pt": 11.0,
+        "source": "<present>",
+        "text": "May 1843"
+      },
+      {
+        "approximate_advance_pt": 27.5,
+        "clusters": "<present>",
+        "font": {
+          "family": "serif",
+          "role": "body",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0
+        },
+        "kind": "text_run",
+        "origin": {
+          "x": 90.0,
+          "y": 128.0
+        },
+        "size_pt": 11.0,
+        "source": "<present>",
+        "text": "Short"
+      },
+      {
+        "approximate_advance_pt": 5.5,
+        "clusters": "<present>",
+        "font": {
+          "family": "serif",
+          "role": "body",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0
+        },
+        "kind": "text_run",
+        "origin": {
+          "x": 117.5,
+          "y": 128.0
+        },
+        "size_pt": 11.0,
+        "source": "<present>",
+        "text": " "
+      },
+      {
+        "approximate_advance_pt": 49.5,
+        "clusters": "<present>",
+        "font": {
+          "family": "serif",
+          "role": "body",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0
+        },
+        "kind": "text_run",
+        "origin": {
+          "x": 123.0,
+          "y": 128.0
+        },
+        "size_pt": 11.0,
+        "source": "<present>",
+        "text": "abstract."
+      },
+      {
+        "approximate_advance_pt": 37.5,
+        "clusters": "<present>",
+        "font": {
+          "family": "serif",
+          "role": "heading",
+          "series": "bold",
+          "shape": "upright",
+          "size_pt": 15.0
+        },
+        "kind": "text_run",
+        "origin": {
+          "x": 72.0,
+          "y": 149.0
+        },
+        "size_pt": 15.0,
+        "source": "<present>",
+        "text": "Intro"
+      },
+      {
+        "approximate_advance_pt": 27.5,
+        "clusters": "<present>",
+        "font": {
+          "family": "serif",
+          "role": "body",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0
+        },
+        "kind": "text_run",
+        "origin": {
+          "x": 72.0,
+          "y": 170.0
+        },
+        "size_pt": 11.0,
+        "source": "<present>",
+        "text": "Hello"
+      },
+      {
+        "approximate_advance_pt": 5.5,
+        "clusters": "<present>",
+        "font": {
+          "family": "serif",
+          "role": "body",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0
+        },
+        "kind": "text_run",
+        "origin": {
+          "x": 99.5,
+          "y": 170.0
+        },
+        "size_pt": 11.0,
+        "source": "<present>",
+        "text": " "
+      },
+      {
+        "approximate_advance_pt": 16.5,
+        "clusters": "<present>",
+        "font": {
+          "family": "serif",
+          "role": "body",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0
+        },
+        "kind": "text_run",
+        "origin": {
+          "x": 105.0,
+          "y": 170.0
+        },
+        "size_pt": 11.0,
+        "source": "<present>",
+        "text": "[?]"
+      },
+      {
+        "approximate_advance_pt": 5.5,
+        "clusters": "<present>",
+        "font": {
+          "family": "serif",
+          "role": "body",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0
+        },
+        "kind": "text_run",
+        "origin": {
+          "x": 121.5,
+          "y": 170.0
+        },
+        "size_pt": 11.0,
+        "source": "<present>",
+        "text": "."
+      },
+      {
+        "approximate_advance_pt": 16.5,
+        "clusters": "<present>",
+        "font": {
+          "family": "math",
+          "role": "math",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0
+        },
+        "kind": "text_run",
+        "origin": {
+          "x": 72.0,
+          "y": 191.0
+        },
+        "size_pt": 11.0,
+        "source": "<present>",
+        "text": "x^2"
+      },
+      {
+        "approximate_advance_pt": 77.0,
+        "clusters": "<present>",
+        "font": {
+          "family": "serif",
+          "role": "body",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0
+        },
+        "kind": "text_run",
+        "origin": {
+          "x": 72.0,
+          "y": 212.0
+        },
+        "size_pt": 11.0,
+        "source": "<present>",
+        "text": "Author. Title."
+      },
+      {
+        "approximate_advance_pt": 77.0,
+        "clusters": "<present>",
+        "font": {
+          "family": "serif",
+          "role": "body",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0
+        },
+        "kind": "text_run",
+        "origin": {
+          "x": 72.0,
+          "y": 233.0
+        },
+        "size_pt": 11.0,
+        "source": "<present>",
+        "text": "Fallback text."
+      }
+    ],
+    "page_id": "<present>",
+    "source_spans": "<present>",
+    "width_pt": 612.0
+  }
+]

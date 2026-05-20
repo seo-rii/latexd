@@ -19,6 +19,8 @@ fn compact_render_ir_capture_matches_goldens() {
     let ir_json = to_pretty_json(&capture.document_ir).expect("ir json");
     let semantic_ir_json = to_semantic_pretty_json(&capture.document_ir).expect("semantic ir json");
     let display_list_json = to_pretty_json(&capture.page_display_lists).expect("display list json");
+    let semantic_display_list_json =
+        to_semantic_pretty_json(&capture.page_display_lists).expect("semantic display-list json");
 
     assert_or_update_golden("tests/goldens/render_ir/compact.events.json", &event_json);
     assert_or_update_golden(
@@ -33,6 +35,10 @@ fn compact_render_ir_capture_matches_goldens() {
     assert_or_update_golden(
         "tests/goldens/render_ir/compact.display-list.json",
         &display_list_json,
+    );
+    assert_or_update_golden(
+        "tests/goldens/render_ir/compact.semantic-display-list.json",
+        &semantic_display_list_json,
     );
 
     assert!(capture.document_ir.extracted_text().contains("A Paper"));
