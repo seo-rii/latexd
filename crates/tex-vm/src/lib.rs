@@ -160,6 +160,14 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\nicefrac}[2]{#1/#2}
 \providecommand{\subfloat}[2][]{#2}
 \providecommand{\subcaptionbox}[2]{#2}
+\providecommand{\FloatBarrier}{}
+\providecommand{\balance}{}
+\providecommand{\flushend}{}
+\providecommand{\raggedend}{}
+\providecommand{\xspace}{ }
+\providecommand{\phantomsection}{}
+\providecommand{\addcontentsline}[3]{}
+\providecommand{\addtocontents}[2]{}
 \providecommand{\excludecomment}[1]{}
 \providecommand{\includecomment}[1]{}
 \providecommand{\linenumbers}{}
@@ -196,6 +204,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "amsthm.sty",
     "array.sty",
     "authblk.sty",
+    "balance.sty",
     "bbm.sty",
     "bigstrut.sty",
     "bm.sty",
@@ -207,10 +216,12 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "comment.sty",
     "color.sty",
     "csquotes.sty",
+    "dblfloatfix.sty",
     "enumitem.sty",
     "etoolbox.sty",
     "fancybox.sty",
     "float.sty",
+    "flushend.sty",
     "fontenc.sty",
     "framed.sty",
     "fullpage.sty",
@@ -233,11 +244,13 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "optidef.sty",
     "paracol.sty",
     "pdflscape.sty",
+    "placeins.sty",
     "rotating.sty",
     "sidecap.sty",
     "siunitx.sty",
     "silence.sty",
     "soul.sty",
+    "stfloats.sty",
     "subcaption.sty",
     "subfig.sty",
     "subfigure.sty",
@@ -2432,6 +2445,45 @@ impl<'i> Vm<'i> {
                 "smallskip" | "medskip" | "bigskip" | "noindent" | "indent" | "newpage"
                 | "clearpage" | "cleardoublepage" | "vfill" | "hfill"
                     if in_document => {}
+                "FloatBarrier" | "balance" | "flushend" | "raggedend" | "phantomsection"
+                    if in_document => {}
+                "xspace" if in_document => {
+                    index = skip_ascii_whitespace(source, index);
+                    self.emit_render_event(
+                        RenderEvent::Space(SpaceEvent {
+                            kind: SpaceKind::Explicit,
+                        }),
+                        SourceProvenance::file(
+                            source_path.to_owned(),
+                            command_start as u32,
+                            index as u32,
+                        ),
+                    );
+                }
+                "addcontentsline" if in_document => {
+                    let mut argument_index = skip_ascii_whitespace(source, index);
+                    for _ in 0..3 {
+                        let Some((_, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            break;
+                        };
+                        argument_index = skip_ascii_whitespace(source, after_argument);
+                        index = after_argument;
+                    }
+                }
+                "addtocontents" if in_document => {
+                    let mut argument_index = skip_ascii_whitespace(source, index);
+                    for _ in 0..2 {
+                        let Some((_, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            break;
+                        };
+                        argument_index = skip_ascii_whitespace(source, after_argument);
+                        index = after_argument;
+                    }
+                }
                 "printbibliography" if in_document => {
                     let mut after_options = skip_ascii_whitespace(source, index);
                     loop {
@@ -21347,6 +21399,53 @@ Fallback text.
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));
+    }
+
+    #[test]
+    fn render_event_capture_hides_layout_helper_commands_and_preserves_xspace() {
+        let source = r"\documentclass{article}\usepackage{placeins}\usepackage{balance}\usepackage{xspace}\begin{document}Alpha\xspace Beta.\FloatBarrier\balance\phantomsection\addcontentsline{toc}{section}{Hidden Entry}Visible.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for package in ["placeins.sty", "balance.sty", "xspace.sty"] {
+            assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+                diagnostic.kind == VmDiagnosticKind::MissingFile
+                    && diagnostic.detail == format!("package {package}")
+            }));
+            assert!(outcome.loaded_modules.contains(&Utf8PathBuf::from(package)));
+        }
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && matches!(
+                    diagnostic.detail.as_str(),
+                    "xspace" | "FloatBarrier" | "balance" | "phantomsection" | "addcontentsline"
+                )
+        }));
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("Alpha Beta."));
+        assert!(visible_text.contains("Visible."));
+        for hidden in [
+            "FloatBarrier",
+            "balance",
+            "phantomsection",
+            "addcontentsline",
+            "Hidden Entry",
+            "toc",
+        ] {
+            assert!(!visible_text.contains(hidden));
+        }
     }
 
     #[test]

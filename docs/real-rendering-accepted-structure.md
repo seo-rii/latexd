@@ -357,6 +357,10 @@ The next implementation step has started with a narrow display-list spike:
 - common layout commands such as `\vspace`, `\hspace`, `\pagebreak`,
   `\smallskip`, and `\noindent` are now consumed as non-visible layout hints so
   dimensions and break options do not leak into rendered text;
+- float/layout and TOC helper commands such as `\FloatBarrier`, `\balance`,
+  `\flushend`, `\phantomsection`, `\addcontentsline`, and `\addtocontents` are
+  now consumed without visible text leakage, while `\xspace` preserves a single
+  explicit space;
 - `spacing`, `onehalfspace`, `doublespace`, and `singlespace` now act as
   structured wrappers while consuming line-spacing arguments so they do not
   appear as visible text;

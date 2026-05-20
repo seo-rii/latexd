@@ -2481,6 +2481,50 @@ fn layout_spacing_commands_do_not_leak_into_ir_or_display_list() {
 }
 
 #[test]
+fn layout_helper_commands_do_not_leak_into_ir_or_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        LAYOUT_HELPER_COMMAND_SOURCE,
+        &SemanticAux::default(),
+    );
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Alpha Beta."));
+    assert!(extracted_text.contains("Visible."));
+    for hidden in [
+        "FloatBarrier",
+        "balance",
+        "phantomsection",
+        "addcontentsline",
+        "Hidden Entry",
+        "toc",
+    ] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Alpha Beta."));
+    assert!(display_list_text.contains("Visible."));
+    for hidden in [
+        "FloatBarrier",
+        "balance",
+        "phantomsection",
+        "addcontentsline",
+        "Hidden Entry",
+        "toc",
+    ] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn siunitx_commands_render_readable_text_without_raw_syntax() {
     let capture =
         capture_internal_render_ir("main.tex", SIUNITX_COMMAND_SOURCE, &SemanticAux::default());
@@ -7462,6 +7506,8 @@ const ADDBIBRESOURCE_SOURCE: &str = r"\begin{document}\addbibresource[location=l
 const LINENO_COMMAND_SOURCE: &str = r"\begin{document}\linenumbers\modulolinenumbers[2]Visible \cite{key} text.\resetlinenumber[7]\nolinenumbers After.\end{document}";
 
 const LAYOUT_SPACING_COMMAND_SOURCE: &str = r"\begin{document}Before \vspace*{-1em} After \hspace{2mm} Gap.\smallskip \noindent Text\pagebreak[4] Next.\end{document}";
+
+const LAYOUT_HELPER_COMMAND_SOURCE: &str = r"\begin{document}Alpha\xspace Beta.\FloatBarrier\balance\phantomsection\addcontentsline{toc}{section}{Hidden Entry}Visible.\end{document}";
 
 const SIUNITX_COMMAND_SOURCE: &str = r"\begin{document}Speed \SI{3.5}{m/s}; count \num{1200}; unit \si{kg}; range \SIrange{1}{2}{m}; macro \SI{9}{\meter\per\second}; freq \SI{5}{\kilo\hertz}.\end{document}";
 
