@@ -232,6 +232,41 @@ fn authblk_frontmatter_survives_ir_and_display_list() {
 }
 
 #[test]
+fn llncs_frontmatter_survives_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        LLNCS_FRONTMATTER_SOURCE,
+        &SemanticAux::default(),
+    );
+    let title = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::TitleBlock(title) => Some(title),
+            _ => None,
+        })
+        .expect("title block");
+
+    assert_eq!(title.title.as_deref(), Some("LNCS Paper"));
+    assert_eq!(
+        title.authors,
+        vec!["Alice and Bob", "Lab One alice@example.test and Lab Two"]
+    );
+    let extracted_text = capture.document_ir.extracted_text();
+    for visible in [
+        "LNCS Paper",
+        "Alice and Bob",
+        "Lab One alice@example.test and Lab Two",
+    ] {
+        assert!(extracted_text.contains(visible), "{extracted_text}");
+    }
+    for hidden in ["inst", "orcid", "0000", "institute"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+    }
+}
+
+#[test]
 fn footnote_bodies_survive_ir_and_display_list_without_raw_braces() {
     let capture =
         capture_internal_render_ir("main.tex", FOOTNOTE_BODY_SOURCE, &SemanticAux::default());
@@ -8594,6 +8629,8 @@ const TITLE_INLINE_KEY_SOURCE: &str =
     r"\title{See \cite{key} and \ref{sec:intro}.}\begin{document}\maketitle\end{document}";
 
 const AUTHBLK_FRONTMATTER_SOURCE: &str = r"\usepackage{authblk}\title{Quantum Paper}\author[1]{Nai-Hui Chia\thanks{nc67@rice.edu}}\author[2]{Atsuya Hasegawa}\affil[1]{\textit{Department of Computer Science}}\affil[2]{Graduate School of Mathematics}\begin{document}\maketitle\end{document}";
+
+const LLNCS_FRONTMATTER_SOURCE: &str = r"\documentclass{llncs}\title{LNCS Paper}\author{Alice \inst{1}\orcidID{0000} \and Bob \inst{2}}\institute{Lab One \email{alice@example.test} \and Lab Two}\begin{document}\maketitle\end{document}";
 
 const FOOTNOTE_BODY_SOURCE: &str = r"\begin{document}Text\footnote{Note \cite{key} and \ref{sec:intro}.} after.\footnotetext[1]{Loose note.}\end{document}";
 

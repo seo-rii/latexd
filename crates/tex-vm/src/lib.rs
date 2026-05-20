@@ -1368,7 +1368,7 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
-                "title" | "author" | "date" | "affil" => {
+                "title" | "author" | "date" | "affil" | "affiliation" | "institute" | "email" => {
                     let mut argument_index = skip_ascii_whitespace(source, index);
                     loop {
                         let Some((_, _, _, after_option)) =
@@ -1383,8 +1383,10 @@ impl<'i> Vm<'i> {
                     {
                         let field = match command {
                             "title" => MetadataField::Title,
-                            "author" | "affil" => MetadataField::Author,
                             "date" => MetadataField::Date,
+                            "author" | "affil" | "affiliation" | "institute" | "email" => {
+                                MetadataField::Author
+                            }
                             _ => unreachable!(),
                         };
                         self.emit_render_event(
@@ -13896,6 +13898,40 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
             chunk_start = skip_ascii_whitespace(source, command_name_end);
             scan_index = chunk_start;
             continue;
+        }
+        if command == "and" {
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            append_text(&mut text, "and");
+            found_structured_inline = true;
+            chunk_start = command_name_end;
+            scan_index = command_name_end;
+            continue;
+        }
+        if matches!(command, "inst" | "orcidID") {
+            let argument_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, command_after)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
+        if command == "email" {
+            let argument_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((visible_text, _, _, command_after)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                append_text(&mut text, &visible_text);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
         }
         if command == "urlstyle" {
             let style_index = skip_ascii_whitespace(source, command_name_end);
