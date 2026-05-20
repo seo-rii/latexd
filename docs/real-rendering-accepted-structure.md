@@ -326,6 +326,9 @@ The next implementation step has started with a narrow display-list spike:
 - boxed emphasis environments such as `framed`, `shaded`, `tcolorbox`, and
   `mdframed` now act as structured wrappers, with common style options consumed
   before visible body text is captured;
+- `csquotes` display environments `displayquote` and `displayquotation` now act
+  as structured wrappers while consuming optional attribution/punctuation
+  arguments before body capture;
 - `comment` environment bodies are now skipped during render-event capture so
   non-visible notes do not leak into Document IR or display-list text;
 - `\excludecomment{...}` and `\includecomment{...}` now update render-event

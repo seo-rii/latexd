@@ -5710,6 +5710,61 @@ fn boxed_wrappers_capture_hides_style_options() {
 }
 
 #[test]
+fn csquotes_display_environments_capture_hides_optional_arguments() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        CSQUOTES_DISPLAY_ENVIRONMENT_SOURCE,
+        &SemanticAux::default(),
+    );
+    for environment_name in ["displayquote", "displayquotation"] {
+        let environment = capture
+            .document_ir
+            .blocks
+            .iter()
+            .find_map(|block| match block {
+                IrBlock::Environment(environment) if environment.name == environment_name => {
+                    Some(environment)
+                }
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("{environment_name} environment"));
+        assert!(!environment.content.is_empty());
+    }
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if matches!(
+                    fallback.environment.as_deref(),
+                    Some("displayquote" | "displayquotation")
+                )
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Quoted [?] text."));
+    assert!(extracted_text.contains("Long quote text."));
+    for hidden in ["Hidden", "Source", "Punct", "key"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Quoted [?] text."));
+    assert!(display_list_text.contains("Long quote text."));
+    for hidden in ["Hidden", "Source", "Punct", "key"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn comment_environment_body_is_hidden_from_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -7012,6 +7067,8 @@ const TITLEPAGE_WRAPPER_SOURCE: &str =
     r"\begin{document}\begin{titlepage}Title \cite{key} text.\end{titlepage}\end{document}";
 
 const BOXED_WRAPPER_SOURCE: &str = r"\begin{document}\begin{framed}Frame \cite{key} text.\end{framed}\begin{shaded}Shade text.\end{shaded}\begin{tcolorbox}[colback=yellow]Color text.\end{tcolorbox}\begin{mdframed}[linecolor=red]Border text.\end{mdframed}\end{document}";
+
+const CSQUOTES_DISPLAY_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{displayquote}[Hidden Source]Quoted \cite{key} text.\end{displayquote}\begin{displayquotation}[Hidden Source][Hidden Punct]Long quote text.\end{displayquotation}\end{document}";
 
 const COMMENT_ENVIRONMENT_SOURCE: &str = r"\begin{document}Before.\begin{comment}Hidden \cite{key} text.\end{comment} After.\end{document}";
 

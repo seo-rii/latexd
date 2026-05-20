@@ -184,6 +184,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "cleveref.sty",
     "comment.sty",
     "color.sty",
+    "csquotes.sty",
     "enumitem.sty",
     "etoolbox.sty",
     "fancybox.sty",
@@ -972,6 +973,8 @@ impl<'i> Vm<'i> {
             "oframed",
             "tcolorbox",
             "mdframed",
+            "displayquote",
+            "displayquotation",
             "acknowledgements",
             "acknowledgments",
             "acknowledgement",
@@ -1410,6 +1413,19 @@ impl<'i> Vm<'i> {
                                     {
                                         index = after_options;
                                     }
+                                } else if matches!(other, "displayquote" | "displayquotation") {
+                                    let mut argument_index = skip_ascii_whitespace(source, index);
+                                    for _ in 0..2 {
+                                        if let Some((_, _, _, after_option)) =
+                                            read_bracket_source_argument(source, argument_index)
+                                        {
+                                            argument_index =
+                                                skip_ascii_whitespace(source, after_option);
+                                        } else {
+                                            break;
+                                        }
+                                    }
+                                    index = argument_index;
                                 }
                                 self.emit_render_event(
                                     RenderEvent::BeginBlock(BeginBlockEvent {
@@ -20128,6 +20144,60 @@ Fallback text.
                 _ => false,
             }
         }));
+    }
+
+    #[test]
+    fn render_event_capture_records_csquotes_display_environments_without_options() {
+        let source = r"\documentclass{article}\usepackage{csquotes}\begin{document}\begin{displayquote}[Hidden Source]Quoted \cite{key} text.\end{displayquote}\begin{displayquotation}[Hidden Source][Hidden Punct]Long quote text.\end{displayquotation}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package csquotes.sty"
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("csquotes.sty"))
+        );
+        for environment in ["displayquote", "displayquotation"] {
+            assert!(outcome.render_events.iter().any(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::BeginBlock(BeginBlockEvent {
+                        block: BlockKind::Environment { name },
+                    }) if name == environment
+                )
+            }));
+        }
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::InlineCitation(citation)
+                    if citation.keys == vec!["key".to_string()]
+            )
+        }));
+        assert!(
+            !outcome
+                .render_events
+                .iter()
+                .any(|event| match &event.event {
+                    RenderEvent::Text(text) => {
+                        ["Hidden", "Source", "Punct"]
+                            .iter()
+                            .any(|argument| text.text.contains(argument))
+                    }
+                    RenderEvent::RawFallback(fallback) => matches!(
+                        fallback.environment.as_deref(),
+                        Some("displayquote" | "displayquotation")
+                    ),
+                    _ => false,
+                })
+        );
     }
 
     #[test]
