@@ -299,9 +299,10 @@ The next implementation step has started with a narrow display-list spike:
   `List` IR blocks, and display-list text runs with default or explicit item
   markers while preserving inline events inside list item content;
 - simple text/theorem environments such as `quote`, `quotation`, `center`,
-  `theorem`, `proof`, `lemma`, `proposition`, `corollary`, `definition`,
-  `remark`, and `example` now survive as structured environment block events
-  and IR blocks instead of falling back to unsupported-environment raw text;
+  `flushleft`, `flushright`, `theorem`, `proof`, `lemma`, `proposition`,
+  `corollary`, `definition`, `remark`, and `example` now survive as structured
+  environment block events and IR blocks instead of falling back to
+  unsupported-environment raw text;
 - acknowledgements environment variants now also survive as structured
   environment block events and IR blocks while preserving inline citations;
 - keywords environment variants now survive as structured environment block
