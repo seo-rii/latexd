@@ -478,6 +478,9 @@ The next implementation step has started with a narrow display-list spike:
 - display-list SVG text elements also include bounded expansion stack depth,
   command names, call spans, and definition spans for macro provenance
   inspection;
+- display-list SVG image placeholders, link hit boxes, and destination markers
+  now also expose primary source attributes, so non-text renderer operations
+  are inspectable by source-sync tooling;
 - `PageDisplayList` text placement now applies continuation-line indentation
   for wrapped list items and bibliography entries, while keeping first-line
   markers/labels at the normal text margin;

@@ -315,6 +315,21 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
     let mut body = String::new();
     let mut clip_index = 0usize;
     let mut svg_group_stack = Vec::new();
+    let primary_source_attrs_for = |source: &tex_render_model::SourceProvenance| match &source
+        .primary
+    {
+        tex_render_model::ProvenanceSpan::File(span) => format!(
+            " data-source-kind=\"file\" data-source-path=\"{}\" data-source-start-utf8=\"{}\" data-source-end-utf8=\"{}\"",
+            escape_xml_text(span.path.as_str()),
+            span.start_utf8,
+            span.end_utf8
+        ),
+        tex_render_model::ProvenanceSpan::Generated(span) => format!(
+            " data-source-kind=\"generated\" data-source-generated-id=\"{}\" data-source-description=\"{}\"",
+            escape_xml_text(&span.stable_id),
+            escape_xml_text(&span.description)
+        ),
+    };
     for op in &page.ops {
         match op {
             DrawOp::Save => {
@@ -514,8 +529,9 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
             }
             DrawOp::Image(image) => {
                 body.push_str(&format!(
-                    "<g data-image-asset-ref=\"{}\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
+                    "<g data-image-asset-ref=\"{}\"{}><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
                     escape_xml_text(&image.asset_ref),
+                    primary_source_attrs_for(&image.source),
                     image.rect.x,
                     image.rect.y,
                     image.rect.width,
@@ -527,21 +543,23 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
             }
             DrawOp::LinkAnnotation(link) => {
                 body.push_str(&format!(
-                    "<a href=\"{}\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"#1d4ed8\" stroke-width=\"1\" data-link-target=\"{}\"/></a>",
+                    "<a href=\"{}\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"none\" stroke=\"#1d4ed8\" stroke-width=\"1\" data-link-target=\"{}\"{}/></a>",
                     escape_xml_text(&link.target),
                     link.rect.x,
                     link.rect.y,
                     link.rect.width,
                     link.rect.height,
-                    escape_xml_text(&link.target)
+                    escape_xml_text(&link.target),
+                    primary_source_attrs_for(&link.source)
                 ));
             }
             DrawOp::NamedDestination(destination) => {
                 body.push_str(&format!(
-                    "<g data-destination-name=\"{}\" data-destination-x=\"{}\" data-destination-y=\"{}\"><circle cx=\"{}\" cy=\"{}\" r=\"3\" fill=\"#dc2626\"/></g>",
+                    "<g data-destination-name=\"{}\" data-destination-x=\"{}\" data-destination-y=\"{}\"{}><circle cx=\"{}\" cy=\"{}\" r=\"3\" fill=\"#dc2626\"/></g>",
                     escape_xml_text(&destination.name),
                     destination.point.x,
                     destination.point.y,
+                    primary_source_attrs_for(&destination.source),
                     destination.point.x,
                     destination.point.y
                 ));
@@ -1096,6 +1114,10 @@ mod tests {
         assert!(
             svg.contains("<rect x=\"72\" y=\"78\" width=\"144\" height=\"72\" fill=\"#e5e7eb\"")
         );
+        assert!(svg.contains("data-source-kind=\"file\""));
+        assert!(svg.contains("data-source-path=\"main.tex\""));
+        assert!(svg.contains("data-source-start-utf8=\"0\""));
+        assert!(svg.contains("data-source-end-utf8=\"10\""));
         assert!(svg.contains("[image: figures/a(b)&amp;c.pdf]"));
     }
 
@@ -1128,6 +1150,10 @@ mod tests {
         assert!(pdf_text.contains("/URI (https://example.com/a?b=1&c=2)"));
         assert!(svg.contains("<a href=\"https://example.com/a?b=1&amp;c=2\">"));
         assert!(svg.contains("data-link-target=\"https://example.com/a?b=1&amp;c=2\""));
+        assert!(svg.contains("data-source-kind=\"file\""));
+        assert!(svg.contains("data-source-path=\"main.tex\""));
+        assert!(svg.contains("data-source-start-utf8=\"0\""));
+        assert!(svg.contains("data-source-end-utf8=\"10\""));
     }
 
     #[test]
@@ -1153,6 +1179,10 @@ mod tests {
         assert!(svg.contains("data-destination-name=\"sec:intro&amp;more\""));
         assert!(svg.contains("data-destination-x=\"72\""));
         assert!(svg.contains("data-destination-y=\"72\""));
+        assert!(svg.contains("data-source-kind=\"file\""));
+        assert!(svg.contains("data-source-path=\"main.tex\""));
+        assert!(svg.contains("data-source-start-utf8=\"0\""));
+        assert!(svg.contains("data-source-end-utf8=\"10\""));
         assert!(svg.contains("<circle cx=\"72\" cy=\"72\" r=\"3\" fill=\"#dc2626\"/>"));
     }
 }
