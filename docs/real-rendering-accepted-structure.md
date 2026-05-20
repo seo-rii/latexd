@@ -522,6 +522,9 @@ The next implementation step has started with a narrow display-list spike:
   surface before real shaping lands;
 - display-list SVG debug output exposes those clusters as `data-text-clusters`
   attributes, so debug artifacts carry the same text-index metadata as JSON;
+- display-list SVG debug output now exposes `PageDisplayList.page_id` and
+  `content_hash` on the root element, so SVG artifacts can be traced back to
+  the same renderer/cache unit as the JSON display list;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:

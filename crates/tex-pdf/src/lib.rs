@@ -553,8 +553,14 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
     }
 
     format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{}\" height=\"{}\" viewBox=\"0 0 {} {}\"><rect width=\"100%\" height=\"100%\" fill=\"white\"/>{}</svg>",
-        page.width_pt, page.height_pt, page.width_pt, page.height_pt, body
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{}\" height=\"{}\" viewBox=\"0 0 {} {}\" data-page-id=\"{}\" data-content-hash=\"{}\"><rect width=\"100%\" height=\"100%\" fill=\"white\"/>{}</svg>",
+        page.width_pt,
+        page.height_pt,
+        page.width_pt,
+        page.height_pt,
+        escape_xml_text(&page.page_id),
+        escape_xml_text(&page.content_hash),
+        body
     )
 }
 
@@ -908,6 +914,22 @@ mod tests {
         let svg = render_display_list_svg(&page);
 
         assert!(svg.contains("data-text-clusters=\"0:3:0:2\""));
+    }
+
+    #[test]
+    fn display_list_svg_exposes_page_identity_metadata() {
+        let page = PageDisplayList {
+            page_id: "page-1&\"".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: Vec::new(),
+            source_spans: Vec::new(),
+            content_hash: "hash<&\"".to_string(),
+        };
+        let svg = render_display_list_svg(&page);
+
+        assert!(svg.contains("data-page-id=\"page-1&amp;&quot;\""));
+        assert!(svg.contains("data-content-hash=\"hash&lt;&amp;&quot;\""));
     }
 
     #[test]

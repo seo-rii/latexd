@@ -8707,6 +8707,14 @@ fn compact_render_ir_capture_writes_debug_artifacts() {
     assert!(display_list_svg.contains("data-source-related-spans=\""));
     assert!(display_list_svg.contains("emit_site"));
     assert!(display_list_svg.contains("data-text-clusters=\""));
+    assert!(display_list_svg.contains(&format!(
+        "data-page-id=\"{}\"",
+        capture.page_display_lists[0].page_id
+    )));
+    assert!(display_list_svg.contains(&format!(
+        "data-content-hash=\"{}\"",
+        capture.page_display_lists[0].content_hash
+    )));
     assert!(
         fs::read(paths.display_list_pdf)
             .expect("display list pdf")
