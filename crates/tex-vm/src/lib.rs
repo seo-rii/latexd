@@ -2902,7 +2902,7 @@ impl<'i> Vm<'i> {
                         index = after_else;
                     }
                 }
-                "input" | "include" => {
+                "input" | "include" | "@input" => {
                     let path_index = skip_ascii_whitespace(source, index);
                     let path_argument = if let Some((path_text, _, _, after_path)) =
                         read_braced_source_argument(source, path_index)
@@ -2994,6 +2994,9 @@ impl<'i> Vm<'i> {
                         }
                         index = after_path;
                     }
+                }
+                "endinput" => {
+                    index = source.len();
                 }
                 "sisetup" => {
                     let setup_index = skip_ascii_whitespace(source, index);
@@ -20939,6 +20942,49 @@ Fallback text.
             );
         }
         for hidden in ["input", "include", "child", "second", "key"] {
+            assert!(
+                !visible_text.contains(hidden),
+                "{hidden} leaked in {visible_text}"
+            );
+        }
+    }
+
+    #[test]
+    fn render_event_capture_scans_at_input_and_honors_endinput() {
+        let source =
+            r"\makeatletter\begin{document}Before. \@input{child} After.\end{document}\makeatother";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file(
+            "child.tex",
+            r"\section{At Input}Included \cite{key}.\endinput Hidden \cite{hidden}.",
+        );
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Heading(heading) if heading.text == "At Input"
+        )));
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        for expected in ["Before.", "Included .", "After."] {
+            assert!(
+                visible_text.contains(expected),
+                "{expected} missing in {visible_text}"
+            );
+        }
+        for hidden in ["@input", "child", "endinput", "Hidden", "key", "hidden"] {
             assert!(
                 !visible_text.contains(hidden),
                 "{hidden} leaked in {visible_text}"

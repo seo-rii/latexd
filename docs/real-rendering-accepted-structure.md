@@ -227,8 +227,9 @@ The next implementation step has started with a narrow display-list spike:
 - direct color decoration commands such as `\color`, `\textcolor`,
   `\colorbox`, and `\fcolorbox` now hide color/style arguments while preserving
   visible body text with citation/reference placeholder redaction;
-- mounted `\input`/`\include` files, in both braced and unbraced forms, now
-  enter the RenderEvent/IR path as document fragments, so arXiv-style split
+- mounted `\input`/`\include` files, in both braced and unbraced forms, and
+  LaTeX-internal `\@input` files now enter the RenderEvent/IR path as document
+  fragments, so arXiv-style split
   body files can contribute headings, paragraphs, citations, and references
   instead of leaking only the input filename. Scanner state for declared
   section/wrapper/environment rules is shared with included files, including
@@ -242,6 +243,8 @@ The next implementation step has started with a narrow display-list spike:
   also honored so non-selected `\include` files do not appear in derived
   IR/display lists, while missing input/include/package/class files produce
   RenderEvent diagnostics instead of silently disappearing;
+- input/package/class fragments now honor `\endinput`, so generated cache files
+  and package tails after that marker do not leak into RenderEvent/IR output;
 - `\href` and `\url` now survive as inline link events, `Link` IR nodes, text
   runs, and `LinkAnnotation` display-list operations without leaking hidden
   `\href` targets into visible body text; `\url` supports both braced and

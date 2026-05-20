@@ -4489,6 +4489,63 @@ fn unbraced_input_and_include_files_survive_ir_and_display_list() {
 }
 
 #[test]
+fn at_input_files_honor_endinput_in_ir_and_display_list() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        AT_INPUT_MAIN_SOURCE,
+        &SemanticAux::default(),
+        &[("child.tex", AT_INPUT_CHILD_SOURCE)],
+    );
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Heading(heading)
+                if matches!(
+                    heading.content.first(),
+                    Some(InlineNode::Text { text, .. }) if text == "At Input"
+                )
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    for expected in ["Before.", "At Input", "Included [?].", "After."] {
+        assert!(
+            extracted_text.contains(expected),
+            "{expected} missing in {extracted_text}"
+        );
+    }
+    for hidden in ["@input", "child", "endinput", "Hidden", "key", "hidden"] {
+        assert!(
+            !extracted_text.contains(hidden),
+            "{hidden} leaked in {extracted_text}"
+        );
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    for expected in ["Before.", "At Input", "Included [?].", "After."] {
+        assert!(
+            display_list_text.contains(expected),
+            "{expected} missing in {display_list_text}"
+        );
+    }
+    for hidden in ["@input", "child", "endinput", "Hidden", "key", "hidden"] {
+        assert!(
+            !display_list_text.contains(hidden),
+            "{hidden} leaked in {display_list_text}"
+        );
+    }
+}
+
+#[test]
 fn input_files_reuse_declared_section_and_wrapper_state() {
     let capture = capture_internal_render_ir_with_mounted_files(
         "main.tex",
@@ -8499,6 +8556,12 @@ const UNBRACED_INPUT_MAIN_SOURCE: &str =
 const UNBRACED_INPUT_CHILD_SOURCE: &str = r"\section{Unbraced Input}See \cite{key}.";
 
 const UNBRACED_INCLUDE_CHILD_SOURCE: &str = "Second body.";
+
+const AT_INPUT_MAIN_SOURCE: &str =
+    r"\makeatletter\begin{document}Before. \@input{child} After.\end{document}\makeatother";
+
+const AT_INPUT_CHILD_SOURCE: &str =
+    r"\section{At Input}Included \cite{key}.\endinput Hidden \cite{hidden}.";
 
 const INPUT_SHARED_STATE_MAIN_SOURCE: &str = r"\newcommand{\mysection}[1]{\section{#1}}\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}\begin{document}\input{child}\end{document}";
 
