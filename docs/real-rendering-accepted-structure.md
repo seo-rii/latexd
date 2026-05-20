@@ -1358,21 +1358,41 @@ RawFallback(...)
 
 ## Remaining Design Work
 
-The first implementation batch is specific enough to start. The remaining
-decisions should be deferred until the event/IR seam is proven:
+The first implementation batch has proven the event/IR/display-list seam well
+enough for compact goldens, debug artifact writing, and text-only display-list
+PDF/SVG smoke coverage. The remaining work is no longer about whether the
+boundary is viable; it is about hardening the parts that are still deliberately
+approximate.
 
-- exact `EventSink` API shape: borrowed sink vs returned capture mode;
-- exact golden normalization helper API;
-- exact `DocumentIrBuilder` crate split if `tex-layout` becomes semantically
-  awkward;
-- exact `AuxView` adapter implementation in `tex-aux`;
-- exact compact fixture file layout and naming;
-- source-span conversion from existing token spans into UTF-8 byte offsets;
-- first debug artifact format for full fallback source;
-- first display-list golden format after IR tests stabilize;
-- CI workflow split for nightly/manual corpus checks.
+- `EventSink` is sufficient for the current internal capture path, but should
+  be revisited if incremental replay needs independently persisted event
+  segments or non-`Vec` sinks.
+- Golden normalization is still basic. Compact fixtures currently assert full
+  pretty JSON; future semantic/provenance goldens should be able to elide noisy
+  offsets while keeping exact provenance tests for targeted fixtures.
+- `DocumentIrBuilder` still lives in `tex-layout`. That remains acceptable for
+  the first batch, but it should split into a dedicated IR-builder crate if it
+  starts owning package/class semantic policy rather than layout-adjacent
+  normalization.
+- `tex-aux` implements the `AuxView` adapter, but citation formatting remains
+  intentionally narrow. Wider natbib/biblatex grammar, citation ranges, and
+  author-year rendering still need separate design and tests.
+- Source spans are persisted as UTF-8 byte offsets, but broader conversion from
+  every VM token/macro span into precise output provenance still needs focused
+  coverage.
+- Raw fallback stores bounded excerpts and visible text, but the full fallback
+  source/debug artifact format is still open.
+- `PageDisplayList` text runs now expose approximate whole-run clusters, not
+  real shaped glyph runs. A renderer-neutral font resolver, shaper, glyph ids,
+  and cluster mapping are required before Skia or PDF fidelity work should be
+  treated as serious.
+- External PDF/EPS/SVG asset handling is still a placeholder path. Ghostscript
+  or Poppler-backed conversion/embedding policy remains out of scope for this
+  batch.
+- Default CI covers unit/golden/reduced fixtures. Full arXiv oracle, raster
+  smoke/diff, Skia, and performance/cache sweeps should stay ignored or move to
+  scheduled/manual jobs until their dependencies and tolerances are stable.
 
-These are implementation-shaping decisions, not blockers for PR 1. Skia,
-font shaping, external PDF/EPS asset handling, and strict raster diff remain
-intentionally out of scope until after the `RenderEvent` and `Document IR`
-contracts are testable.
+Skia, strict raster diff, and full TeX-like page fidelity remain intentionally
+post-seam work. The next implementation steps should keep tightening
+renderer-boundary correctness without letting `tex-vm` mutate `DocumentIr`.
