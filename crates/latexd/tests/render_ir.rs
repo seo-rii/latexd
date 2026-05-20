@@ -4370,6 +4370,78 @@ fn input_file_content_survives_ir_and_display_list() {
 }
 
 #[test]
+fn unbraced_input_and_include_files_survive_ir_and_display_list() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        UNBRACED_INPUT_MAIN_SOURCE,
+        &SemanticAux::default(),
+        &[
+            ("child.tex", UNBRACED_INPUT_CHILD_SOURCE),
+            ("second.tex", UNBRACED_INCLUDE_CHILD_SOURCE),
+        ],
+    );
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Heading(heading)
+                if matches!(
+                    heading.content.first(),
+                    Some(InlineNode::Text { text, .. }) if text == "Unbraced Input"
+                )
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    for expected in [
+        "Before.",
+        "Unbraced Input",
+        "See [?].",
+        "Second body.",
+        "After.",
+    ] {
+        assert!(
+            extracted_text.contains(expected),
+            "{expected} missing in {extracted_text}"
+        );
+    }
+    for hidden in ["input", "include", "child", "second", "key"] {
+        assert!(
+            !extracted_text.contains(hidden),
+            "{hidden} leaked in {extracted_text}"
+        );
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    for expected in [
+        "Before.",
+        "Unbraced Input",
+        "See [?].",
+        "Second body.",
+        "After.",
+    ] {
+        assert!(
+            display_list_text.contains(expected),
+            "{expected} missing in {display_list_text}"
+        );
+    }
+    for hidden in ["input", "include", "child", "second", "key"] {
+        assert!(
+            !display_list_text.contains(hidden),
+            "{hidden} leaked in {display_list_text}"
+        );
+    }
+}
+
+#[test]
 fn input_files_reuse_declared_section_and_wrapper_state() {
     let capture = capture_internal_render_ir_with_mounted_files(
         "main.tex",
@@ -7930,6 +8002,13 @@ const COLOR_DECORATION_SOURCE: &str = r"\begin{document}A \color{magenta}colored
 const INPUT_MAIN_SOURCE: &str = r"\begin{document}Before. \input{child} After.\end{document}";
 
 const INPUT_CHILD_SOURCE: &str = r"\section{Included}See \cite{key} and \ref{sec:intro}.";
+
+const UNBRACED_INPUT_MAIN_SOURCE: &str =
+    r"\begin{document}Before. \input child Middle. \include second After.\end{document}";
+
+const UNBRACED_INPUT_CHILD_SOURCE: &str = r"\section{Unbraced Input}See \cite{key}.";
+
+const UNBRACED_INCLUDE_CHILD_SOURCE: &str = "Second body.";
 
 const INPUT_SHARED_STATE_MAIN_SOURCE: &str = r"\newcommand{\mysection}[1]{\section{#1}}\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}\begin{document}\input{child}\end{document}";
 

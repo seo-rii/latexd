@@ -2622,9 +2622,24 @@ impl<'i> Vm<'i> {
                 }
                 "input" | "include" if in_document => {
                     let path_index = skip_ascii_whitespace(source, index);
-                    if let Some((path_text, _, _, after_path)) =
+                    let path_argument = if let Some((path_text, _, _, after_path)) =
                         read_braced_source_argument(source, path_index)
                     {
+                        Some((path_text, after_path))
+                    } else {
+                        let mut cursor = path_index;
+                        while cursor < bytes.len() {
+                            let byte = bytes[cursor];
+                            if byte.is_ascii_whitespace()
+                                || matches!(byte, b'\\' | b'{' | b'}' | b'%')
+                            {
+                                break;
+                            }
+                            cursor += 1;
+                        }
+                        (cursor > path_index).then_some((&source[path_index..cursor], cursor))
+                    };
+                    if let Some((path_text, after_path)) = path_argument {
                         let mut input_path =
                             normalize_relative_path(Utf8Path::new(path_text.trim()))
                                 .ok()
@@ -20543,6 +20558,51 @@ Fallback text.
         assert!(!visible_text.contains("child"));
         assert!(!visible_text.contains("key"));
         assert!(!visible_text.contains("sec:intro"));
+    }
+
+    #[test]
+    fn render_event_capture_scans_unbraced_mounted_input_files() {
+        let source =
+            r"\begin{document}Before. \input child Middle. \include second After.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("child.tex", r"\section{Unbraced Input}See \cite{key}.");
+        vm.mount_file("second.tex", "Second body.");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Heading(heading) if heading.text == "Unbraced Input"
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineCitation(citation) if citation.keys == vec!["key".to_string()]
+        )));
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        for expected in ["Before.", "See .", "Second body.", "After."] {
+            assert!(
+                visible_text.contains(expected),
+                "{expected} missing in {visible_text}"
+            );
+        }
+        for hidden in ["input", "include", "child", "second", "key"] {
+            assert!(
+                !visible_text.contains(hidden),
+                "{hidden} leaked in {visible_text}"
+            );
+        }
     }
 
     #[test]

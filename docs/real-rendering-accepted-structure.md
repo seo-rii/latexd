@@ -227,13 +227,13 @@ The next implementation step has started with a narrow display-list spike:
 - direct color decoration commands such as `\color`, `\textcolor`,
   `\colorbox`, and `\fcolorbox` now hide color/style arguments while preserving
   visible body text with citation/reference placeholder redaction;
-- mounted `\input{...}`/`\include{...}` files now enter the RenderEvent/IR
-  path as document fragments, so arXiv-style split body files can contribute
-  headings, paragraphs, citations, and references instead of leaking only the
-  input filename. Scanner state for declared section/wrapper/environment rules
-  is shared with included files, and active input stacks now skip cyclic
-  `\input`/`\include` recursion with a diagnostic instead of repeatedly
-  rendering the same file;
+- mounted `\input`/`\include` files, in both braced and unbraced forms, now
+  enter the RenderEvent/IR path as document fragments, so arXiv-style split
+  body files can contribute headings, paragraphs, citations, and references
+  instead of leaking only the input filename. Scanner state for declared
+  section/wrapper/environment rules is shared with included files, and active
+  input stacks now skip cyclic `\input`/`\include` recursion with a diagnostic
+  instead of repeatedly rendering the same file;
 - `\href` and `\url` now survive as inline link events, `Link` IR nodes, text
   runs, and `LinkAnnotation` display-list operations without leaking hidden
   `\href` targets into visible body text; `\url` supports both braced and
