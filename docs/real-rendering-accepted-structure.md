@@ -224,6 +224,9 @@ The next implementation step has started with a narrow display-list spike:
   in RenderEvents/IR; this covers author-note/color wrappers such as
   `\newcommand{\note}[1]{{\color{red}[TODO: #1]}}` without leaking the wrapper
   command, color name, braces, or raw citation/reference keys;
+- direct color decoration commands such as `\color`, `\textcolor`,
+  `\colorbox`, and `\fcolorbox` now hide color/style arguments while preserving
+  visible body text with citation/reference placeholder redaction;
 - `\href` and `\url` now survive as inline link events, `Link` IR nodes, text
   runs, and `LinkAnnotation` display-list operations without leaking hidden
   `\href` targets into visible body text; `\url` supports both braced and

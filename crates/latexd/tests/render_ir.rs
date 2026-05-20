@@ -4255,6 +4255,64 @@ fn declared_top_level_wrapper_survives_ir_without_raw_command_noise() {
 }
 
 #[test]
+fn color_decoration_commands_preserve_visible_text_without_color_noise() {
+    let capture =
+        capture_internal_render_ir("main.tex", COLOR_DECORATION_SOURCE, &SemanticAux::default());
+
+    let expected_text = "A colored word and visible [?] plus boxed [?] and framed paper.";
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(expected_text), "{extracted_text}");
+    for hidden in [
+        "colorbox",
+        "fcolorbox",
+        "magenta",
+        "cyan",
+        "yellow",
+        "black",
+        "white",
+        "key",
+        "sec:intro",
+        "https://hidden.test",
+    ] {
+        assert!(
+            !extracted_text.contains(hidden),
+            "{hidden} leaked in {extracted_text}"
+        );
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains(expected_text),
+        "{display_list_text}"
+    );
+    for hidden in [
+        "colorbox",
+        "fcolorbox",
+        "magenta",
+        "cyan",
+        "yellow",
+        "black",
+        "white",
+        "key",
+        "sec:intro",
+        "https://hidden.test",
+    ] {
+        assert!(
+            !display_list_text.contains(hidden),
+            "{hidden} leaked in {display_list_text}"
+        );
+    }
+}
+
+#[test]
 fn nested_text_wrapper_unknown_command_inline_events_survive_ir_without_raw_keys() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -7705,6 +7763,8 @@ const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_SOURCE: &str =
     r"\begin{document}Nested \emph{before \unknowntext{visible text} after}.\end{document}";
 
 const DECLARED_TOP_LEVEL_WRAPPER_SOURCE: &str = r"\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}\begin{document}A \reviewnote{check \cite{key}, \ref{sec:intro}, and \href{https://hidden.test}{paper}} B.\end{document}";
+
+const COLOR_DECORATION_SOURCE: &str = r"\begin{document}A \color{magenta}colored word and \textcolor{cyan}{visible \cite{key}} plus \colorbox{yellow}{boxed \ref{sec:intro}} and \fcolorbox{black}{white}{framed \href{https://hidden.test}{paper}}.\end{document}";
 
 const NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_INLINE_SOURCE: &str = r"\begin{document}Nested \emph{before \unknowntext{see \cite{key}, \citep*{starred}, \ref{sec:intro}, \crefrange*{fig:a}{fig:b}, and \ref*{sec:starred}} after}.\end{document}";
 

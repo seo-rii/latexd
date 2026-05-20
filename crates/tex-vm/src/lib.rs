@@ -2950,6 +2950,61 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
+                "color" if in_document => {
+                    index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after)) = read_braced_source_argument(source, index) {
+                        index = after;
+                    }
+                }
+                "textcolor" | "colorbox" if in_document => {
+                    index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_color)) = read_braced_source_argument(source, index)
+                    {
+                        let text_index = skip_ascii_whitespace(source, after_color);
+                        if let Some((text, content_start, content_end, after)) =
+                            read_braced_source_argument(source, text_index)
+                        {
+                            self.emit_render_event(
+                                RenderEvent::Text(TextEvent {
+                                    text: normalize_latex_text_with_inline_placeholders(text),
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    content_start as u32,
+                                    content_end as u32,
+                                ),
+                            );
+                            index = after;
+                        }
+                    }
+                }
+                "fcolorbox" if in_document => {
+                    index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_frame)) = read_braced_source_argument(source, index)
+                    {
+                        let color_index = skip_ascii_whitespace(source, after_frame);
+                        if let Some((_, _, _, after_color)) =
+                            read_braced_source_argument(source, color_index)
+                        {
+                            let text_index = skip_ascii_whitespace(source, after_color);
+                            if let Some((text, content_start, content_end, after)) =
+                                read_braced_source_argument(source, text_index)
+                            {
+                                self.emit_render_event(
+                                    RenderEvent::Text(TextEvent {
+                                        text: normalize_latex_text_with_inline_placeholders(text),
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        content_start as u32,
+                                        content_end as u32,
+                                    ),
+                                );
+                                index = after;
+                            }
+                        }
+                    }
+                }
                 "emph" | "textbf" | "textit" | "texttt" | "textsc" | "textrm" | "textsf"
                 | "underline" | "mbox" | "textsuperscript" | "textsubscript" | "citetext"
                 | "footnote" | "footnotetext"
@@ -20291,6 +20346,49 @@ Fallback text.
         assert!(!visible_text.contains("key"));
         assert!(!visible_text.contains("sec:intro"));
         assert!(!visible_text.contains("https://hidden.test"));
+    }
+
+    #[test]
+    fn render_event_capture_hides_color_decoration_arguments() {
+        let source = r"\begin{document}A \color{magenta}colored word and \textcolor{cyan}{visible \cite{key}} plus \colorbox{yellow}{boxed \ref{sec:intro}} and \fcolorbox{black}{white}{framed \href{https://hidden.test}{paper}}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(
+            visible_text
+                .contains("A colored word and visible [?] plus boxed [?] and framed paper."),
+            "{visible_text}"
+        );
+        for hidden in [
+            "colorbox",
+            "fcolorbox",
+            "magenta",
+            "cyan",
+            "yellow",
+            "black",
+            "white",
+            "key",
+            "sec:intro",
+            "https://hidden.test",
+        ] {
+            assert!(
+                !visible_text.contains(hidden),
+                "{hidden} leaked in {visible_text}"
+            );
+        }
     }
 
     #[test]
