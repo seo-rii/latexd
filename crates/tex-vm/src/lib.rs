@@ -2351,19 +2351,30 @@ impl<'i> Vm<'i> {
                                     } else {
                                         normalized_visible_text
                                     };
+                                    let raw_fallback_source = &source[command_start..raw_end];
+                                    let mut source_excerpt_end =
+                                        raw_fallback_source.len().min(2048);
+                                    while !raw_fallback_source.is_char_boundary(source_excerpt_end)
+                                    {
+                                        source_excerpt_end -= 1;
+                                    }
+                                    let source_excerpt =
+                                        raw_fallback_source[..source_excerpt_end].to_string();
+                                    let truncated = source_excerpt_end < raw_fallback_source.len();
+                                    let source_hash = format!(
+                                        "blake3:{}",
+                                        blake3::hash(raw_fallback_source.as_bytes()).to_hex()
+                                    );
                                     self.emit_render_event(
                                         RenderEvent::RawFallback(RawFallbackEvent {
-                                            source_excerpt: source[command_start..raw_end]
-                                                .chars()
-                                                .take(2048)
-                                                .collect(),
+                                            source_excerpt,
                                             expanded_text: None,
                                             normalized_visible_text: Some(normalized_visible_text),
                                             environment: Some(other.to_string()),
                                             reason: FallbackReason::UnsupportedEnvironment,
-                                            source_hash: None,
+                                            source_hash: Some(source_hash),
                                             full_source_artifact: None,
-                                            truncated: source[command_start..raw_end].len() > 2048,
+                                            truncated,
                                         }),
                                         SourceProvenance::file(
                                             source_path.to_owned(),
@@ -18947,6 +18958,42 @@ Fallback text.
                 assert!(!visible.contains(hidden));
             }
         }
+    }
+
+    #[test]
+    fn render_event_capture_bounds_raw_fallback_excerpt_by_utf8_bytes() {
+        let source = format!(
+            r"\begin{{document}}\begin{{unknownenv}}{}\end{{unknownenv}}\end{{document}}",
+            "é".repeat(1100)
+        );
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(&source);
+        let fallback = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("unknownenv") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("unknownenv fallback");
+
+        assert!(fallback.truncated);
+        assert!(
+            fallback.source_excerpt.len() <= 2048,
+            "source excerpt was {} bytes",
+            fallback.source_excerpt.len()
+        );
+        assert!(matches!(
+            fallback.source_hash.as_deref(),
+            Some(hash) if hash.starts_with("blake3:")
+        ));
     }
 
     #[test]

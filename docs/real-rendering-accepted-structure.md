@@ -475,6 +475,9 @@ The next implementation step has started with a narrow display-list spike:
 - `RawFallbackIr` now preserves event-level `expanded_text`, `source_hash`,
   `full_source_artifact`, and `truncated` metadata instead of reducing fallback
   blocks to only visible text and reason fields;
+- VM-generated `RawFallbackEvent` values now bound `source_excerpt` to 2 KiB
+  at a valid UTF-8 boundary and populate a `blake3:` hash of the full fallback
+  source for artifact/debug correlation;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`
