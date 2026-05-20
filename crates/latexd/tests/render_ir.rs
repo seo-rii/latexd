@@ -5465,6 +5465,52 @@ fn landscape_wrapper_capture_survives_ir_without_fallback() {
 }
 
 #[test]
+fn cjk_wrapper_capture_hides_encoding_and_font_arguments() {
+    let capture =
+        capture_internal_render_ir("main.tex", CJK_WRAPPER_SOURCE, &SemanticAux::default());
+    let environment_names = capture
+        .document_ir
+        .blocks
+        .iter()
+        .filter_map(|block| match block {
+            IrBlock::Environment(environment) => Some(environment.name.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(environment_names.contains(&"CJK"));
+    assert!(environment_names.contains(&"CJK*"));
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if matches!(fallback.environment.as_deref(), Some("CJK" | "CJK*"))
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("CJK [?] text."));
+    assert!(extracted_text.contains("Star text."));
+    for hidden in ["UTF8", "gbsn", "bsmi", "{key}"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("CJK [?] text."));
+    assert!(display_list_text.contains("Star text."));
+    for hidden in ["UTF8", "gbsn", "bsmi", "{key}"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn sloppypar_wrapper_capture_survives_ir_without_fallback() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -7106,6 +7152,8 @@ const FULLWIDTH_WRAPPER_SOURCE: &str =
 
 const LANDSCAPE_WRAPPER_SOURCE: &str =
     r"\begin{document}\begin{landscape}Rotated \cite{key} text.\end{landscape}\end{document}";
+
+const CJK_WRAPPER_SOURCE: &str = r"\begin{document}\begin{CJK}{UTF8}{gbsn}CJK \cite{key} text.\end{CJK}\begin{CJK*}{UTF8}{bsmi}Star text.\end{CJK*}\end{document}";
 
 const SLOPPYPAR_WRAPPER_SOURCE: &str =
     r"\begin{document}\begin{sloppypar}Loose \cite{key} text.\end{sloppypar}\end{document}";

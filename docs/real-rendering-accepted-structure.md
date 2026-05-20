@@ -316,6 +316,9 @@ The next implementation step has started with a narrow display-list spike:
 - `landscape` now acts as a structured wrapper, with `lscape.sty` and
   `pdflscape.sty` available through builtin package shims until page-orientation
   layout is modeled;
+- `CJK` and `CJK*` now act as structured wrappers, with `CJK.sty` and
+  `CJKutf8.sty` available through builtin package shims and encoding/font
+  arguments consumed before body capture;
 - `sloppypar` now acts as a structured wrapper so line-breaking hints do not
   hide body text behind RawFallback;
 - font-size declaration environments such as `small`, `footnotesize`, and
