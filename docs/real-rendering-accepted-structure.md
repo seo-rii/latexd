@@ -328,6 +328,8 @@ The next implementation step has started with a narrow display-list spike:
   before visible body text is captured;
 - `comment` environment bodies are now skipped during render-event capture so
   non-visible notes do not leak into Document IR or display-list text;
+- `\excludecomment{...}` and `\includecomment{...}` now update render-event
+  capture policy for custom comment-package environments;
 - `spacing`, `onehalfspace`, `doublespace`, and `singlespace` now act as
   structured wrappers while consuming line-spacing arguments so they do not
   appear as visible text;

@@ -1026,6 +1026,8 @@ impl<'i> Vm<'i> {
             theorem_like_environments.insert(environment.to_string());
             structured_environments.insert(environment.to_string());
         }
+        let mut hidden_environments = HashSet::<String>::new();
+        hidden_environments.insert("comment".to_string());
         while index < bytes.len() {
             if bytes[index] != b'\\' {
                 if in_document && bytes[index] == b'$' {
@@ -1257,6 +1259,22 @@ impl<'i> Vm<'i> {
                         ),
                     );
                 }
+                "excludecomment" | "includecomment" => {
+                    if let Some((environment, _, _, after)) =
+                        read_braced_source_argument(source, index)
+                    {
+                        let environment = environment.trim();
+                        if !environment.is_empty() {
+                            if command == "excludecomment" {
+                                hidden_environments.insert(environment.to_string());
+                            } else {
+                                hidden_environments.remove(environment);
+                                structured_environments.insert(environment.to_string());
+                            }
+                        }
+                        index = after;
+                    }
+                }
                 "begin" => {
                     if let Some((environment, _, _, after)) =
                         read_braced_source_argument(source, index)
@@ -1266,6 +1284,12 @@ impl<'i> Vm<'i> {
                         match environment {
                             "document" => {
                                 in_document = true;
+                            }
+                            other if in_document && hidden_environments.contains(other) => {
+                                let end_marker = format!("\\end{{{other}}}");
+                                if let Some(relative_end) = source[index..].find(&end_marker) {
+                                    index += relative_end + end_marker.len();
+                                }
                             }
                             "abstract" | "abstract*" | "onecolabstract" if in_document => {
                                 self.emit_render_event(
@@ -1295,12 +1319,6 @@ impl<'i> Vm<'i> {
                                         index as u32,
                                     ),
                                 );
-                            }
-                            "comment" if in_document => {
-                                let end_marker = "\\end{comment}";
-                                if let Some(relative_end) = source[index..].find(end_marker) {
-                                    index += relative_end + end_marker.len();
-                                }
                             }
                             "itemize" | "enumerate" | "description" if in_document => {
                                 let kind = match environment {
@@ -20141,6 +20159,47 @@ Fallback text.
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("comment")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_tracks_custom_comment_environments() {
+        let source = r"\excludecomment{draftnote}\includecomment{keptnote}\begin{document}Before.\begin{draftnote}Hidden \cite{key} text.\end{draftnote}\begin{keptnote}Kept \cite{shown} text.\end{keptnote} After.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::Environment { name },
+                }) if name == "keptnote"
+            )
+        }));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineCitation(citation) if citation.keys == vec!["shown".to_string()]
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineCitation(citation) if citation.keys == vec!["key".to_string()]
+        )));
+        assert!(
+            !outcome
+                .render_events
+                .iter()
+                .any(|event| match &event.event {
+                    RenderEvent::Text(text) =>
+                        text.text.contains("Hidden") || text.text.contains("key"),
+                    RenderEvent::RawFallback(fallback) => matches!(
+                        fallback.environment.as_deref(),
+                        Some("draftnote" | "keptnote")
+                    ),
+                    _ => false,
+                })
+        );
     }
 
     #[test]

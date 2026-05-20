@@ -5747,6 +5747,64 @@ fn comment_environment_body_is_hidden_from_ir_and_display_list() {
 }
 
 #[test]
+fn custom_comment_environments_follow_include_exclude_policy() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        CUSTOM_COMMENT_ENVIRONMENT_SOURCE,
+        &SemanticAux::default(),
+    );
+    let kept = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Environment(environment) if environment.name == "keptnote" => {
+                Some(environment)
+            }
+            _ => None,
+        })
+        .expect("keptnote environment");
+    assert!(kept.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Citation(citation)
+                if citation.keys == vec!["shown".to_string()] && citation.display_text == "[?]"
+        )
+    }));
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if matches!(fallback.environment.as_deref(), Some("draftnote" | "keptnote"))
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Before."));
+    assert!(extracted_text.contains("Kept [?] text."));
+    assert!(extracted_text.contains("After."));
+    for hidden in ["Hidden", "key", "shown", "draftnote", "keptnote"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Before."));
+    assert!(display_list_text.contains("Kept [?] text."));
+    assert!(display_list_text.contains("After."));
+    for hidden in ["Hidden", "key", "shown", "draftnote", "keptnote"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn spacing_wrappers_capture_hides_layout_arguments() {
     let capture =
         capture_internal_render_ir("main.tex", SPACING_WRAPPER_SOURCE, &SemanticAux::default());
@@ -6956,6 +7014,8 @@ const TITLEPAGE_WRAPPER_SOURCE: &str =
 const BOXED_WRAPPER_SOURCE: &str = r"\begin{document}\begin{framed}Frame \cite{key} text.\end{framed}\begin{shaded}Shade text.\end{shaded}\begin{tcolorbox}[colback=yellow]Color text.\end{tcolorbox}\begin{mdframed}[linecolor=red]Border text.\end{mdframed}\end{document}";
 
 const COMMENT_ENVIRONMENT_SOURCE: &str = r"\begin{document}Before.\begin{comment}Hidden \cite{key} text.\end{comment} After.\end{document}";
+
+const CUSTOM_COMMENT_ENVIRONMENT_SOURCE: &str = r"\excludecomment{draftnote}\includecomment{keptnote}\begin{document}Before.\begin{draftnote}Hidden \cite{key} text.\end{draftnote}\begin{keptnote}Kept \cite{shown} text.\end{keptnote} After.\end{document}";
 
 const SPACING_WRAPPER_SOURCE: &str = r"\begin{document}\begin{spacing}{1.5}Spaced \cite{key} text.\end{spacing}\begin{onehalfspace}Half text.\end{onehalfspace}\begin{doublespace}Double text.\end{doublespace}\begin{singlespace}Single text.\end{singlespace}\end{document}";
 
