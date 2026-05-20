@@ -485,6 +485,8 @@ The next implementation step has started with a narrow display-list spike:
   paragraphs;
 - bibliography display-list placement now leaves normal block spacing after
   the final item before subsequent document blocks;
+- graphic captions now flow through the normal `PageDisplayList` text wrapping
+  path instead of being emitted as one potentially overflowing text run;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:

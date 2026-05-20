@@ -378,11 +378,34 @@ pub fn build_page_display_lists(
             IrBlock::Graphic(block) => {
                 logical_items.push(LogicalItem::Image(LogicalImage {
                     path: block.path.clone(),
-                    caption: block.caption.clone(),
-                    caption_source: block.caption_source.clone(),
+                    caption: None,
+                    caption_source: None,
                     source: block.source.clone(),
-                    gap_after_pt: options.block_gap_pt,
+                    gap_after_pt: if block.caption.is_some() {
+                        0.0
+                    } else {
+                        options.block_gap_pt
+                    },
                 }));
+                if let Some(caption) = &block.caption {
+                    let source = block
+                        .caption_source
+                        .clone()
+                        .unwrap_or_else(|| block.source.clone());
+                    logical_items.push(LogicalItem::Text(LogicalTextRun {
+                        segments: vec![LogicalTextSegment {
+                            text: caption.clone(),
+                            source: source.clone(),
+                            link_target: None,
+                        }],
+                        source,
+                        font: body_font.clone(),
+                        size_pt: options.body_font_size_pt,
+                        gap_after_pt: options.block_gap_pt,
+                        first_line_indent_pt: 0.0,
+                        continuation_indent_pt: 0.0,
+                    }));
+                }
             }
             IrBlock::RawFallback(block) => {
                 logical_items.push(LogicalItem::Text(LogicalTextRun {
@@ -973,6 +996,36 @@ mod tests {
             )
         }));
         assert_eq!(display_lists[0].source_spans.len(), 2);
+    }
+
+    #[test]
+    fn wraps_graphic_caption_text_runs() {
+        let source = SourceProvenance::file("main.tex", 0, 24);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.pdf".to_string(),
+                options: None,
+                caption: Some("abcdefghi".to_string()),
+                caption_source: Some(SourceProvenance::file("main.tex", 25, 34)),
+                source,
+            })]),
+            PageDisplayListOptions {
+                max_chars_per_line: 6,
+                ..PageDisplayListOptions::default()
+            },
+        );
+
+        let caption_runs = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if run.text == "abcdef" || run.text == "ghi" => {
+                    Some(run.text.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(caption_runs, vec!["abcdef", "ghi"]);
     }
 
     #[test]
