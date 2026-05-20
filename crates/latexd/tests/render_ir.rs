@@ -5710,6 +5710,43 @@ fn boxed_wrappers_capture_hides_style_options() {
 }
 
 #[test]
+fn comment_environment_body_is_hidden_from_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        COMMENT_ENVIRONMENT_SOURCE,
+        &SemanticAux::default(),
+    );
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback) if fallback.environment.as_deref() == Some("comment")
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Before."));
+    assert!(extracted_text.contains("After."));
+    for hidden in ["Hidden", "key", "comment"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Before."));
+    assert!(display_list_text.contains("After."));
+    for hidden in ["Hidden", "key", "comment"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn spacing_wrappers_capture_hides_layout_arguments() {
     let capture =
         capture_internal_render_ir("main.tex", SPACING_WRAPPER_SOURCE, &SemanticAux::default());
@@ -6917,6 +6954,8 @@ const TITLEPAGE_WRAPPER_SOURCE: &str =
     r"\begin{document}\begin{titlepage}Title \cite{key} text.\end{titlepage}\end{document}";
 
 const BOXED_WRAPPER_SOURCE: &str = r"\begin{document}\begin{framed}Frame \cite{key} text.\end{framed}\begin{shaded}Shade text.\end{shaded}\begin{tcolorbox}[colback=yellow]Color text.\end{tcolorbox}\begin{mdframed}[linecolor=red]Border text.\end{mdframed}\end{document}";
+
+const COMMENT_ENVIRONMENT_SOURCE: &str = r"\begin{document}Before.\begin{comment}Hidden \cite{key} text.\end{comment} After.\end{document}";
 
 const SPACING_WRAPPER_SOURCE: &str = r"\begin{document}\begin{spacing}{1.5}Spaced \cite{key} text.\end{spacing}\begin{onehalfspace}Half text.\end{onehalfspace}\begin{doublespace}Double text.\end{doublespace}\begin{singlespace}Single text.\end{singlespace}\end{document}";
 

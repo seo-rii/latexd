@@ -1296,6 +1296,12 @@ impl<'i> Vm<'i> {
                                     ),
                                 );
                             }
+                            "comment" if in_document => {
+                                let end_marker = "\\end{comment}";
+                                if let Some(relative_end) = source[index..].find(end_marker) {
+                                    index += relative_end + end_marker.len();
+                                }
+                            }
                             "itemize" | "enumerate" | "description" if in_document => {
                                 let kind = match environment {
                                     "itemize" => ListKind::Unordered,
@@ -20101,6 +20107,40 @@ Fallback text.
                 _ => false,
             }
         }));
+    }
+
+    #[test]
+    fn render_event_capture_hides_comment_environment_bodies() {
+        let source = r"\begin{document}Before.\begin{comment}Hidden \cite{key} text.\end{comment} After.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("Before."));
+        assert!(visible_text.contains("After."));
+        assert!(!visible_text.contains("Hidden"));
+        assert!(!visible_text.contains("key"));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineCitation(citation) if citation.keys == vec!["key".to_string()]
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("comment")
+        )));
     }
 
     #[test]

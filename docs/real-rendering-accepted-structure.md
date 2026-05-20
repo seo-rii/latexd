@@ -326,6 +326,8 @@ The next implementation step has started with a narrow display-list spike:
 - boxed emphasis environments such as `framed`, `shaded`, `tcolorbox`, and
   `mdframed` now act as structured wrappers, with common style options consumed
   before visible body text is captured;
+- `comment` environment bodies are now skipped during render-event capture so
+  non-visible notes do not leak into Document IR or display-list text;
 - `spacing`, `onehalfspace`, `doublespace`, and `singlespace` now act as
   structured wrappers while consuming line-spacing arguments so they do not
   appear as visible text;
