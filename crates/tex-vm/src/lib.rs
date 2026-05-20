@@ -3363,18 +3363,13 @@ impl<'i> Vm<'i> {
                                         content_end as u32,
                                     )
                                 } else {
-                                    SourceProvenance::file(
-                                        source_path.to_owned(),
-                                        content_start as u32,
-                                        content_end as u32,
-                                    )
-                                    .with_related(
-                                        SourceSpanRole::Argument,
-                                        ProvenanceSpan::File(SourceSpan {
-                                            path: source_path.to_owned(),
-                                            start_utf8: target_start as u32,
-                                            end_utf8: target_end as u32,
-                                        }),
+                                    Self::link_provenance(
+                                        source_path,
+                                        command_start,
+                                        after,
+                                        content_start,
+                                        content_end,
+                                        Some((target_start, target_end)),
                                     )
                                 },
                             );
@@ -3462,11 +3457,22 @@ impl<'i> Vm<'i> {
                                     command: command.to_string(),
                                 })
                             },
-                            SourceProvenance::file(
-                                source_path.to_owned(),
-                                content_start as u32,
-                                content_end as u32,
-                            ),
+                            if scan_state.no_hyper_depth > 0 {
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    content_start as u32,
+                                    content_end as u32,
+                                )
+                            } else {
+                                Self::link_provenance(
+                                    source_path,
+                                    command_start,
+                                    after,
+                                    content_start,
+                                    content_end,
+                                    None,
+                                )
+                            },
                         );
                         index = after;
                     }
@@ -4033,18 +4039,13 @@ impl<'i> Vm<'i> {
                                                             text_end as u32,
                                                         )
                                                     } else {
-                                                        SourceProvenance::file(
-                                                            source_path.to_owned(),
-                                                            text_start as u32,
-                                                            text_end as u32,
-                                                        )
-                                                        .with_related(
-                                                            SourceSpanRole::Argument,
-                                                            ProvenanceSpan::File(SourceSpan {
-                                                                path: source_path.to_owned(),
-                                                                start_utf8: target_start as u32,
-                                                                end_utf8: target_end as u32,
-                                                            }),
+                                                        Self::link_provenance(
+                                                            source_path,
+                                                            inner_command_start,
+                                                            command_after,
+                                                            text_start,
+                                                            text_end,
+                                                            Some((target_start, target_end)),
                                                         )
                                                     },
                                                 );
@@ -4077,11 +4078,22 @@ impl<'i> Vm<'i> {
                                                         command: inner_command.to_string(),
                                                     })
                                                 },
-                                                SourceProvenance::file(
-                                                    source_path.to_owned(),
-                                                    target_start as u32,
-                                                    target_end as u32,
-                                                ),
+                                                if scan_state.no_hyper_depth > 0 {
+                                                    SourceProvenance::file(
+                                                        source_path.to_owned(),
+                                                        target_start as u32,
+                                                        target_end as u32,
+                                                    )
+                                                } else {
+                                                    Self::link_provenance(
+                                                        source_path,
+                                                        inner_command_start,
+                                                        command_after,
+                                                        target_start,
+                                                        target_end,
+                                                        None,
+                                                    )
+                                                },
                                             );
                                             inner_index = command_after;
                                         }
@@ -4812,27 +4824,16 @@ impl<'i> Vm<'i> {
                                                                                     as u32,
                                                                             )
                                                                         } else {
-                                                                            SourceProvenance::file(
-                                                                                source_path
-                                                                                    .to_owned(),
-                                                                                text_start as u32,
-                                                                                link_text_end
-                                                                                    as u32,
-                                                                            )
-                                                                            .with_related(
-                                                                                SourceSpanRole::Argument,
-                                                                                ProvenanceSpan::File(
-                                                                                    SourceSpan {
-                                                                                        path: source_path
-                                                                                            .to_owned(),
-                                                                                        start_utf8:
-                                                                                            target_start
-                                                                                                as u32,
-                                                                                        end_utf8:
-                                                                                            target_end
-                                                                                                as u32,
-                                                                                    },
-                                                                                ),
+                                                                            Self::link_provenance(
+                                                                                source_path,
+                                                                                argument_command_start,
+                                                                                command_after,
+                                                                                text_start,
+                                                                                link_text_end,
+                                                                                Some((
+                                                                                    target_start,
+                                                                                    target_end,
+                                                                                )),
                                                                             )
                                                                         },
                                                                     );
@@ -4879,11 +4880,22 @@ impl<'i> Vm<'i> {
                                                                             },
                                                                         )
                                                                     },
-                                                                    SourceProvenance::file(
-                                                                        source_path.to_owned(),
-                                                                        target_start as u32,
-                                                                        target_end as u32,
-                                                                    ),
+                                                                    if scan_state.no_hyper_depth > 0 {
+                                                                        SourceProvenance::file(
+                                                                            source_path.to_owned(),
+                                                                            target_start as u32,
+                                                                            target_end as u32,
+                                                                        )
+                                                                    } else {
+                                                                        Self::link_provenance(
+                                                                            source_path,
+                                                                            argument_command_start,
+                                                                            command_after,
+                                                                            target_start,
+                                                                            target_end,
+                                                                            None,
+                                                                        )
+                                                                    },
                                                                 );
                                                                 argument_inner_index =
                                                                     command_after;
@@ -5422,20 +5434,13 @@ impl<'i> Vm<'i> {
                                                                                                     link_text_end as u32,
                                                                                                 )
                                                                                             } else {
-                                                                                                SourceProvenance::file(
-                                                                                                    source_path.to_owned(),
-                                                                                                    link_text_start as u32,
-                                                                                                    link_text_end as u32,
-                                                                                                )
-                                                                                                .with_related(
-                                                                                                    SourceSpanRole::Argument,
-                                                                                                    ProvenanceSpan::File(
-                                                                                                        SourceSpan {
-                                                                                                            path: source_path.to_owned(),
-                                                                                                            start_utf8: target_start as u32,
-                                                                                                            end_utf8: target_end as u32,
-                                                                                                        },
-                                                                                                    ),
+                                                                                                Self::link_provenance(
+                                                                                                    source_path,
+                                                                                                    nested_command_start,
+                                                                                                    after_link,
+                                                                                                    link_text_start,
+                                                                                                    link_text_end,
+                                                                                                    Some((target_start, target_end)),
                                                                                                 )
                                                                                             },
                                                                                         );
@@ -5486,11 +5491,22 @@ impl<'i> Vm<'i> {
                                                                                                 },
                                                                                             )
                                                                                         },
-                                                                                        SourceProvenance::file(
-                                                                                            source_path.to_owned(),
-                                                                                            target_start as u32,
-                                                                                            target_end as u32,
-                                                                                        ),
+                                                                                        if scan_state.no_hyper_depth > 0 {
+                                                                                            SourceProvenance::file(
+                                                                                                source_path.to_owned(),
+                                                                                                target_start as u32,
+                                                                                                target_end as u32,
+                                                                                            )
+                                                                                        } else {
+                                                                                            Self::link_provenance(
+                                                                                                source_path,
+                                                                                                nested_command_start,
+                                                                                                after_url,
+                                                                                                target_start,
+                                                                                                target_end,
+                                                                                                None,
+                                                                                            )
+                                                                                        },
                                                                                     );
                                                                                     nested_index = after_url;
                                                                                     nested_text_start = nested_index;
@@ -6637,6 +6653,37 @@ impl<'i> Vm<'i> {
                     end_utf8: command_end as u32,
                 }),
             )
+    }
+
+    fn link_provenance(
+        source_path: &Utf8Path,
+        command_start: usize,
+        command_end: usize,
+        text_start: usize,
+        text_end: usize,
+        target_span: Option<(usize, usize)>,
+    ) -> SourceProvenance {
+        let mut provenance =
+            SourceProvenance::file(source_path.to_owned(), text_start as u32, text_end as u32)
+                .with_related(
+                    SourceSpanRole::Invocation,
+                    ProvenanceSpan::File(SourceSpan {
+                        path: source_path.to_owned(),
+                        start_utf8: command_start as u32,
+                        end_utf8: command_end as u32,
+                    }),
+                );
+        if let Some((target_start, target_end)) = target_span {
+            provenance = provenance.with_related(
+                SourceSpanRole::Argument,
+                ProvenanceSpan::File(SourceSpan {
+                    path: source_path.to_owned(),
+                    start_utf8: target_start as u32,
+                    end_utf8: target_end as u32,
+                }),
+            );
+        }
+        provenance
     }
 
     fn capture_legacy_graphic_event(

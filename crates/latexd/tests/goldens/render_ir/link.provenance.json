@@ -1,0 +1,365 @@
+{
+  "cases": [
+    {
+      "command": "href",
+      "display_list": [
+        {
+          "clusters": [
+            {
+              "glyph_end": 10,
+              "glyph_start": 0,
+              "text_end_utf8": 10,
+              "text_start_utf8": 0
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 65,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 55
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 66,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 21
+                }
+              },
+              {
+                "role": "argument",
+                "span": {
+                  "end_utf8": 53,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 27
+                }
+              }
+            ]
+          },
+          "text": "paper link"
+        }
+      ],
+      "event": {
+        "event": {
+          "command": "href",
+          "kind": "inline_link",
+          "target": "https://example.test/paper",
+          "text": "paper link"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 3,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 65,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 55
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 66,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 21
+                }
+              },
+              {
+                "role": "argument",
+                "span": {
+                  "end_utf8": 53,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 27
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir": {
+        "display_text": "paper link",
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 65,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 55
+          },
+          "related": [
+            {
+              "role": "invocation",
+              "span": {
+                "end_utf8": 66,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 21
+              }
+            },
+            {
+              "role": "argument",
+              "span": {
+                "end_utf8": 53,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 27
+              }
+            }
+          ]
+        },
+        "target": "https://example.test/paper"
+      }
+    },
+    {
+      "command": "url",
+      "display_list": [
+        {
+          "clusters": [
+            {
+              "glyph_end": 24,
+              "glyph_start": 0,
+              "text_end_utf8": 24,
+              "text_start_utf8": 0
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 97,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 73
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 98,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 68
+                }
+              }
+            ]
+          },
+          "text": "https://example.test/raw"
+        }
+      ],
+      "event": {
+        "event": {
+          "command": "url",
+          "kind": "inline_link",
+          "target": "https://example.test/raw",
+          "text": "https://example.test/raw"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 6,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 97,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 73
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 98,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 68
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir": {
+        "display_text": "https://example.test/raw",
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 97,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 73
+          },
+          "related": [
+            {
+              "role": "invocation",
+              "span": {
+                "end_utf8": 98,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 68
+              }
+            }
+          ]
+        },
+        "target": "https://example.test/raw"
+      }
+    },
+    {
+      "command": "url",
+      "display_list": [
+        {
+          "clusters": [
+            {
+              "glyph_end": 25,
+              "glyph_start": 0,
+              "text_end_utf8": 25,
+              "text_start_utf8": 0
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 139,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 109
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 140,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 104
+                }
+              }
+            ]
+          },
+          "text": "https://example.test/deli"
+        },
+        {
+          "clusters": [
+            {
+              "glyph_end": 5,
+              "glyph_start": 0,
+              "text_end_utf8": 5,
+              "text_start_utf8": 0
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 139,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 109
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 140,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 104
+                }
+              }
+            ]
+          },
+          "text": "mited"
+        }
+      ],
+      "event": {
+        "event": {
+          "command": "url",
+          "kind": "inline_link",
+          "target": "https://example.test/delimited",
+          "text": "https://example.test/delimited"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 11,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 139,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 109
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 140,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 104
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir": {
+        "display_text": "https://example.test/delimited",
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 139,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 109
+          },
+          "related": [
+            {
+              "role": "invocation",
+              "span": {
+                "end_utf8": 140,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 104
+              }
+            }
+          ]
+        },
+        "target": "https://example.test/delimited"
+      }
+    }
+  ],
+  "source": "\\begin{document}Read \\href{https://example.test/paper}{paper link}, \\url{https://example.test/raw}, and \\url|https://example.test/delimited|.\\end{document}"
+}

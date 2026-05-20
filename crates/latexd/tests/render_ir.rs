@@ -4877,6 +4877,186 @@ fn link_capture_survives_ir_and_display_list_annotations() {
 }
 
 #[test]
+fn link_provenance_preserves_text_target_and_invocation_spans() {
+    let capture = capture_internal_render_ir("main.tex", LINK_SOURCE, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    let mut provenance_cases = Vec::new();
+    for (command, display_text, target_text, invocation_text, target_argument) in [
+        (
+            "href",
+            "paper link",
+            "https://example.test/paper",
+            r"\href{https://example.test/paper}{paper link}",
+            Some("https://example.test/paper"),
+        ),
+        (
+            "url",
+            "https://example.test/raw",
+            "https://example.test/raw",
+            r"\url{https://example.test/raw}",
+            None,
+        ),
+        (
+            "url",
+            "https://example.test/delimited",
+            "https://example.test/delimited",
+            r"\url|https://example.test/delimited|",
+            None,
+        ),
+    ] {
+        let link_event = capture
+            .events
+            .events
+            .iter()
+            .find(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RenderEvent::InlineLink(link)
+                        if link.command == command
+                            && link.text == display_text
+                            && link.target == target_text
+                )
+            })
+            .expect("link event");
+        let link = paragraph
+            .content
+            .iter()
+            .find_map(|node| match node {
+                InlineNode::Link(link)
+                    if link.display_text == display_text && link.target == target_text =>
+                {
+                    Some(link)
+                }
+                _ => None,
+            })
+            .expect("link ir");
+        let text_runs = capture.page_display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run)
+                    if matches!(
+                        &run.source.primary,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &LINK_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == display_text
+                    ) =>
+                {
+                    Some(run)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(!text_runs.is_empty(), "link text run for {display_text}");
+
+        for source in [&link_event.meta.source, &link.source] {
+            assert!(matches!(
+                &source.primary,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &LINK_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == display_text
+            ));
+            assert!(source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &LINK_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+            if let Some(target_argument) = target_argument {
+                assert!(source.related.iter().any(|related| {
+                    related.role == SourceSpanRole::Argument
+                        && matches!(
+                            &related.span,
+                            ProvenanceSpan::File(span)
+                                if span.path.as_str() == "main.tex"
+                                    && &LINK_SOURCE
+                                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                                        == target_argument
+                        )
+                }));
+            }
+        }
+        for text_run in &text_runs {
+            let source = &text_run.source;
+            assert!(matches!(
+                &source.primary,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &LINK_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == display_text
+            ));
+            assert!(source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &LINK_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+            if let Some(target_argument) = target_argument {
+                assert!(source.related.iter().any(|related| {
+                    related.role == SourceSpanRole::Argument
+                        && matches!(
+                            &related.span,
+                            ProvenanceSpan::File(span)
+                                if span.path.as_str() == "main.tex"
+                                    && &LINK_SOURCE
+                                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                                        == target_argument
+                        )
+                }));
+            }
+        }
+
+        provenance_cases.push(serde_json::json!({
+            "command": command,
+            "event": {
+                "event": link_event.event,
+                "meta": link_event.meta,
+            },
+            "ir": link,
+            "display_list": text_runs
+                .iter()
+                .map(|run| serde_json::json!({
+                    "text": run.text,
+                    "source": run.source,
+                    "clusters": run.clusters,
+                }))
+                .collect::<Vec<_>>(),
+        }));
+    }
+
+    let provenance_snapshot = serde_json::json!({
+        "source": LINK_SOURCE,
+        "cases": provenance_cases,
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/link.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn link_text_inline_keys_are_redacted_in_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
