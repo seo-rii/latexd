@@ -60,9 +60,9 @@ The next implementation step has started with a narrow display-list spike:
   PageDisplayList`;
 - compact event/IR/display-list goldens use the same `to_pretty_json` helper as
   debug artifact writing;
-- compact semantic IR goldens also use `to_semantic_pretty_json`, which keeps
-  document structure and visible content while eliding noisy source/provenance
-  fields such as UTF-8 offsets and fallback source hashes;
+- compact semantic event and IR goldens also use `to_semantic_pretty_json`,
+  which keeps event/document structure and visible content while eliding noisy
+  source/provenance fields such as UTF-8 offsets and fallback source hashes;
 - `tex-pdf` can render text-only `PageDisplayList` pages into searchable PDF
   text operations without consuming `DocumentIr` directly;
 - `latexd` internal captures now return the derived text-only

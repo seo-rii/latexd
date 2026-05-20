@@ -1,0 +1,274 @@
+{
+  "case": "main.tex",
+  "events": [
+    {
+      "event": {
+        "field": "title",
+        "kind": "set_document_metadata",
+        "value": "A Paper"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 1,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    },
+    {
+      "event": {
+        "field": "author",
+        "kind": "set_document_metadata",
+        "value": "Ada Lovelace"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 2,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    },
+    {
+      "event": {
+        "field": "date",
+        "kind": "set_document_metadata",
+        "value": "May 1843"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 3,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    },
+    {
+      "event": {
+        "kind": "flush_title_block"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 4,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    },
+    {
+      "event": {
+        "block": {
+          "kind": "abstract"
+        },
+        "kind": "begin_block"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 5,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    },
+    {
+      "event": {
+        "kind": "text",
+        "text": "Short"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 6,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    },
+    {
+      "event": {
+        "kind": "space",
+        "space_kind": "interword"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 7,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    },
+    {
+      "event": {
+        "kind": "text",
+        "text": "abstract."
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 8,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    },
+    {
+      "event": {
+        "block": {
+          "kind": "abstract"
+        },
+        "kind": "end_block"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 9,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    },
+    {
+      "event": {
+        "kind": "heading",
+        "level": 1,
+        "text": "Intro"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 10,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    },
+    {
+      "event": {
+        "kind": "text",
+        "text": "Hello"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 11,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    },
+    {
+      "event": {
+        "kind": "space",
+        "space_kind": "interword"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 12,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    },
+    {
+      "event": {
+        "command": "cite",
+        "keys": [
+          "key"
+        ],
+        "kind": "inline_citation",
+        "style_hint": "numeric"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 13,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    },
+    {
+      "event": {
+        "kind": "text",
+        "text": "."
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 14,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    },
+    {
+      "event": {
+        "kind": "display_math",
+        "raw_source": "x^2"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 15,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    },
+    {
+      "event": {
+        "block": {
+          "kind": "bibliography"
+        },
+        "kind": "begin_block"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 16,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    },
+    {
+      "event": {
+        "key": "key",
+        "kind": "bibliography_item",
+        "text": "Author. Title."
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 17,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    },
+    {
+      "event": {
+        "block": {
+          "kind": "bibliography"
+        },
+        "kind": "end_block"
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 18,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    },
+    {
+      "event": {
+        "environment": "unknownenv",
+        "kind": "raw_fallback",
+        "normalized_visible_text": "Fallback text.",
+        "reason": "unsupported_environment",
+        "source_excerpt": "\\begin{unknownenv}Fallback text.\\end{unknownenv}",
+        "source_hash": "<present>",
+        "truncated": false
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 19,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": "<present>"
+      }
+    }
+  ],
+  "schema_version": 1
+}

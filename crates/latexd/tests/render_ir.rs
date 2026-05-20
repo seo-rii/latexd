@@ -14,11 +14,17 @@ fn compact_render_ir_capture_matches_goldens() {
     let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
 
     let event_json = to_pretty_json(&capture.events).expect("event json");
+    let semantic_event_json =
+        to_semantic_pretty_json(&capture.events).expect("semantic event json");
     let ir_json = to_pretty_json(&capture.document_ir).expect("ir json");
     let semantic_ir_json = to_semantic_pretty_json(&capture.document_ir).expect("semantic ir json");
     let display_list_json = to_pretty_json(&capture.page_display_lists).expect("display list json");
 
     assert_or_update_golden("tests/goldens/render_ir/compact.events.json", &event_json);
+    assert_or_update_golden(
+        "tests/goldens/render_ir/compact.semantic-events.json",
+        &semantic_event_json,
+    );
     assert_or_update_golden("tests/goldens/render_ir/compact.ir.json", &ir_json);
     assert_or_update_golden(
         "tests/goldens/render_ir/compact.semantic-ir.json",
