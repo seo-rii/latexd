@@ -66,6 +66,9 @@ The next implementation step has started with a narrow display-list spike:
   `PageDisplayList` pages and display-list PDF bytes as debug/test artifacts;
 - display-list PDF tests now assert unresolved and aux-resolved citations render
   labels/placeholders without exposing raw citation keys in visible PDF text;
+- compact display-list PDF tests also run an optional `pdftotext` oracle when
+  Poppler is available, asserting that title text and citation placeholders are
+  extractable without leaking raw citation keys;
 - the same capture can write `legacy-output.txt`, `events.json`,
   `document-ir.json`, `page-display-list.json`, `display-list-page-{n}.svg`,
   and `display-list.pdf` into a debug artifact directory;

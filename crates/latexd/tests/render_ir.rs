@@ -1,4 +1,4 @@
-use std::{env, fs, path::Path};
+use std::{env, fs, path::Path, process::Command};
 
 use camino::Utf8PathBuf;
 use latexd::compiler::{capture_internal_render_ir, capture_internal_render_ir_with_mounted_files};
@@ -50,6 +50,35 @@ fn compact_render_ir_capture_matches_goldens() {
     assert!(pdf_text.contains("(A Paper) Tj"));
     assert!(pdf_text.contains("([?]) Tj"));
     assert!(!pdf_text.contains("key"));
+}
+
+#[test]
+fn compact_display_list_pdf_text_is_extractable_when_pdftotext_is_available() {
+    let pdftotext = match which::which("pdftotext") {
+        Ok(path) => path,
+        Err(_) => return,
+    };
+    let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let pdf_path = tempdir.path().join("display-list.pdf");
+    fs::write(&pdf_path, &capture.display_list_pdf).expect("write display-list pdf");
+
+    let output = Command::new(pdftotext)
+        .args(["-layout", "-enc", "UTF-8"])
+        .arg(&pdf_path)
+        .arg("-")
+        .output()
+        .expect("run pdftotext");
+
+    assert!(
+        output.status.success(),
+        "pdftotext failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let extracted_text = String::from_utf8_lossy(&output.stdout);
+    assert!(extracted_text.contains("A Paper"), "{extracted_text}");
+    assert!(extracted_text.contains("[?]"), "{extracted_text}");
+    assert!(!extracted_text.contains("key"), "{extracted_text}");
 }
 
 #[test]
