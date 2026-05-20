@@ -483,6 +483,8 @@ The next implementation step has started with a narrow display-list spike:
 - abstract blocks now use their own first-line and continuation indentation in
   `PageDisplayList` text placement instead of rendering flush with body
   paragraphs;
+- bibliography display-list placement now leaves normal block spacing after
+  the final item before subsequent document blocks;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:

@@ -339,7 +339,7 @@ pub fn build_page_display_lists(
             }
             IrBlock::Bibliography(block) => {
                 let BibliographyBlock { items, source } = block;
-                for item in items {
+                for (index, item) in items.iter().enumerate() {
                     let text = if let Some(label) = &item.label {
                         format!("[{label}] {}", item.content)
                     } else {
@@ -354,7 +354,11 @@ pub fn build_page_display_lists(
                         source: item.source.clone(),
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
-                        gap_after_pt: 0.0,
+                        gap_after_pt: if index + 1 == items.len() {
+                            options.block_gap_pt
+                        } else {
+                            0.0
+                        },
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: options.bibliography_continuation_indent_pt,
                     }));
@@ -365,7 +369,7 @@ pub fn build_page_display_lists(
                         source: source.clone(),
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
-                        gap_after_pt: 0.0,
+                        gap_after_pt: options.block_gap_pt,
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: options.bibliography_continuation_indent_pt,
                     }));
@@ -1067,6 +1071,54 @@ mod tests {
         assert_eq!(
             continuation.map(|run| run.origin.x),
             Some(options.margin_left_pt + options.bibliography_continuation_indent_pt)
+        );
+    }
+
+    #[test]
+    fn leaves_block_gap_after_last_bibliography_item() {
+        let source = SourceProvenance::file("main.tex", 0, 20);
+        let options = PageDisplayListOptions {
+            line_height_pt: 10.0,
+            block_gap_pt: 5.0,
+            ..PageDisplayListOptions::default()
+        };
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![
+                IrBlock::Bibliography(BibliographyBlock {
+                    items: vec![
+                        BibliographyItemIr {
+                            key: "one".to_string(),
+                            label: Some("1".to_string()),
+                            content: "First.".to_string(),
+                            source: source.clone(),
+                        },
+                        BibliographyItemIr {
+                            key: "two".to_string(),
+                            label: Some("2".to_string()),
+                            content: "Second.".to_string(),
+                            source: source.clone(),
+                        },
+                    ],
+                    source: source.clone(),
+                }),
+                IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "After".to_string(),
+                        source: source.clone(),
+                    }],
+                    source,
+                }),
+            ]),
+            options.clone(),
+        );
+
+        let after = display_lists[0].ops.iter().find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "After" => Some(run),
+            _ => None,
+        });
+        assert_eq!(
+            after.map(|run| run.origin.y),
+            Some(options.margin_top_pt + options.line_height_pt * 2.0 + options.block_gap_pt)
         );
     }
 }
