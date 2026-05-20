@@ -168,6 +168,16 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\internallinenumbers}{}
 \providecommand{\modulolinenumbers}[1][]{}
 \providecommand{\resetlinenumber}[1][]{}
+\providecommand{\sisetup}[1]{}
+\providecommand{\DeclareSIUnit}[2]{\def#1{#2}}
+\providecommand{\SI}[3][]{#2 #3}
+\providecommand{\qty}[3][]{#2 #3}
+\providecommand{\num}[2][]{#2}
+\providecommand{\si}[2][]{#2}
+\providecommand{\SIrange}[4][]{#2--#3 #4}
+\providecommand{\qtyrange}[4][]{#2--#3 #4}
+\providecommand{\numrange}[3][]{#2--#3}
+\providecommand{\ang}[2][]{#2}
 ";
 
 const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
@@ -221,6 +231,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "optidef.sty",
     "paracol.sty",
     "pdflscape.sty",
+    "siunitx.sty",
     "silence.sty",
     "soul.sty",
     "subcaption.sty",
@@ -2312,6 +2323,55 @@ impl<'i> Vm<'i> {
                         read_braced_source_argument(source, key_index)
                     {
                         index = after_key;
+                    }
+                }
+                "sisetup" => {
+                    let setup_index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_setup)) =
+                        read_braced_source_argument(source, setup_index)
+                    {
+                        index = after_setup;
+                    }
+                }
+                "DeclareSIUnit" => {
+                    let mut unit_index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_unit)) =
+                        read_braced_source_argument(source, unit_index)
+                    {
+                        unit_index = after_unit;
+                    } else if source[unit_index..].starts_with('\\') {
+                        unit_index += 1;
+                        while unit_index < source.len()
+                            && (source.as_bytes()[unit_index].is_ascii_alphabetic()
+                                || source.as_bytes()[unit_index] == b'@')
+                        {
+                            unit_index += 1;
+                        }
+                    }
+                    let value_index = skip_ascii_whitespace(source, unit_index);
+                    if let Some((_, _, _, after_value)) =
+                        read_braced_source_argument(source, value_index)
+                    {
+                        index = after_value;
+                    } else {
+                        index = unit_index;
+                    }
+                }
+                "SI" | "qty" | "num" | "si" | "SIrange" | "qtyrange" | "numrange" | "ang"
+                    if in_document =>
+                {
+                    if let Some((visible_text, content_start, content_end, after)) =
+                        read_siunitx_visible_text(source, command, index, source.len())
+                    {
+                        self.emit_render_event(
+                            RenderEvent::Text(TextEvent { text: visible_text }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                content_start as u32,
+                                content_end as u32,
+                            ),
+                        );
+                        index = after;
                     }
                 }
                 "citefield" if in_document => {
@@ -12005,6 +12065,111 @@ fn read_multicite_source_arguments(
     first_start.map(|start| (keys, start, last_end, last_after_key))
 }
 
+fn read_siunitx_visible_text(
+    source: &str,
+    command: &str,
+    index: usize,
+    limit: usize,
+) -> Option<(String, usize, usize, usize)> {
+    let mut cursor = skip_ascii_whitespace(source, index);
+    if cursor < limit && source[cursor..].starts_with('*') {
+        cursor += 1;
+    }
+    loop {
+        cursor = skip_ascii_whitespace(source, cursor);
+        let Some((_, _, _, after_option)) = read_bracket_source_argument(source, cursor) else {
+            break;
+        };
+        if after_option > limit {
+            return None;
+        }
+        cursor = after_option;
+    }
+
+    match command {
+        "num" | "si" | "ang" => {
+            let (value, value_start, value_end, after_value) =
+                read_braced_source_argument(source, cursor)?;
+            if after_value > limit {
+                return None;
+            }
+            Some((
+                normalize_latex_text_with_inline_placeholders(value),
+                value_start,
+                value_end,
+                after_value,
+            ))
+        }
+        "SI" | "qty" => {
+            let (value, value_start, _, after_value) = read_braced_source_argument(source, cursor)?;
+            if after_value > limit {
+                return None;
+            }
+            let unit_index = skip_ascii_whitespace(source, after_value);
+            let (unit, _, unit_end, after_unit) = read_braced_source_argument(source, unit_index)?;
+            if after_unit > limit {
+                return None;
+            }
+            let value = normalize_latex_text_with_inline_placeholders(value);
+            let unit = normalize_latex_text_with_inline_placeholders(unit);
+            let visible = if unit.is_empty() {
+                value
+            } else if value.is_empty() {
+                unit
+            } else {
+                format!("{value} {unit}")
+            };
+            Some((visible, value_start, unit_end, after_unit))
+        }
+        "numrange" => {
+            let (first, first_start, _, after_first) = read_braced_source_argument(source, cursor)?;
+            if after_first > limit {
+                return None;
+            }
+            let second_index = skip_ascii_whitespace(source, after_first);
+            let (second, _, second_end, after_second) =
+                read_braced_source_argument(source, second_index)?;
+            if after_second > limit {
+                return None;
+            }
+            let first = normalize_latex_text_with_inline_placeholders(first);
+            let second = normalize_latex_text_with_inline_placeholders(second);
+            Some((
+                format!("{first}--{second}"),
+                first_start,
+                second_end,
+                after_second,
+            ))
+        }
+        "SIrange" | "qtyrange" => {
+            let (first, first_start, _, after_first) = read_braced_source_argument(source, cursor)?;
+            if after_first > limit {
+                return None;
+            }
+            let second_index = skip_ascii_whitespace(source, after_first);
+            let (second, _, _, after_second) = read_braced_source_argument(source, second_index)?;
+            if after_second > limit {
+                return None;
+            }
+            let unit_index = skip_ascii_whitespace(source, after_second);
+            let (unit, _, unit_end, after_unit) = read_braced_source_argument(source, unit_index)?;
+            if after_unit > limit {
+                return None;
+            }
+            let first = normalize_latex_text_with_inline_placeholders(first);
+            let second = normalize_latex_text_with_inline_placeholders(second);
+            let unit = normalize_latex_text_with_inline_placeholders(unit);
+            let visible = if unit.is_empty() {
+                format!("{first}--{second}")
+            } else {
+                format!("{first}--{second} {unit}")
+            };
+            Some((visible, first_start, unit_end, after_unit))
+        }
+        _ => None,
+    }
+}
+
 fn normalize_latex_text(source: &str) -> String {
     let mut text = String::new();
     let mut in_command = false;
@@ -12189,6 +12354,116 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 | "vrefrange"
                 | "Vrefrange"
         );
+        if matches!(
+            command,
+            "SI" | "qty" | "num" | "si" | "SIrange" | "qtyrange" | "numrange" | "ang"
+        ) && let Some((visible_text, _, _, command_after)) =
+            read_siunitx_visible_text(source, command, command_name_end, source.len())
+        {
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            append_text(&mut text, &visible_text);
+            found_structured_inline = true;
+            chunk_start = command_after;
+            scan_index = command_after;
+            continue;
+        }
+        let siunitx_unit_symbol = match command {
+            "ampere" => Some("A"),
+            "candela" => Some("cd"),
+            "celsius" | "degreeCelsius" => Some("degC"),
+            "degree" => Some("deg"),
+            "farad" => Some("F"),
+            "gram" | "gramme" => Some("g"),
+            "henry" => Some("H"),
+            "hertz" => Some("Hz"),
+            "joule" => Some("J"),
+            "kelvin" => Some("K"),
+            "liter" | "litre" => Some("L"),
+            "meter" | "metre" => Some("m"),
+            "mole" => Some("mol"),
+            "newton" => Some("N"),
+            "ohm" => Some("ohm"),
+            "pascal" => Some("Pa"),
+            "percent" => Some("%"),
+            "radian" => Some("rad"),
+            "second" => Some("s"),
+            "tesla" => Some("T"),
+            "volt" => Some("V"),
+            "watt" => Some("W"),
+            "weber" => Some("Wb"),
+            _ => None,
+        };
+        if let Some(symbol) = siunitx_unit_symbol {
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            append_text(&mut text, symbol);
+            found_structured_inline = true;
+            chunk_start = command_name_end;
+            scan_index = command_name_end;
+            continue;
+        }
+        let siunitx_unit_prefix = match command {
+            "atto" => Some("a"),
+            "centi" => Some("c"),
+            "deca" => Some("da"),
+            "deci" => Some("d"),
+            "exa" => Some("E"),
+            "femto" => Some("f"),
+            "giga" => Some("G"),
+            "hecto" => Some("h"),
+            "kilo" => Some("k"),
+            "mega" => Some("M"),
+            "micro" => Some("u"),
+            "milli" => Some("m"),
+            "nano" => Some("n"),
+            "peta" => Some("P"),
+            "pico" => Some("p"),
+            "tera" => Some("T"),
+            "yocto" => Some("y"),
+            "yotta" => Some("Y"),
+            "zepto" => Some("z"),
+            "zetta" => Some("Z"),
+            _ => None,
+        };
+        if let Some(prefix) = siunitx_unit_prefix {
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            if !text.is_empty()
+                && !suppress_next_interword_space.get()
+                && !text.ends_with([' ', '/', '(', '[', '{'])
+            {
+                text.push(' ');
+            }
+            text.push_str(prefix);
+            suppress_next_interword_space.set(true);
+            found_structured_inline = true;
+            chunk_start = command_name_end;
+            scan_index = command_name_end;
+            continue;
+        }
+        let siunitx_unit_power = match command {
+            "squared" => Some("2"),
+            "cubed" => Some("3"),
+            _ => None,
+        };
+        if let Some(power) = siunitx_unit_power {
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            text.push_str(power);
+            suppress_next_interword_space.set(false);
+            found_structured_inline = true;
+            chunk_start = command_name_end;
+            scan_index = command_name_end;
+            continue;
+        }
+        if command == "per" {
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            if !text.ends_with('/') {
+                text.push('/');
+            }
+            suppress_next_interword_space.set(true);
+            found_structured_inline = true;
+            chunk_start = command_name_end;
+            scan_index = command_name_end;
+            continue;
+        }
         let text_symbol = match command {
             "textquotesingle" => Some("'"),
             "textquotedbl" => Some("\""),
@@ -20666,13 +20941,79 @@ Fallback text.
             RenderEvent::InlineCitation(citation)
                 if citation.keys == vec!["key".to_string()]
         )));
-        assert!(!outcome.render_events.iter().any(|event| matches!(
-            &event.event,
-            RenderEvent::Text(text)
-                if ["linenumbers", "modulo", "[2]", "[7]", "key"]
-                    .iter()
-                    .any(|hidden| text.text.contains(hidden))
-        )));
+        assert!(!outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::Text(text)
+                    if ["linenumbers", "modulo", "[2]", "[7]", "key"]
+                        .iter()
+                        .any(|hidden| text.text.contains(hidden))
+            )
+        }));
+    }
+
+    #[test]
+    fn render_event_capture_loads_siunitx_package_shim_and_renders_units() {
+        let source = r"\documentclass{article}\usepackage{siunitx}\sisetup{detect-all}\begin{document}Speed \SI{3.5}{m/s}; count \num{1200}; unit \si{kg}; range \SIrange{1}{2}{m}; macro \SI{9}{\meter\per\second}; freq \SI{5}{\kilo\hertz}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package siunitx.sty"
+        }));
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && matches!(
+                    diagnostic.detail.as_str(),
+                    "sisetup" | "SI" | "num" | "si" | "SIrange"
+                )
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("siunitx.sty"))
+        );
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        for visible in [
+            "Speed 3.5 m/s",
+            "count 1200",
+            "unit kg",
+            "range 1--2 m",
+            "macro 9 m/s",
+            "freq 5 kHz",
+        ] {
+            assert!(
+                visible_text.contains(visible),
+                "visible text missing {visible:?}: {visible_text:?}"
+            );
+        }
+        for hidden in [
+            r"\SI",
+            r"\num",
+            r"\si",
+            r"\SIrange",
+            r"\meter",
+            r"\hertz",
+            "sisetup",
+            "{3.5}",
+            "{m/s}",
+        ] {
+            assert!(!visible_text.contains(hidden));
+        }
     }
 
     #[test]

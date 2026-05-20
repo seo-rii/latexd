@@ -343,6 +343,10 @@ The next implementation step has started with a narrow display-list spike:
 - `lineno.sty` now resolves through the builtin package shim surface, and
   line-numbering commands such as `\linenumbers`, `\modulolinenumbers`, and
   `\resetlinenumber` are consumed without visible text leakage;
+- `siunitx.sty` now resolves through the builtin package shim surface, and
+  common quantity/number/unit commands such as `\SI`, `\num`, `\si`, and
+  `\SIrange` render readable text while hiding raw command syntax and setup
+  declarations;
 - common layout commands such as `\vspace`, `\hspace`, `\pagebreak`,
   `\smallskip`, and `\noindent` are now consumed as non-visible layout hints so
   dimensions and break options do not leak into rendered text;

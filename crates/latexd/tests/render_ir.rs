@@ -2422,6 +2422,75 @@ fn layout_spacing_commands_do_not_leak_into_ir_or_display_list() {
 }
 
 #[test]
+fn siunitx_commands_render_readable_text_without_raw_syntax() {
+    let capture =
+        capture_internal_render_ir("main.tex", SIUNITX_COMMAND_SOURCE, &SemanticAux::default());
+    let extracted_text = capture.document_ir.extracted_text();
+    for visible in [
+        "Speed 3.5 m/s",
+        "count 1200",
+        "unit kg",
+        "range 1--2 m",
+        "macro 9 m/s",
+        "freq 5 kHz",
+    ] {
+        assert!(
+            extracted_text.contains(visible),
+            "extracted text missing {visible:?}: {extracted_text:?}"
+        );
+    }
+    for hidden in [
+        r"\SI",
+        r"\num",
+        r"\si",
+        r"\SIrange",
+        r"\meter",
+        r"\hertz",
+        "sisetup",
+        "{3.5}",
+        "{m/s}",
+    ] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    for visible in [
+        "Speed 3.5 m/s",
+        "count 1200",
+        "unit kg",
+        "range 1--2 m",
+        "macro 9 m/s",
+        "freq 5 kHz",
+    ] {
+        assert!(
+            display_list_text.contains(visible),
+            "display-list text missing {visible:?}: {display_list_text:?}"
+        );
+    }
+    for hidden in [
+        r"\SI",
+        r"\num",
+        r"\si",
+        r"\SIrange",
+        r"\meter",
+        r"\hertz",
+        "sisetup",
+        "{3.5}",
+        "{m/s}",
+    ] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn printbibliography_capture_creates_empty_bibliography_without_option_leakage() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -7281,6 +7350,8 @@ const ADDBIBRESOURCE_SOURCE: &str = r"\begin{document}\addbibresource[location=l
 const LINENO_COMMAND_SOURCE: &str = r"\begin{document}\linenumbers\modulolinenumbers[2]Visible \cite{key} text.\resetlinenumber[7]\nolinenumbers After.\end{document}";
 
 const LAYOUT_SPACING_COMMAND_SOURCE: &str = r"\begin{document}Before \vspace*{-1em} After \hspace{2mm} Gap.\smallskip \noindent Text\pagebreak[4] Next.\end{document}";
+
+const SIUNITX_COMMAND_SOURCE: &str = r"\begin{document}Speed \SI{3.5}{m/s}; count \num{1200}; unit \si{kg}; range \SIrange{1}{2}{m}; macro \SI{9}{\meter\per\second}; freq \SI{5}{\kilo\hertz}.\end{document}";
 
 const PRINTBIBLIOGRAPHY_SOURCE: &str =
     r"\begin{document}Before \textcite{alpha}.\printbibliography[heading=none]\end{document}";
