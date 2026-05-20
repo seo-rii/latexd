@@ -343,6 +343,9 @@ The next implementation step has started with a narrow display-list spike:
 - `lineno.sty` now resolves through the builtin package shim surface, and
   line-numbering commands such as `\linenumbers`, `\modulolinenumbers`, and
   `\resetlinenumber` are consumed without visible text leakage;
+- common layout commands such as `\vspace`, `\hspace`, `\pagebreak`,
+  `\smallskip`, and `\noindent` are now consumed as non-visible layout hints so
+  dimensions and break options do not leak into rendered text;
 - `spacing`, `onehalfspace`, `doublespace`, and `singlespace` now act as
   structured wrappers while consuming line-spacing arguments so they do not
   appear as visible text;

@@ -2212,6 +2212,31 @@ impl<'i> Vm<'i> {
                         index = after_argument;
                     }
                 }
+                "vspace" | "hspace" if in_document => {
+                    let mut argument_index = skip_ascii_whitespace(source, index);
+                    if source[argument_index..].starts_with('*') {
+                        argument_index += 1;
+                        argument_index = skip_ascii_whitespace(source, argument_index);
+                    }
+                    if let Some((_, _, _, after_argument)) =
+                        read_braced_source_argument(source, argument_index)
+                    {
+                        index = after_argument;
+                    } else {
+                        index = argument_index;
+                    }
+                }
+                "pagebreak" | "nopagebreak" | "linebreak" | "nolinebreak" if in_document => {
+                    let argument_index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_option)) =
+                        read_bracket_source_argument(source, argument_index)
+                    {
+                        index = after_option;
+                    }
+                }
+                "smallskip" | "medskip" | "bigskip" | "noindent" | "indent" | "newpage"
+                | "clearpage" | "cleardoublepage" | "vfill" | "hfill"
+                    if in_document => {}
                 "printbibliography" if in_document => {
                     let mut after_options = skip_ascii_whitespace(source, index);
                     loop {
@@ -20645,6 +20670,32 @@ Fallback text.
             &event.event,
             RenderEvent::Text(text)
                 if ["linenumbers", "modulo", "[2]", "[7]", "key"]
+                    .iter()
+                    .any(|hidden| text.text.contains(hidden))
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_hides_layout_spacing_and_pagebreak_arguments() {
+        let source = r"\begin{document}Before \vspace*{-1em} After \hspace{2mm} Gap.\smallskip \noindent Text\pagebreak[4] Next.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text == "Before"
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text == "After"
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if ["-1em", "2mm", "[4]", "vspace", "hspace", "pagebreak"]
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));
