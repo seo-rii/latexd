@@ -60,7 +60,11 @@ impl DocumentIr {
                                 text.push_str(&reference.display_text)
                             }
                             InlineNode::Link(link) => text.push_str(&link.display_text),
-                            InlineNode::InlineMath { raw_source, .. } => text.push_str(raw_source),
+                            InlineNode::InlineMath {
+                                raw_source,
+                                normalized_text,
+                                ..
+                            } => text.push_str(normalized_text.as_deref().unwrap_or(raw_source)),
                             InlineNode::RawFallback(fallback) => {
                                 if let Some(visible) = &fallback.normalized_visible_text {
                                     text.push_str(visible);
@@ -86,7 +90,11 @@ impl DocumentIr {
                                 text.push_str(&reference.display_text)
                             }
                             InlineNode::Link(link) => text.push_str(&link.display_text),
-                            InlineNode::InlineMath { raw_source, .. } => text.push_str(raw_source),
+                            InlineNode::InlineMath {
+                                raw_source,
+                                normalized_text,
+                                ..
+                            } => text.push_str(normalized_text.as_deref().unwrap_or(raw_source)),
                             InlineNode::RawFallback(fallback) => {
                                 if let Some(visible) = &fallback.normalized_visible_text {
                                     text.push_str(visible);
@@ -108,7 +116,11 @@ impl DocumentIr {
                                 text.push_str(&reference.display_text)
                             }
                             InlineNode::Link(link) => text.push_str(&link.display_text),
-                            InlineNode::InlineMath { raw_source, .. } => text.push_str(raw_source),
+                            InlineNode::InlineMath {
+                                raw_source,
+                                normalized_text,
+                                ..
+                            } => text.push_str(normalized_text.as_deref().unwrap_or(raw_source)),
                             InlineNode::RawFallback(fallback) => {
                                 if let Some(visible) = &fallback.normalized_visible_text {
                                     text.push_str(visible);
@@ -130,7 +142,11 @@ impl DocumentIr {
                                 text.push_str(&reference.display_text)
                             }
                             InlineNode::Link(link) => text.push_str(&link.display_text),
-                            InlineNode::InlineMath { raw_source, .. } => text.push_str(raw_source),
+                            InlineNode::InlineMath {
+                                raw_source,
+                                normalized_text,
+                                ..
+                            } => text.push_str(normalized_text.as_deref().unwrap_or(raw_source)),
                             InlineNode::RawFallback(fallback) => {
                                 if let Some(visible) = &fallback.normalized_visible_text {
                                     text.push_str(visible);
@@ -160,8 +176,12 @@ impl DocumentIr {
                                     text.push_str(&reference.display_text)
                                 }
                                 InlineNode::Link(link) => text.push_str(&link.display_text),
-                                InlineNode::InlineMath { raw_source, .. } => {
-                                    text.push_str(raw_source)
+                                InlineNode::InlineMath {
+                                    raw_source,
+                                    normalized_text,
+                                    ..
+                                } => {
+                                    text.push_str(normalized_text.as_deref().unwrap_or(raw_source))
                                 }
                                 InlineNode::RawFallback(fallback) => {
                                     if let Some(visible) = &fallback.normalized_visible_text {
@@ -174,7 +194,12 @@ impl DocumentIr {
                         }
                     }
                 }
-                IrBlock::DisplayMath(block) => text.push_str(&block.raw_source),
+                IrBlock::DisplayMath(block) => text.push_str(
+                    block
+                        .normalized_text
+                        .as_deref()
+                        .unwrap_or(&block.raw_source),
+                ),
                 IrBlock::Bibliography(block) => {
                     for (index, item) in block.items.iter().enumerate() {
                         if index > 0 {
@@ -393,7 +418,7 @@ pub struct LinkInline {
 
 #[cfg(test)]
 mod tests {
-    use super::{DocumentIr, HeadingBlock, InlineNode, IrBlock};
+    use super::{DisplayMathBlock, DocumentIr, HeadingBlock, InlineNode, IrBlock, ParagraphBlock};
     use crate::SourceProvenance;
 
     #[test]
@@ -410,5 +435,27 @@ mod tests {
         })]);
 
         assert_eq!(document.extracted_text(), "1 Intro");
+    }
+
+    #[test]
+    fn extracted_text_prefers_normalized_math_text() {
+        let source = SourceProvenance::file("main.tex", 0, 16);
+        let document = DocumentIr::new(vec![
+            IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::InlineMath {
+                    raw_source: "\\alpha".to_string(),
+                    normalized_text: Some("alpha".to_string()),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            }),
+            IrBlock::DisplayMath(DisplayMathBlock {
+                raw_source: "\\beta".to_string(),
+                normalized_text: Some("beta".to_string()),
+                source,
+            }),
+        ]);
+
+        assert_eq!(document.extracted_text(), "alpha\nbeta");
     }
 }

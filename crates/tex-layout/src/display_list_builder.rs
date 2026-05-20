@@ -159,10 +159,14 @@ pub fn build_page_display_lists(
                     });
                 }
                 InlineNode::InlineMath {
-                    raw_source, source, ..
+                    raw_source,
+                    normalized_text,
+                    source,
                 } => {
                     segments.push(LogicalTextSegment {
-                        text: raw_source.clone(),
+                        text: normalized_text
+                            .clone()
+                            .unwrap_or_else(|| raw_source.clone()),
                         source: source.clone(),
                         link_target: None,
                     });
@@ -340,7 +344,10 @@ pub fn build_page_display_lists(
             IrBlock::DisplayMath(block) => {
                 logical_items.push(LogicalItem::Text(LogicalTextRun {
                     segments: vec![LogicalTextSegment {
-                        text: block.raw_source.clone(),
+                        text: block
+                            .normalized_text
+                            .clone()
+                            .unwrap_or_else(|| block.raw_source.clone()),
                         source: block.source.clone(),
                         link_target: None,
                     }],
@@ -838,9 +845,9 @@ pub fn build_page_display_lists(
 mod tests {
     use tex_render_model::{
         AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint,
-        DocumentIr, DrawOp, GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr,
-        LinkInline, ListBlock, ListItemIr, ListKind, ParagraphBlock, ReferenceInline,
-        SourceProvenance, TitleBlock,
+        DisplayMathBlock, DocumentIr, DrawOp, GraphicBlock, HeadingBlock, InlineNode, IrBlock,
+        LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind, ParagraphBlock,
+        ReferenceInline, SourceProvenance, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists};
@@ -1055,6 +1062,44 @@ mod tests {
             .collect::<String>();
 
         assert_eq!(text, "1 Intro");
+    }
+
+    #[test]
+    fn normalized_math_text_survives_display_list_text() {
+        let source = SourceProvenance::file("main.tex", 0, 16);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![
+                IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::InlineMath {
+                        raw_source: "\\alpha".to_string(),
+                        normalized_text: Some("alpha".to_string()),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                }),
+                IrBlock::DisplayMath(DisplayMathBlock {
+                    raw_source: "\\beta".to_string(),
+                    normalized_text: Some("beta".to_string()),
+                    source,
+                }),
+            ]),
+            PageDisplayListOptions::default(),
+        );
+
+        let text = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(text.contains("alpha"));
+        assert!(text.contains("beta"));
+        assert!(!text.contains("\\alpha"));
+        assert!(!text.contains("\\beta"));
     }
 
     #[test]

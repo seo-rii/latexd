@@ -505,6 +505,9 @@ The next implementation step has started with a narrow display-list spike:
   `PageDisplayList` text instead of dropping numbering decided before layout;
 - `DocumentIr::extracted_text()` also preserves numbered heading prefixes, so
   text oracles and display-list rendering agree on semantic heading text;
+- inline and display math now prefer optional `normalized_text` in extracted
+  text and `PageDisplayList` text runs while retaining raw math source as the
+  canonical fallback;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:
