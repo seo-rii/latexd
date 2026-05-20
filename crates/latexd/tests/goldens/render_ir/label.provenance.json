@@ -1,0 +1,63 @@
+{
+  "event": {
+    "event": {
+      "command": "label",
+      "key": "sec:intro",
+      "kind": "label_definition"
+    },
+    "meta": {
+      "confidence": "high",
+      "event_id": 2,
+      "mode_hint": "unknown",
+      "producer": "command",
+      "source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 47,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 38
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 48,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 31
+            }
+          }
+        ]
+      }
+    }
+  },
+  "ir": {
+    "key": "sec:intro",
+    "source": {
+      "expansion_stack": [],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 47,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 38
+      },
+      "related": [
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 48,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 31
+          }
+        }
+      ]
+    }
+  },
+  "source": "\\begin{document}\\section{Intro}\\label{sec:intro}See \\ref{sec:intro}.\\end{document}"
+}

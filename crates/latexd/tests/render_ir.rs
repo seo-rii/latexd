@@ -9552,6 +9552,60 @@ fn label_definition_capture_survives_ir_without_visible_key() {
 }
 
 #[test]
+fn label_definition_provenance_preserves_key_and_invocation_spans() {
+    let capture = capture_internal_render_ir("main.tex", LABEL_SOURCE, &SemanticAux::default());
+    let label_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(&envelope.event, RenderEvent::LabelDefinition(label) if label.key == "sec:intro")
+        })
+        .expect("label event");
+    let label = capture
+        .document_ir
+        .labels
+        .iter()
+        .find(|label| label.key == "sec:intro")
+        .expect("label ir");
+
+    for source in [&label_event.meta.source, &label.source] {
+        assert!(matches!(
+            &source.primary,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == "main.tex"
+                    && &LABEL_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == "sec:intro"
+        ));
+        assert!(source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &LABEL_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\label{sec:intro}"
+                )
+        }));
+    }
+
+    let provenance_snapshot = serde_json::json!({
+        "source": LABEL_SOURCE,
+        "event": {
+            "event": label_event.event,
+            "meta": label_event.meta,
+        },
+        "ir": label,
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/label.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn compact_render_ir_capture_writes_debug_artifacts() {
     let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
     let tempdir = tempfile::tempdir().expect("tempdir");

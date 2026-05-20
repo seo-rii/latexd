@@ -1229,10 +1229,12 @@ impl<'i> Vm<'i> {
                                                 key: key.trim().to_string(),
                                                 command: command.to_string(),
                                             }),
-                                            SourceProvenance::file(
-                                                source_path.to_owned(),
-                                                key_start as u32,
-                                                key_end as u32,
+                                            Self::label_definition_provenance(
+                                                source_path,
+                                                command_start,
+                                                after_label,
+                                                key_start,
+                                                key_end,
                                             ),
                                         );
                                         math_index = after_label;
@@ -1771,10 +1773,12 @@ impl<'i> Vm<'i> {
                                                             command: command.to_string(),
                                                         },
                                                     ),
-                                                    SourceProvenance::file(
-                                                        source_path.to_owned(),
-                                                        key_start as u32,
-                                                        key_end as u32,
+                                                    Self::label_definition_provenance(
+                                                        source_path,
+                                                        command_start,
+                                                        after_label,
+                                                        key_start,
+                                                        key_end,
                                                     ),
                                                 );
                                                 body_index = after_label;
@@ -2097,10 +2101,12 @@ impl<'i> Vm<'i> {
                                                                 command: body_command.to_string(),
                                                             },
                                                         ),
-                                                        SourceProvenance::file(
-                                                            source_path.to_owned(),
-                                                            key_start as u32,
-                                                            key_end as u32,
+                                                        Self::label_definition_provenance(
+                                                            source_path,
+                                                            body_command_start,
+                                                            after_label,
+                                                            key_start,
+                                                            key_end,
                                                         ),
                                                     );
                                                     body_index = after_label;
@@ -2129,70 +2135,49 @@ impl<'i> Vm<'i> {
                                     let body_end = index + relative_end;
                                     let raw_end = body_end + end_marker.len();
                                     let body_source = &source[body_start..body_end];
-                                    let normalized_visible_text =
-                                        if matches!(other, "verbatim" | "verbatim*") {
-                                            body_source.to_string()
-                                        } else if matches!(
-                                            other,
-                                            "lstlisting" | "minted" | "Verbatim"
-                                        ) {
-                                            let mut code_body_start =
-                                                skip_ascii_whitespace(body_source, 0);
-                                            let had_options = if let Some((_, _, _, after)) =
-                                                read_bracket_source_argument(
+                                    let normalized_visible_text = if matches!(
+                                        other,
+                                        "verbatim" | "verbatim*"
+                                    ) {
+                                        body_source.to_string()
+                                    } else if matches!(other, "lstlisting" | "minted" | "Verbatim")
+                                    {
+                                        let mut code_body_start =
+                                            skip_ascii_whitespace(body_source, 0);
+                                        let had_options = if let Some((_, _, _, after)) =
+                                            read_bracket_source_argument(
+                                                body_source,
+                                                code_body_start,
+                                            ) {
+                                            code_body_start = after;
+                                            true
+                                        } else {
+                                            false
+                                        };
+                                        if other == "minted" {
+                                            if had_options {
+                                                code_body_start = skip_ascii_whitespace(
                                                     body_source,
                                                     code_body_start,
-                                                ) {
-                                                code_body_start = after;
-                                                true
-                                            } else {
-                                                false
-                                            };
-                                            if other == "minted" {
-                                                if had_options {
-                                                    code_body_start = skip_ascii_whitespace(
-                                                        body_source,
-                                                        code_body_start,
-                                                    );
-                                                }
-                                                if let Some((_, _, _, after)) =
-                                                    read_braced_source_argument(
-                                                        body_source,
-                                                        code_body_start,
-                                                    )
-                                                {
-                                                    code_body_start = after;
-                                                }
-                                            }
-                                            body_source[code_body_start..].to_string()
-                                        } else if matches!(
-                                            other,
-                                            "array" | "tabular" | "tabular*" | "longtable"
-                                        ) {
-                                            let mut table_body_start =
-                                                skip_ascii_whitespace(body_source, 0);
-                                            if other == "tabular*" {
-                                                if let Some((_, _, _, after)) =
-                                                    read_braced_source_argument(
-                                                        body_source,
-                                                        table_body_start,
-                                                    )
-                                                {
-                                                    table_body_start = after;
-                                                }
-                                                table_body_start = skip_ascii_whitespace(
-                                                    body_source,
-                                                    table_body_start,
                                                 );
                                             }
                                             if let Some((_, _, _, after)) =
-                                                read_bracket_source_argument(
+                                                read_braced_source_argument(
                                                     body_source,
-                                                    table_body_start,
+                                                    code_body_start,
                                                 )
                                             {
-                                                table_body_start = after;
+                                                code_body_start = after;
                                             }
+                                        }
+                                        body_source[code_body_start..].to_string()
+                                    } else if matches!(
+                                        other,
+                                        "array" | "tabular" | "tabular*" | "longtable"
+                                    ) {
+                                        let mut table_body_start =
+                                            skip_ascii_whitespace(body_source, 0);
+                                        if other == "tabular*" {
                                             if let Some((_, _, _, after)) =
                                                 read_braced_source_argument(
                                                     body_source,
@@ -2205,26 +2190,67 @@ impl<'i> Vm<'i> {
                                                 body_source,
                                                 table_body_start,
                                             );
+                                        }
+                                        if let Some((_, _, _, after)) = read_bracket_source_argument(
+                                            body_source,
+                                            table_body_start,
+                                        ) {
+                                            table_body_start = after;
+                                        }
+                                        if let Some((_, _, _, after)) = read_braced_source_argument(
+                                            body_source,
+                                            table_body_start,
+                                        ) {
+                                            table_body_start = after;
+                                        }
+                                        table_body_start =
+                                            skip_ascii_whitespace(body_source, table_body_start);
 
-                                            let table_body = &body_source[table_body_start..];
-                                            let mut rewritten = String::new();
-                                            let mut table_index = 0usize;
-                                            while table_index < table_body.len() {
-                                                let byte = table_body.as_bytes()[table_index];
-                                                match byte {
-                                                    b'&' => {
-                                                        rewritten.push_str(" | ");
-                                                        table_index += 1;
-                                                    }
-                                                    b'\\' => {
-                                                        if table_body
-                                                            .as_bytes()
-                                                            .get(table_index + 1)
-                                                            .copied()
-                                                            == Some(b'\\')
+                                        let table_body = &body_source[table_body_start..];
+                                        let mut rewritten = String::new();
+                                        let mut table_index = 0usize;
+                                        while table_index < table_body.len() {
+                                            let byte = table_body.as_bytes()[table_index];
+                                            match byte {
+                                                b'&' => {
+                                                    rewritten.push_str(" | ");
+                                                    table_index += 1;
+                                                }
+                                                b'\\' => {
+                                                    if table_body
+                                                        .as_bytes()
+                                                        .get(table_index + 1)
+                                                        .copied()
+                                                        == Some(b'\\')
+                                                    {
+                                                        rewritten.push_str(" ; ");
+                                                        table_index += 2;
+                                                        if let Some((_, _, _, after)) =
+                                                            read_bracket_source_argument(
+                                                                table_body,
+                                                                table_index,
+                                                            )
                                                         {
+                                                            table_index = after;
+                                                        }
+                                                        continue;
+                                                    }
+                                                    let command_start = table_index + 1;
+                                                    let mut command_end = command_start;
+                                                    while command_end < table_body.len()
+                                                        && (table_body.as_bytes()[command_end]
+                                                            .is_ascii_alphabetic()
+                                                            || table_body.as_bytes()[command_end]
+                                                                == b'@')
+                                                    {
+                                                        command_end += 1;
+                                                    }
+                                                    let command =
+                                                        &table_body[command_start..command_end];
+                                                    match command {
+                                                        "tabularnewline" => {
                                                             rewritten.push_str(" ; ");
-                                                            table_index += 2;
+                                                            table_index = command_end;
                                                             if let Some((_, _, _, after)) =
                                                                 read_bracket_source_argument(
                                                                     table_body,
@@ -2233,50 +2259,23 @@ impl<'i> Vm<'i> {
                                                             {
                                                                 table_index = after;
                                                             }
-                                                            continue;
                                                         }
-                                                        let command_start = table_index + 1;
-                                                        let mut command_end = command_start;
-                                                        while command_end < table_body.len()
-                                                            && (table_body.as_bytes()[command_end]
-                                                                .is_ascii_alphabetic()
-                                                                || table_body.as_bytes()
-                                                                    [command_end]
-                                                                    == b'@')
-                                                        {
-                                                            command_end += 1;
+                                                        "hline" | "toprule" | "midrule"
+                                                        | "bottomrule" => {
+                                                            table_index = command_end;
                                                         }
-                                                        let command =
-                                                            &table_body[command_start..command_end];
-                                                        match command {
-                                                            "tabularnewline" => {
-                                                                rewritten.push_str(" ; ");
-                                                                table_index = command_end;
-                                                                if let Some((_, _, _, after)) =
-                                                                    read_bracket_source_argument(
-                                                                        table_body,
-                                                                        table_index,
-                                                                    )
-                                                                {
-                                                                    table_index = after;
-                                                                }
-                                                            }
-                                                            "hline" | "toprule" | "midrule"
-                                                            | "bottomrule" => {
-                                                                table_index = command_end;
-                                                            }
-                                                            "label" => {
-                                                                table_index = command_end;
-                                                                if let Some((
-                                                                    key,
-                                                                    key_start,
-                                                                    key_end,
-                                                                    after,
-                                                                )) = read_braced_source_argument(
-                                                                    table_body,
-                                                                    table_index,
-                                                                ) {
-                                                                    self.emit_render_event(
+                                                        "label" => {
+                                                            table_index = command_end;
+                                                            if let Some((
+                                                                key,
+                                                                key_start,
+                                                                key_end,
+                                                                after,
+                                                            )) = read_braced_source_argument(
+                                                                table_body,
+                                                                table_index,
+                                                            ) {
+                                                                self.emit_render_event(
                                                                     RenderEvent::LabelDefinition(
                                                                         LabelDefinitionEvent {
                                                                             key: key
@@ -2286,69 +2285,70 @@ impl<'i> Vm<'i> {
                                                                                 .to_string(),
                                                                         },
                                                                     ),
-                                                                    SourceProvenance::file(
-                                                                        source_path.to_owned(),
-                                                                        (body_start
+                                                                    Self::label_definition_provenance(
+                                                                        source_path,
+                                                                        body_start
                                                                             + table_body_start
-                                                                            + key_start)
-                                                                            as u32,
-                                                                        (body_start
+                                                                            + command_start
+                                                                            - 1,
+                                                                        body_start
                                                                             + table_body_start
-                                                                            + key_end)
-                                                                            as u32,
+                                                                            + after,
+                                                                        body_start
+                                                                            + table_body_start
+                                                                            + key_start,
+                                                                        body_start
+                                                                            + table_body_start
+                                                                            + key_end,
                                                                     ),
                                                                 );
-                                                                    table_index = after;
-                                                                }
-                                                            }
-                                                            "cline" | "cmidrule" => {
-                                                                table_index = command_end;
-                                                                if let Some((_, _, _, after)) =
-                                                                    read_bracket_source_argument(
-                                                                        table_body,
-                                                                        table_index,
-                                                                    )
-                                                                {
-                                                                    table_index = after;
-                                                                }
-                                                                if let Some((_, _, _, after)) =
-                                                                    read_braced_source_argument(
-                                                                        table_body,
-                                                                        table_index,
-                                                                    )
-                                                                {
-                                                                    table_index = after;
-                                                                }
-                                                            }
-                                                            _ => {
-                                                                rewritten.push('\\');
-                                                                rewritten.push_str(command);
-                                                                table_index = command_end;
+                                                                table_index = after;
                                                             }
                                                         }
-                                                    }
-                                                    _ => {
-                                                        let ch = table_body[table_index..]
-                                                            .chars()
-                                                            .next()
-                                                            .expect("char at byte index");
-                                                        rewritten.push(ch);
-                                                        table_index += ch.len_utf8();
+                                                        "cline" | "cmidrule" => {
+                                                            table_index = command_end;
+                                                            if let Some((_, _, _, after)) =
+                                                                read_bracket_source_argument(
+                                                                    table_body,
+                                                                    table_index,
+                                                                )
+                                                            {
+                                                                table_index = after;
+                                                            }
+                                                            if let Some((_, _, _, after)) =
+                                                                read_braced_source_argument(
+                                                                    table_body,
+                                                                    table_index,
+                                                                )
+                                                            {
+                                                                table_index = after;
+                                                            }
+                                                        }
+                                                        _ => {
+                                                            rewritten.push('\\');
+                                                            rewritten.push_str(command);
+                                                            table_index = command_end;
+                                                        }
                                                     }
                                                 }
+                                                _ => {
+                                                    let ch = table_body[table_index..]
+                                                        .chars()
+                                                        .next()
+                                                        .expect("char at byte index");
+                                                    rewritten.push(ch);
+                                                    table_index += ch.len_utf8();
+                                                }
                                             }
+                                        }
 
-                                            normalize_latex_text_with_inline_placeholders(
-                                                &rewritten,
-                                            )
+                                        normalize_latex_text_with_inline_placeholders(&rewritten)
                                             .trim_end_matches(';')
                                             .trim_end()
                                             .to_string()
-                                        } else {
-                                            normalize_latex_text_with_inline_placeholders(
-                                                body_source,
-                                            )
-                                        };
+                                    } else {
+                                        normalize_latex_text_with_inline_placeholders(body_source)
+                                    };
                                     let normalized_visible_text = if matches!(
                                         other,
                                         "tikzpicture"
@@ -3984,10 +3984,12 @@ impl<'i> Vm<'i> {
                                                         command: inner_command.to_string(),
                                                     },
                                                 ),
-                                                SourceProvenance::file(
-                                                    source_path.to_owned(),
-                                                    key_start as u32,
-                                                    key_end as u32,
+                                                Self::label_definition_provenance(
+                                                    source_path,
+                                                    inner_command_start,
+                                                    command_after,
+                                                    key_start,
+                                                    key_end,
                                                 ),
                                             );
                                             inner_index = command_after;
@@ -5745,10 +5747,12 @@ impl<'i> Vm<'i> {
                                                                                                 command: nested_command.to_string(),
                                                                                             },
                                                                                         ),
-                                                                                        SourceProvenance::file(
-                                                                                            source_path.to_owned(),
-                                                                                            key_start as u32,
-                                                                                            key_end as u32,
+                                                                                        Self::label_definition_provenance(
+                                                                                            source_path,
+                                                                                            nested_command_start,
+                                                                                            after_label,
+                                                                                            key_start,
+                                                                                            key_end,
                                                                                         ),
                                                                                     );
                                                                                     nested_index = after_label;
@@ -5916,10 +5920,12 @@ impl<'i> Vm<'i> {
                                 key: key.trim().to_string(),
                                 command: command.to_string(),
                             }),
-                            SourceProvenance::file(
-                                source_path.to_owned(),
-                                content_start as u32,
-                                content_end as u32,
+                            Self::label_definition_provenance(
+                                source_path,
+                                command_start,
+                                after,
+                                content_start,
+                                content_end,
                             ),
                         );
                         index = after;
@@ -6089,10 +6095,12 @@ impl<'i> Vm<'i> {
                                             key: key.trim().to_string(),
                                             command: command.to_string(),
                                         }),
-                                        SourceProvenance::file(
-                                            source_path.to_owned(),
-                                            key_start as u32,
-                                            key_end as u32,
+                                        Self::label_definition_provenance(
+                                            source_path,
+                                            command_start,
+                                            after_label,
+                                            key_start,
+                                            key_end,
                                         ),
                                     );
                                     math_index = after_label;
@@ -6611,6 +6619,24 @@ impl<'i> Vm<'i> {
                 end_utf8: argument_end as u32,
             }),
         )
+    }
+
+    fn label_definition_provenance(
+        source_path: &Utf8Path,
+        command_start: usize,
+        command_end: usize,
+        key_start: usize,
+        key_end: usize,
+    ) -> SourceProvenance {
+        SourceProvenance::file(source_path.to_owned(), key_start as u32, key_end as u32)
+            .with_related(
+                SourceSpanRole::Invocation,
+                ProvenanceSpan::File(SourceSpan {
+                    path: source_path.to_owned(),
+                    start_utf8: command_start as u32,
+                    end_utf8: command_end as u32,
+                }),
+            )
     }
 
     fn capture_legacy_graphic_event(
