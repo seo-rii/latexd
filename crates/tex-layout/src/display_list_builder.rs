@@ -704,16 +704,19 @@ pub fn build_page_display_lists(
                             source: source.clone(),
                         }));
                         if let Some(target) = segment.link_target {
+                            let rect = Rect {
+                                x,
+                                y: (y - logical.size_pt).max(0.0),
+                                width: advance,
+                                height: options.line_height_pt,
+                            };
                             pending.hash_input.push('\u{1f}');
-                            pending.hash_input.push_str("link:");
-                            pending.hash_input.push_str(&target);
+                            pending.hash_input.push_str(&format!(
+                                "link:{target}:{:.3}:{:.3}:{:.3}:{:.3}",
+                                rect.x, rect.y, rect.width, rect.height
+                            ));
                             pending.ops.push(DrawOp::LinkAnnotation(LinkAnnotation {
-                                rect: Rect {
-                                    x,
-                                    y: (y - logical.size_pt).max(0.0),
-                                    width: advance,
-                                    height: options.line_height_pt,
-                                },
+                                rect,
                                 target,
                                 source,
                             }));
@@ -1207,6 +1210,48 @@ mod tests {
                     display_text: "paper".to_string(),
                     source: source.clone(),
                 })],
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+
+        assert_ne!(left[0].content_hash, right[0].content_hash);
+        assert_ne!(left[0].page_id, right[0].page_id);
+    }
+
+    #[test]
+    fn link_annotation_geometry_affects_page_content_hash() {
+        let source = SourceProvenance::file("main.tex", 0, 16);
+        let left = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![
+                    InlineNode::Link(LinkInline {
+                        target: "https://example.test".to_string(),
+                        display_text: "A".to_string(),
+                        source: source.clone(),
+                    }),
+                    InlineNode::Text {
+                        text: "B".to_string(),
+                        source: source.clone(),
+                    },
+                ],
+                source: source.clone(),
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let right = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![
+                    InlineNode::Text {
+                        text: "A".to_string(),
+                        source: source.clone(),
+                    },
+                    InlineNode::Link(LinkInline {
+                        target: "https://example.test".to_string(),
+                        display_text: "B".to_string(),
+                        source: source.clone(),
+                    }),
+                ],
                 source,
             })]),
             PageDisplayListOptions::default(),

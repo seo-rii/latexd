@@ -511,6 +511,8 @@ The next implementation step has started with a narrow display-list spike:
 - `PageDisplayList.content_hash` now includes text-run renderer attributes such
   as origin, font request, and size so renderer caches distinguish equal visible
   text with different drawing semantics;
+- link annotations also hash their target and rect geometry, preventing equal
+  visible text from reusing stale link hit boxes;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:
