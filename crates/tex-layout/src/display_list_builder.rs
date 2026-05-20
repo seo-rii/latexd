@@ -2,6 +2,7 @@ use tex_render_model::{
     BibliographyBlock, Destination, DocumentIr, DrawOp, FontFamilyRequest, FontRequest, FontRole,
     FontSeries, FontShape, InlineNode, IrBlock, LinkAnnotation, PageDisplayList, Point,
     PositionedImage, PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan,
+    TextCluster,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -692,6 +693,16 @@ pub fn build_page_display_lists(
                     for segment in line_segments {
                         record_source_spans(&segment.source, &mut pending.source_spans);
                         let advance = segment.text.chars().count() as f32 * logical.size_pt * 0.5;
+                        let clusters = if segment.text.is_empty() {
+                            None
+                        } else {
+                            Some(vec![TextCluster {
+                                text_start_utf8: 0,
+                                text_end_utf8: segment.text.len() as u32,
+                                glyph_start: 0,
+                                glyph_end: segment.text.chars().count() as u32,
+                            }])
+                        };
                         let source = segment.source;
                         pending.ops.push(DrawOp::TextRun(PositionedTextRun {
                             origin: Point { x, y },
@@ -700,7 +711,7 @@ pub fn build_page_display_lists(
                             size_pt: logical.size_pt,
                             approximate_advance_pt: advance,
                             glyphs: None,
-                            clusters: None,
+                            clusters,
                             source: source.clone(),
                         }));
                         if let Some(target) = segment.link_target {
@@ -854,7 +865,7 @@ mod tests {
         AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint,
         DisplayMathBlock, DocumentIr, DrawOp, GraphicBlock, HeadingBlock, InlineNode, IrBlock,
         LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind, ParagraphBlock,
-        ReferenceInline, SourceProvenance, TitleBlock,
+        ReferenceInline, SourceProvenance, TextCluster, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists};
@@ -898,6 +909,40 @@ mod tests {
         assert_eq!(text_runs[1].text, "Ada Lovelace");
         assert_eq!(text_runs[2].text, "Hello world");
         assert_eq!(display_lists[0].source_spans.len(), 1);
+    }
+
+    #[test]
+    fn text_runs_include_approximate_text_clusters() {
+        let source = SourceProvenance::file("main.tex", 0, 3);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: "aé".to_string(),
+                    source,
+                }],
+                source: SourceProvenance::file("main.tex", 0, 3),
+            })]),
+            PageDisplayListOptions::default(),
+        );
+
+        let run = display_lists[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run),
+                _ => None,
+            })
+            .expect("text run");
+
+        assert_eq!(
+            run.clusters.clone(),
+            Some(vec![TextCluster {
+                text_start_utf8: 0,
+                text_end_utf8: 3,
+                glyph_start: 0,
+                glyph_end: 2,
+            }])
+        );
     }
 
     #[test]

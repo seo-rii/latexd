@@ -54,7 +54,8 @@ The next implementation step has started with a narrow display-list spike:
 - `tex-layout` can now derive text-only `PageDisplayList` pages from
   `DocumentIr`;
 - text positioning uses fixed margins, line height, and approximate advances;
-- `glyphs` and `clusters` remain absent by design;
+- `glyphs` remain absent by design, while text runs now carry approximate
+  whole-run `TextCluster` metadata for UTF-8/text-index mapping;
 - compact integration goldens now cover `RenderEvent -> DocumentIr ->
   PageDisplayList`;
 - compact event/IR/display-list goldens use the same `to_pretty_json` helper as
@@ -516,6 +517,9 @@ The next implementation step has started with a narrow display-list spike:
 - the display-list PDF backend now maps serif/sans/mono `TextRun` family plus
   regular/bold/italic/bold-italic style to separate built-in PDF font resources
   instead of rendering all text through a single regular face;
+- `PageDisplayList` text runs now carry approximate whole-run `TextCluster`
+  entries, giving later text extraction and source-sync work a concrete metadata
+  surface before real shaping lands;
 - this is a renderer-boundary test artifact, not final TeX page layout.
 
 The most important guardrail is:
@@ -1045,7 +1049,7 @@ pub enum DrawOp {
 First layout spike policy:
 
 - `glyphs` are optional;
-- `clusters` are optional;
+- `clusters` are optional and may be approximate until real shaping lands;
 - a full font resolver is not required;
 - approximate metrics are allowed;
 - page-count and raster gates must not treat approximate metrics as final.

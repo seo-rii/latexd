@@ -20,6 +20,14 @@
         },
         "size_pt": 18.0,
         "approximate_advance_pt": 63.0,
+        "clusters": [
+          {
+            "text_start_utf8": 0,
+            "text_end_utf8": 7,
+            "glyph_start": 0,
+            "glyph_end": 7
+          }
+        ],
         "source": {
           "primary": {
             "kind": "file",
@@ -59,6 +67,14 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 66.0,
+        "clusters": [
+          {
+            "text_start_utf8": 0,
+            "text_end_utf8": 12,
+            "glyph_start": 0,
+            "glyph_end": 12
+          }
+        ],
         "source": {
           "primary": {
             "kind": "file",
@@ -98,6 +114,14 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 44.0,
+        "clusters": [
+          {
+            "text_start_utf8": 0,
+            "text_end_utf8": 8,
+            "glyph_start": 0,
+            "glyph_end": 8
+          }
+        ],
         "source": {
           "primary": {
             "kind": "file",
@@ -137,6 +161,14 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 27.5,
+        "clusters": [
+          {
+            "text_start_utf8": 0,
+            "text_end_utf8": 5,
+            "glyph_start": 0,
+            "glyph_end": 5
+          }
+        ],
         "source": {
           "primary": {
             "kind": "file",
@@ -166,6 +198,14 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 5.5,
+        "clusters": [
+          {
+            "text_start_utf8": 0,
+            "text_end_utf8": 1,
+            "glyph_start": 0,
+            "glyph_end": 1
+          }
+        ],
         "source": {
           "primary": {
             "kind": "file",
@@ -195,6 +235,14 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 49.5,
+        "clusters": [
+          {
+            "text_start_utf8": 0,
+            "text_end_utf8": 9,
+            "glyph_start": 0,
+            "glyph_end": 9
+          }
+        ],
         "source": {
           "primary": {
             "kind": "file",
@@ -224,6 +272,14 @@
         },
         "size_pt": 15.0,
         "approximate_advance_pt": 37.5,
+        "clusters": [
+          {
+            "text_start_utf8": 0,
+            "text_end_utf8": 5,
+            "glyph_start": 0,
+            "glyph_end": 5
+          }
+        ],
         "source": {
           "primary": {
             "kind": "file",
@@ -253,6 +309,14 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 27.5,
+        "clusters": [
+          {
+            "text_start_utf8": 0,
+            "text_end_utf8": 5,
+            "glyph_start": 0,
+            "glyph_end": 5
+          }
+        ],
         "source": {
           "primary": {
             "kind": "file",
@@ -282,6 +346,14 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 5.5,
+        "clusters": [
+          {
+            "text_start_utf8": 0,
+            "text_end_utf8": 1,
+            "glyph_start": 0,
+            "glyph_end": 1
+          }
+        ],
         "source": {
           "primary": {
             "kind": "file",
@@ -311,6 +383,14 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 16.5,
+        "clusters": [
+          {
+            "text_start_utf8": 0,
+            "text_end_utf8": 3,
+            "glyph_start": 0,
+            "glyph_end": 3
+          }
+        ],
         "source": {
           "primary": {
             "kind": "file",
@@ -340,6 +420,14 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 5.5,
+        "clusters": [
+          {
+            "text_start_utf8": 0,
+            "text_end_utf8": 1,
+            "glyph_start": 0,
+            "glyph_end": 1
+          }
+        ],
         "source": {
           "primary": {
             "kind": "file",
@@ -369,6 +457,14 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 16.5,
+        "clusters": [
+          {
+            "text_start_utf8": 0,
+            "text_end_utf8": 3,
+            "glyph_start": 0,
+            "glyph_end": 3
+          }
+        ],
         "source": {
           "primary": {
             "kind": "file",
@@ -398,6 +494,14 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 77.0,
+        "clusters": [
+          {
+            "text_start_utf8": 0,
+            "text_end_utf8": 14,
+            "glyph_start": 0,
+            "glyph_end": 14
+          }
+        ],
         "source": {
           "primary": {
             "kind": "file",
@@ -427,6 +531,14 @@
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 77.0,
+        "clusters": [
+          {
+            "text_start_utf8": 0,
+            "text_end_utf8": 14,
+            "glyph_start": 0,
+            "glyph_end": 14
+          }
+        ],
         "source": {
           "primary": {
             "kind": "file",
