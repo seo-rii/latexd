@@ -3285,10 +3285,13 @@ impl<'i> Vm<'i> {
                                     .collect(),
                                 command: command.to_string(),
                             }),
-                            SourceProvenance::file(
-                                source_path.to_owned(),
-                                content_start as u32,
-                                content_end as u32,
+                            Self::command_argument_provenance(
+                                source_path,
+                                command_start,
+                                after,
+                                content_start,
+                                content_end,
+                                SourceSpanRole::ReferenceKey,
                             ),
                         );
                         index = after;
@@ -3320,10 +3323,13 @@ impl<'i> Vm<'i> {
                                         .collect(),
                                     command: command.to_string(),
                                 }),
-                                SourceProvenance::file(
-                                    source_path.to_owned(),
-                                    first_start as u32,
-                                    second_end as u32,
+                                Self::command_argument_provenance(
+                                    source_path,
+                                    command_start,
+                                    after,
+                                    first_start,
+                                    second_end,
+                                    SourceSpanRole::ReferenceKey,
                                 ),
                             );
                             index = after;
@@ -3905,10 +3911,13 @@ impl<'i> Vm<'i> {
                                                         command: inner_command.to_string(),
                                                     },
                                                 ),
-                                                SourceProvenance::file(
-                                                    source_path.to_owned(),
-                                                    key_start as u32,
-                                                    key_end as u32,
+                                                Self::command_argument_provenance(
+                                                    source_path,
+                                                    inner_command_start,
+                                                    command_after,
+                                                    key_start,
+                                                    key_end,
+                                                    SourceSpanRole::ReferenceKey,
                                                 ),
                                             );
                                             inner_index = command_after;
@@ -3948,10 +3957,13 @@ impl<'i> Vm<'i> {
                                                             command: inner_command.to_string(),
                                                         },
                                                     ),
-                                                    SourceProvenance::file(
-                                                        source_path.to_owned(),
-                                                        first_start as u32,
-                                                        second_end as u32,
+                                                    Self::command_argument_provenance(
+                                                        source_path,
+                                                        inner_command_start,
+                                                        command_after,
+                                                        first_start,
+                                                        second_end,
+                                                        SourceSpanRole::ReferenceKey,
                                                     ),
                                                 );
                                                 inner_index = command_after;
@@ -4646,10 +4658,13 @@ impl<'i> Vm<'i> {
                                                                                     .to_string(),
                                                                         },
                                                                     ),
-                                                                    SourceProvenance::file(
-                                                                        source_path.to_owned(),
-                                                                        key_start as u32,
-                                                                        key_end as u32,
+                                                                    Self::command_argument_provenance(
+                                                                        source_path,
+                                                                        argument_command_start,
+                                                                        command_after,
+                                                                        key_start,
+                                                                        key_end,
+                                                                        SourceSpanRole::ReferenceKey,
                                                                     ),
                                                                 );
                                                                 argument_inner_index =
@@ -4720,10 +4735,13 @@ impl<'i> Vm<'i> {
                                                                                         .to_string(),
                                                                             },
                                                                         ),
-                                                                        SourceProvenance::file(
-                                                                            source_path.to_owned(),
-                                                                            first_start as u32,
-                                                                            second_end as u32,
+                                                                        Self::command_argument_provenance(
+                                                                            source_path,
+                                                                            argument_command_start,
+                                                                            command_after,
+                                                                            first_start,
+                                                                            second_end,
+                                                                            SourceSpanRole::ReferenceKey,
                                                                         ),
                                                                     );
                                                                     argument_inner_index =
@@ -5602,10 +5620,13 @@ impl<'i> Vm<'i> {
                                                                                                 command: nested_command.to_string(),
                                                                                             },
                                                                                         ),
-                                                                                        SourceProvenance::file(
-                                                                                            source_path.to_owned(),
-                                                                                            key_start as u32,
-                                                                                            key_end as u32,
+                                                                                        Self::command_argument_provenance(
+                                                                                            source_path,
+                                                                                            nested_command_start,
+                                                                                            after_reference,
+                                                                                            key_start,
+                                                                                            key_end,
+                                                                                            SourceSpanRole::ReferenceKey,
                                                                                         ),
                                                                                     );
                                                                                     nested_index = after_reference;
@@ -5679,10 +5700,13 @@ impl<'i> Vm<'i> {
                                                                                                     command: nested_command.to_string(),
                                                                                                 },
                                                                                             ),
-                                                                                            SourceProvenance::file(
-                                                                                                source_path.to_owned(),
-                                                                                                first_start as u32,
-                                                                                                second_end as u32,
+                                                                                            Self::command_argument_provenance(
+                                                                                                source_path,
+                                                                                                nested_command_start,
+                                                                                                after_reference,
+                                                                                                first_start,
+                                                                                                second_end,
+                                                                                                SourceSpanRole::ReferenceKey,
                                                                                             ),
                                                                                         );
                                                                                         nested_index = after_reference;
@@ -21076,9 +21100,7 @@ Fallback text.
             .render_events
             .iter()
             .filter_map(|event| match &event.event {
-                RenderEvent::InlineReference(reference) => {
-                    Some((reference, &event.meta.source.primary))
-                }
+                RenderEvent::InlineReference(reference) => Some((reference, &event.meta.source)),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -21087,11 +21109,21 @@ Fallback text.
         assert_eq!(references[0].0.command, "ref");
         assert_eq!(references[0].0.keys, vec!["sec:intro".to_string()]);
         assert!(matches!(
-            references[0].1,
+            &references[0].1.primary,
             tex_render_model::ProvenanceSpan::File(span)
                 if span.path == Utf8PathBuf::from("main.tex")
-                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "sec:intro"
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == r"\ref{sec:intro}"
         ));
+        assert!(references[0].1.related.iter().any(|related| {
+            related.role == tex_render_model::SourceSpanRole::ReferenceKey
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "sec:intro"
+                )
+        }));
         assert_eq!(references[1].0.command, "eqref");
         assert_eq!(references[1].0.keys, vec!["eq:main".to_string()]);
         assert_eq!(references[2].0.command, "cref");

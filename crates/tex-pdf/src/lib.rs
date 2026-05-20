@@ -423,6 +423,7 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                         tex_render_model::SourceSpanRole::Definition => "definition",
                         tex_render_model::SourceSpanRole::EmitSite => "emit_site",
                         tex_render_model::SourceSpanRole::CitationKey => "citation_key",
+                        tex_render_model::SourceSpanRole::ReferenceKey => "reference_key",
                         tex_render_model::SourceSpanRole::MetadataDefinition => {
                             "metadata_definition"
                         }

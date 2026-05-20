@@ -93,6 +93,7 @@ pub enum SourceSpanRole {
     Definition,
     EmitSite,
     CitationKey,
+    ReferenceKey,
     MetadataDefinition,
     SyntheticNumbering,
     FallbackSource,

@@ -1,0 +1,204 @@
+{
+  "events": [
+    {
+      "event": {
+        "command": "ref",
+        "keys": [
+          "sec:intro"
+        ]
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 3,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 35,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 20
+          },
+          "related": [
+            {
+              "role": "reference_key",
+              "span": {
+                "end_utf8": 34,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 25
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event": {
+        "command": "eqref",
+        "keys": [
+          "eq:main"
+        ]
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 7,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 55,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 40
+          },
+          "related": [
+            {
+              "role": "reference_key",
+              "span": {
+                "end_utf8": 54,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 47
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "event": {
+        "command": "cref",
+        "keys": [
+          "fig:a",
+          "tab:b"
+        ]
+      },
+      "meta": {
+        "confidence": "high",
+        "event_id": 10,
+        "mode_hint": "unknown",
+        "producer": "command",
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 75,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 57
+          },
+          "related": [
+            {
+              "role": "reference_key",
+              "span": {
+                "end_utf8": 74,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 63
+              }
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "ir": [
+    {
+      "command": "ref",
+      "display_text": "[?]",
+      "keys": [
+        "sec:intro"
+      ],
+      "source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 35,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 20
+        },
+        "related": [
+          {
+            "role": "reference_key",
+            "span": {
+              "end_utf8": 34,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 25
+            }
+          }
+        ]
+      }
+    },
+    {
+      "command": "eqref",
+      "display_text": "(?)",
+      "keys": [
+        "eq:main"
+      ],
+      "source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 55,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 40
+        },
+        "related": [
+          {
+            "role": "reference_key",
+            "span": {
+              "end_utf8": 54,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 47
+            }
+          }
+        ]
+      }
+    },
+    {
+      "command": "cref",
+      "display_text": "[?]",
+      "keys": [
+        "fig:a",
+        "tab:b"
+      ],
+      "source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 75,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 57
+        },
+        "related": [
+          {
+            "role": "reference_key",
+            "span": {
+              "end_utf8": 74,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 63
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "source": "\\begin{document}See \\ref{sec:intro} and \\eqref{eq:main}; \\cref{fig:a,tab:b}.\\end{document}"
+}

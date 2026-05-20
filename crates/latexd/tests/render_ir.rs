@@ -4166,8 +4166,17 @@ fn reference_capture_survives_ir_and_display_list() {
         &references[0].source.primary,
         ProvenanceSpan::File(span)
             if &REFERENCE_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
-                == "sec:intro"
+                == r"\ref{sec:intro}"
     ));
+    assert!(references[0].source.related.iter().any(|related| {
+        related.role == SourceSpanRole::ReferenceKey
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if &REFERENCE_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == "sec:intro"
+            )
+    }));
     assert_eq!(references[1].command, "eqref");
     assert_eq!(references[1].keys, vec!["eq:main".to_string()]);
     assert_eq!(references[1].display_text, "(?)");
@@ -4190,6 +4199,85 @@ fn reference_capture_survives_ir_and_display_list() {
     assert!(display_list_text.contains("(?)"));
     assert!(!display_list_text.contains("sec:intro"));
     assert!(!display_list_text.contains("eq:main"));
+}
+
+#[test]
+fn reference_provenance_preserves_invocation_and_key_spans() {
+    let capture = capture_internal_render_ir("main.tex", REFERENCE_SOURCE, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let references = paragraph
+        .content
+        .iter()
+        .filter_map(|node| match node {
+            InlineNode::Reference(reference) => Some(reference),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let mut provenance_cases = Vec::new();
+    for (reference, invocation_text, key_text) in [
+        (references[0], r"\ref{sec:intro}", "sec:intro"),
+        (references[1], r"\eqref{eq:main}", "eq:main"),
+        (references[2], r"\cref{fig:a,tab:b}", "fig:a,tab:b"),
+    ] {
+        assert!(matches!(
+            &reference.source.primary,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == "main.tex"
+                    && &REFERENCE_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == invocation_text
+        ));
+        assert!(reference.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::ReferenceKey
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &REFERENCE_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == key_text
+                )
+        }));
+
+        provenance_cases.push(serde_json::json!({
+            "command": reference.command,
+            "keys": reference.keys,
+            "display_text": reference.display_text,
+            "source": reference.source,
+        }));
+    }
+
+    let event_cases = capture
+        .events
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::InlineReference(reference) => Some(serde_json::json!({
+                "event": reference,
+                "meta": envelope.meta,
+            })),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let provenance_snapshot = serde_json::json!({
+        "source": REFERENCE_SOURCE,
+        "events": event_cases,
+        "ir": provenance_cases,
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/reference.provenance.json",
+        &provenance_json,
+    );
 }
 
 #[test]
@@ -9244,8 +9332,18 @@ fn aux_resolved_references_and_citations_survive_ir_and_display_list() {
                         ProvenanceSpan::File(span)
                             if &AUX_RESOLUTION_SOURCE
                                 [span.start_utf8 as usize..span.end_utf8 as usize]
-                                == "sec:intro"
+                                == r"\ref{sec:intro}"
                     )
+                    && run.source.related.iter().any(|related| {
+                        related.role == SourceSpanRole::ReferenceKey
+                            && matches!(
+                                &related.span,
+                                ProvenanceSpan::File(span)
+                                    if &AUX_RESOLUTION_SOURCE
+                                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                                        == "sec:intro"
+                            )
+                    })
         )
     }));
     assert!(capture.page_display_lists[0].ops.iter().any(|op| {
