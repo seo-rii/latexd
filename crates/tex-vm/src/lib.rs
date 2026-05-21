@@ -1407,6 +1407,80 @@ impl<'i> Vm<'i> {
                         }
                     }
                 }
+                "def" | "gdef" | "edef" | "xdef" | "protected@edef" | "protected@xdef" => {
+                    let target_start = skip_ascii_whitespace(source, index);
+                    if target_start < bytes.len() && bytes[target_start] == b'\\' {
+                        let mut name_start = target_start + 1;
+                        let macro_name = if name_start < bytes.len()
+                            && (bytes[name_start].is_ascii_alphabetic()
+                                || bytes[name_start] == b'@')
+                        {
+                            while name_start < bytes.len()
+                                && (bytes[name_start].is_ascii_alphabetic()
+                                    || bytes[name_start] == b'@')
+                            {
+                                name_start += 1;
+                            }
+                            &source[target_start + 1..name_start]
+                        } else if name_start < bytes.len() {
+                            let name_end = name_start
+                                + source[name_start..].chars().next().unwrap().len_utf8();
+                            let macro_name = &source[name_start..name_end];
+                            name_start = name_end;
+                            macro_name
+                        } else {
+                            ""
+                        };
+                        let mut signature_index = skip_ascii_whitespace(source, name_start);
+                        let mut parameter_count = 0usize;
+                        while signature_index < bytes.len()
+                            && !source[signature_index..].starts_with('{')
+                        {
+                            if source[signature_index..].starts_with('#') {
+                                let digit_index = signature_index + 1;
+                                if digit_index < bytes.len()
+                                    && let Some(value) = source[digit_index..]
+                                        .chars()
+                                        .next()
+                                        .and_then(|ch| ch.to_digit(10).map(|digit| digit as usize))
+                                {
+                                    parameter_count = parameter_count.max(value);
+                                }
+                            }
+                            let Some(ch) = source[signature_index..].chars().next() else {
+                                break;
+                            };
+                            signature_index += ch.len_utf8();
+                        }
+                        if let Some((body, _, _, after_body)) =
+                            read_braced_source_argument(source, signature_index)
+                        {
+                            let heading_parameter = if body.contains("\\section") {
+                                (1..=parameter_count)
+                                    .rev()
+                                    .find(|parameter| body.contains(&format!("#{parameter}")))
+                            } else {
+                                None
+                            };
+                            if let Some(heading_parameter) = heading_parameter {
+                                scan_state.section_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderSectionMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: after_body,
+                                        },
+                                        parameter_count,
+                                        optional_first_argument: false,
+                                        heading_parameter,
+                                    },
+                                );
+                            }
+                            index = after_body;
+                        }
+                    }
+                }
                 "newtheorem" => {
                     let mut environment_index = skip_ascii_whitespace(source, index);
                     if source[environment_index..].starts_with('*') {
@@ -25051,6 +25125,46 @@ Fallback text.
                             == r"\newcommand{\mysection}[2][]{\section[#1]{#2}}"
             ));
         }
+    }
+
+    #[test]
+    fn render_event_capture_records_def_section_macro_provenance() {
+        let source =
+            r"\def\mysection#1{\section{#1}}\begin{document}\mysection{Plain Def}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let heading = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::Heading(heading) if heading.text == "Plain Def"))
+            .expect("heading event");
+
+        assert!(matches!(
+            &heading.meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "Plain Def"
+        ));
+        assert!(heading.meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\mysection{Plain Def}"
+                )
+        }));
+        assert!(matches!(
+            &heading.meta.source.expansion_stack[0].definition_span,
+            Some(tex_render_model::ProvenanceSpan::File(span))
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\def\mysection#1{\section{#1}}"
+        ));
     }
 
     #[test]
