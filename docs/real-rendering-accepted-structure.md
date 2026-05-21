@@ -1389,7 +1389,8 @@ approximate.
   invocation/key spans, label definition key/invocation spans, link visible
   text/target/invocation spans, `NoHyper` visible link text/invocation spans,
   `hyperref`/`hyperlink`/`hypertarget` visible text/target/invocation spans,
-  and graphic invocation/path argument spans, caption and `captionof`
+  nested link visible text/target/invocation spans, and graphic
+  invocation/path argument spans, caption and `captionof`
   text/invocation spans, display math body/delimiter spans, and explicit
   linebreak delimiter/optional-spacing spans, plus color wrapper visible
   content/style-argument/invocation spans and simple text wrapper
