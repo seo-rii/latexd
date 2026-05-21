@@ -8348,6 +8348,185 @@ fn preamble_input_macro_heading_provenance_preserves_definition_file() {
 }
 
 #[test]
+fn cross_file_optional_default_wrapper_provenance_survives_ir_and_display_list() {
+    let macros = r"\newcommand{\defaultcite}[1][core]{\cite{#1}}
+\newcommand{\defaultref}[1][sec:intro]{\ref{#1}}
+\newcommand{\defaultlabel}[1][sec:intro]{\label{#1}}
+\newcommand{\defaultdoclink}[1][guide]{\href{https://constant.test}{#1}}";
+    let source = r"\input{macros}
+\begin{document}
+\section{Intro}\defaultlabel
+See \defaultcite, \defaultref, and \defaultdoclink.
+\end{document}";
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        source,
+        &SemanticAux::default(),
+        &[("macros.tex", macros)],
+    );
+
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let citation = paragraph
+        .content
+        .iter()
+        .find_map(|node| match node {
+            InlineNode::Citation(citation) => Some(citation),
+            _ => None,
+        })
+        .expect("citation");
+    assert_eq!(citation.keys, vec!["core".to_string()]);
+    assert!(matches!(
+        &citation.source.primary,
+        ProvenanceSpan::File(span)
+            if span.path.as_str() == "main.tex"
+                && &source[span.start_utf8 as usize..span.end_utf8 as usize] == r"\defaultcite"
+    ));
+    assert!(citation.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::CitationKey
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "macros.tex"
+                        && &macros[span.start_utf8 as usize..span.end_utf8 as usize] == "core"
+            )
+    }));
+
+    let reference = paragraph
+        .content
+        .iter()
+        .find_map(|node| match node {
+            InlineNode::Reference(reference) => Some(reference),
+            _ => None,
+        })
+        .expect("reference");
+    assert_eq!(reference.keys, vec!["sec:intro".to_string()]);
+    assert!(matches!(
+        &reference.source.primary,
+        ProvenanceSpan::File(span)
+            if span.path.as_str() == "main.tex"
+                && &source[span.start_utf8 as usize..span.end_utf8 as usize] == r"\defaultref"
+    ));
+    assert!(reference.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::ReferenceKey
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "macros.tex"
+                        && &macros[span.start_utf8 as usize..span.end_utf8 as usize] == "sec:intro"
+            )
+    }));
+
+    let link = paragraph
+        .content
+        .iter()
+        .find_map(|node| match node {
+            InlineNode::Link(link) => Some(link),
+            _ => None,
+        })
+        .expect("link");
+    assert_eq!(link.target, "https://constant.test");
+    assert_eq!(link.display_text, "guide");
+    assert!(matches!(
+        &link.source.primary,
+        ProvenanceSpan::File(span)
+            if span.path.as_str() == "macros.tex"
+                && &macros[span.start_utf8 as usize..span.end_utf8 as usize] == "guide"
+    ));
+    assert!(link.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::Invocation
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == r"\defaultdoclink"
+            )
+    }));
+
+    let label = capture
+        .document_ir
+        .labels
+        .iter()
+        .find(|label| label.key == "sec:intro")
+        .expect("label");
+    assert!(matches!(
+        &label.source.primary,
+        ProvenanceSpan::File(span)
+            if span.path.as_str() == "macros.tex"
+                && &macros[span.start_utf8 as usize..span.end_utf8 as usize] == "sec:intro"
+    ));
+    assert!(label.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::Invocation
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == r"\defaultlabel"
+            )
+    }));
+
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::TextRun(run)
+                if run.text == "guide"
+                    && matches!(
+                        &run.source.primary,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "macros.tex"
+                                && &macros[span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == "guide"
+                    )
+        )
+    }));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::TextRun(run)
+                if run.text == "[?]"
+                    && run.source.related.iter().any(|related| {
+                        related.role == SourceSpanRole::CitationKey
+                            && matches!(
+                                &related.span,
+                                ProvenanceSpan::File(span)
+                                    if span.path.as_str() == "macros.tex"
+                                        && &macros
+                                            [span.start_utf8 as usize..span.end_utf8 as usize]
+                                            == "core"
+                            )
+                    })
+        )
+    }));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::TextRun(run)
+                if run.text == "[?]"
+                    && run.source.related.iter().any(|related| {
+                        related.role == SourceSpanRole::ReferenceKey
+                            && matches!(
+                                &related.span,
+                                ProvenanceSpan::File(span)
+                                    if span.path.as_str() == "macros.tex"
+                                        && &macros
+                                            [span.start_utf8 as usize..span.end_utf8 as usize]
+                                            == "sec:intro"
+                            )
+                    })
+        )
+    }));
+}
+
+#[test]
 fn package_file_macros_are_reused_in_document_ir_and_display_list() {
     let capture = capture_internal_render_ir_with_mounted_files(
         "main.tex",
