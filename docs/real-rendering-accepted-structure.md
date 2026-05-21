@@ -40,9 +40,10 @@ As of 2026-05-21, the first implementation batch is complete:
 - Focused provenance tests and goldens cover macro-expanded section text,
   direct input-file headings, cross-file input macro call/definition spans,
   preamble-input/package/class macro definitions, starred/provided
-  section-wrapper declarations, optional-default section wrappers, title
-  metadata definition spans, `\maketitle` emission spans, and citation
-  invocation/key span separation.
+  section-wrapper declarations, optional-default section wrappers, `\def`-style
+  section/readable wrappers, `\let` aliases to `\section`, title metadata
+  definition spans, `\maketitle` emission spans, and citation invocation/key
+  span separation.
 
 Still intentionally outside this batch:
 
