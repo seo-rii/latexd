@@ -725,11 +725,24 @@ struct RenderEventScanState {
     include_only: Option<HashSet<Utf8PathBuf>>,
     graphic_paths: Vec<Utf8PathBuf>,
     graphic_extensions: Vec<String>,
-    section_macros: HashMap<String, (usize, usize)>,
-    readable_wrapper_macros: HashMap<String, (usize, usize, String)>,
+    section_macros: HashMap<String, RenderMacroDefinitionSpan>,
+    readable_wrapper_macros: HashMap<String, RenderReadableWrapperMacro>,
     structured_environments: HashSet<String>,
     theorem_like_environments: HashSet<String>,
     hidden_environments: HashSet<String>,
+}
+
+#[derive(Debug, Clone)]
+struct RenderMacroDefinitionSpan {
+    path: Utf8PathBuf,
+    start_utf8: usize,
+    end_utf8: usize,
+}
+
+#[derive(Debug, Clone)]
+struct RenderReadableWrapperMacro {
+    definition_span: RenderMacroDefinitionSpan,
+    body: String,
 }
 
 #[derive(Debug)]
@@ -1320,14 +1333,26 @@ impl<'i> Vm<'i> {
                         {
                             let macro_name = target.trim().trim_start_matches('\\');
                             if body.contains("\\section") && body.contains("#1") {
-                                scan_state
-                                    .section_macros
-                                    .insert(macro_name.to_string(), (command_start, after_body));
+                                scan_state.section_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderMacroDefinitionSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: command_start,
+                                        end_utf8: after_body,
+                                    },
+                                );
                             }
                             if parameter_count == 1 && body.contains("#1") && !body.contains("#2") {
                                 scan_state.readable_wrapper_macros.insert(
                                     macro_name.to_string(),
-                                    (command_start, after_body, body.to_string()),
+                                    RenderReadableWrapperMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: after_body,
+                                        },
+                                        body: body.to_string(),
+                                    },
                                 );
                             }
                             index = after_body;
@@ -6420,8 +6445,7 @@ impl<'i> Vm<'i> {
                     );
                 }
                 _ if in_document => {
-                    if let Some((definition_start, definition_end)) =
-                        scan_state.section_macros.get(command).copied()
+                    if let Some(definition_span) = scan_state.section_macros.get(command)
                         && let Some((heading, content_start, content_end, after)) =
                             read_braced_source_argument(source, index)
                     {
@@ -6451,22 +6475,22 @@ impl<'i> Vm<'i> {
                                     end_utf8: after as u32,
                                 }),
                                 definition_span: Some(ProvenanceSpan::File(SourceSpan {
-                                    path: source_path.to_owned(),
-                                    start_utf8: definition_start as u32,
-                                    end_utf8: definition_end as u32,
+                                    path: definition_span.path.clone(),
+                                    start_utf8: definition_span.start_utf8 as u32,
+                                    end_utf8: definition_span.end_utf8 as u32,
                                 })),
                                 command_name: Some(command.to_string()),
                             }),
                         );
                         index = after;
-                    } else if let Some((definition_start, definition_end, body)) =
+                    } else if let Some(wrapper_macro) =
                         scan_state.readable_wrapper_macros.get(command)
                     {
                         let argument_index = skip_ascii_whitespace(source, index);
                         if let Some((argument, content_start, content_end, after)) =
                             read_braced_source_argument(source, argument_index)
                         {
-                            let visible_source = body.replace("#1", argument);
+                            let visible_source = wrapper_macro.body.replace("#1", argument);
                             let text =
                                 normalize_latex_text_with_inline_placeholders(&visible_source);
                             if !text.is_empty() {
@@ -6486,9 +6510,16 @@ impl<'i> Vm<'i> {
                                             }),
                                             definition_span: Some(ProvenanceSpan::File(
                                                 SourceSpan {
-                                                    path: source_path.to_owned(),
-                                                    start_utf8: *definition_start as u32,
-                                                    end_utf8: *definition_end as u32,
+                                                    path: wrapper_macro
+                                                        .definition_span
+                                                        .path
+                                                        .clone(),
+                                                    start_utf8: wrapper_macro
+                                                        .definition_span
+                                                        .start_utf8
+                                                        as u32,
+                                                    end_utf8: wrapper_macro.definition_span.end_utf8
+                                                        as u32,
                                                 },
                                             )),
                                             command_name: Some(command.to_string()),
@@ -22444,20 +22475,45 @@ Fallback text.
     #[test]
     fn render_event_capture_shares_declared_wrappers_with_input_files() {
         let source = r"\newcommand{\mysection}[1]{\section{#1}}\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}\begin{document}\input{child}\end{document}";
+        let child_source = r"\mysection{Included}\reviewnote{check \cite{key}}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
-        vm.mount_file(
-            "child.tex",
-            r"\mysection{Included}\reviewnote{check \cite{key}}",
-        );
+        vm.mount_file("child.tex", child_source);
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
 
-        assert!(outcome.render_events.iter().any(|event| matches!(
-            &event.event,
-            RenderEvent::Heading(heading) if heading.text == "Included"
-        )));
+        let heading = outcome
+            .render_events
+            .iter()
+            .find(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::Heading(heading) if heading.text == "Included"
+                )
+            })
+            .expect("heading event");
+        let expansion = heading
+            .meta
+            .source
+            .expansion_stack
+            .first()
+            .expect("heading macro expansion");
+        assert_eq!(expansion.command_name.as_deref(), Some("mysection"));
+        assert!(matches!(
+            &expansion.call_span,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("child.tex")
+                    && &child_source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\mysection{Included}"
+        ));
+        assert!(matches!(
+            &expansion.definition_span,
+            Some(tex_render_model::ProvenanceSpan::File(span))
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\newcommand{\mysection}[1]{\section{#1}}"
+        ));
 
         let visible_text = outcome
             .render_events

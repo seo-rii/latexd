@@ -1,0 +1,227 @@
+{
+  "child_source": "\\mysection{Included}\\reviewnote{check \\cite{key}}",
+  "display_list": {
+    "clusters": [
+      {
+        "glyph_end": 8,
+        "glyph_start": 0,
+        "text_end_utf8": 8,
+        "text_start_utf8": 0
+      }
+    ],
+    "source": {
+      "expansion_stack": [
+        {
+          "call_span": {
+            "end_utf8": 20,
+            "kind": "file",
+            "path": "child.tex",
+            "start_utf8": 0
+          },
+          "command_name": "mysection",
+          "definition_span": {
+            "end_utf8": 40,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 0
+          }
+        }
+      ],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 19,
+        "kind": "file",
+        "path": "child.tex",
+        "start_utf8": 11
+      },
+      "related": [
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 20,
+            "kind": "file",
+            "path": "child.tex",
+            "start_utf8": 0
+          }
+        }
+      ]
+    },
+    "text": "Included"
+  },
+  "event": {
+    "event": {
+      "kind": "heading",
+      "level": 1,
+      "text": "Included"
+    },
+    "meta": {
+      "confidence": "high",
+      "event_id": 1,
+      "mode_hint": "unknown",
+      "producer": "command",
+      "source": {
+        "expansion_stack": [
+          {
+            "call_span": {
+              "end_utf8": 20,
+              "kind": "file",
+              "path": "child.tex",
+              "start_utf8": 0
+            },
+            "command_name": "mysection",
+            "definition_span": {
+              "end_utf8": 40,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 0
+            }
+          }
+        ],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 19,
+          "kind": "file",
+          "path": "child.tex",
+          "start_utf8": 11
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 20,
+              "kind": "file",
+              "path": "child.tex",
+              "start_utf8": 0
+            }
+          }
+        ]
+      }
+    }
+  },
+  "ir": {
+    "content": [
+      {
+        "kind": "text",
+        "source": {
+          "expansion_stack": [
+            {
+              "call_span": {
+                "end_utf8": 20,
+                "kind": "file",
+                "path": "child.tex",
+                "start_utf8": 0
+              },
+              "command_name": "mysection",
+              "definition_span": {
+                "end_utf8": 40,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 0
+              }
+            }
+          ],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 19,
+            "kind": "file",
+            "path": "child.tex",
+            "start_utf8": 11
+          },
+          "related": [
+            {
+              "role": "invocation",
+              "span": {
+                "end_utf8": 20,
+                "kind": "file",
+                "path": "child.tex",
+                "start_utf8": 0
+              }
+            }
+          ]
+        },
+        "text": "Included"
+      }
+    ],
+    "level": 1,
+    "source": {
+      "expansion_stack": [
+        {
+          "call_span": {
+            "end_utf8": 20,
+            "kind": "file",
+            "path": "child.tex",
+            "start_utf8": 0
+          },
+          "command_name": "mysection",
+          "definition_span": {
+            "end_utf8": 40,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 0
+          }
+        }
+      ],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 19,
+        "kind": "file",
+        "path": "child.tex",
+        "start_utf8": 11
+      },
+      "related": [
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 20,
+            "kind": "file",
+            "path": "child.tex",
+            "start_utf8": 0
+          }
+        }
+      ]
+    },
+    "text_source": {
+      "expansion_stack": [
+        {
+          "call_span": {
+            "end_utf8": 20,
+            "kind": "file",
+            "path": "child.tex",
+            "start_utf8": 0
+          },
+          "command_name": "mysection",
+          "definition_span": {
+            "end_utf8": 40,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 0
+          }
+        }
+      ],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 19,
+        "kind": "file",
+        "path": "child.tex",
+        "start_utf8": 11
+      },
+      "related": [
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 20,
+            "kind": "file",
+            "path": "child.tex",
+            "start_utf8": 0
+          }
+        }
+      ]
+    }
+  },
+  "main_source": "\\newcommand{\\mysection}[1]{\\section{#1}}\\newcommand{\\reviewnote}[1]{{\\color{red}[TODO: #1]}}\\begin{document}\\input{child}\\end{document}"
+}
