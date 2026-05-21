@@ -266,6 +266,11 @@ The next implementation step has started with a narrow display-list spike:
   `\newcommand{\myrange}[2]{\crefrange{#1}{#2}}`, aliases to those wrappers,
   and direct `\let` aliases to range commands preserve both endpoint labels
   through event capture, IR, and display-list text redaction;
+- multi-key citation/reference wrappers preserve each key span when macro
+  arguments come from different files. Same-file multi-argument wrappers keep a
+  single combined key span for compatibility, while mixed-path wrappers such as
+  optional-default range commands record separate definition-file and
+  invocation-file `ReferenceKey` spans;
 - simple multi-parameter citation wrappers such as
   `\newcommand{\mycitepair}[2]{\cite{#1,#2}}` and their `\let` aliases
   preserve every key argument in order through event capture and IR while
