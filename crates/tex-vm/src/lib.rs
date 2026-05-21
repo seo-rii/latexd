@@ -768,7 +768,7 @@ struct RenderReferenceMacro {
     command: String,
     parameter_count: usize,
     optional_first_argument: bool,
-    key_parameter: usize,
+    key_parameters: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -1454,7 +1454,7 @@ impl<'i> Vm<'i> {
                                         .insert(macro_name.to_string(), citation_macro);
                                 }
                             }
-                            if let Some((reference_command, key_parameter)) =
+                            if let Some((reference_command, key_parameters)) =
                                 reference_macro_from_body(body, parameter_count)
                             {
                                 let reference_macro = RenderReferenceMacro {
@@ -1466,7 +1466,7 @@ impl<'i> Vm<'i> {
                                     command: reference_command,
                                     parameter_count,
                                     optional_first_argument,
-                                    key_parameter,
+                                    key_parameters,
                                 };
                                 if command == "providecommand" {
                                     scan_state
@@ -1645,7 +1645,7 @@ impl<'i> Vm<'i> {
                                     },
                                 );
                             }
-                            if let Some((reference_command, key_parameter)) =
+                            if let Some((reference_command, key_parameters)) =
                                 reference_macro_from_body(body, parameter_count)
                             {
                                 scan_state.reference_macros.insert(
@@ -1659,7 +1659,7 @@ impl<'i> Vm<'i> {
                                         command: reference_command,
                                         parameter_count,
                                         optional_first_argument: false,
-                                        key_parameter,
+                                        key_parameters,
                                     },
                                 );
                             }
@@ -1877,6 +1877,31 @@ impl<'i> Vm<'i> {
                                 );
                             } else if matches!(
                                 source_name,
+                                "crefrange"
+                                    | "Crefrange"
+                                    | "cpagerefrange"
+                                    | "Cpagerefrange"
+                                    | "pagerefrange"
+                                    | "vpagerefrange"
+                                    | "vrefrange"
+                                    | "Vrefrange"
+                            ) {
+                                scan_state.reference_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderReferenceMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: source_end,
+                                        },
+                                        command: source_name.to_string(),
+                                        parameter_count: 2,
+                                        optional_first_argument: false,
+                                        key_parameters: vec![1, 2],
+                                    },
+                                );
+                            } else if matches!(
+                                source_name,
                                 "ref"
                                     | "eqref"
                                     | "pageref"
@@ -1918,7 +1943,7 @@ impl<'i> Vm<'i> {
                                         command: source_name.to_string(),
                                         parameter_count: 1,
                                         optional_first_argument: false,
-                                        key_parameter: 1,
+                                        key_parameters: vec![1],
                                     },
                                 );
                             } else if let Some(source_macro) =
@@ -7252,14 +7277,14 @@ impl<'i> Vm<'i> {
                     } else if let Some(reference_macro) = scan_state.reference_macros.get(command) {
                         let mut argument_index = skip_ascii_whitespace(source, index);
                         let mut invocation_end = index;
-                        let mut selected_keys = None;
+                        let mut selected_keys = Vec::new();
                         let mut parameter = 1usize;
                         if reference_macro.optional_first_argument {
                             if let Some((argument, content_start, content_end, after_optional)) =
                                 read_bracket_source_argument(source, argument_index)
                             {
-                                if reference_macro.key_parameter == 1 {
-                                    selected_keys = Some((argument, content_start, content_end));
+                                if reference_macro.key_parameters.contains(&1) {
+                                    selected_keys.push((argument, content_start, content_end));
                                 }
                                 argument_index = after_optional;
                                 invocation_end = after_optional;
@@ -7273,18 +7298,29 @@ impl<'i> Vm<'i> {
                             else {
                                 break;
                             };
-                            if parameter == reference_macro.key_parameter {
-                                selected_keys = Some((argument, content_start, content_end));
+                            if reference_macro.key_parameters.contains(&parameter) {
+                                selected_keys.push((argument, content_start, content_end));
                             }
                             argument_index = after_argument;
                             invocation_end = after_argument;
                             parameter += 1;
                         }
-                        if let Some((keys, content_start, content_end)) = selected_keys {
+                        if !selected_keys.is_empty() {
+                            let content_start = selected_keys
+                                .iter()
+                                .map(|(_, content_start, _)| *content_start)
+                                .min()
+                                .unwrap_or(command_start);
+                            let content_end = selected_keys
+                                .iter()
+                                .map(|(_, _, content_end)| *content_end)
+                                .max()
+                                .unwrap_or(invocation_end);
                             self.emit_render_event(
                                 RenderEvent::InlineReference(InlineReferenceEvent {
-                                    keys: keys
-                                        .split(',')
+                                    keys: selected_keys
+                                        .iter()
+                                        .flat_map(|(keys, _, _)| keys.split(','))
                                         .map(str::trim)
                                         .filter(|key| !key.is_empty())
                                         .map(ToOwned::to_owned)
@@ -14931,9 +14967,8 @@ fn citation_macro_from_body(
     None
 }
 
-fn reference_macro_from_body(body: &str, parameter_count: usize) -> Option<(String, usize)> {
-    let reference_commands = [
-        "labelcpageref",
+fn reference_macro_from_body(body: &str, parameter_count: usize) -> Option<(String, Vec<usize>)> {
+    let reference_range_commands = [
         "cpagerefrange",
         "Cpagerefrange",
         "pagerefrange",
@@ -14942,6 +14977,49 @@ fn reference_macro_from_body(body: &str, parameter_count: usize) -> Option<(Stri
         "Crefrange",
         "vrefrange",
         "Vrefrange",
+    ];
+    for command in reference_range_commands {
+        let needle = format!("\\{command}");
+        let mut search_start = 0usize;
+        while let Some(relative_start) = body[search_start..].find(&needle) {
+            let command_start = search_start + relative_start;
+            let command_end = command_start + needle.len();
+            if body
+                .as_bytes()
+                .get(command_end)
+                .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'@')
+            {
+                search_start = command_end;
+                continue;
+            }
+
+            let mut argument_index = skip_ascii_whitespace(body, command_end);
+            if body[argument_index..].starts_with('*') {
+                argument_index += 1;
+                argument_index = skip_ascii_whitespace(body, argument_index);
+            }
+            if let Some((first_argument, _, _, after_first)) =
+                read_braced_source_argument(body, argument_index)
+            {
+                let second_index = skip_ascii_whitespace(body, after_first);
+                if let Some((second_argument, _, _, _)) =
+                    read_braced_source_argument(body, second_index)
+                    && let Some(first_parameter) = (1..=parameter_count)
+                        .rev()
+                        .find(|parameter| first_argument.contains(&format!("#{parameter}")))
+                    && let Some(second_parameter) = (1..=parameter_count)
+                        .rev()
+                        .find(|parameter| second_argument.contains(&format!("#{parameter}")))
+                {
+                    return Some((command.to_string(), vec![first_parameter, second_parameter]));
+                }
+            }
+            search_start = command_end;
+        }
+    }
+
+    let reference_commands = [
+        "labelcpageref",
         "autopageref",
         "lcnamecrefs",
         "lcnamecref",
@@ -14974,7 +15052,7 @@ fn reference_macro_from_body(body: &str, parameter_count: usize) -> Option<(Stri
         if let Some(parameter) =
             key_parameter_for_macro_command_body(body, command, parameter_count)
         {
-            return Some((command.to_string(), parameter));
+            return Some((command.to_string(), vec![parameter]));
         }
     }
     None
@@ -22891,6 +22969,69 @@ Fallback text.
             assert!(!outcome.render_events.iter().any(|event| matches!(
                 &event.event,
                 RenderEvent::Text(text) if text.text.contains(key_text)
+            )));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_records_reference_range_wrapper_macros() {
+        for (source, invocation_text, definition_text) in [
+            (
+                r"\newcommand{\myrange}[2]{\crefrange{#1}{#2}}\begin{document}See \myrange{fig:a}{fig:b}.\end{document}",
+                r"\myrange{fig:a}{fig:b}",
+                r"\newcommand{\myrange}[2]{\crefrange{#1}{#2}}",
+            ),
+            (
+                r"\newcommand{\myrange}[2]{\crefrange{#1}{#2}}\let\aliasrange\myrange\begin{document}See \aliasrange{fig:a}{fig:b}.\end{document}",
+                r"\aliasrange{fig:a}{fig:b}",
+                r"\let\aliasrange\myrange",
+            ),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.set_entry_source_path("main.tex");
+            vm.enable_render_event_capture();
+            let outcome = vm.run_plain(source);
+            let reference = outcome
+                .render_events
+                .iter()
+                .find(|event| matches!(&event.event, RenderEvent::InlineReference(_)))
+                .expect("reference event");
+
+            assert!(matches!(
+                &reference.event,
+                RenderEvent::InlineReference(reference)
+                    if reference.command == "crefrange"
+                        && reference.keys == vec!["fig:a".to_string(), "fig:b".to_string()]
+            ));
+            assert!(matches!(
+                &reference.meta.source.primary,
+                tex_render_model::ProvenanceSpan::File(span)
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == invocation_text
+            ));
+            assert!(reference.meta.source.related.iter().any(|related| {
+                related.role == SourceSpanRole::ReferenceKey
+                    && matches!(
+                        &related.span,
+                        tex_render_model::ProvenanceSpan::File(span)
+                            if span.path == Utf8PathBuf::from("main.tex")
+                                && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == "fig:a}{fig:b"
+                    )
+            }));
+            assert!(matches!(
+                &reference.meta.source.expansion_stack[0].definition_span,
+                Some(tex_render_model::ProvenanceSpan::File(span))
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == definition_text
+            ));
+            assert!(!outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Text(text)
+                    if text.text.contains("fig:a") || text.text.contains("fig:b")
             )));
         }
     }

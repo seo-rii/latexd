@@ -4960,6 +4960,59 @@ fn reference_range_alias_capture_survives_ir_without_visible_keys() {
 }
 
 #[test]
+fn reference_range_wrapper_macro_capture_survives_ir_without_visible_keys() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        REFERENCE_RANGE_WRAPPER_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let references = paragraph
+        .content
+        .iter()
+        .filter_map(|node| match node {
+            InlineNode::Reference(reference) => Some(reference),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let expected = [
+        ("crefrange", vec!["fig:a", "fig:b"]),
+        ("crefrange", vec!["sec:a", "sec:b"]),
+    ];
+    assert_eq!(references.len(), expected.len());
+    for (reference, (command, keys)) in references.iter().zip(expected.iter()) {
+        assert_eq!(reference.command, *command);
+        assert_eq!(
+            reference.keys,
+            keys.iter().map(|key| key.to_string()).collect::<Vec<_>>()
+        );
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("See [?] and [?]."));
+    for hidden in ["fig:a", "fig:b", "sec:a", "sec:b"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn link_capture_survives_ir_and_display_list_annotations() {
     let capture = capture_internal_render_ir("main.tex", LINK_SOURCE, &SemanticAux::default());
     let paragraph = capture
@@ -13336,6 +13389,8 @@ const THEOREM_REFERENCE_SOURCE: &str = r"\begin{document}See \thmref{thm:one}, \
 const REFERENCE_RANGE_SOURCE: &str = r"\begin{document}See \crefrange{fig:a}{fig:b}, \Crefrange{sec:a}{sec:b}, \cpagerefrange{p:a}{p:b}, and \Cpagerefrange{app:a}{app:b}.\end{document}";
 
 const REFERENCE_RANGE_ALIAS_SOURCE: &str = r"\begin{document}See \pagerefrange{page:a}{page:b}, \vpagerefrange{vp:a}{vp:b}, \vrefrange{sec:a}{sec:b}, and \Vrefrange{chap:a}{chap:b}.\end{document}";
+
+const REFERENCE_RANGE_WRAPPER_SOURCE: &str = r"\newcommand{\myrange}[2]{\crefrange{#1}{#2}}\let\aliasrange\myrange\begin{document}See \myrange{fig:a}{fig:b} and \aliasrange{sec:a}{sec:b}.\end{document}";
 
 const LINK_SOURCE: &str = r"\begin{document}Read \href{https://example.test/paper}{paper link}, \url{https://example.test/raw}, and \url|https://example.test/delimited|.\end{document}";
 
