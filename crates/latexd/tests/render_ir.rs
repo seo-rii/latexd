@@ -3294,6 +3294,54 @@ fn citation_variant_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn citation_wrapper_macro_capture_survives_ir_without_dropping_keys() {
+    let capture =
+        capture_internal_render_ir("main.tex", CITATION_WRAPPER_SOURCE, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let citations = paragraph
+        .content
+        .iter()
+        .filter_map(|node| match node {
+            InlineNode::Citation(citation) => Some(citation),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    let expected = [
+        vec!["alpha".to_string(), "beta".to_string()],
+        vec!["gamma".to_string(), "delta".to_string()],
+    ];
+    assert_eq!(citations.len(), expected.len());
+    for (citation, keys) in citations.iter().zip(expected) {
+        assert_eq!(citation.keys, keys);
+        assert_eq!(citation.style_hint, CitationStyleHint::Numeric);
+        assert_eq!(citation.display_text, "[?]");
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("See [?] and [?]."));
+    for hidden in ["alpha", "beta", "gamma", "delta"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn citation_metadata_alias_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -13343,6 +13391,8 @@ const HEADING_INLINE_KEY_SOURCE: &str =
     r"\begin{document}\section{See \cite{key} and \ref{sec:intro}.}\end{document}";
 
 const CITATION_VARIANTS_SOURCE: &str = r"\begin{document}\citep[see][p.~3]{alpha,beta}\citet*{gamma}\parencite{delta}\textcite{epsilon}\citep*{zeta}\citealt*{eta}\citealp*{theta}\Textcite*{iota}\Citealt{lambda}\Citealp{mu}\end{document}";
+
+const CITATION_WRAPPER_SOURCE: &str = r"\newcommand{\mycitepair}[2]{\cite{#1,#2}}\let\aliascitepair\mycitepair\begin{document}See \mycitepair{alpha}{beta} and \aliascitepair{gamma}{delta}.\end{document}";
 
 const CITATION_METADATA_ALIAS_SOURCE: &str = r"\begin{document}\Citeauthor{alpha} \Citeyear{beta} \Citeyearpar{gamma} \citetitle{delta} \Citetitle{epsilon} \citefullauthor{zeta} \Citefullauthor*{eta}\end{document}";
 

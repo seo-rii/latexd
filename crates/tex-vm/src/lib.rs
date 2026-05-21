@@ -759,7 +759,7 @@ struct RenderCitationMacro {
     style_hint: CitationStyleHint,
     parameter_count: usize,
     optional_first_argument: bool,
-    key_parameter: usize,
+    key_parameters: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -1428,7 +1428,7 @@ impl<'i> Vm<'i> {
                                         .insert(macro_name.to_string(), section_macro);
                                 }
                             }
-                            if let Some((citation_command, style_hint, key_parameter)) =
+                            if let Some((citation_command, style_hint, key_parameters)) =
                                 citation_macro_from_body(body, parameter_count)
                             {
                                 let citation_macro = RenderCitationMacro {
@@ -1441,7 +1441,7 @@ impl<'i> Vm<'i> {
                                     style_hint,
                                     parameter_count,
                                     optional_first_argument,
-                                    key_parameter,
+                                    key_parameters,
                                 };
                                 if command == "providecommand" {
                                     scan_state
@@ -1626,7 +1626,7 @@ impl<'i> Vm<'i> {
                                     },
                                 );
                             }
-                            if let Some((citation_command, style_hint, key_parameter)) =
+                            if let Some((citation_command, style_hint, key_parameters)) =
                                 citation_macro_from_body(body, parameter_count)
                             {
                                 scan_state.citation_macros.insert(
@@ -1641,7 +1641,7 @@ impl<'i> Vm<'i> {
                                         style_hint,
                                         parameter_count,
                                         optional_first_argument: false,
-                                        key_parameter,
+                                        key_parameters,
                                     },
                                 );
                             }
@@ -1858,7 +1858,7 @@ impl<'i> Vm<'i> {
                                         style_hint: citation_style_hint_for_command(source_name),
                                         parameter_count: 1,
                                         optional_first_argument: false,
-                                        key_parameter: 1,
+                                        key_parameters: vec![1],
                                     },
                                 );
                             } else if let Some(source_macro) =
@@ -7201,14 +7201,19 @@ impl<'i> Vm<'i> {
                     } else if let Some(citation_macro) = scan_state.citation_macros.get(command) {
                         let mut argument_index = skip_ascii_whitespace(source, index);
                         let mut invocation_end = index;
-                        let mut selected_keys = None;
+                        let mut parsed_arguments = Vec::new();
                         let mut parameter = 1usize;
                         if citation_macro.optional_first_argument {
                             if let Some((argument, content_start, content_end, after_optional)) =
                                 read_bracket_source_argument(source, argument_index)
                             {
-                                if citation_macro.key_parameter == 1 {
-                                    selected_keys = Some((argument, content_start, content_end));
+                                if citation_macro.key_parameters.contains(&1) {
+                                    parsed_arguments.push((
+                                        1,
+                                        argument,
+                                        content_start,
+                                        content_end,
+                                    ));
                                 }
                                 argument_index = after_optional;
                                 invocation_end = after_optional;
@@ -7222,18 +7227,46 @@ impl<'i> Vm<'i> {
                             else {
                                 break;
                             };
-                            if parameter == citation_macro.key_parameter {
-                                selected_keys = Some((argument, content_start, content_end));
+                            if citation_macro.key_parameters.contains(&parameter) {
+                                parsed_arguments.push((
+                                    parameter,
+                                    argument,
+                                    content_start,
+                                    content_end,
+                                ));
                             }
                             argument_index = after_argument;
                             invocation_end = after_argument;
                             parameter += 1;
                         }
-                        if let Some((keys, content_start, content_end)) = selected_keys {
+                        let selected_keys = citation_macro
+                            .key_parameters
+                            .iter()
+                            .filter_map(|key_parameter| {
+                                parsed_arguments
+                                    .iter()
+                                    .find(|(parameter, _, _, _)| parameter == key_parameter)
+                                    .map(|(_, argument, content_start, content_end)| {
+                                        (*argument, *content_start, *content_end)
+                                    })
+                            })
+                            .collect::<Vec<_>>();
+                        if !selected_keys.is_empty() {
+                            let content_start = selected_keys
+                                .iter()
+                                .map(|(_, content_start, _)| *content_start)
+                                .min()
+                                .unwrap_or(command_start);
+                            let content_end = selected_keys
+                                .iter()
+                                .map(|(_, _, content_end)| *content_end)
+                                .max()
+                                .unwrap_or(invocation_end);
                             self.emit_render_event(
                                 RenderEvent::InlineCitation(InlineCitationEvent {
-                                    keys: keys
-                                        .split(',')
+                                    keys: selected_keys
+                                        .iter()
+                                        .flat_map(|(keys, _, _)| keys.split(','))
                                         .map(str::trim)
                                         .filter(|key| !key.is_empty())
                                         .map(ToOwned::to_owned)
@@ -14863,6 +14896,15 @@ fn key_parameter_for_macro_command_body(
     command: &str,
     parameter_count: usize,
 ) -> Option<usize> {
+    key_parameters_for_macro_command_body(body, command, parameter_count)
+        .and_then(|parameters| parameters.into_iter().next_back())
+}
+
+fn key_parameters_for_macro_command_body(
+    body: &str,
+    command: &str,
+    parameter_count: usize,
+) -> Option<Vec<usize>> {
     let needle = format!("\\{command}");
     let mut search_start = 0usize;
     while let Some(relative_start) = body[search_start..].find(&needle) {
@@ -14889,12 +14931,22 @@ fn key_parameter_for_macro_command_body(
             };
             argument_index = after_option;
         }
-        if let Some((argument, _, _, _)) = read_braced_source_argument(body, argument_index)
-            && let Some(parameter) = (1..=parameter_count)
-                .rev()
-                .find(|parameter| argument.contains(&format!("#{parameter}")))
-        {
-            return Some(parameter);
+        if let Some((argument, _, _, _)) = read_braced_source_argument(body, argument_index) {
+            let mut parameters = (1..=parameter_count)
+                .filter_map(|parameter| {
+                    argument
+                        .find(&format!("#{parameter}"))
+                        .map(|position| (position, parameter))
+                })
+                .collect::<Vec<_>>();
+            parameters.sort_by_key(|(position, _)| *position);
+            let parameters = parameters
+                .into_iter()
+                .map(|(_, parameter)| parameter)
+                .collect::<Vec<_>>();
+            if !parameters.is_empty() {
+                return Some(parameters);
+            }
         }
         search_start = command_end;
     }
@@ -14904,7 +14956,7 @@ fn key_parameter_for_macro_command_body(
 fn citation_macro_from_body(
     body: &str,
     parameter_count: usize,
-) -> Option<(String, CitationStyleHint, usize)> {
+) -> Option<(String, CitationStyleHint, Vec<usize>)> {
     let citation_commands = [
         "citefullauthor",
         "Citefullauthor",
@@ -14954,13 +15006,13 @@ fn citation_macro_from_body(
         "cite",
     ];
     for command in citation_commands {
-        if let Some(parameter) =
-            key_parameter_for_macro_command_body(body, command, parameter_count)
+        if let Some(parameters) =
+            key_parameters_for_macro_command_body(body, command, parameter_count)
         {
             return Some((
                 command.to_string(),
                 citation_style_hint_for_command(command),
-                parameter,
+                parameters,
             ));
         }
     }
@@ -22241,10 +22293,24 @@ Fallback text.
                 &["gamma"][..],
             ),
             (
+                r"\newcommand{\mycitepair}[2]{\cite{#1,#2}}\begin{document}See \mycitepair{alpha}{beta}.\end{document}",
+                r"\mycitepair{alpha}{beta}",
+                r"\newcommand{\mycitepair}[2]{\cite{#1,#2}}",
+                "alpha}{beta",
+                &["alpha", "beta"][..],
+            ),
+            (
                 r"\newcommand{\mycite}[1]{\cite{#1}}\let\aliascite\mycite\begin{document}See \aliascite{alpha,beta}.\end{document}",
                 r"\aliascite{alpha,beta}",
                 r"\let\aliascite\mycite",
                 "alpha,beta",
+                &["alpha", "beta"][..],
+            ),
+            (
+                r"\newcommand{\mycitepair}[2]{\cite{#1,#2}}\let\aliascitepair\mycitepair\begin{document}See \aliascitepair{alpha}{beta}.\end{document}",
+                r"\aliascitepair{alpha}{beta}",
+                r"\let\aliascitepair\mycitepair",
+                "alpha}{beta",
                 &["alpha", "beta"][..],
             ),
         ] {
