@@ -726,6 +726,7 @@ struct RenderEventScanState {
     graphic_paths: Vec<Utf8PathBuf>,
     graphic_extensions: Vec<String>,
     section_macros: HashMap<String, RenderSectionMacro>,
+    citation_macros: HashMap<String, RenderCitationMacro>,
     readable_wrapper_macros: HashMap<String, RenderReadableWrapperMacro>,
     structured_environments: HashSet<String>,
     theorem_like_environments: HashSet<String>,
@@ -746,6 +747,16 @@ struct RenderSectionMacro {
     parameter_count: usize,
     optional_first_argument: bool,
     heading_parameter: usize,
+}
+
+#[derive(Debug, Clone)]
+struct RenderCitationMacro {
+    definition_span: RenderMacroDefinitionSpan,
+    command: String,
+    style_hint: CitationStyleHint,
+    parameter_count: usize,
+    optional_first_argument: bool,
+    key_parameter: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -1386,6 +1397,32 @@ impl<'i> Vm<'i> {
                                         .insert(macro_name.to_string(), section_macro);
                                 }
                             }
+                            if let Some((citation_command, style_hint, key_parameter)) =
+                                citation_macro_from_body(body, parameter_count)
+                            {
+                                let citation_macro = RenderCitationMacro {
+                                    definition_span: RenderMacroDefinitionSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: command_start,
+                                        end_utf8: after_body,
+                                    },
+                                    command: citation_command,
+                                    style_hint,
+                                    parameter_count,
+                                    optional_first_argument,
+                                    key_parameter,
+                                };
+                                if command == "providecommand" {
+                                    scan_state
+                                        .citation_macros
+                                        .entry(macro_name.to_string())
+                                        .or_insert(citation_macro);
+                                } else {
+                                    scan_state
+                                        .citation_macros
+                                        .insert(macro_name.to_string(), citation_macro);
+                                }
+                            }
                             if parameter_count == 1 && body.contains("#1") && !body.contains("#2") {
                                 let wrapper_macro = RenderReadableWrapperMacro {
                                     definition_span: RenderMacroDefinitionSpan {
@@ -1482,6 +1519,25 @@ impl<'i> Vm<'i> {
                                     },
                                 );
                             }
+                            if let Some((citation_command, style_hint, key_parameter)) =
+                                citation_macro_from_body(body, parameter_count)
+                            {
+                                scan_state.citation_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderCitationMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: after_body,
+                                        },
+                                        command: citation_command,
+                                        style_hint,
+                                        parameter_count,
+                                        optional_first_argument: false,
+                                        key_parameter,
+                                    },
+                                );
+                            }
                             if parameter_count == 1 && body.contains("#1") && !body.contains("#2") {
                                 scan_state.readable_wrapper_macros.insert(
                                     macro_name.to_string(),
@@ -1572,6 +1628,20 @@ impl<'i> Vm<'i> {
                                 scan_state.section_macros.insert(
                                     macro_name.to_string(),
                                     RenderSectionMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: source_end,
+                                        },
+                                        ..source_macro
+                                    },
+                                );
+                            } else if let Some(source_macro) =
+                                scan_state.citation_macros.get(source_name).cloned()
+                            {
+                                scan_state.citation_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderCitationMacro {
                                         definition_span: RenderMacroDefinitionSpan {
                                             path: source_path.to_owned(),
                                             start_utf8: command_start,
@@ -3473,19 +3543,7 @@ impl<'i> Vm<'i> {
                 | "Citetalias"
                     if in_document =>
                 {
-                    let style_hint = match command {
-                        "citet" | "Citet" | "citealt" | "Citealt" | "citeauthor" | "citeyear"
-                        | "textcite" | "Textcite" | "Citeauthor" | "Citeyear" | "citetitle"
-                        | "Citetitle" | "citefullauthor" | "Citefullauthor" | "citedoi"
-                        | "citeeprint" | "citeisbn" | "citeissn" | "citeurl" | "citedate"
-                        | "Citedate" | "citeurldate" | "Citeurldate" | "fullcite" | "bibentry"
-                        | "citetalias" | "Citetalias" => CitationStyleHint::Textual,
-                        "citep" | "Citep" | "citealp" | "Citealp" | "citeyearpar"
-                        | "Citeyearpar" | "parencite" | "Parencite" | "autocite" | "Autocite"
-                        | "smartcite" | "citepalias" => CitationStyleHint::Parenthetical,
-                        "footcite" | "supercite" | "footfullcite" => CitationStyleHint::Unknown,
-                        _ => CitationStyleHint::Numeric,
-                    };
+                    let style_hint = citation_style_hint_for_command(command);
                     index = skip_ascii_whitespace(source, index);
                     if source[index..].starts_with('*') {
                         index += 1;
@@ -6748,6 +6806,82 @@ impl<'i> Vm<'i> {
                                             start_utf8: section_macro.definition_span.start_utf8
                                                 as u32,
                                             end_utf8: section_macro.definition_span.end_utf8 as u32,
+                                        })),
+                                        command_name: Some(command.to_string()),
+                                    },
+                                ),
+                            );
+                            index = invocation_end;
+                        }
+                    } else if let Some(citation_macro) = scan_state.citation_macros.get(command) {
+                        let mut argument_index = skip_ascii_whitespace(source, index);
+                        let mut invocation_end = index;
+                        let mut selected_keys = None;
+                        let mut parameter = 1usize;
+                        if citation_macro.optional_first_argument {
+                            if let Some((argument, content_start, content_end, after_optional)) =
+                                read_bracket_source_argument(source, argument_index)
+                            {
+                                if citation_macro.key_parameter == 1 {
+                                    selected_keys = Some((argument, content_start, content_end));
+                                }
+                                argument_index = after_optional;
+                                invocation_end = after_optional;
+                            }
+                            parameter = 2;
+                        }
+                        while parameter <= citation_macro.parameter_count {
+                            argument_index = skip_ascii_whitespace(source, argument_index);
+                            let Some((argument, content_start, content_end, after_argument)) =
+                                read_braced_source_argument(source, argument_index)
+                            else {
+                                break;
+                            };
+                            if parameter == citation_macro.key_parameter {
+                                selected_keys = Some((argument, content_start, content_end));
+                            }
+                            argument_index = after_argument;
+                            invocation_end = after_argument;
+                            parameter += 1;
+                        }
+                        if let Some((keys, content_start, content_end)) = selected_keys {
+                            self.emit_render_event(
+                                RenderEvent::InlineCitation(InlineCitationEvent {
+                                    keys: keys
+                                        .split(',')
+                                        .map(str::trim)
+                                        .filter(|key| !key.is_empty())
+                                        .map(ToOwned::to_owned)
+                                        .collect(),
+                                    command: citation_macro.command.clone(),
+                                    style_hint: citation_macro.style_hint,
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    command_start as u32,
+                                    invocation_end as u32,
+                                )
+                                .with_related(
+                                    SourceSpanRole::CitationKey,
+                                    ProvenanceSpan::File(SourceSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: content_start as u32,
+                                        end_utf8: content_end as u32,
+                                    }),
+                                )
+                                .with_expansion_frame(
+                                    ExpansionFrame {
+                                        call_span: ProvenanceSpan::File(SourceSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start as u32,
+                                            end_utf8: invocation_end as u32,
+                                        }),
+                                        definition_span: Some(ProvenanceSpan::File(SourceSpan {
+                                            path: citation_macro.definition_span.path.clone(),
+                                            start_utf8: citation_macro.definition_span.start_utf8
+                                                as u32,
+                                            end_utf8: citation_macro.definition_span.end_utf8
+                                                as u32,
                                         })),
                                         command_name: Some(command.to_string()),
                                     },
@@ -14092,6 +14226,119 @@ fn heading_level_from_macro_body(body: &str) -> Option<u8> {
     .find_map(|(command, level)| body.contains(&format!("\\{command}")).then_some(level))
 }
 
+fn citation_style_hint_for_command(command: &str) -> CitationStyleHint {
+    match command {
+        "citet" | "Citet" | "citealt" | "Citealt" | "citeauthor" | "citeyear" | "textcite"
+        | "Textcite" | "Citeauthor" | "Citeyear" | "citetitle" | "Citetitle" | "citefullauthor"
+        | "Citefullauthor" | "citedoi" | "citeeprint" | "citeisbn" | "citeissn" | "citeurl"
+        | "citedate" | "Citedate" | "citeurldate" | "Citeurldate" | "fullcite" | "bibentry"
+        | "citetalias" | "Citetalias" => CitationStyleHint::Textual,
+        "citep" | "Citep" | "citealp" | "Citealp" | "citeyearpar" | "Citeyearpar" | "parencite"
+        | "Parencite" | "autocite" | "Autocite" | "smartcite" | "citepalias" => {
+            CitationStyleHint::Parenthetical
+        }
+        "footcite" | "supercite" | "footfullcite" => CitationStyleHint::Unknown,
+        _ => CitationStyleHint::Numeric,
+    }
+}
+
+fn citation_macro_from_body(
+    body: &str,
+    parameter_count: usize,
+) -> Option<(String, CitationStyleHint, usize)> {
+    let citation_commands = [
+        "citefullauthor",
+        "Citefullauthor",
+        "citeurldate",
+        "Citeurldate",
+        "citeyearpar",
+        "Citeyearpar",
+        "footfullcite",
+        "citeauthor",
+        "Citeauthor",
+        "citeeprint",
+        "parencite",
+        "Parencite",
+        "citefield",
+        "citetitle",
+        "Citetitle",
+        "onlinecite",
+        "smartcite",
+        "citetalias",
+        "Citetalias",
+        "citepalias",
+        "textcite",
+        "Textcite",
+        "autocite",
+        "Autocite",
+        "footcite",
+        "supercite",
+        "fullcite",
+        "bibentry",
+        "citeyear",
+        "Citeyear",
+        "citedoi",
+        "citeisbn",
+        "citeissn",
+        "citeurl",
+        "citenum",
+        "citedate",
+        "Citedate",
+        "citealt",
+        "Citealt",
+        "citealp",
+        "Citealp",
+        "citet",
+        "Citet",
+        "citep",
+        "Citep",
+        "cite",
+    ];
+    for command in citation_commands {
+        let needle = format!("\\{command}");
+        let mut search_start = 0usize;
+        while let Some(relative_start) = body[search_start..].find(&needle) {
+            let command_start = search_start + relative_start;
+            let command_end = command_start + needle.len();
+            if body
+                .as_bytes()
+                .get(command_end)
+                .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'@')
+            {
+                search_start = command_end;
+                continue;
+            }
+
+            let mut argument_index = skip_ascii_whitespace(body, command_end);
+            if body[argument_index..].starts_with('*') {
+                argument_index += 1;
+            }
+            loop {
+                argument_index = skip_ascii_whitespace(body, argument_index);
+                let Some((_, _, _, after_option)) =
+                    read_bracket_source_argument(body, argument_index)
+                else {
+                    break;
+                };
+                argument_index = after_option;
+            }
+            if let Some((argument, _, _, _)) = read_braced_source_argument(body, argument_index)
+                && let Some(parameter) = (1..=parameter_count)
+                    .rev()
+                    .find(|parameter| argument.contains(&format!("#{parameter}")))
+            {
+                return Some((
+                    command.to_string(),
+                    citation_style_hint_for_command(command),
+                    parameter,
+                ));
+            }
+            search_start = command_end;
+        }
+    }
+    None
+}
+
 fn read_braced_source_argument(source: &str, index: usize) -> Option<(&str, usize, usize, usize)> {
     read_delimited_source_argument(source, index, b'{', b'}')
 }
@@ -21202,6 +21449,69 @@ Fallback text.
         assert_eq!(citations[9].0.command, "Citealp");
         assert_eq!(citations[9].0.style_hint, CitationStyleHint::Parenthetical);
         assert_eq!(citations[9].0.keys, vec!["mu".to_string()]);
+    }
+
+    #[test]
+    fn render_event_capture_records_citation_wrapper_macros() {
+        for (source, invocation_text, definition_text) in [
+            (
+                r"\newcommand{\mycite}[1]{\cite{#1}}\begin{document}See \mycite{alpha,beta}.\end{document}",
+                r"\mycite{alpha,beta}",
+                r"\newcommand{\mycite}[1]{\cite{#1}}",
+            ),
+            (
+                r"\newcommand{\mycite}[1]{\cite{#1}}\let\aliascite\mycite\begin{document}See \aliascite{alpha,beta}.\end{document}",
+                r"\aliascite{alpha,beta}",
+                r"\let\aliascite\mycite",
+            ),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.set_entry_source_path("main.tex");
+            vm.enable_render_event_capture();
+            let outcome = vm.run_plain(source);
+            let citation = outcome
+                .render_events
+                .iter()
+                .find(|event| matches!(&event.event, RenderEvent::InlineCitation(_)))
+                .expect("citation event");
+
+            assert!(matches!(
+                &citation.event,
+                RenderEvent::InlineCitation(citation)
+                    if citation.command == "cite"
+                        && citation.style_hint == CitationStyleHint::Numeric
+                        && citation.keys == vec!["alpha".to_string(), "beta".to_string()]
+            ));
+            assert!(matches!(
+                &citation.meta.source.primary,
+                tex_render_model::ProvenanceSpan::File(span)
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == invocation_text
+            ));
+            assert!(citation.meta.source.related.iter().any(|related| {
+                related.role == SourceSpanRole::CitationKey
+                    && matches!(
+                        &related.span,
+                        tex_render_model::ProvenanceSpan::File(span)
+                            if span.path == Utf8PathBuf::from("main.tex")
+                                && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == "alpha,beta"
+                    )
+            }));
+            assert!(matches!(
+                &citation.meta.source.expansion_stack[0].definition_span,
+                Some(tex_render_model::ProvenanceSpan::File(span))
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == definition_text
+            ));
+            assert!(!outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Text(text) if text.text.contains("alpha")
+            )));
+        }
     }
 
     #[test]
