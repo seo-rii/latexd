@@ -98,6 +98,10 @@ The next implementation step has started with a narrow display-list spike:
   preserve a normalized asset format (`pdf`, `eps`, `svg`, `png`, or `jpeg`)
   derived from the resolved path, giving future external-asset conversion a
   stable renderer-neutral dispatch field;
+- mounted/file-root graphic assets now carry an optional `blake3:` asset hash
+  from `GraphicRef` through IR into display-list `Image` operations, and image
+  page hashes include that value so tile/render caches invalidate when an
+  external asset changes without a path change;
 - `\graphicspath{{...}}` declarations now contribute search directories for
   later `\includegraphics` asset resolution without emitting visible text;
 - `\DeclareGraphicsExtensions{...}` now controls extensionless graphics search
@@ -1076,6 +1080,7 @@ pub struct PositionedImage {
     pub rect: Rect,
     pub asset_ref: String,
     pub asset_format: Option<GraphicAssetFormat>,
+    pub asset_hash: Option<String>,
     pub source: SourceProvenance,
 }
 

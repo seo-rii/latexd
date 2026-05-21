@@ -331,6 +331,8 @@ pub struct GraphicBlock {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asset_format: Option<GraphicAssetFormat>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caption: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caption_source: Option<SourceProvenance>,

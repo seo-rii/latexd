@@ -6819,6 +6819,7 @@ impl<'i> Vm<'i> {
         self.emit_render_event(
             RenderEvent::GraphicRef(GraphicRefEvent {
                 asset_format: GraphicAssetFormat::from_path(&resolved_path),
+                asset_hash: self.project_file_hash(Utf8Path::new(&resolved_path)),
                 path: resolved_path,
                 options,
             }),
@@ -6946,6 +6947,7 @@ impl<'i> Vm<'i> {
             self.emit_render_event(
                 RenderEvent::GraphicRef(GraphicRefEvent {
                     asset_format: GraphicAssetFormat::from_path(&resolved_path),
+                    asset_hash: self.project_file_hash(Utf8Path::new(&resolved_path)),
                     path: resolved_path,
                     options: Some(options),
                 }),
@@ -6984,6 +6986,7 @@ impl<'i> Vm<'i> {
         self.emit_render_event(
             RenderEvent::GraphicRef(GraphicRefEvent {
                 asset_format: GraphicAssetFormat::from_path(&resolved_path),
+                asset_hash: self.project_file_hash(Utf8Path::new(&resolved_path)),
                 path: resolved_path,
                 options: None,
             }),
@@ -12961,6 +12964,18 @@ impl<'i> Vm<'i> {
             directory.push(&matched);
         }
         Some(resolved)
+    }
+
+    fn project_file_hash(&self, path: &Utf8Path) -> Option<String> {
+        if let Some(source) = self.mounted_files.get(path) {
+            return Some(format!(
+                "blake3:{}",
+                blake3::hash(source.as_bytes()).to_hex()
+            ));
+        }
+        let root = self.file_root.as_ref()?;
+        let bytes = fs::read(root.join(path).as_std_path()).ok()?;
+        Some(format!("blake3:{}", blake3::hash(&bytes).to_hex()))
     }
 
     fn read_optional_bracket_text(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<String> {

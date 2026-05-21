@@ -1793,12 +1793,14 @@ fn graphic_provenance_preserves_invocation_and_path_argument_spans() {
             "path": graphic_block.path,
             "options": graphic_block.options,
             "asset_format": graphic_block.asset_format,
+            "asset_hash": graphic_block.asset_hash,
             "caption": graphic_block.caption,
             "source": graphic_block.source,
         },
         "display_list": {
             "asset_ref": image_op.asset_ref,
             "asset_format": image_op.asset_format,
+            "asset_hash": image_op.asset_hash,
             "source": image_op.source,
         },
     });
@@ -1961,6 +1963,57 @@ fn extensionless_svg_graphic_asset_format_survives_render_boundaries() {
     assert_eq!(image_op.asset_format, Some(GraphicAssetFormat::Svg));
     let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
     assert!(pdf_text.contains("[image: figures/vector.svg]"));
+}
+
+#[test]
+fn graphic_asset_hash_survives_render_boundaries_and_affects_page_hash() {
+    let first = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        EXTENSIONLESS_GRAPHIC_SOURCE,
+        &SemanticAux::default(),
+        &[("figures/plot.pdf", "%PDF first")],
+    );
+    let second = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        EXTENSIONLESS_GRAPHIC_SOURCE,
+        &SemanticAux::default(),
+        &[("figures/plot.pdf", "%PDF second")],
+    );
+    let graphic_event = first
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::GraphicRef(graphic) if graphic.path == "figures/plot.pdf" => Some(graphic),
+            _ => None,
+        })
+        .expect("graphic event");
+    let graphic_block = first
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Graphic(graphic) if graphic.path == "figures/plot.pdf" => Some(graphic),
+            _ => None,
+        })
+        .expect("graphic block");
+    let image_op = first.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.pdf" => Some(image),
+            _ => None,
+        })
+        .expect("image op");
+
+    let asset_hash = graphic_event.asset_hash.as_deref().expect("asset hash");
+    assert!(asset_hash.starts_with("blake3:"));
+    assert_eq!(graphic_block.asset_hash.as_deref(), Some(asset_hash));
+    assert_eq!(image_op.asset_hash.as_deref(), Some(asset_hash));
+    assert_ne!(
+        first.page_display_lists[0].content_hash,
+        second.page_display_lists[0].content_hash
+    );
 }
 
 #[test]

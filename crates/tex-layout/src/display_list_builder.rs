@@ -71,6 +71,7 @@ struct LogicalTextRun {
 struct LogicalImage {
     path: String,
     asset_format: Option<tex_render_model::GraphicAssetFormat>,
+    asset_hash: Option<String>,
     caption: Option<String>,
     caption_source: Option<SourceProvenance>,
     source: SourceProvenance,
@@ -403,6 +404,7 @@ pub fn build_page_display_lists(
                 logical_items.push(LogicalItem::Image(LogicalImage {
                     path: block.path.clone(),
                     asset_format: block.asset_format,
+                    asset_hash: block.asset_hash.clone(),
                     caption: None,
                     caption_source: None,
                     source: block.source.clone(),
@@ -764,6 +766,11 @@ pub fn build_page_display_lists(
                 let image_text = format!("[image: {}]", logical.path);
                 pending.text.push_str(&image_text);
                 pending.hash_input.push_str(&image_text);
+                if let Some(asset_hash) = &logical.asset_hash {
+                    pending.hash_input.push('\u{1f}');
+                    pending.hash_input.push_str("asset-hash:");
+                    pending.hash_input.push_str(asset_hash);
+                }
                 if let ProvenanceSpan::File(span) = &logical.source.primary {
                     if !pending.source_spans.contains(span) {
                         pending.source_spans.push(span.clone());
@@ -785,6 +792,7 @@ pub fn build_page_display_lists(
                     },
                     asset_ref: logical.path.clone(),
                     asset_format: logical.asset_format,
+                    asset_hash: logical.asset_hash.clone(),
                     source: logical.source.clone(),
                 }));
                 y += image_height;
@@ -1471,6 +1479,7 @@ mod tests {
                 path: "figures/plot.pdf".to_string(),
                 options: Some("width=0.8\\linewidth".to_string()),
                 asset_format: None,
+                asset_hash: None,
                 caption: Some("Plot caption.".to_string()),
                 caption_source: Some(SourceProvenance::file("main.tex", 25, 38).with_related(
                     tex_render_model::SourceSpanRole::EmitSite,
@@ -1517,6 +1526,7 @@ mod tests {
                 path: "figures/plot.pdf".to_string(),
                 options: None,
                 asset_format: None,
+                asset_hash: None,
                 caption: Some("abcdefghi".to_string()),
                 caption_source: Some(SourceProvenance::file("main.tex", 25, 34)),
                 source,

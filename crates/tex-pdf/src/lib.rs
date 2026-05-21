@@ -533,10 +533,16 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                     .asset_format
                     .map(|format| format!(" data-image-asset-format=\"{}\"", format.as_str()))
                     .unwrap_or_default();
+                let asset_hash_attr = image
+                    .asset_hash
+                    .as_deref()
+                    .map(|hash| format!(" data-image-asset-hash=\"{}\"", escape_xml_text(hash)))
+                    .unwrap_or_default();
                 body.push_str(&format!(
-                    "<g data-image-asset-ref=\"{}\"{}{}><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
+                    "<g data-image-asset-ref=\"{}\"{}{}{}><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
                     escape_xml_text(&image.asset_ref),
                     asset_format_attr,
+                    asset_hash_attr,
                     primary_source_attrs_for(&image.source),
                     image.rect.x,
                     image.rect.y,
@@ -1104,6 +1110,7 @@ mod tests {
                 },
                 asset_ref: "figures/a(b)&c.pdf".to_string(),
                 asset_format: Some(GraphicAssetFormat::Pdf),
+                asset_hash: Some("blake3:asset-hash".to_string()),
                 source: SourceProvenance::file("main.tex", 0, 10),
             })],
             source_spans: Vec::new(),
@@ -1120,6 +1127,7 @@ mod tests {
         );
         assert!(svg.contains("data-image-asset-ref=\"figures/a(b)&amp;c.pdf\""));
         assert!(svg.contains("data-image-asset-format=\"pdf\""));
+        assert!(svg.contains("data-image-asset-hash=\"blake3:asset-hash\""));
         assert!(
             svg.contains("<rect x=\"72\" y=\"78\" width=\"144\" height=\"72\" fill=\"#e5e7eb\"")
         );

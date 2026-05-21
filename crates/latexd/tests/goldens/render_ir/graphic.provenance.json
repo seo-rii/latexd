@@ -1,6 +1,7 @@
 {
   "display_list": {
     "asset_format": "pdf",
+    "asset_hash": null,
     "asset_ref": "figures/plot.pdf",
     "source": {
       "expansion_stack": [],
@@ -63,6 +64,7 @@
   },
   "ir": {
     "asset_format": "pdf",
+    "asset_hash": null,
     "caption": "Plot caption.",
     "options": "width=5cm",
     "path": "figures/plot.pdf",
