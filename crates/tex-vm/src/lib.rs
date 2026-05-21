@@ -728,6 +728,7 @@ struct RenderEventScanState {
     section_macros: HashMap<String, RenderSectionMacro>,
     citation_macros: HashMap<String, RenderCitationMacro>,
     reference_macros: HashMap<String, RenderReferenceMacro>,
+    label_macros: HashMap<String, RenderLabelMacro>,
     link_macros: HashMap<String, RenderLinkMacro>,
     readable_wrapper_macros: HashMap<String, RenderReadableWrapperMacro>,
     structured_environments: HashSet<String>,
@@ -763,6 +764,15 @@ struct RenderCitationMacro {
 
 #[derive(Debug, Clone)]
 struct RenderReferenceMacro {
+    definition_span: RenderMacroDefinitionSpan,
+    command: String,
+    parameter_count: usize,
+    optional_first_argument: bool,
+    key_parameter: usize,
+}
+
+#[derive(Debug, Clone)]
+struct RenderLabelMacro {
     definition_span: RenderMacroDefinitionSpan,
     command: String,
     parameter_count: usize,
@@ -1469,6 +1479,31 @@ impl<'i> Vm<'i> {
                                         .insert(macro_name.to_string(), reference_macro);
                                 }
                             }
+                            if let Some((label_command, key_parameter)) =
+                                label_macro_from_body(body, parameter_count)
+                            {
+                                let label_macro = RenderLabelMacro {
+                                    definition_span: RenderMacroDefinitionSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: command_start,
+                                        end_utf8: after_body,
+                                    },
+                                    command: label_command,
+                                    parameter_count,
+                                    optional_first_argument,
+                                    key_parameter,
+                                };
+                                if command == "providecommand" {
+                                    scan_state
+                                        .label_macros
+                                        .entry(macro_name.to_string())
+                                        .or_insert(label_macro);
+                                } else {
+                                    scan_state
+                                        .label_macros
+                                        .insert(macro_name.to_string(), label_macro);
+                                }
+                            }
                             if let Some((link_command, target_parameter, text_parameter)) =
                                 link_macro_from_body(body, parameter_count)
                             {
@@ -1628,6 +1663,24 @@ impl<'i> Vm<'i> {
                                     },
                                 );
                             }
+                            if let Some((label_command, key_parameter)) =
+                                label_macro_from_body(body, parameter_count)
+                            {
+                                scan_state.label_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderLabelMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: after_body,
+                                        },
+                                        command: label_command,
+                                        parameter_count,
+                                        optional_first_argument: false,
+                                        key_parameter,
+                                    },
+                                );
+                            }
                             if let Some((link_command, target_parameter, text_parameter)) =
                                 link_macro_from_body(body, parameter_count)
                             {
@@ -1765,6 +1818,35 @@ impl<'i> Vm<'i> {
                                 scan_state.reference_macros.insert(
                                     macro_name.to_string(),
                                     RenderReferenceMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: source_end,
+                                        },
+                                        ..source_macro
+                                    },
+                                );
+                            } else if source_name == "label" {
+                                scan_state.label_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderLabelMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: source_end,
+                                        },
+                                        command: source_name.to_string(),
+                                        parameter_count: 1,
+                                        optional_first_argument: false,
+                                        key_parameter: 1,
+                                    },
+                                );
+                            } else if let Some(source_macro) =
+                                scan_state.label_macros.get(source_name).cloned()
+                            {
+                                scan_state.label_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderLabelMacro {
                                         definition_span: RenderMacroDefinitionSpan {
                                             path: source_path.to_owned(),
                                             start_utf8: command_start,
@@ -7094,6 +7176,69 @@ impl<'i> Vm<'i> {
                                                 as u32,
                                             end_utf8: reference_macro.definition_span.end_utf8
                                                 as u32,
+                                        })),
+                                        command_name: Some(command.to_string()),
+                                    },
+                                ),
+                            );
+                            index = invocation_end;
+                        }
+                    } else if let Some(label_macro) = scan_state.label_macros.get(command) {
+                        let mut argument_index = skip_ascii_whitespace(source, index);
+                        let mut invocation_end = index;
+                        let mut selected_key = None;
+                        let mut parameter = 1usize;
+                        if label_macro.optional_first_argument {
+                            if let Some((argument, content_start, content_end, after_optional)) =
+                                read_bracket_source_argument(source, argument_index)
+                            {
+                                if label_macro.key_parameter == 1 {
+                                    selected_key = Some((argument, content_start, content_end));
+                                }
+                                argument_index = after_optional;
+                                invocation_end = after_optional;
+                            }
+                            parameter = 2;
+                        }
+                        while parameter <= label_macro.parameter_count {
+                            argument_index = skip_ascii_whitespace(source, argument_index);
+                            let Some((argument, content_start, content_end, after_argument)) =
+                                read_braced_source_argument(source, argument_index)
+                            else {
+                                break;
+                            };
+                            if parameter == label_macro.key_parameter {
+                                selected_key = Some((argument, content_start, content_end));
+                            }
+                            argument_index = after_argument;
+                            invocation_end = after_argument;
+                            parameter += 1;
+                        }
+                        if let Some((key, content_start, content_end)) = selected_key {
+                            self.emit_render_event(
+                                RenderEvent::LabelDefinition(LabelDefinitionEvent {
+                                    key: key.trim().to_string(),
+                                    command: label_macro.command.clone(),
+                                }),
+                                Self::label_definition_provenance(
+                                    source_path,
+                                    command_start,
+                                    invocation_end,
+                                    content_start,
+                                    content_end,
+                                )
+                                .with_expansion_frame(
+                                    ExpansionFrame {
+                                        call_span: ProvenanceSpan::File(SourceSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start as u32,
+                                            end_utf8: invocation_end as u32,
+                                        }),
+                                        definition_span: Some(ProvenanceSpan::File(SourceSpan {
+                                            path: label_macro.definition_span.path.clone(),
+                                            start_utf8: label_macro.definition_span.start_utf8
+                                                as u32,
+                                            end_utf8: label_macro.definition_span.end_utf8 as u32,
                                         })),
                                         command_name: Some(command.to_string()),
                                     },
@@ -14692,6 +14837,11 @@ fn reference_macro_from_body(body: &str, parameter_count: usize) -> Option<(Stri
         }
     }
     None
+}
+
+fn label_macro_from_body(body: &str, parameter_count: usize) -> Option<(String, usize)> {
+    key_parameter_for_macro_command_body(body, "label", parameter_count)
+        .map(|parameter| ("label".to_string(), parameter))
 }
 
 fn link_macro_from_body(body: &str, parameter_count: usize) -> Option<(String, usize, usize)> {
@@ -26037,6 +26187,67 @@ Fallback text.
             &event.event,
             RenderEvent::Text(text) if text.text.contains("sec:intro")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_records_label_wrapper_macros_without_text() {
+        for (source, invocation_text, definition_text) in [
+            (
+                r"\newcommand{\seclabel}[1]{\label{#1}}\begin{document}\section{Intro}\seclabel{sec:intro}See \ref{sec:intro}.\end{document}",
+                r"\seclabel{sec:intro}",
+                r"\newcommand{\seclabel}[1]{\label{#1}}",
+            ),
+            (
+                r"\newcommand{\seclabel}[1]{\label{#1}}\let\introlabel\seclabel\begin{document}\section{Intro}\introlabel{sec:intro}See \ref{sec:intro}.\end{document}",
+                r"\introlabel{sec:intro}",
+                r"\let\introlabel\seclabel",
+            ),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.set_entry_source_path("main.tex");
+            vm.enable_render_event_capture();
+            let outcome = vm.run_plain(source);
+            let label = outcome
+                .render_events
+                .iter()
+                .find(|event| matches!(&event.event, RenderEvent::LabelDefinition(_)))
+                .expect("label definition event");
+
+            assert!(matches!(
+                &label.event,
+                RenderEvent::LabelDefinition(label)
+                    if label.key == "sec:intro" && label.command == "label"
+            ));
+            assert!(matches!(
+                &label.meta.source.primary,
+                tex_render_model::ProvenanceSpan::File(span)
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == "sec:intro"
+            ));
+            assert!(label.meta.source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        tex_render_model::ProvenanceSpan::File(span)
+                            if span.path == Utf8PathBuf::from("main.tex")
+                                && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+            assert!(matches!(
+                &label.meta.source.expansion_stack[0].definition_span,
+                Some(tex_render_model::ProvenanceSpan::File(span))
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == definition_text
+            ));
+            assert!(!outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Text(text) if text.text.contains("sec:intro")
+            )));
+        }
     }
 
     #[test]

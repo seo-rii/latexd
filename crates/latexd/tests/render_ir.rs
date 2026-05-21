@@ -12706,6 +12706,53 @@ fn label_definition_capture_survives_ir_without_visible_key() {
 }
 
 #[test]
+fn label_wrapper_macro_capture_survives_ir_without_visible_key() {
+    let capture =
+        capture_internal_render_ir("main.tex", LABEL_WRAPPER_SOURCE, &SemanticAux::default());
+
+    assert_eq!(capture.document_ir.labels.len(), 2);
+    for (key, source_text) in [("sec:intro", "sec:intro"), ("sec:alias", "sec:alias")] {
+        let label = capture
+            .document_ir
+            .labels
+            .iter()
+            .find(|label| label.key == key)
+            .expect("label ir");
+        assert!(matches!(
+            &label.source.primary,
+            ProvenanceSpan::File(span)
+                if &LABEL_WRAPPER_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                    == source_text
+        ));
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Intro"), "{extracted_text}");
+    assert!(
+        extracted_text.contains("See [?] and [?]."),
+        "{extracted_text}"
+    );
+    assert!(!extracted_text.contains("sec:intro"));
+    assert!(!extracted_text.contains("sec:alias"));
+    assert!(!extracted_text.contains(r"\seclabel"));
+    assert!(!extracted_text.contains(r"\aliaslabel"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Intro"));
+    assert!(display_list_text.contains("See [?] and [?]."));
+    assert!(!display_list_text.contains("sec:intro"));
+    assert!(!display_list_text.contains("sec:alias"));
+}
+
+#[test]
 fn label_definition_provenance_preserves_key_and_invocation_spans() {
     let capture = capture_internal_render_ir("main.tex", LABEL_SOURCE, &SemanticAux::default());
     let label_event = capture
@@ -13437,6 +13484,8 @@ const AUX_NATEXLAB_SOURCE: &str = r"\begin{document}See \cite{alpha,beta}.\end{d
 
 const LABEL_SOURCE: &str =
     r"\begin{document}\section{Intro}\label{sec:intro}See \ref{sec:intro}.\end{document}";
+
+const LABEL_WRAPPER_SOURCE: &str = r"\newcommand{\seclabel}[1]{\label{#1}}\let\aliaslabel\seclabel\begin{document}\section{Intro}\seclabel{sec:intro}See \ref{sec:intro} and \ref{sec:alias}.\aliaslabel{sec:alias}\end{document}";
 
 const MACRO_SECTION_SOURCE: &str =
     r"\newcommand{\mysection}[1]{\section{#1}}\begin{document}\mysection{Intro}\end{document}";
