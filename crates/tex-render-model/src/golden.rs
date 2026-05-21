@@ -23,6 +23,7 @@ pub fn to_semantic_pretty_json<T: Serialize>(value: &T) -> serde_json::Result<St
                         "source"
                             | "source_spans"
                             | "source_hash"
+                            | "asset_hash"
                             | "page_id"
                             | "content_hash"
                             | "clusters"
@@ -101,6 +102,7 @@ mod tests {
                 }
             ],
             "source_hash": "blake3:abc",
+            "asset_hash": "blake3:asset",
             "content": [
                 {
                     "kind": "text",
@@ -124,6 +126,7 @@ mod tests {
         assert!(encoded.contains("\"content_hash\": \"<present>\""));
         assert!(encoded.contains("\"clusters\": \"<present>\""));
         assert!(encoded.contains("\"source_hash\": \"<present>\""));
+        assert!(encoded.contains("\"asset_hash\": \"<present>\""));
         assert!(encoded.contains("\"raw_source\": \"x^2\""));
         assert!(!encoded.contains("start_utf8"));
     }
