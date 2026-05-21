@@ -4383,6 +4383,73 @@ fn reference_provenance_preserves_invocation_and_key_spans() {
 }
 
 #[test]
+fn direct_inline_command_aliases_survive_ir_without_hidden_keys() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        DIRECT_INLINE_ALIAS_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert_eq!(capture.document_ir.labels.len(), 1);
+    assert_eq!(capture.document_ir.labels[0].key, "sec:intro");
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Citation(citation)
+                if citation.keys == vec!["key".to_string()]
+                    && citation.display_text == "[?]"
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Reference(reference)
+                if reference.keys == vec!["sec:intro".to_string()]
+                    && reference.display_text == "[?]"
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Link(link)
+                if link.target == "https://hidden.test" && link.display_text == "paper link"
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("See [?], [?], and paper link."),
+        "{display_list_text}"
+    );
+    for hidden in ["key", "sec:intro", "https://hidden.test"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::LinkAnnotation(link) if link.target == "https://hidden.test"
+        )
+    }));
+}
+
+#[test]
 fn starred_reference_capture_survives_ir_without_visible_keys() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -13255,6 +13322,8 @@ const CITETEXT_SOURCE: &str = r"\begin{document}See \citetext{compare \citealp{b
 
 const REFERENCE_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \eqref{eq:main}; \cref{fig:a,tab:b}.\end{document}";
+
+const DIRECT_INLINE_ALIAS_SOURCE: &str = r"\let\mycite\cite\let\myref\ref\let\myhref\href\let\mylabel\label\begin{document}\section{Intro}\mylabel{sec:intro}See \mycite{key}, \myref{sec:intro}, and \myhref{https://hidden.test}{paper link}.\end{document}";
 
 const STARRED_REFERENCE_SOURCE: &str = r"\begin{document}See \ref*{sec:intro}, \autoref*{fig:plot}, \Cref*{tab:data}, \eqref*{eq:main}, and \nameref*{sec:name}.\end{document}";
 

@@ -1798,6 +1798,69 @@ impl<'i> Vm<'i> {
                                         ..source_macro
                                     },
                                 );
+                            } else if matches!(
+                                source_name,
+                                "cite"
+                                    | "citet"
+                                    | "Citet"
+                                    | "citep"
+                                    | "Citep"
+                                    | "citealt"
+                                    | "Citealt"
+                                    | "citealp"
+                                    | "Citealp"
+                                    | "citeauthor"
+                                    | "citeyear"
+                                    | "citeyearpar"
+                                    | "parencite"
+                                    | "Parencite"
+                                    | "textcite"
+                                    | "Textcite"
+                                    | "autocite"
+                                    | "Autocite"
+                                    | "footcite"
+                                    | "supercite"
+                                    | "Citeauthor"
+                                    | "Citeyear"
+                                    | "Citeyearpar"
+                                    | "citetitle"
+                                    | "Citetitle"
+                                    | "citefullauthor"
+                                    | "Citefullauthor"
+                                    | "citedoi"
+                                    | "citeeprint"
+                                    | "citeisbn"
+                                    | "citeissn"
+                                    | "citeurl"
+                                    | "citenum"
+                                    | "citedate"
+                                    | "Citedate"
+                                    | "citeurldate"
+                                    | "Citeurldate"
+                                    | "onlinecite"
+                                    | "smartcite"
+                                    | "fullcite"
+                                    | "footfullcite"
+                                    | "bibentry"
+                                    | "citetalias"
+                                    | "citepalias"
+                                    | "Citetalias"
+                            ) {
+                                scan_state.citation_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderCitationMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: source_end,
+                                        },
+                                        command: source_name.to_string(),
+                                        style_hint: citation_style_hint_for_command(source_name),
+                                        parameter_count: 1,
+                                        optional_first_argument: false,
+                                        key_parameter: 1,
+                                    },
+                                );
                             } else if let Some(source_macro) =
                                 scan_state.citation_macros.get(source_name).cloned()
                             {
@@ -1810,6 +1873,52 @@ impl<'i> Vm<'i> {
                                             end_utf8: source_end,
                                         },
                                         ..source_macro
+                                    },
+                                );
+                            } else if matches!(
+                                source_name,
+                                "ref"
+                                    | "eqref"
+                                    | "pageref"
+                                    | "autoref"
+                                    | "nameref"
+                                    | "cref"
+                                    | "Cref"
+                                    | "subref"
+                                    | "vref"
+                                    | "Vref"
+                                    | "vpageref"
+                                    | "fullref"
+                                    | "namecref"
+                                    | "labelcref"
+                                    | "cpageref"
+                                    | "Cpageref"
+                                    | "autopageref"
+                                    | "labelcpageref"
+                                    | "Fullref"
+                                    | "titleref"
+                                    | "Titleref"
+                                    | "nameCref"
+                                    | "lcnamecref"
+                                    | "namecrefs"
+                                    | "nameCrefs"
+                                    | "lcnamecrefs"
+                                    | "thmref"
+                                    | "Thmref"
+                                    | "subeqref"
+                            ) {
+                                scan_state.reference_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderReferenceMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: source_end,
+                                        },
+                                        command: source_name.to_string(),
+                                        parameter_count: 1,
+                                        optional_first_argument: false,
+                                        key_parameter: 1,
                                     },
                                 );
                             } else if let Some(source_macro) =
@@ -1853,6 +1962,38 @@ impl<'i> Vm<'i> {
                                             end_utf8: source_end,
                                         },
                                         ..source_macro
+                                    },
+                                );
+                            } else if source_name == "href" {
+                                scan_state.link_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderLinkMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: source_end,
+                                        },
+                                        command: source_name.to_string(),
+                                        parameter_count: 2,
+                                        optional_first_argument: false,
+                                        target_parameter: 1,
+                                        text_parameter: 2,
+                                    },
+                                );
+                            } else if source_name == "url" {
+                                scan_state.link_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderLinkMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: source_end,
+                                        },
+                                        command: source_name.to_string(),
+                                        parameter_count: 1,
+                                        optional_first_argument: false,
+                                        target_parameter: 1,
+                                        text_parameter: 1,
                                     },
                                 );
                             } else if let Some(source_macro) =
@@ -26248,6 +26389,46 @@ Fallback text.
                 RenderEvent::Text(text) if text.text.contains("sec:intro")
             )));
         }
+    }
+
+    #[test]
+    fn render_event_capture_records_direct_inline_command_aliases() {
+        let source = r"\let\mycite\cite\let\myref\ref\let\myhref\href\let\mylabel\label\begin{document}\section{Intro}\mylabel{sec:intro}See \mycite{key}, \myref{sec:intro}, and \myhref{https://hidden.test}{paper link}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineCitation(citation)
+                if citation.command == "cite" && citation.keys == vec!["key".to_string()]
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineReference(reference)
+                if reference.command == "ref" && reference.keys == vec!["sec:intro".to_string()]
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineLink(link)
+                if link.command == "href"
+                    && link.target == "https://hidden.test"
+                    && link.text == "paper link"
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::LabelDefinition(label)
+                if label.command == "label" && label.key == "sec:intro"
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if text.text.contains("key")
+                    || text.text.contains("sec:intro")
+                    || text.text.contains("https://hidden.test")
+        )));
     }
 
     #[test]
