@@ -22669,20 +22669,45 @@ Fallback text.
     #[test]
     fn render_event_capture_uses_macros_declared_in_class_files() {
         let source = r"\documentclass{wrapper}\begin{document}\mysection{From Class}\reviewnote{class \cite{key}}\end{document}";
+        let class_source = r"\ProvidesClass{wrapper}\newcommand{\mysection}[1]{\section{#1}}\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
-        vm.mount_file(
-            "wrapper.cls",
-            r"\ProvidesClass{wrapper}\newcommand{\mysection}[1]{\section{#1}}\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}",
-        );
+        vm.mount_file("wrapper.cls", class_source);
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
 
-        assert!(outcome.render_events.iter().any(|event| matches!(
-            &event.event,
-            RenderEvent::Heading(heading) if heading.text == "From Class"
-        )));
+        let heading = outcome
+            .render_events
+            .iter()
+            .find(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::Heading(heading) if heading.text == "From Class"
+                )
+            })
+            .expect("heading event");
+        let expansion = heading
+            .meta
+            .source
+            .expansion_stack
+            .first()
+            .expect("heading macro expansion");
+        assert_eq!(expansion.command_name.as_deref(), Some("mysection"));
+        assert!(matches!(
+            &expansion.call_span,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\mysection{From Class}"
+        ));
+        assert!(matches!(
+            &expansion.definition_span,
+            Some(tex_render_model::ProvenanceSpan::File(span))
+                if span.path == Utf8PathBuf::from("wrapper.cls")
+                    && &class_source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\newcommand{\mysection}[1]{\section{#1}}"
+        ));
 
         let visible_text = outcome
             .render_events
