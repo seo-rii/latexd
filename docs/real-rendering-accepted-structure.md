@@ -22,7 +22,7 @@ shaping, external asset conversion, or a real page builder in this batch.
 
 ## Current Implementation Status
 
-As of 2026-05-20, the first implementation batch is complete:
+As of 2026-05-21, the first implementation batch is complete:
 
 - `tex-render-model` owns shared provenance, event, IR, display-list skeleton,
   `AuxView`, and JSON golden helper types.
@@ -37,8 +37,9 @@ As of 2026-05-20, the first implementation batch is complete:
   raw fallback.
 - `abstract*` and `onecolabstract` now follow the same semantic abstract
   event/IR path as `abstract` instead of falling back to unsupported raw text.
-- Focused provenance tests and goldens cover macro-expanded section text, title
-  metadata definition spans, `\maketitle` emission spans, and citation
+- Focused provenance tests and goldens cover macro-expanded section text,
+  direct input-file headings, cross-file input macro call/definition spans,
+  title metadata definition spans, `\maketitle` emission spans, and citation
   invocation/key span separation.
 
 Still intentionally outside this batch:
@@ -1410,9 +1411,10 @@ approximate.
   fixtures while eliding noisy source/cache fields. Exact provenance goldens now
   cover title emit/content spans, citation invocation/key spans, direct plus
   nested citation invocation/key spans, direct plus macro heading
-  argument/invocation spans, reference and starred-reference invocation/key
-  spans, nested reference invocation/key spans, label definition and nested
-  label key/invocation spans, link visible text/target/invocation spans,
+  argument/invocation spans, input-file heading argument/invocation spans, and
+  cross-file input macro call/definition spans, reference and starred-reference
+  invocation/key spans, nested reference invocation/key spans, label definition
+  and nested label key/invocation spans, link visible text/target/invocation spans,
   `NoHyper` visible link text/invocation spans,
   `hyperref`/`hyperlink`/`hypertarget` visible text/target/invocation spans,
   nested link visible text/target/invocation spans, and graphic
