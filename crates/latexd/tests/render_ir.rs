@@ -4420,6 +4420,14 @@ fn direct_inline_command_aliases_survive_ir_without_hidden_keys() {
     assert!(paragraph.content.iter().any(|node| {
         matches!(
             node,
+            InlineNode::Reference(reference)
+                if reference.keys == vec!["fig:a".to_string(), "fig:b".to_string()]
+                    && reference.display_text == "[?]"
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
             InlineNode::Link(link)
                 if link.target == "https://hidden.test" && link.display_text == "paper link"
         )
@@ -4435,10 +4443,10 @@ fn direct_inline_command_aliases_survive_ir_without_hidden_keys() {
         .collect::<Vec<_>>()
         .join("");
     assert!(
-        display_list_text.contains("See [?], [?], and paper link."),
+        display_list_text.contains("See [?], [?], [?], and paper link."),
         "{display_list_text}"
     );
-    for hidden in ["key", "sec:intro", "https://hidden.test"] {
+    for hidden in ["key", "sec:intro", "fig:a", "fig:b", "https://hidden.test"] {
         assert!(!display_list_text.contains(hidden), "{display_list_text}");
     }
     assert!(capture.page_display_lists[0].ops.iter().any(|op| {
@@ -13376,7 +13384,7 @@ const CITETEXT_SOURCE: &str = r"\begin{document}See \citetext{compare \citealp{b
 const REFERENCE_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \eqref{eq:main}; \cref{fig:a,tab:b}.\end{document}";
 
-const DIRECT_INLINE_ALIAS_SOURCE: &str = r"\let\mycite\cite\let\myref\ref\let\myhref\href\let\mylabel\label\begin{document}\section{Intro}\mylabel{sec:intro}See \mycite{key}, \myref{sec:intro}, and \myhref{https://hidden.test}{paper link}.\end{document}";
+const DIRECT_INLINE_ALIAS_SOURCE: &str = r"\let\mycite\cite\let\myref\ref\let\myrange\crefrange\let\myhref\href\let\mylabel\label\begin{document}\section{Intro}\mylabel{sec:intro}See \mycite{key}, \myref{sec:intro}, \myrange{fig:a}{fig:b}, and \myhref{https://hidden.test}{paper link}.\end{document}";
 
 const STARRED_REFERENCE_SOURCE: &str = r"\begin{document}See \ref*{sec:intro}, \autoref*{fig:plot}, \Cref*{tab:data}, \eqref*{eq:main}, and \nameref*{sec:name}.\end{document}";
 

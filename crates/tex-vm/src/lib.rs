@@ -26534,7 +26534,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_direct_inline_command_aliases() {
-        let source = r"\let\mycite\cite\let\myref\ref\let\myhref\href\let\mylabel\label\begin{document}\section{Intro}\mylabel{sec:intro}See \mycite{key}, \myref{sec:intro}, and \myhref{https://hidden.test}{paper link}.\end{document}";
+        let source = r"\let\mycite\cite\let\myref\ref\let\myrange\crefrange\let\myhref\href\let\mylabel\label\begin{document}\section{Intro}\mylabel{sec:intro}See \mycite{key}, \myref{sec:intro}, \myrange{fig:a}{fig:b}, and \myhref{https://hidden.test}{paper link}.\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -26553,6 +26553,12 @@ Fallback text.
         )));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
+            RenderEvent::InlineReference(reference)
+                if reference.command == "crefrange"
+                    && reference.keys == vec!["fig:a".to_string(), "fig:b".to_string()]
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
             RenderEvent::InlineLink(link)
                 if link.command == "href"
                     && link.target == "https://hidden.test"
@@ -26568,6 +26574,8 @@ Fallback text.
             RenderEvent::Text(text)
                 if text.text.contains("key")
                     || text.text.contains("sec:intro")
+                    || text.text.contains("fig:a")
+                    || text.text.contains("fig:b")
                     || text.text.contains("https://hidden.test")
         )));
     }
