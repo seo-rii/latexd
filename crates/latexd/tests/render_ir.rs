@@ -5277,6 +5277,8 @@ fn constant_target_link_wrapper_macro_capture_survives_ir_and_display_list_annot
         ("https://constant.test", "docs"),
         ("https://constant.test", "guide"),
         ("https://doi.org/10.1000/foo", "10.1000/foo"),
+        ("https://constant.test", "manual"),
+        ("https://doi.org/10.1000/default", "10.1000/default"),
     ] {
         let event = capture
             .events
@@ -5331,6 +5333,13 @@ fn constant_target_link_wrapper_macro_capture_survives_ir_and_display_list_annot
                 if link.target == "https://doi.org/10.1000/foo" && link.rect.width > 0.0
         )
     }));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::LinkAnnotation(link)
+                if link.target == "https://doi.org/10.1000/default" && link.rect.width > 0.0
+        )
+    }));
     let display_list_text = capture.page_display_lists[0]
         .ops
         .iter()
@@ -5341,7 +5350,7 @@ fn constant_target_link_wrapper_macro_capture_survives_ir_and_display_list_annot
         .collect::<Vec<_>>()
         .join("");
     assert!(
-        display_list_text.contains("Read docs, guide, and 10.1000/foo."),
+        display_list_text.contains("Read docs, guide, 10.1000/foo, manual, and 10.1000/default."),
         "{display_list_text}"
     );
     assert!(!display_list_text.contains("https://constant.test"));
@@ -13739,7 +13748,7 @@ const LINK_SOURCE: &str = r"\begin{document}Read \href{https://example.test/pape
 
 const LINK_WRAPPER_SOURCE: &str = r"\newcommand{\mylink}[2]{\href{#1}{#2}}\let\paperlink\mylink\begin{document}Read \mylink{https://hidden.test}{paper link} and \paperlink{https://alias.test}{alias link}.\end{document}";
 
-const CONSTANT_TARGET_LINK_WRAPPER_SOURCE: &str = r"\newcommand{\doclink}[1]{\href{https://constant.test}{#1}}\let\aliasdoclink\doclink\newcommand{\doilink}[1]{\href{https://doi.org/#1}{#1}}\begin{document}Read \doclink{docs}, \aliasdoclink{guide}, and \doilink{10.1000/foo}.\end{document}";
+const CONSTANT_TARGET_LINK_WRAPPER_SOURCE: &str = r"\newcommand{\doclink}[1]{\href{https://constant.test}{#1}}\let\aliasdoclink\doclink\newcommand{\doilink}[1]{\href{https://doi.org/#1}{#1}}\newcommand{\defaultdoclink}[1][manual]{\href{https://constant.test}{#1}}\newcommand{\defaultdoilink}[1][10.1000/default]{\href{https://doi.org/#1}{#1}}\begin{document}Read \doclink{docs}, \aliasdoclink{guide}, \doilink{10.1000/foo}, \defaultdoclink, and \defaultdoilink.\end{document}";
 
 const LINK_TEXT_INLINE_KEY_SOURCE: &str = r"\begin{document}Read \href{https://hidden.test}{see \cite{cited}, \citep*{starred}, \ref{sec:intro}, and \ref*{sec:starred}}.\end{document}";
 

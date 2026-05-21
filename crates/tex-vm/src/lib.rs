@@ -798,6 +798,8 @@ struct RenderLinkMacro {
     command: String,
     parameter_count: usize,
     optional_first_argument: bool,
+    optional_first_default: Option<String>,
+    optional_first_default_span: Option<RenderMacroDefinitionSpan>,
     target_template: String,
     target_parameters: Vec<usize>,
     text_template: String,
@@ -1595,6 +1597,9 @@ impl<'i> Vm<'i> {
                                     command: link_command,
                                     parameter_count,
                                     optional_first_argument,
+                                    optional_first_default: optional_first_default.clone(),
+                                    optional_first_default_span: optional_first_default_span
+                                        .clone(),
                                     target_template,
                                     target_parameters,
                                     text_template,
@@ -1830,6 +1835,8 @@ impl<'i> Vm<'i> {
                                         command: link_command,
                                         parameter_count,
                                         optional_first_argument: false,
+                                        optional_first_default: None,
+                                        optional_first_default_span: None,
                                         target_template,
                                         target_parameters,
                                         text_template,
@@ -2154,6 +2161,8 @@ impl<'i> Vm<'i> {
                                         command: source_name.to_string(),
                                         parameter_count: 2,
                                         optional_first_argument: false,
+                                        optional_first_default: None,
+                                        optional_first_default_span: None,
                                         target_template: "#1".to_string(),
                                         target_parameters: vec![1],
                                         text_template: "#2".to_string(),
@@ -2172,6 +2181,8 @@ impl<'i> Vm<'i> {
                                         command: source_name.to_string(),
                                         parameter_count: 1,
                                         optional_first_argument: false,
+                                        optional_first_default: None,
+                                        optional_first_default_span: None,
                                         target_template: "#1".to_string(),
                                         target_parameters: vec![1],
                                         text_template: "#1".to_string(),
@@ -7715,6 +7726,16 @@ impl<'i> Vm<'i> {
                                 parsed_arguments.push((1, argument, content_start, content_end));
                                 argument_index = after_optional;
                                 invocation_end = after_optional;
+                            } else if let (Some(default), Some(default_span)) = (
+                                link_macro.optional_first_default.as_deref(),
+                                link_macro.optional_first_default_span.as_ref(),
+                            ) {
+                                parsed_arguments.push((
+                                    1,
+                                    default,
+                                    default_span.start_utf8,
+                                    default_span.end_utf8,
+                                ));
                             }
                             parameter = 2;
                         }
@@ -24102,6 +24123,20 @@ Fallback text.
                 r"\newcommand{\doilink}[1]{\href{https://doi.org/#1}{#1}}",
                 "https://doi.org/10.1000/foo",
                 "10.1000/foo",
+            ),
+            (
+                r"\newcommand{\defaultdoclink}[1][guide]{\href{https://constant.test}{#1}}\begin{document}Read \defaultdoclink.\end{document}",
+                r"\defaultdoclink",
+                r"\newcommand{\defaultdoclink}[1][guide]{\href{https://constant.test}{#1}}",
+                "https://constant.test",
+                "guide",
+            ),
+            (
+                r"\newcommand{\defaultdoilink}[1][10.1000/default]{\href{https://doi.org/#1}{#1}}\let\aliasdefaultdoilink\defaultdoilink\begin{document}Read \aliasdefaultdoilink.\end{document}",
+                r"\aliasdefaultdoilink",
+                r"\let\aliasdefaultdoilink\defaultdoilink",
+                "https://doi.org/10.1000/default",
+                "10.1000/default",
             ),
         ] {
             let mut interner = ControlSequenceInterner::new();
