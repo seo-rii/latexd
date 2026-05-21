@@ -1,0 +1,226 @@
+{
+  "display_list": {
+    "clusters": [
+      {
+        "glyph_end": 11,
+        "glyph_start": 0,
+        "text_end_utf8": 11,
+        "text_start_utf8": 0
+      }
+    ],
+    "source": {
+      "expansion_stack": [
+        {
+          "call_span": {
+            "end_utf8": 61,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 38
+          },
+          "command_name": "mysection",
+          "definition_span": {
+            "end_utf8": 22,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 0
+          }
+        }
+      ],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 60,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 49
+      },
+      "related": [
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 61,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 38
+          }
+        }
+      ]
+    },
+    "text": "Alias Title"
+  },
+  "event": {
+    "event": {
+      "kind": "heading",
+      "level": 1,
+      "text": "Alias Title"
+    },
+    "meta": {
+      "confidence": "high",
+      "event_id": 1,
+      "mode_hint": "unknown",
+      "producer": "command",
+      "source": {
+        "expansion_stack": [
+          {
+            "call_span": {
+              "end_utf8": 61,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 38
+            },
+            "command_name": "mysection",
+            "definition_span": {
+              "end_utf8": 22,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 0
+            }
+          }
+        ],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 60,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 49
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 61,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 38
+            }
+          }
+        ]
+      }
+    }
+  },
+  "ir": {
+    "content": [
+      {
+        "kind": "text",
+        "source": {
+          "expansion_stack": [
+            {
+              "call_span": {
+                "end_utf8": 61,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 38
+              },
+              "command_name": "mysection",
+              "definition_span": {
+                "end_utf8": 22,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 0
+              }
+            }
+          ],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 60,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 49
+          },
+          "related": [
+            {
+              "role": "invocation",
+              "span": {
+                "end_utf8": 61,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 38
+              }
+            }
+          ]
+        },
+        "text": "Alias Title"
+      }
+    ],
+    "level": 1,
+    "source": {
+      "expansion_stack": [
+        {
+          "call_span": {
+            "end_utf8": 61,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 38
+          },
+          "command_name": "mysection",
+          "definition_span": {
+            "end_utf8": 22,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 0
+          }
+        }
+      ],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 60,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 49
+      },
+      "related": [
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 61,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 38
+          }
+        }
+      ]
+    },
+    "text_source": {
+      "expansion_stack": [
+        {
+          "call_span": {
+            "end_utf8": 61,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 38
+          },
+          "command_name": "mysection",
+          "definition_span": {
+            "end_utf8": 22,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 0
+          }
+        }
+      ],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 60,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 49
+      },
+      "related": [
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 61,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 38
+          }
+        }
+      ]
+    }
+  },
+  "source": "\\let\\mysection\\section\\begin{document}\\mysection{Alias Title}\\end{document}"
+}

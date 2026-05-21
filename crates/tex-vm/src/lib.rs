@@ -1494,6 +1494,76 @@ impl<'i> Vm<'i> {
                         }
                     }
                 }
+                "let" => {
+                    let target_start = skip_ascii_whitespace(source, index);
+                    if target_start < bytes.len() && bytes[target_start] == b'\\' {
+                        let mut target_end = target_start + 1;
+                        let macro_name = if target_end < bytes.len()
+                            && (bytes[target_end].is_ascii_alphabetic()
+                                || bytes[target_end] == b'@')
+                        {
+                            while target_end < bytes.len()
+                                && (bytes[target_end].is_ascii_alphabetic()
+                                    || bytes[target_end] == b'@')
+                            {
+                                target_end += 1;
+                            }
+                            &source[target_start + 1..target_end]
+                        } else if target_end < bytes.len() {
+                            let name_end = target_end
+                                + source[target_end..].chars().next().unwrap().len_utf8();
+                            let macro_name = &source[target_end..name_end];
+                            target_end = name_end;
+                            macro_name
+                        } else {
+                            ""
+                        };
+                        let mut source_start = skip_ascii_whitespace(source, target_end);
+                        if source[source_start..].starts_with('=') {
+                            source_start += 1;
+                            source_start = skip_ascii_whitespace(source, source_start);
+                        }
+                        if source_start < bytes.len() && bytes[source_start] == b'\\' {
+                            let mut source_end = source_start + 1;
+                            let source_name = if source_end < bytes.len()
+                                && (bytes[source_end].is_ascii_alphabetic()
+                                    || bytes[source_end] == b'@')
+                            {
+                                while source_end < bytes.len()
+                                    && (bytes[source_end].is_ascii_alphabetic()
+                                        || bytes[source_end] == b'@')
+                                {
+                                    source_end += 1;
+                                }
+                                &source[source_start + 1..source_end]
+                            } else if source_end < bytes.len() {
+                                let name_end = source_end
+                                    + source[source_end..].chars().next().unwrap().len_utf8();
+                                let source_name = &source[source_end..name_end];
+                                source_end = name_end;
+                                source_name
+                            } else {
+                                ""
+                            };
+                            if source_name == "section" {
+                                scan_state.section_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderSectionMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: source_end,
+                                        },
+                                        parameter_count: 1,
+                                        optional_first_argument: false,
+                                        heading_parameter: 1,
+                                    },
+                                );
+                            }
+                            index = source_end;
+                        }
+                    }
+                }
                 "newtheorem" => {
                     let mut environment_index = skip_ascii_whitespace(source, index);
                     if source[environment_index..].starts_with('*') {
@@ -25208,6 +25278,45 @@ Fallback text.
                 if span.path == Utf8PathBuf::from("main.tex")
                     && &source[span.start_utf8 as usize..span.end_utf8 as usize]
                         == r"\def\mysection#1{\section{#1}}"
+        ));
+    }
+
+    #[test]
+    fn render_event_capture_records_let_section_alias_provenance() {
+        let source = r"\let\mysection\section\begin{document}\mysection{Alias Title}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let heading = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::Heading(heading) if heading.text == "Alias Title"))
+            .expect("heading event");
+
+        assert!(matches!(
+            &heading.meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "Alias Title"
+        ));
+        assert!(heading.meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\mysection{Alias Title}"
+                )
+        }));
+        assert!(matches!(
+            &heading.meta.source.expansion_stack[0].definition_span,
+            Some(tex_render_model::ProvenanceSpan::File(span))
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\let\mysection\section"
         ));
     }
 

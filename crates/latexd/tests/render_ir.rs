@@ -12919,6 +12919,28 @@ fn def_section_macro_heading_provenance_matches_golden() {
     );
 }
 
+#[test]
+fn let_section_alias_heading_provenance_matches_golden() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        LET_SECTION_ALIAS_SOURCE,
+        &SemanticAux::default(),
+    );
+
+    assert_macro_heading_provenance_golden(
+        &capture,
+        "Alias Title",
+        "main.tex",
+        LET_SECTION_ALIAS_SOURCE,
+        r"\mysection{Alias Title}",
+        "main.tex",
+        LET_SECTION_ALIAS_SOURCE,
+        r"\let\mysection\section",
+        &[("source", LET_SECTION_ALIAS_SOURCE)],
+        "tests/goldens/render_ir/let-section-alias-heading.provenance.json",
+    );
+}
+
 const COMPACT_SOURCE: &str = r"\title{A Paper}\author{Ada Lovelace}\date{May 1843}\begin{document}\maketitle\begin{abstract}Short abstract.\end{abstract}\section{Intro}Hello \cite{key}.\[x^2\]\begin{thebibliography}{1}\bibitem{key} Author. Title.\end{thebibliography}\begin{unknownenv}Fallback text.\end{unknownenv}\end{document}";
 
 const TITLE_INLINE_KEY_SOURCE: &str =
@@ -13334,6 +13356,9 @@ const OPTIONAL_MACRO_SECTION_SOURCE: &str = r"\newcommand{\mysection}[2][]{\sect
 
 const DEF_MACRO_SECTION_SOURCE: &str =
     r"\def\mysection#1{\section{#1}}\begin{document}\mysection{Plain Def}\end{document}";
+
+const LET_SECTION_ALIAS_SOURCE: &str =
+    r"\let\mysection\section\begin{document}\mysection{Alias Title}\end{document}";
 
 fn assert_macro_heading_provenance_golden(
     capture: &InternalRenderIrCapture,
