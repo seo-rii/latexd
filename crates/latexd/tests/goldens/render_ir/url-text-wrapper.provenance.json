@@ -1,0 +1,508 @@
+{
+  "cases": [
+    {
+      "display_list": [
+        {
+          "clusters": [
+            {
+              "glyph_end": 26,
+              "glyph_start": 0,
+              "text_end_utf8": 26,
+              "text_start_utf8": 0
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 57,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 31
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 58,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 20
+                }
+              }
+            ]
+          },
+          "text": "https://example.test/paper"
+        }
+      ],
+      "event": {
+        "event": {
+          "kind": "text",
+          "text": "https://example.test/paper"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 3,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 57,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 31
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 58,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 20
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir_source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 57,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 31
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 58,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 20
+            }
+          }
+        ]
+      },
+      "text": "https://example.test/paper"
+    },
+    {
+      "display_list": [
+        {
+          "clusters": [
+            {
+              "glyph_end": 30,
+              "glyph_start": 0,
+              "text_end_utf8": 30,
+              "text_start_utf8": 0
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 101,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 71
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 102,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 60
+                }
+              }
+            ]
+          },
+          "text": "https://example.test/delimited"
+        }
+      ],
+      "event": {
+        "event": {
+          "kind": "text",
+          "text": "https://example.test/delimited"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 6,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 101,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 71
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 102,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 60
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir_source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 101,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 71
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 102,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 60
+            }
+          }
+        ]
+      },
+      "text": "https://example.test/delimited"
+    },
+    {
+      "display_list": [
+        {
+          "clusters": [
+            {
+              "glyph_end": 5,
+              "glyph_start": 0,
+              "text_end_utf8": 5,
+              "text_start_utf8": 0
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 125,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 113
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 126,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 107
+                }
+              }
+            ]
+          },
+          "text": "/tmp/"
+        },
+        {
+          "clusters": [
+            {
+              "glyph_end": 7,
+              "glyph_start": 0,
+              "text_end_utf8": 7,
+              "text_start_utf8": 0
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 125,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 113
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 126,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 107
+                }
+              }
+            ]
+          },
+          "text": "archive"
+        }
+      ],
+      "event": {
+        "event": {
+          "kind": "text",
+          "text": "/tmp/archive"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 11,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 125,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 113
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 126,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 107
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir_source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 125,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 113
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 126,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 107
+            }
+          }
+        ]
+      },
+      "text": "/tmp/archive"
+    },
+    {
+      "display_list": [
+        {
+          "clusters": [
+            {
+              "glyph_end": 8,
+              "glyph_start": 0,
+              "text_end_utf8": 8,
+              "text_start_utf8": 0
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 145,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 137
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 146,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 131
+                }
+              }
+            ]
+          },
+          "text": "/var/tmp"
+        }
+      ],
+      "event": {
+        "event": {
+          "kind": "text",
+          "text": "/var/tmp"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 15,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 145,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 137
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 146,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 131
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir_source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 145,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 137
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 146,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 131
+            }
+          }
+        ]
+      },
+      "text": "/var/tmp"
+    },
+    {
+      "display_list": [
+        {
+          "clusters": [
+            {
+              "glyph_end": 6,
+              "glyph_start": 0,
+              "text_end_utf8": 6,
+              "text_start_utf8": 0
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 169,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 163
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 170,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 151
+                }
+              }
+            ]
+          },
+          "text": "\\foo+*"
+        }
+      ],
+      "event": {
+        "event": {
+          "kind": "text",
+          "text": "\\foo+*"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 19,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 169,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 163
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 170,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 151
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir_source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 169,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 163
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 170,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 151
+            }
+          }
+        ]
+      },
+      "text": "\\foo+*"
+    }
+  ],
+  "source": "\\begin{document}Use \\nolinkurl{https://example.test/paper}, \\nolinkurl|https://example.test/delimited|, at \\path{/tmp/archive} and \\path|/var/tmp| via \\detokenize{\\foo+*}.\\end{document}"
+}
