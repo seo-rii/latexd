@@ -786,8 +786,10 @@ struct RenderLinkMacro {
     command: String,
     parameter_count: usize,
     optional_first_argument: bool,
-    target_parameter: usize,
-    text_parameter: usize,
+    target_template: String,
+    target_parameters: Vec<usize>,
+    text_template: String,
+    text_parameters: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -1504,8 +1506,13 @@ impl<'i> Vm<'i> {
                                         .insert(macro_name.to_string(), label_macro);
                                 }
                             }
-                            if let Some((link_command, target_parameter, text_parameter)) =
-                                link_macro_from_body(body, parameter_count)
+                            if let Some((
+                                link_command,
+                                target_template,
+                                target_parameters,
+                                text_template,
+                                text_parameters,
+                            )) = link_macro_from_body(body, parameter_count)
                             {
                                 let link_macro = RenderLinkMacro {
                                     definition_span: RenderMacroDefinitionSpan {
@@ -1516,8 +1523,10 @@ impl<'i> Vm<'i> {
                                     command: link_command,
                                     parameter_count,
                                     optional_first_argument,
-                                    target_parameter,
-                                    text_parameter,
+                                    target_template,
+                                    target_parameters,
+                                    text_template,
+                                    text_parameters,
                                 };
                                 if command == "providecommand" {
                                     scan_state
@@ -1681,8 +1690,13 @@ impl<'i> Vm<'i> {
                                     },
                                 );
                             }
-                            if let Some((link_command, target_parameter, text_parameter)) =
-                                link_macro_from_body(body, parameter_count)
+                            if let Some((
+                                link_command,
+                                target_template,
+                                target_parameters,
+                                text_template,
+                                text_parameters,
+                            )) = link_macro_from_body(body, parameter_count)
                             {
                                 scan_state.link_macros.insert(
                                     macro_name.to_string(),
@@ -1695,8 +1709,10 @@ impl<'i> Vm<'i> {
                                         command: link_command,
                                         parameter_count,
                                         optional_first_argument: false,
-                                        target_parameter,
-                                        text_parameter,
+                                        target_template,
+                                        target_parameters,
+                                        text_template,
+                                        text_parameters,
                                     },
                                 );
                             }
@@ -2001,8 +2017,10 @@ impl<'i> Vm<'i> {
                                         command: source_name.to_string(),
                                         parameter_count: 2,
                                         optional_first_argument: false,
-                                        target_parameter: 1,
-                                        text_parameter: 2,
+                                        target_template: "#1".to_string(),
+                                        target_parameters: vec![1],
+                                        text_template: "#2".to_string(),
+                                        text_parameters: vec![2],
                                     },
                                 );
                             } else if source_name == "url" {
@@ -2017,8 +2035,10 @@ impl<'i> Vm<'i> {
                                         command: source_name.to_string(),
                                         parameter_count: 1,
                                         optional_first_argument: false,
-                                        target_parameter: 1,
-                                        text_parameter: 1,
+                                        target_template: "#1".to_string(),
+                                        target_parameters: vec![1],
+                                        text_template: "#1".to_string(),
+                                        text_parameters: vec![1],
                                     },
                                 );
                             } else if let Some(source_macro) =
@@ -7459,19 +7479,13 @@ impl<'i> Vm<'i> {
                     } else if let Some(link_macro) = scan_state.link_macros.get(command) {
                         let mut argument_index = skip_ascii_whitespace(source, index);
                         let mut invocation_end = index;
-                        let mut selected_target = None;
-                        let mut selected_text = None;
+                        let mut parsed_arguments = Vec::new();
                         let mut parameter = 1usize;
                         if link_macro.optional_first_argument {
                             if let Some((argument, content_start, content_end, after_optional)) =
                                 read_bracket_source_argument(source, argument_index)
                             {
-                                if link_macro.target_parameter == 1 {
-                                    selected_target = Some((argument, content_start, content_end));
-                                }
-                                if link_macro.text_parameter == 1 {
-                                    selected_text = Some((argument, content_start, content_end));
-                                }
+                                parsed_arguments.push((1, argument, content_start, content_end));
                                 argument_index = after_optional;
                                 invocation_end = after_optional;
                             }
@@ -7484,22 +7498,86 @@ impl<'i> Vm<'i> {
                             else {
                                 break;
                             };
-                            if parameter == link_macro.target_parameter {
-                                selected_target = Some((argument, content_start, content_end));
-                            }
-                            if parameter == link_macro.text_parameter {
-                                selected_text = Some((argument, content_start, content_end));
-                            }
+                            parsed_arguments.push((
+                                parameter,
+                                argument,
+                                content_start,
+                                content_end,
+                            ));
                             argument_index = after_argument;
                             invocation_end = after_argument;
                             parameter += 1;
                         }
-                        if let (
-                            Some((target, target_start, target_end)),
-                            Some((text, text_start, text_end)),
-                        ) = (selected_target, selected_text)
-                        {
-                            let text = normalize_latex_text_with_inline_placeholders(text);
+                        let has_required_arguments = link_macro
+                            .target_parameters
+                            .iter()
+                            .chain(link_macro.text_parameters.iter())
+                            .all(|required_parameter| {
+                                parsed_arguments
+                                    .iter()
+                                    .any(|(parameter, _, _, _)| parameter == required_parameter)
+                            });
+                        if has_required_arguments && !link_macro.text_parameters.is_empty() {
+                            let mut target = link_macro.target_template.clone();
+                            let mut text = link_macro.text_template.clone();
+                            for (parameter, argument, _, _) in &parsed_arguments {
+                                let placeholder = format!("#{parameter}");
+                                target = target.replace(&placeholder, argument);
+                                text = text.replace(&placeholder, argument);
+                            }
+                            let text_start = link_macro
+                                .text_parameters
+                                .iter()
+                                .filter_map(|text_parameter| {
+                                    parsed_arguments
+                                        .iter()
+                                        .find(|(parameter, _, _, _)| parameter == text_parameter)
+                                        .map(|(_, _, content_start, _)| *content_start)
+                                })
+                                .min()
+                                .unwrap_or(command_start);
+                            let text_end = link_macro
+                                .text_parameters
+                                .iter()
+                                .filter_map(|text_parameter| {
+                                    parsed_arguments
+                                        .iter()
+                                        .find(|(parameter, _, _, _)| parameter == text_parameter)
+                                        .map(|(_, _, _, content_end)| *content_end)
+                                })
+                                .max()
+                                .unwrap_or(invocation_end);
+                            let target_span = (link_macro.target_parameters
+                                != link_macro.text_parameters)
+                                .then(|| {
+                                    let target_start = link_macro
+                                        .target_parameters
+                                        .iter()
+                                        .filter_map(|target_parameter| {
+                                            parsed_arguments
+                                                .iter()
+                                                .find(|(parameter, _, _, _)| {
+                                                    parameter == target_parameter
+                                                })
+                                                .map(|(_, _, content_start, _)| *content_start)
+                                        })
+                                        .min();
+                                    let target_end = link_macro
+                                        .target_parameters
+                                        .iter()
+                                        .filter_map(|target_parameter| {
+                                            parsed_arguments
+                                                .iter()
+                                                .find(|(parameter, _, _, _)| {
+                                                    parameter == target_parameter
+                                                })
+                                                .map(|(_, _, _, content_end)| *content_end)
+                                        })
+                                        .max();
+                                    target_start.zip(target_end)
+                                })
+                                .flatten();
+                            let text = normalize_latex_text_with_inline_placeholders(&text);
                             self.emit_render_event(
                                 if scan_state.no_hyper_depth > 0 {
                                     RenderEvent::Text(TextEvent { text })
@@ -7516,8 +7594,7 @@ impl<'i> Vm<'i> {
                                     invocation_end,
                                     text_start,
                                     text_end,
-                                    (link_macro.target_parameter != link_macro.text_parameter)
-                                        .then_some((target_start, target_end)),
+                                    target_span,
                                 )
                                 .with_expansion_frame(
                                     ExpansionFrame {
@@ -15115,7 +15192,10 @@ fn label_macro_from_body(body: &str, parameter_count: usize) -> Option<(String, 
         .map(|parameter| ("label".to_string(), parameter))
 }
 
-fn link_macro_from_body(body: &str, parameter_count: usize) -> Option<(String, usize, usize)> {
+fn link_macro_from_body(
+    body: &str,
+    parameter_count: usize,
+) -> Option<(String, String, Vec<usize>, String, Vec<usize>)> {
     for command in ["href", "url"] {
         let needle = format!("\\{command}");
         let mut search_start = 0usize;
@@ -15137,24 +15217,67 @@ fn link_macro_from_body(body: &str, parameter_count: usize) -> Option<(String, u
                     read_braced_source_argument(body, argument_index)
                 {
                     let text_index = skip_ascii_whitespace(body, after_target);
-                    if let Some((text, _, _, _)) = read_braced_source_argument(body, text_index)
-                        && let Some(target_parameter) = (1..=parameter_count)
-                            .rev()
-                            .find(|parameter| target.contains(&format!("#{parameter}")))
-                        && let Some(text_parameter) = (1..=parameter_count)
-                            .rev()
-                            .find(|parameter| text.contains(&format!("#{parameter}")))
-                    {
-                        return Some((command.to_string(), target_parameter, text_parameter));
+                    if let Some((text, _, _, _)) = read_braced_source_argument(body, text_index) {
+                        let mut target_parameters = (1..=parameter_count)
+                            .filter_map(|parameter| {
+                                target
+                                    .find(&format!("#{parameter}"))
+                                    .map(|position| (position, parameter))
+                            })
+                            .collect::<Vec<_>>();
+                        target_parameters.sort_by_key(|(position, _)| *position);
+                        let target_parameters = target_parameters
+                            .into_iter()
+                            .map(|(_, parameter)| parameter)
+                            .collect::<Vec<_>>();
+                        let mut text_parameters = (1..=parameter_count)
+                            .filter_map(|parameter| {
+                                text.find(&format!("#{parameter}"))
+                                    .map(|position| (position, parameter))
+                            })
+                            .collect::<Vec<_>>();
+                        text_parameters.sort_by_key(|(position, _)| *position);
+                        let text_parameters = text_parameters
+                            .into_iter()
+                            .map(|(_, parameter)| parameter)
+                            .collect::<Vec<_>>();
+                        if !text_parameters.is_empty()
+                            && (!target_parameters.is_empty() || !target.trim().is_empty())
+                        {
+                            return Some((
+                                command.to_string(),
+                                target.to_string(),
+                                target_parameters,
+                                text.to_string(),
+                                text_parameters,
+                            ));
+                        }
                     }
                 }
             } else if let Some((target, _, _, _)) =
                 read_url_like_source_argument(body, argument_index)
-                && let Some(parameter) = (1..=parameter_count)
-                    .rev()
-                    .find(|parameter| target.contains(&format!("#{parameter}")))
             {
-                return Some((command.to_string(), parameter, parameter));
+                let mut parameters = (1..=parameter_count)
+                    .filter_map(|parameter| {
+                        target
+                            .find(&format!("#{parameter}"))
+                            .map(|position| (position, parameter))
+                    })
+                    .collect::<Vec<_>>();
+                parameters.sort_by_key(|(position, _)| *position);
+                let parameters = parameters
+                    .into_iter()
+                    .map(|(_, parameter)| parameter)
+                    .collect::<Vec<_>>();
+                if !parameters.is_empty() {
+                    return Some((
+                        command.to_string(),
+                        target.to_string(),
+                        parameters.clone(),
+                        target.to_string(),
+                        parameters,
+                    ));
+                }
             }
 
             search_start = command_end;
@@ -23494,6 +23617,82 @@ Fallback text.
             assert!(!outcome.render_events.iter().any(|event| matches!(
                 &event.event,
                 RenderEvent::Text(text) if text.text.contains("https://hidden.test")
+            )));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_records_constant_target_link_wrapper_macros() {
+        for (source, invocation_text, definition_text, target_text, display_text) in [
+            (
+                r"\newcommand{\doclink}[1]{\href{https://constant.test}{#1}}\begin{document}Read \doclink{docs}.\end{document}",
+                r"\doclink{docs}",
+                r"\newcommand{\doclink}[1]{\href{https://constant.test}{#1}}",
+                "https://constant.test",
+                "docs",
+            ),
+            (
+                r"\newcommand{\doclink}[1]{\href{https://constant.test}{#1}}\let\aliasdoclink\doclink\begin{document}Read \aliasdoclink{guide}.\end{document}",
+                r"\aliasdoclink{guide}",
+                r"\let\aliasdoclink\doclink",
+                "https://constant.test",
+                "guide",
+            ),
+            (
+                r"\newcommand{\doilink}[1]{\href{https://doi.org/#1}{#1}}\begin{document}Read \doilink{10.1000/foo}.\end{document}",
+                r"\doilink{10.1000/foo}",
+                r"\newcommand{\doilink}[1]{\href{https://doi.org/#1}{#1}}",
+                "https://doi.org/10.1000/foo",
+                "10.1000/foo",
+            ),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.set_entry_source_path("main.tex");
+            vm.enable_render_event_capture();
+            let outcome = vm.run_plain(source);
+            let link = outcome
+                .render_events
+                .iter()
+                .find(|event| matches!(&event.event, RenderEvent::InlineLink(_)))
+                .expect("link event");
+
+            assert!(matches!(
+                &link.event,
+                RenderEvent::InlineLink(link)
+                    if link.command == "href"
+                        && link.target == target_text
+                        && link.text == display_text
+            ));
+            assert!(matches!(
+                &link.meta.source.primary,
+                tex_render_model::ProvenanceSpan::File(span)
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == display_text
+            ));
+            assert!(link.meta.source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        tex_render_model::ProvenanceSpan::File(span)
+                            if span.path == Utf8PathBuf::from("main.tex")
+                                && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+            assert!(matches!(
+                &link.meta.source.expansion_stack[0].definition_span,
+                Some(tex_render_model::ProvenanceSpan::File(span))
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == definition_text
+            ));
+            assert!(!outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Text(text)
+                    if text.text.contains("https://constant.test")
+                        || text.text.contains("https://doi.org")
             )));
         }
     }

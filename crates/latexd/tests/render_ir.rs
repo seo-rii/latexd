@@ -5244,6 +5244,101 @@ fn link_wrapper_macro_capture_survives_ir_and_display_list_annotations() {
 }
 
 #[test]
+fn constant_target_link_wrapper_macro_capture_survives_ir_and_display_list_annotations() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        CONSTANT_TARGET_LINK_WRAPPER_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    for (target, display_text) in [
+        ("https://constant.test", "docs"),
+        ("https://constant.test", "guide"),
+        ("https://doi.org/10.1000/foo", "10.1000/foo"),
+    ] {
+        let event = capture
+            .events
+            .events
+            .iter()
+            .find(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RenderEvent::InlineLink(link)
+                        if link.target == target
+                            && link.text == display_text
+                            && link.command == "href"
+                )
+            })
+            .expect("link event");
+        assert!(matches!(
+            &event.meta.source.primary,
+            ProvenanceSpan::File(span)
+                if &CONSTANT_TARGET_LINK_WRAPPER_SOURCE
+                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                    == display_text
+        ));
+
+        assert!(paragraph.content.iter().any(|node| {
+            matches!(
+                node,
+                InlineNode::Link(link)
+                    if link.target == target
+                        && link.display_text == display_text
+                        && matches!(
+                            &link.source.primary,
+                            ProvenanceSpan::File(span)
+                                if &CONSTANT_TARGET_LINK_WRAPPER_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == display_text
+                        )
+            )
+        }));
+    }
+
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::LinkAnnotation(link)
+                if link.target == "https://constant.test" && link.rect.width > 0.0
+        )
+    }));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::LinkAnnotation(link)
+                if link.target == "https://doi.org/10.1000/foo" && link.rect.width > 0.0
+        )
+    }));
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("Read docs, guide, and 10.1000/foo."),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("https://constant.test"));
+    assert!(!display_list_text.contains("https://doi.org/"));
+    assert!(!display_list_text.contains(r"\doclink"));
+    assert!(!display_list_text.contains(r"\aliasdoclink"));
+    assert!(!display_list_text.contains(r"\doilink"));
+}
+
+#[test]
 fn link_provenance_preserves_text_target_and_invocation_spans() {
     let capture = capture_internal_render_ir("main.tex", LINK_SOURCE, &SemanticAux::default());
     let paragraph = capture
@@ -13453,6 +13548,8 @@ const REFERENCE_RANGE_WRAPPER_SOURCE: &str = r"\newcommand{\myrange}[2]{\crefran
 const LINK_SOURCE: &str = r"\begin{document}Read \href{https://example.test/paper}{paper link}, \url{https://example.test/raw}, and \url|https://example.test/delimited|.\end{document}";
 
 const LINK_WRAPPER_SOURCE: &str = r"\newcommand{\mylink}[2]{\href{#1}{#2}}\let\paperlink\mylink\begin{document}Read \mylink{https://hidden.test}{paper link} and \paperlink{https://alias.test}{alias link}.\end{document}";
+
+const CONSTANT_TARGET_LINK_WRAPPER_SOURCE: &str = r"\newcommand{\doclink}[1]{\href{https://constant.test}{#1}}\let\aliasdoclink\doclink\newcommand{\doilink}[1]{\href{https://doi.org/#1}{#1}}\begin{document}Read \doclink{docs}, \aliasdoclink{guide}, and \doilink{10.1000/foo}.\end{document}";
 
 const LINK_TEXT_INLINE_KEY_SOURCE: &str = r"\begin{document}Read \href{https://hidden.test}{see \cite{cited}, \citep*{starred}, \ref{sec:intro}, and \ref*{sec:starred}}.\end{document}";
 
