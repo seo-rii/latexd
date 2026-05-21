@@ -1,0 +1,395 @@
+{
+  "cases": [
+    {
+      "display_list": [
+        {
+          "clusters": [
+            {
+              "glyph_end": 11,
+              "glyph_start": 0,
+              "text_end_utf8": 11,
+              "text_start_utf8": 0
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 85,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 67
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 86,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 50
+                }
+              },
+              {
+                "role": "argument",
+                "span": {
+                  "end_utf8": 65,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 61
+                }
+              }
+            ]
+          },
+          "text": "visible [?]"
+        }
+      ],
+      "event": {
+        "event": {
+          "kind": "text",
+          "text": "visible [?]"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 9,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 85,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 67
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 86,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 50
+                }
+              },
+              {
+                "role": "argument",
+                "span": {
+                  "end_utf8": 65,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 61
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir_source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 85,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 67
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 86,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 50
+            }
+          },
+          {
+            "role": "argument",
+            "span": {
+              "end_utf8": 65,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 61
+            }
+          }
+        ]
+      },
+      "text": "visible [?]"
+    },
+    {
+      "display_list": [
+        {
+          "clusters": [
+            {
+              "glyph_end": 9,
+              "glyph_start": 0,
+              "text_end_utf8": 9,
+              "text_start_utf8": 0
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 131,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 110
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 132,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 92
+                }
+              },
+              {
+                "role": "argument",
+                "span": {
+                  "end_utf8": 108,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 102
+                }
+              }
+            ]
+          },
+          "text": "boxed [?]"
+        }
+      ],
+      "event": {
+        "event": {
+          "kind": "text",
+          "text": "boxed [?]"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 13,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 131,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 110
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 132,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 92
+                }
+              },
+              {
+                "role": "argument",
+                "span": {
+                  "end_utf8": 108,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 102
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir_source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 131,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 110
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 132,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 92
+            }
+          },
+          {
+            "role": "argument",
+            "span": {
+              "end_utf8": 108,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 102
+            }
+          }
+        ]
+      },
+      "text": "boxed [?]"
+    },
+    {
+      "display_list": [
+        {
+          "clusters": [
+            {
+              "glyph_end": 12,
+              "glyph_start": 0,
+              "text_end_utf8": 12,
+              "text_start_utf8": 0
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 202,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 162
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 203,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 137
+                }
+              },
+              {
+                "role": "argument",
+                "span": {
+                  "end_utf8": 153,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 148
+                }
+              },
+              {
+                "role": "argument",
+                "span": {
+                  "end_utf8": 160,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 155
+                }
+              }
+            ]
+          },
+          "text": "framed paper"
+        }
+      ],
+      "event": {
+        "event": {
+          "kind": "text",
+          "text": "framed paper"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 17,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 202,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 162
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 203,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 137
+                }
+              },
+              {
+                "role": "argument",
+                "span": {
+                  "end_utf8": 153,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 148
+                }
+              },
+              {
+                "role": "argument",
+                "span": {
+                  "end_utf8": 160,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 155
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir_source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 202,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 162
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 203,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 137
+            }
+          },
+          {
+            "role": "argument",
+            "span": {
+              "end_utf8": 153,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 148
+            }
+          },
+          {
+            "role": "argument",
+            "span": {
+              "end_utf8": 160,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 155
+            }
+          }
+        ]
+      },
+      "text": "framed paper"
+    }
+  ],
+  "source": "\\begin{document}A \\color{magenta}colored word and \\textcolor{cyan}{visible \\cite{key}} plus \\colorbox{yellow}{boxed \\ref{sec:intro}} and \\fcolorbox{black}{white}{framed \\href{https://hidden.test}{paper}}.\\end{document}"
+}

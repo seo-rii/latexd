@@ -6120,6 +6120,176 @@ fn color_decoration_commands_preserve_visible_text_without_color_noise() {
 }
 
 #[test]
+fn color_decoration_provenance_preserves_visible_content_and_invocation_spans() {
+    let capture =
+        capture_internal_render_ir("main.tex", COLOR_DECORATION_SOURCE, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    let mut provenance_cases = Vec::new();
+    for (display_text, content_source, invocation_text, argument_sources) in [
+        (
+            "visible [?]",
+            r"visible \cite{key}",
+            r"\textcolor{cyan}{visible \cite{key}}",
+            &["cyan"][..],
+        ),
+        (
+            "boxed [?]",
+            r"boxed \ref{sec:intro}",
+            r"\colorbox{yellow}{boxed \ref{sec:intro}}",
+            &["yellow"][..],
+        ),
+        (
+            "framed paper",
+            r"framed \href{https://hidden.test}{paper}",
+            r"\fcolorbox{black}{white}{framed \href{https://hidden.test}{paper}}",
+            &["black", "white"][..],
+        ),
+    ] {
+        let text_event = capture
+            .events
+            .events
+            .iter()
+            .find(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RenderEvent::Text(text) if text.text == display_text
+                )
+            })
+            .expect("color wrapper text event");
+        let ir_source = paragraph
+            .content
+            .iter()
+            .find_map(|node| match node {
+                InlineNode::Text { text, source } if text == display_text => Some(source),
+                _ => None,
+            })
+            .expect("color wrapper text IR source");
+        let text_runs = capture.page_display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run)
+                    if matches!(
+                        &run.source.primary,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &COLOR_DECORATION_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == content_source
+                    ) =>
+                {
+                    Some(run)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            !text_runs.is_empty(),
+            "color wrapper text run for {display_text}"
+        );
+
+        for source in [&text_event.meta.source, ir_source] {
+            assert!(matches!(
+                &source.primary,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &COLOR_DECORATION_SOURCE
+                            [span.start_utf8 as usize..span.end_utf8 as usize]
+                            == content_source
+            ));
+            assert!(source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &COLOR_DECORATION_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+            for argument_source in argument_sources {
+                assert!(source.related.iter().any(|related| {
+                    related.role == SourceSpanRole::Argument
+                        && matches!(
+                            &related.span,
+                            ProvenanceSpan::File(span)
+                                if span.path.as_str() == "main.tex"
+                                    && &COLOR_DECORATION_SOURCE
+                                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                                        == *argument_source
+                        )
+                }));
+            }
+        }
+        for text_run in &text_runs {
+            let source = &text_run.source;
+            assert!(source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &COLOR_DECORATION_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+            for argument_source in argument_sources {
+                assert!(source.related.iter().any(|related| {
+                    related.role == SourceSpanRole::Argument
+                        && matches!(
+                            &related.span,
+                            ProvenanceSpan::File(span)
+                                if span.path.as_str() == "main.tex"
+                                    && &COLOR_DECORATION_SOURCE
+                                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                                        == *argument_source
+                        )
+                }));
+            }
+        }
+
+        provenance_cases.push(serde_json::json!({
+            "text": display_text,
+            "event": {
+                "event": text_event.event,
+                "meta": text_event.meta,
+            },
+            "ir_source": ir_source,
+            "display_list": text_runs
+                .iter()
+                .map(|run| serde_json::json!({
+                    "text": run.text,
+                    "source": run.source,
+                    "clusters": run.clusters,
+                }))
+                .collect::<Vec<_>>(),
+        }));
+    }
+
+    let provenance_snapshot = serde_json::json!({
+        "source": COLOR_DECORATION_SOURCE,
+        "cases": provenance_cases,
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/color-wrapper.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn input_file_content_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir_with_mounted_files(
         "main.tex",

@@ -3502,7 +3502,8 @@ impl<'i> Vm<'i> {
                 }
                 "textcolor" | "colorbox" if in_document => {
                     index = skip_ascii_whitespace(source, index);
-                    if let Some((_, _, _, after_color)) = read_braced_source_argument(source, index)
+                    if let Some((_, color_start, color_end, after_color)) =
+                        read_braced_source_argument(source, index)
                     {
                         let text_index = skip_ascii_whitespace(source, after_color);
                         if let Some((text, content_start, content_end, after)) =
@@ -3516,6 +3517,22 @@ impl<'i> Vm<'i> {
                                     source_path.to_owned(),
                                     content_start as u32,
                                     content_end as u32,
+                                )
+                                .with_related(
+                                    SourceSpanRole::Invocation,
+                                    ProvenanceSpan::File(SourceSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: command_start as u32,
+                                        end_utf8: after as u32,
+                                    }),
+                                )
+                                .with_related(
+                                    SourceSpanRole::Argument,
+                                    ProvenanceSpan::File(SourceSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: color_start as u32,
+                                        end_utf8: color_end as u32,
+                                    }),
                                 ),
                             );
                             index = after;
@@ -3524,10 +3541,11 @@ impl<'i> Vm<'i> {
                 }
                 "fcolorbox" if in_document => {
                     index = skip_ascii_whitespace(source, index);
-                    if let Some((_, _, _, after_frame)) = read_braced_source_argument(source, index)
+                    if let Some((_, frame_start, frame_end, after_frame)) =
+                        read_braced_source_argument(source, index)
                     {
                         let color_index = skip_ascii_whitespace(source, after_frame);
-                        if let Some((_, _, _, after_color)) =
+                        if let Some((_, color_start, color_end, after_color)) =
                             read_braced_source_argument(source, color_index)
                         {
                             let text_index = skip_ascii_whitespace(source, after_color);
@@ -3542,6 +3560,30 @@ impl<'i> Vm<'i> {
                                         source_path.to_owned(),
                                         content_start as u32,
                                         content_end as u32,
+                                    )
+                                    .with_related(
+                                        SourceSpanRole::Invocation,
+                                        ProvenanceSpan::File(SourceSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start as u32,
+                                            end_utf8: after as u32,
+                                        }),
+                                    )
+                                    .with_related(
+                                        SourceSpanRole::Argument,
+                                        ProvenanceSpan::File(SourceSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: frame_start as u32,
+                                            end_utf8: frame_end as u32,
+                                        }),
+                                    )
+                                    .with_related(
+                                        SourceSpanRole::Argument,
+                                        ProvenanceSpan::File(SourceSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: color_start as u32,
+                                            end_utf8: color_end as u32,
+                                        }),
                                     ),
                                 );
                                 index = after;
