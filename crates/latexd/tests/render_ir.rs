@@ -8527,6 +8527,113 @@ See \defaultcite, \defaultref, and \defaultdoclink.
 }
 
 #[test]
+fn cross_file_optional_default_range_provenance_survives_ir_and_display_list() {
+    let macros = r"\newcommand{\defaultrange}[2][fig:a]{\crefrange{#1}{#2}}";
+    let source = r"\input{macros}
+\begin{document}
+See \defaultrange{fig:b}.
+\end{document}";
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        source,
+        &SemanticAux::default(),
+        &[("macros.tex", macros)],
+    );
+
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let reference = paragraph
+        .content
+        .iter()
+        .find_map(|node| match node {
+            InlineNode::Reference(reference) => Some(reference),
+            _ => None,
+        })
+        .expect("reference");
+    assert_eq!(reference.command, "crefrange");
+    assert_eq!(
+        reference.keys,
+        vec!["fig:a".to_string(), "fig:b".to_string()]
+    );
+    assert!(matches!(
+        &reference.source.primary,
+        ProvenanceSpan::File(span)
+            if span.path.as_str() == "main.tex"
+                && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                    == r"\defaultrange{fig:b}"
+    ));
+    assert!(reference.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::ReferenceKey
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "macros.tex"
+                        && &macros[span.start_utf8 as usize..span.end_utf8 as usize] == "fig:a"
+            )
+    }));
+    assert!(reference.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::ReferenceKey
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "fig:b"
+            )
+    }));
+
+    let display_reference = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "[?]" => Some(run),
+            _ => None,
+        })
+        .expect("reference display-list run");
+    assert!(display_reference.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::ReferenceKey
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "macros.tex"
+                        && &macros[span.start_utf8 as usize..span.end_utf8 as usize] == "fig:a"
+            )
+    }));
+    assert!(display_reference.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::ReferenceKey
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "fig:b"
+            )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("See [?]."),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("fig:a"));
+    assert!(!display_list_text.contains("fig:b"));
+    assert!(!display_list_text.contains(r"\defaultrange"));
+}
+
+#[test]
 fn package_file_macros_are_reused_in_document_ir_and_display_list() {
     let capture = capture_internal_render_ir_with_mounted_files(
         "main.tex",
