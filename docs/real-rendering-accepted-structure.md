@@ -47,9 +47,10 @@ As of 2026-05-21, the first implementation batch is complete:
   `InlineCitation`/`InlineReference`/`InlineLink`/`LabelDefinition` events
   instead of flattening to text, direct `\let` aliases to migrated inline
   commands, citation wrappers with multiple key arguments, link wrappers with
-  literal or templated targets, reference range wrappers with multiple label
-  arguments, title metadata definition spans, `\maketitle` emission spans, and
-  citation invocation/key span separation.
+  literal or templated targets, reference/label wrappers with templated keys,
+  reference range wrappers with multiple label arguments, title metadata
+  definition spans, `\maketitle` emission spans, and citation invocation/key
+  span separation.
 
 Still intentionally outside this batch:
 
@@ -243,6 +244,9 @@ The next implementation step has started with a narrow display-list spike:
   reference events and placeholder text without exposing labels;
 - theorem/subequation-style commands such as `thmref`, `Thmref`, and
   `subeqref` also emit reference events instead of leaking labels;
+- reference wrapper macros now preserve templated keys such as
+  `\newcommand{\secref}[1]{\ref{sec:#1}}`, so semantic aux lookup sees
+  `sec:intro` while source provenance still points at the invocation argument;
 - range references such as `crefrange`/`Crefrange`,
   `cpagerefrange`/`Cpagerefrange`, `pagerefrange`, `vpagerefrange`,
   `vrefrange`, and `Vrefrange` now emit a single reference event with both
@@ -260,6 +264,9 @@ The next implementation step has started with a narrow display-list spike:
 - simple label wrapper macros such as `\newcommand{\seclabel}[1]{\label{#1}}`
   and their `\let` aliases now emit `LabelDefinition` events and IR labels
   without leaking hidden label keys into extracted or display-list text;
+- label wrapper macros also preserve templated keys such as
+  `\newcommand{\templabel}[1]{\label{sec:#1}}`, keeping the semantic label key
+  complete while source sync points at the user-provided argument;
 - `SemanticAux`-backed citation labels and reference targets now have latexd
   integration coverage through `RenderEvent -> DocumentIr -> PageDisplayList`;
 - `SemanticAux` citation labels now normalize natbib year-suffix markup such as
