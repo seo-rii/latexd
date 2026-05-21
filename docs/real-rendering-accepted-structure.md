@@ -43,8 +43,10 @@ As of 2026-05-21, the first implementation batch is complete:
   section-wrapper declarations, optional-default section wrappers, `\def`-style
   section/readable wrappers, level-preserving wrappers and `\let` aliases for
   deeper heading commands, alias chains through user-defined heading/readable
-  wrapper macros, title metadata definition spans, `\maketitle` emission spans,
-  and citation invocation/key span separation.
+  wrapper macros, citation/reference wrapper macros that preserve
+  `InlineCitation`/`InlineReference` events instead of flattening to text,
+  title metadata definition spans, `\maketitle` emission spans, and citation
+  invocation/key span separation.
 
 Still intentionally outside this batch:
 
