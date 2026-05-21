@@ -8634,6 +8634,109 @@ See \defaultrange{fig:b}.
 }
 
 #[test]
+fn cross_file_optional_default_multikey_citation_provenance_survives_ir_and_display_list() {
+    let macros = r"\newcommand{\defaultcitepair}[2][core]{\cite{#1,#2}}";
+    let source = r"\input{macros}
+\begin{document}
+See \defaultcitepair{extra}.
+\end{document}";
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        source,
+        &SemanticAux::default(),
+        &[("macros.tex", macros)],
+    );
+
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let citation = paragraph
+        .content
+        .iter()
+        .find_map(|node| match node {
+            InlineNode::Citation(citation) => Some(citation),
+            _ => None,
+        })
+        .expect("citation");
+    assert_eq!(citation.keys, vec!["core".to_string(), "extra".to_string()]);
+    assert!(matches!(
+        &citation.source.primary,
+        ProvenanceSpan::File(span)
+            if span.path.as_str() == "main.tex"
+                && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                    == r"\defaultcitepair{extra}"
+    ));
+    assert!(citation.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::CitationKey
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "macros.tex"
+                        && &macros[span.start_utf8 as usize..span.end_utf8 as usize] == "core"
+            )
+    }));
+    assert!(citation.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::CitationKey
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "extra"
+            )
+    }));
+
+    let display_citation = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "[?]" => Some(run),
+            _ => None,
+        })
+        .expect("citation display-list run");
+    assert!(display_citation.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::CitationKey
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "macros.tex"
+                        && &macros[span.start_utf8 as usize..span.end_utf8 as usize] == "core"
+            )
+    }));
+    assert!(display_citation.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::CitationKey
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "extra"
+            )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("See [?]."),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("core"));
+    assert!(!display_list_text.contains("extra"));
+    assert!(!display_list_text.contains(r"\defaultcitepair"));
+}
+
+#[test]
 fn package_file_macros_are_reused_in_document_ir_and_display_list() {
     let capture = capture_internal_render_ir_with_mounted_files(
         "main.tex",
