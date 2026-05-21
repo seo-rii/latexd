@@ -1399,8 +1399,9 @@ approximate.
   content/invocation spans, URL-like text wrapper content/invocation spans, and
   nested text-wrapper math and simple text-wrapper content/invocation spans,
   and readable nested unknown command content/invocation spans, including
-  link, inline math, and URL-like wrappers inside unknown commands; more
-  source-span edge cases should be added as VM coverage expands.
+  citation/reference keys, link, inline math, and URL-like wrappers inside
+  unknown commands; more source-span edge cases should be added as VM coverage
+  expands.
 - `DocumentIrBuilder` still lives in `tex-layout`. That remains acceptable for
   the first batch, but it should split into a dedicated IR-builder crate if it
   starts owning package/class semantic policy rather than layout-adjacent
