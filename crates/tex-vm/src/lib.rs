@@ -21656,16 +21656,27 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_citation_wrapper_macros() {
-        for (source, invocation_text, definition_text) in [
+        for (source, invocation_text, definition_text, key_text, expected_keys) in [
             (
                 r"\newcommand{\mycite}[1]{\cite{#1}}\begin{document}See \mycite{alpha,beta}.\end{document}",
                 r"\mycite{alpha,beta}",
                 r"\newcommand{\mycite}[1]{\cite{#1}}",
+                "alpha,beta",
+                &["alpha", "beta"][..],
+            ),
+            (
+                r"\newcommand{\mycite}[2][]{\cite[#1]{#2}}\begin{document}See \mycite[see]{gamma}.\end{document}",
+                r"\mycite[see]{gamma}",
+                r"\newcommand{\mycite}[2][]{\cite[#1]{#2}}",
+                "gamma",
+                &["gamma"][..],
             ),
             (
                 r"\newcommand{\mycite}[1]{\cite{#1}}\let\aliascite\mycite\begin{document}See \aliascite{alpha,beta}.\end{document}",
                 r"\aliascite{alpha,beta}",
                 r"\let\aliascite\mycite",
+                "alpha,beta",
+                &["alpha", "beta"][..],
             ),
         ] {
             let mut interner = ControlSequenceInterner::new();
@@ -21684,7 +21695,11 @@ Fallback text.
                 RenderEvent::InlineCitation(citation)
                     if citation.command == "cite"
                         && citation.style_hint == CitationStyleHint::Numeric
-                        && citation.keys == vec!["alpha".to_string(), "beta".to_string()]
+                        && citation.keys
+                            == expected_keys
+                                .iter()
+                                .map(|key| key.to_string())
+                                .collect::<Vec<_>>()
             ));
             assert!(matches!(
                 &citation.meta.source.primary,
@@ -21700,7 +21715,7 @@ Fallback text.
                         tex_render_model::ProvenanceSpan::File(span)
                             if span.path == Utf8PathBuf::from("main.tex")
                                 && &source[span.start_utf8 as usize..span.end_utf8 as usize]
-                                    == "alpha,beta"
+                                    == key_text
                     )
             }));
             assert!(matches!(
@@ -21712,7 +21727,7 @@ Fallback text.
             ));
             assert!(!outcome.render_events.iter().any(|event| matches!(
                 &event.event,
-                RenderEvent::Text(text) if text.text.contains("alpha")
+                RenderEvent::Text(text) if expected_keys.iter().any(|key| text.text.contains(key))
             )));
         }
     }
@@ -22318,16 +22333,27 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_reference_wrapper_macros() {
-        for (source, invocation_text, definition_text) in [
+        for (source, invocation_text, definition_text, key_text, expected_command) in [
             (
                 r"\newcommand{\myref}[1]{\ref{#1}}\begin{document}See \myref{sec:intro}.\end{document}",
                 r"\myref{sec:intro}",
                 r"\newcommand{\myref}[1]{\ref{#1}}",
+                "sec:intro",
+                "ref",
+            ),
+            (
+                r"\newcommand{\myautoref}[2][]{\autoref{#2}}\begin{document}See \myautoref[Section]{sec:auto}.\end{document}",
+                r"\myautoref[Section]{sec:auto}",
+                r"\newcommand{\myautoref}[2][]{\autoref{#2}}",
+                "sec:auto",
+                "autoref",
             ),
             (
                 r"\newcommand{\myref}[1]{\ref{#1}}\let\aliasref\myref\begin{document}See \aliasref{sec:intro}.\end{document}",
                 r"\aliasref{sec:intro}",
                 r"\let\aliasref\myref",
+                "sec:intro",
+                "ref",
             ),
         ] {
             let mut interner = ControlSequenceInterner::new();
@@ -22344,8 +22370,8 @@ Fallback text.
             assert!(matches!(
                 &reference.event,
                 RenderEvent::InlineReference(reference)
-                    if reference.command == "ref"
-                        && reference.keys == vec!["sec:intro".to_string()]
+                    if reference.command == expected_command
+                        && reference.keys == vec![key_text.to_string()]
             ));
             assert!(matches!(
                 &reference.meta.source.primary,
@@ -22361,7 +22387,7 @@ Fallback text.
                         tex_render_model::ProvenanceSpan::File(span)
                             if span.path == Utf8PathBuf::from("main.tex")
                                 && &source[span.start_utf8 as usize..span.end_utf8 as usize]
-                                    == "sec:intro"
+                                    == key_text
                     )
             }));
             assert!(matches!(
@@ -22373,7 +22399,7 @@ Fallback text.
             ));
             assert!(!outcome.render_events.iter().any(|event| matches!(
                 &event.event,
-                RenderEvent::Text(text) if text.text.contains("sec:intro")
+                RenderEvent::Text(text) if text.text.contains(key_text)
             )));
         }
     }
