@@ -529,9 +529,14 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                 ));
             }
             DrawOp::Image(image) => {
+                let asset_format_attr = image
+                    .asset_format
+                    .map(|format| format!(" data-image-asset-format=\"{}\"", format.as_str()))
+                    .unwrap_or_default();
                 body.push_str(&format!(
-                    "<g data-image-asset-ref=\"{}\"{}><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
+                    "<g data-image-asset-ref=\"{}\"{}{}><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
                     escape_xml_text(&image.asset_ref),
+                    asset_format_attr,
                     primary_source_attrs_for(&image.source),
                     image.rect.x,
                     image.rect.y,
@@ -674,8 +679,9 @@ mod tests {
     use tex_layout::{LayoutOptions, layout_text};
     use tex_render_model::{
         Destination, DrawOp, ExpansionFrame, FontFamilyRequest, FontRequest, FontRole, FontSeries,
-        FontShape, LinkAnnotation, PageDisplayList, Point, PositionedImage, PositionedTextRun,
-        ProvenanceSpan, Rect, SourceProvenance, SourceSpan, SourceSpanRole, TextCluster,
+        FontShape, GraphicAssetFormat, LinkAnnotation, PageDisplayList, Point, PositionedImage,
+        PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan, SourceSpanRole,
+        TextCluster,
     };
 
     use super::{
@@ -1097,6 +1103,7 @@ mod tests {
                     height: 72.0,
                 },
                 asset_ref: "figures/a(b)&c.pdf".to_string(),
+                asset_format: Some(GraphicAssetFormat::Pdf),
                 source: SourceProvenance::file("main.tex", 0, 10),
             })],
             source_spans: Vec::new(),
@@ -1112,6 +1119,7 @@ mod tests {
                 .contains(r#"BT /F1 8 Tf 1 0 0 1 76 678 Tm ([image: figures/a\(b\)&c.pdf]) Tj ET"#)
         );
         assert!(svg.contains("data-image-asset-ref=\"figures/a(b)&amp;c.pdf\""));
+        assert!(svg.contains("data-image-asset-format=\"pdf\""));
         assert!(
             svg.contains("<rect x=\"72\" y=\"78\" width=\"144\" height=\"72\" fill=\"#e5e7eb\"")
         );

@@ -4,8 +4,8 @@ use camino::Utf8PathBuf;
 use latexd::compiler::{capture_internal_render_ir, capture_internal_render_ir_with_mounted_files};
 use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{
-    CitationStyleHint, DrawOp, ListKind, MetadataField, RenderEvent, to_pretty_json,
-    to_semantic_pretty_json,
+    CitationStyleHint, DrawOp, GraphicAssetFormat, ListKind, MetadataField, RenderEvent,
+    to_pretty_json, to_semantic_pretty_json,
 };
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole};
 
@@ -1792,11 +1792,13 @@ fn graphic_provenance_preserves_invocation_and_path_argument_spans() {
         "ir": {
             "path": graphic_block.path,
             "options": graphic_block.options,
+            "asset_format": graphic_block.asset_format,
             "caption": graphic_block.caption,
             "source": graphic_block.source,
         },
         "display_list": {
             "asset_ref": image_op.asset_ref,
+            "asset_format": image_op.asset_format,
             "source": image_op.source,
         },
     });
@@ -1915,6 +1917,50 @@ fn extensionless_graphic_assets_resolve_before_ir_and_display_list() {
     let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
     assert!(pdf_text.contains("[image: figures/plot.pdf]"));
     assert!(!pdf_text.contains("[image: figures/plot]"));
+}
+
+#[test]
+fn extensionless_svg_graphic_asset_format_survives_render_boundaries() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        EXTENSIONLESS_SVG_GRAPHIC_SOURCE,
+        &SemanticAux::default(),
+        &[("figures/vector.svg", "<svg/>")],
+    );
+    let graphic_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::GraphicRef(graphic) if graphic.path == "figures/vector.svg" => {
+                Some(graphic)
+            }
+            _ => None,
+        })
+        .expect("graphic event");
+    let graphic_block = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Graphic(graphic) if graphic.path == "figures/vector.svg" => Some(graphic),
+            _ => None,
+        })
+        .expect("graphic block");
+    let image_op = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/vector.svg" => Some(image),
+            _ => None,
+        })
+        .expect("image op");
+
+    assert_eq!(graphic_event.asset_format, Some(GraphicAssetFormat::Svg));
+    assert_eq!(graphic_block.asset_format, Some(GraphicAssetFormat::Svg));
+    assert_eq!(image_op.asset_format, Some(GraphicAssetFormat::Svg));
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+    assert!(pdf_text.contains("[image: figures/vector.svg]"));
 }
 
 #[test]
@@ -12630,6 +12676,8 @@ const FANCYVRB_FALLBACK_SOURCE: &str = r"\begin{document}\begin{Verbatim}[fontsi
 const GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\end{figure}\end{document}";
 
 const EXTENSIONLESS_GRAPHIC_SOURCE: &str = r"\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot}\caption{Plot caption.}\end{figure}\end{document}";
+
+const EXTENSIONLESS_SVG_GRAPHIC_SOURCE: &str = r"\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/vector}\caption{Vector caption.}\end{figure}\end{document}";
 
 const GRAPHICSPATH_SOURCE: &str = r"\graphicspath{{figures/}{unused/}}\begin{document}\begin{figure}\includegraphics[width=5cm]{plot}\caption{Plot caption.}\end{figure}\end{document}";
 

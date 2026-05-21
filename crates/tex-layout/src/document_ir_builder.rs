@@ -383,6 +383,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     self.blocks.push(IrBlock::Graphic(GraphicBlock {
                         path: event.path.clone(),
                         options: event.options.clone(),
+                        asset_format: event.asset_format,
                         caption: None,
                         caption_source: None,
                         source: envelope.meta.source.clone(),
@@ -851,6 +852,7 @@ mod tests {
                     RenderEvent::GraphicRef(GraphicRefEvent {
                         path: "figures/plot.pdf".to_string(),
                         options: Some("width=0.8\\linewidth".to_string()),
+                        asset_format: None,
                     }),
                     SourceProvenance::file("main.tex", 0, 30),
                 ),
@@ -893,6 +895,7 @@ mod tests {
                     RenderEvent::GraphicRef(GraphicRefEvent {
                         path: "figures/plot.pdf".to_string(),
                         options: None,
+                        asset_format: None,
                     }),
                     SourceProvenance::file("main.tex", 15, 45),
                 ),

@@ -15,8 +15,8 @@ pub use display_list::{
 };
 pub use events::{
     BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, EventId, EventMeta,
-    EventProducer, FallbackReason, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
-    InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
+    EventProducer, FallbackReason, FlushTitleBlockEvent, GraphicAssetFormat, GraphicRefEvent,
+    HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
     LineBreakEvent, LineBreakReason, ListItemEvent, ListKind, MathSourceEvent, MetadataField,
     ModeHint, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RenderDiagnosticEvent,
     RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,

@@ -1,5 +1,6 @@
 {
   "display_list": {
+    "asset_format": "pdf",
     "asset_ref": "figures/plot.pdf",
     "source": {
       "expansion_stack": [],
@@ -26,6 +27,7 @@
   },
   "event": {
     "event": {
+      "asset_format": "pdf",
       "kind": "graphic_ref",
       "options": "width=5cm",
       "path": "figures/plot.pdf"
@@ -60,6 +62,7 @@
     }
   },
   "ir": {
+    "asset_format": "pdf",
     "caption": "Plot caption.",
     "options": "width=5cm",
     "path": "figures/plot.pdf",

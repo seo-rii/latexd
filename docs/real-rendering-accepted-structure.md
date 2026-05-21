@@ -94,6 +94,10 @@ The next implementation step has started with a narrow display-list spike:
   existing mounted/file-root candidates such as `.pdf`, `.png`, `.jpg`,
   `.jpeg`, `.eps`, and `.svg` before entering `GraphicRef` events, so IR and
   display-list image operations carry the concrete asset path when available;
+- `GraphicRef`, `Graphic` IR blocks, and display-list `Image` operations now
+  preserve a normalized asset format (`pdf`, `eps`, `svg`, `png`, or `jpeg`)
+  derived from the resolved path, giving future external-asset conversion a
+  stable renderer-neutral dispatch field;
 - `\graphicspath{{...}}` declarations now contribute search directories for
   later `\includegraphics` asset resolution without emitting visible text;
 - `\DeclareGraphicsExtensions{...}` now controls extensionless graphics search
@@ -1066,6 +1070,21 @@ pub enum DrawOp {
     Image(PositionedImage),
     LinkAnnotation(LinkAnnotation),
     NamedDestination(Destination),
+}
+
+pub struct PositionedImage {
+    pub rect: Rect,
+    pub asset_ref: String,
+    pub asset_format: Option<GraphicAssetFormat>,
+    pub source: SourceProvenance,
+}
+
+pub enum GraphicAssetFormat {
+    Pdf,
+    Eps,
+    Svg,
+    Png,
+    Jpeg,
 }
 ```
 

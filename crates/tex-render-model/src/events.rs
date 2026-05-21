@@ -248,6 +248,44 @@ pub struct GraphicRefEvent {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub options: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset_format: Option<GraphicAssetFormat>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GraphicAssetFormat {
+    Pdf,
+    Eps,
+    Svg,
+    Png,
+    Jpeg,
+}
+
+impl GraphicAssetFormat {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pdf => "pdf",
+            Self::Eps => "eps",
+            Self::Svg => "svg",
+            Self::Png => "png",
+            Self::Jpeg => "jpeg",
+        }
+    }
+
+    pub fn from_path(path: &str) -> Option<Self> {
+        let extension = camino::Utf8Path::new(path)
+            .extension()?
+            .to_ascii_lowercase();
+        match extension.as_str() {
+            "pdf" => Some(Self::Pdf),
+            "eps" | "ps" => Some(Self::Eps),
+            "svg" => Some(Self::Svg),
+            "png" => Some(Self::Png),
+            "jpg" | "jpeg" => Some(Self::Jpeg),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -299,9 +337,9 @@ pub struct RenderDiagnosticEvent {
 #[cfg(test)]
 mod tests {
     use crate::{
-        EventMeta, EventProducer, MetadataField, ModeHint, RenderEvent, RenderEventEnvelope,
-        RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance,
-        SpaceEvent, SpaceKind,
+        EventMeta, EventProducer, GraphicAssetFormat, MetadataField, ModeHint, RenderEvent,
+        RenderEventEnvelope, RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent,
+        SourceProvenance, SpaceEvent, SpaceKind,
     };
 
     #[test]
@@ -344,5 +382,26 @@ mod tests {
 
         assert!(encoded.contains("\"kind\": \"space\""));
         assert!(encoded.contains("\"space_kind\": \"interword\""));
+    }
+
+    #[test]
+    fn graphic_asset_format_is_derived_from_known_path_extensions() {
+        assert_eq!(
+            GraphicAssetFormat::from_path("figures/plot.PDF"),
+            Some(GraphicAssetFormat::Pdf)
+        );
+        assert_eq!(
+            GraphicAssetFormat::from_path("figures/plot.eps"),
+            Some(GraphicAssetFormat::Eps)
+        );
+        assert_eq!(
+            GraphicAssetFormat::from_path("figures/vector.svg"),
+            Some(GraphicAssetFormat::Svg)
+        );
+        assert_eq!(
+            GraphicAssetFormat::from_path("figures/photo.jpg"),
+            Some(GraphicAssetFormat::Jpeg)
+        );
+        assert_eq!(GraphicAssetFormat::from_path("figures/plot"), None);
     }
 }

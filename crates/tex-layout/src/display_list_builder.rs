@@ -70,6 +70,7 @@ struct LogicalTextRun {
 
 struct LogicalImage {
     path: String,
+    asset_format: Option<tex_render_model::GraphicAssetFormat>,
     caption: Option<String>,
     caption_source: Option<SourceProvenance>,
     source: SourceProvenance,
@@ -401,6 +402,7 @@ pub fn build_page_display_lists(
             IrBlock::Graphic(block) => {
                 logical_items.push(LogicalItem::Image(LogicalImage {
                     path: block.path.clone(),
+                    asset_format: block.asset_format,
                     caption: None,
                     caption_source: None,
                     source: block.source.clone(),
@@ -782,6 +784,7 @@ pub fn build_page_display_lists(
                         height: image_height,
                     },
                     asset_ref: logical.path.clone(),
+                    asset_format: logical.asset_format,
                     source: logical.source.clone(),
                 }));
                 y += image_height;
@@ -1467,6 +1470,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.pdf".to_string(),
                 options: Some("width=0.8\\linewidth".to_string()),
+                asset_format: None,
                 caption: Some("Plot caption.".to_string()),
                 caption_source: Some(SourceProvenance::file("main.tex", 25, 38).with_related(
                     tex_render_model::SourceSpanRole::EmitSite,
@@ -1512,6 +1516,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.pdf".to_string(),
                 options: None,
+                asset_format: None,
                 caption: Some("abcdefghi".to_string()),
                 caption_source: Some(SourceProvenance::file("main.tex", 25, 34)),
                 source,

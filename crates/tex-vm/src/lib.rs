@@ -8,8 +8,8 @@ use serde::{Deserialize, Serialize};
 use tex_lexer::{CatCodeTable, Lexer, lex_plain};
 use tex_render_model::{
     BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint, EventId,
-    ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
-    InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
+    ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GraphicAssetFormat, GraphicRefEvent,
+    HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
     LineBreakEvent, LineBreakReason, ListItemEvent, ListKind, MathSourceEvent, MetadataField,
     ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent,
     RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent,
@@ -6818,6 +6818,7 @@ impl<'i> Vm<'i> {
         );
         self.emit_render_event(
             RenderEvent::GraphicRef(GraphicRefEvent {
+                asset_format: GraphicAssetFormat::from_path(&resolved_path),
                 path: resolved_path,
                 options,
             }),
@@ -6944,6 +6945,7 @@ impl<'i> Vm<'i> {
             );
             self.emit_render_event(
                 RenderEvent::GraphicRef(GraphicRefEvent {
+                    asset_format: GraphicAssetFormat::from_path(&resolved_path),
                     path: resolved_path,
                     options: Some(options),
                 }),
@@ -6981,6 +6983,7 @@ impl<'i> Vm<'i> {
         );
         self.emit_render_event(
             RenderEvent::GraphicRef(GraphicRefEvent {
+                asset_format: GraphicAssetFormat::from_path(&resolved_path),
                 path: resolved_path,
                 options: None,
             }),
