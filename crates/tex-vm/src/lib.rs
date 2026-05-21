@@ -3357,10 +3357,13 @@ impl<'i> Vm<'i> {
                                     })
                                 },
                                 if scan_state.no_hyper_depth > 0 {
-                                    SourceProvenance::file(
-                                        source_path.to_owned(),
-                                        content_start as u32,
-                                        content_end as u32,
+                                    Self::link_provenance(
+                                        source_path,
+                                        command_start,
+                                        after,
+                                        content_start,
+                                        content_end,
+                                        Some((target_start, target_end)),
                                     )
                                 } else {
                                     Self::link_provenance(
@@ -3458,10 +3461,13 @@ impl<'i> Vm<'i> {
                                 })
                             },
                             if scan_state.no_hyper_depth > 0 {
-                                SourceProvenance::file(
-                                    source_path.to_owned(),
-                                    content_start as u32,
-                                    content_end as u32,
+                                Self::link_provenance(
+                                    source_path,
+                                    command_start,
+                                    after,
+                                    content_start,
+                                    content_end,
+                                    None,
                                 )
                             } else {
                                 Self::link_provenance(
@@ -4033,10 +4039,13 @@ impl<'i> Vm<'i> {
                                                         })
                                                     },
                                                     if scan_state.no_hyper_depth > 0 {
-                                                        SourceProvenance::file(
-                                                            source_path.to_owned(),
-                                                            text_start as u32,
-                                                            text_end as u32,
+                                                        Self::link_provenance(
+                                                            source_path,
+                                                            inner_command_start,
+                                                            command_after,
+                                                            text_start,
+                                                            text_end,
+                                                            Some((target_start, target_end)),
                                                         )
                                                     } else {
                                                         Self::link_provenance(
@@ -4079,10 +4088,13 @@ impl<'i> Vm<'i> {
                                                     })
                                                 },
                                                 if scan_state.no_hyper_depth > 0 {
-                                                    SourceProvenance::file(
-                                                        source_path.to_owned(),
-                                                        target_start as u32,
-                                                        target_end as u32,
+                                                    Self::link_provenance(
+                                                        source_path,
+                                                        inner_command_start,
+                                                        command_after,
+                                                        target_start,
+                                                        target_end,
+                                                        None,
                                                     )
                                                 } else {
                                                     Self::link_provenance(
@@ -4816,12 +4828,16 @@ impl<'i> Vm<'i> {
                                                                             )
                                                                         },
                                                                         if scan_state.no_hyper_depth > 0 {
-                                                                            SourceProvenance::file(
-                                                                                source_path
-                                                                                    .to_owned(),
-                                                                                text_start as u32,
-                                                                                link_text_end
-                                                                                    as u32,
+                                                                            Self::link_provenance(
+                                                                                source_path,
+                                                                                argument_command_start,
+                                                                                command_after,
+                                                                                text_start,
+                                                                                link_text_end,
+                                                                                Some((
+                                                                                    target_start,
+                                                                                    target_end,
+                                                                                )),
                                                                             )
                                                                         } else {
                                                                             Self::link_provenance(
@@ -4881,10 +4897,13 @@ impl<'i> Vm<'i> {
                                                                         )
                                                                     },
                                                                     if scan_state.no_hyper_depth > 0 {
-                                                                        SourceProvenance::file(
-                                                                            source_path.to_owned(),
-                                                                            target_start as u32,
-                                                                            target_end as u32,
+                                                                        Self::link_provenance(
+                                                                            source_path,
+                                                                            argument_command_start,
+                                                                            command_after,
+                                                                            target_start,
+                                                                            target_end,
+                                                                            None,
                                                                         )
                                                                     } else {
                                                                         Self::link_provenance(
@@ -5428,10 +5447,13 @@ impl<'i> Vm<'i> {
                                                                                                 )
                                                                                             },
                                                                                             if scan_state.no_hyper_depth > 0 {
-                                                                                                SourceProvenance::file(
-                                                                                                    source_path.to_owned(),
-                                                                                                    link_text_start as u32,
-                                                                                                    link_text_end as u32,
+                                                                                                Self::link_provenance(
+                                                                                                    source_path,
+                                                                                                    nested_command_start,
+                                                                                                    after_link,
+                                                                                                    link_text_start,
+                                                                                                    link_text_end,
+                                                                                                    Some((target_start, target_end)),
                                                                                                 )
                                                                                             } else {
                                                                                                 Self::link_provenance(
@@ -5492,10 +5514,13 @@ impl<'i> Vm<'i> {
                                                                                             )
                                                                                         },
                                                                                         if scan_state.no_hyper_depth > 0 {
-                                                                                            SourceProvenance::file(
-                                                                                                source_path.to_owned(),
-                                                                                                target_start as u32,
-                                                                                                target_end as u32,
+                                                                                            Self::link_provenance(
+                                                                                                source_path,
+                                                                                                nested_command_start,
+                                                                                                after_url,
+                                                                                                target_start,
+                                                                                                target_end,
+                                                                                                None,
                                                                                             )
                                                                                         } else {
                                                                                             Self::link_provenance(
