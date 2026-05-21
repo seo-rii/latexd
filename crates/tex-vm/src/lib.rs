@@ -1477,6 +1477,19 @@ impl<'i> Vm<'i> {
                                     },
                                 );
                             }
+                            if parameter_count == 1 && body.contains("#1") && !body.contains("#2") {
+                                scan_state.readable_wrapper_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderReadableWrapperMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: after_body,
+                                        },
+                                        body: body.to_string(),
+                                    },
+                                );
+                            }
                             index = after_body;
                         }
                     }
@@ -22421,6 +22434,37 @@ Fallback text.
     #[test]
     fn render_event_capture_records_declared_readable_top_level_wrappers() {
         let source = r"\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}\begin{document}A \reviewnote{check \cite{key}, \ref{sec:intro}, and \href{https://hidden.test}{paper}} B.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(
+            visible_text.contains("A TODO: check [?], [?], and paper B."),
+            "{visible_text}"
+        );
+        assert!(!visible_text.contains("reviewnote"));
+        assert!(!visible_text.contains("color"));
+        assert!(!visible_text.contains("red"));
+        assert!(!visible_text.contains("key"));
+        assert!(!visible_text.contains("sec:intro"));
+        assert!(!visible_text.contains("https://hidden.test"));
+    }
+
+    #[test]
+    fn render_event_capture_records_def_readable_top_level_wrappers() {
+        let source = r"\def\reviewnote#1{{\color{red}[TODO: #1]}}\begin{document}A \reviewnote{check \cite{key}, \ref{sec:intro}, and \href{https://hidden.test}{paper}} B.\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
