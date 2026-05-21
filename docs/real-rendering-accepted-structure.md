@@ -47,9 +47,9 @@ As of 2026-05-21, the first implementation batch is complete:
   `InlineCitation`/`InlineReference`/`InlineLink`/`LabelDefinition` events
   instead of flattening to text, direct `\let` aliases to migrated inline
   commands, citation wrappers with multiple key arguments, citation wrappers
-  with templated keys, link wrappers with literal or templated targets,
-  reference/label wrappers with templated keys, reference range wrappers with
-  multiple label arguments, title metadata
+  with templated or constant keys, link wrappers with literal or templated
+  targets, reference/label wrappers with templated or constant keys, reference
+  range wrappers with multiple label arguments, title metadata
   definition spans, `\maketitle` emission spans, and citation invocation/key
   span separation.
 
@@ -248,6 +248,9 @@ The next implementation step has started with a narrow display-list spike:
 - reference wrapper macros now preserve templated keys such as
   `\newcommand{\secref}[1]{\ref{sec:#1}}`, so semantic aux lookup sees
   `sec:intro` while source provenance still points at the invocation argument;
+- reference wrappers can also carry constant literal keys such as
+  `\newcommand{\introref}{\ref{sec:intro}}`, preserving invocation provenance
+  while keeping the related reference-key span on the literal key definition;
 - range references such as `crefrange`/`Crefrange`,
   `cpagerefrange`/`Cpagerefrange`, `pagerefrange`, `vpagerefrange`,
   `vrefrange`, and `Vrefrange` now emit a single reference event with both
@@ -264,6 +267,10 @@ The next implementation step has started with a narrow display-list spike:
   `\newcommand{\papercite}[1]{\cite{paper:#1}}`, so semantic aux lookup sees
   `paper:intro` while source provenance still points at the invocation
   argument;
+- citation wrappers can also carry constant literal keys such as
+  `\newcommand{\corecite}{\cite{core}}`; the wrapper invocation remains the
+  primary output span and the related citation-key span points to the literal
+  key in the macro definition;
 - VM render-event capture now emits `LabelDefinition` events for `\label{...}`,
   and `DocumentIr` preserves labels as invisible metadata rather than body text;
 - simple label wrapper macros such as `\newcommand{\seclabel}[1]{\label{#1}}`
@@ -272,6 +279,10 @@ The next implementation step has started with a narrow display-list spike:
 - label wrapper macros also preserve templated keys such as
   `\newcommand{\templabel}[1]{\label{sec:#1}}`, keeping the semantic label key
   complete while source sync points at the user-provided argument;
+- label wrapper macros can also carry constant literal keys such as
+  `\newcommand{\introlabel}{\label{sec:intro}}`; the invisible label metadata
+  uses the literal key definition as its primary span and records the wrapper
+  invocation as related provenance;
 - `SemanticAux`-backed citation labels and reference targets now have latexd
   integration coverage through `RenderEvent -> DocumentIr -> PageDisplayList`;
 - `SemanticAux` citation labels now normalize natbib year-suffix markup such as
