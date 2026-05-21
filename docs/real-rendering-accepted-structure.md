@@ -1394,8 +1394,9 @@ approximate.
   linebreak delimiter/optional-spacing spans, plus color wrapper visible
   content/style-argument/invocation spans and simple text wrapper
   content/invocation spans, URL-like text wrapper content/invocation spans, and
-  nested text-wrapper math body/delimiter spans; more source-span edge cases
-  should be added as VM coverage expands.
+  nested text-wrapper math body/delimiter spans and readable nested unknown
+  command content/invocation spans; more source-span edge cases should be added
+  as VM coverage expands.
 - `DocumentIrBuilder` still lives in `tex-layout`. That remains acceptable for
   the first batch, but it should split into a dedicated IR-builder crate if it
   starts owning package/class semantic policy rather than layout-adjacent

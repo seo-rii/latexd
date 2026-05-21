@@ -1,0 +1,94 @@
+{
+  "display_list": [
+    {
+      "clusters": [
+        {
+          "glyph_end": 12,
+          "glyph_start": 0,
+          "text_end_utf8": 12,
+          "text_start_utf8": 0
+        }
+      ],
+      "source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 61,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 49
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 62,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 36
+            }
+          }
+        ]
+      },
+      "text": "visible text"
+    }
+  ],
+  "event": {
+    "event": {
+      "kind": "text",
+      "text": "visible text"
+    },
+    "meta": {
+      "confidence": "high",
+      "event_id": 5,
+      "mode_hint": "unknown",
+      "producer": "command",
+      "source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 61,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 49
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 62,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 36
+            }
+          }
+        ]
+      }
+    }
+  },
+  "ir_source": {
+    "expansion_stack": [],
+    "expansion_stack_truncated": false,
+    "generated_by": "source",
+    "primary": {
+      "end_utf8": 61,
+      "kind": "file",
+      "path": "main.tex",
+      "start_utf8": 49
+    },
+    "related": [
+      {
+        "role": "invocation",
+        "span": {
+          "end_utf8": 62,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 36
+        }
+      }
+    ]
+  },
+  "source": "\\begin{document}Nested \\emph{before \\unknowntext{visible text} after}.\\end{document}"
+}

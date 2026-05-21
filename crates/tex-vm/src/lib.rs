@@ -5991,6 +5991,14 @@ impl<'i> Vm<'i> {
                                                         source_path.to_owned(),
                                                         text_start as u32,
                                                         text_end as u32,
+                                                    )
+                                                    .with_related(
+                                                        SourceSpanRole::Invocation,
+                                                        ProvenanceSpan::File(SourceSpan {
+                                                            path: source_path.to_owned(),
+                                                            start_utf8: inner_command_start as u32,
+                                                            end_utf8: command_after as u32,
+                                                        }),
                                                     ),
                                                 );
                                             }

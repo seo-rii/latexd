@@ -6412,6 +6412,119 @@ fn nested_text_wrapper_unknown_command_survives_ir_without_raw_braces() {
 }
 
 #[test]
+fn nested_text_wrapper_unknown_command_provenance_preserves_content_and_invocation_spans() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    let text_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::Text(text) if text.text == "visible text"
+            )
+        })
+        .expect("unknown command text event");
+    let ir_source = paragraph
+        .content
+        .iter()
+        .find_map(|node| match node {
+            InlineNode::Text { text, source } if text == "visible text" => Some(source),
+            _ => None,
+        })
+        .expect("unknown command text IR source");
+    let text_runs = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "visible text" => Some(run),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(!text_runs.is_empty(), "visible text run");
+
+    for source in [&text_event.meta.source, ir_source] {
+        assert!(matches!(
+            &source.primary,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == "main.tex"
+                    && &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_SOURCE
+                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                        == "visible text"
+        ));
+        assert!(source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\unknowntext{visible text}"
+                )
+        }));
+    }
+    for text_run in &text_runs {
+        assert!(matches!(
+            &text_run.source.primary,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == "main.tex"
+                    && &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_SOURCE
+                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                        == "visible text"
+        ));
+        assert!(text_run.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\unknowntext{visible text}"
+                )
+        }));
+    }
+
+    let provenance_snapshot = serde_json::json!({
+        "source": NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_SOURCE,
+        "event": {
+            "event": text_event.event,
+            "meta": text_event.meta,
+        },
+        "ir_source": ir_source,
+        "display_list": text_runs
+            .iter()
+            .map(|run| serde_json::json!({
+                "text": run.text,
+                "source": run.source,
+                "clusters": run.clusters,
+            }))
+            .collect::<Vec<_>>(),
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/nested-unknown-command.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn declared_top_level_wrapper_survives_ir_without_raw_command_noise() {
     let capture = capture_internal_render_ir(
         "main.tex",
