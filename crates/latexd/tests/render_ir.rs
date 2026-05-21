@@ -6056,6 +6056,228 @@ fn nested_text_wrapper_capture_survives_ir_without_raw_keys() {
 }
 
 #[test]
+fn nested_text_wrapper_inline_provenance_preserves_invocation_and_key_spans() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        NESTED_TEXT_WRAPPER_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let mut provenance_cases = Vec::new();
+
+    let citation_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::InlineCitation(citation)
+                    if citation.keys == vec!["key".to_string()]
+            )
+        })
+        .expect("nested citation event");
+    let citation_inline = paragraph
+        .content
+        .iter()
+        .find_map(|node| match node {
+            InlineNode::Citation(citation) if citation.keys == vec!["key".to_string()] => {
+                Some(citation)
+            }
+            _ => None,
+        })
+        .expect("nested citation IR node");
+    let citation_text_runs = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run)
+                if matches!(
+                    &run.source.primary,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &NESTED_TEXT_WRAPPER_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\cite{key}"
+                ) =>
+            {
+                Some(run)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(!citation_text_runs.is_empty(), "citation text run");
+
+    for source in [&citation_event.meta.source, &citation_inline.source] {
+        assert!(matches!(
+            &source.primary,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == "main.tex"
+                    && &NESTED_TEXT_WRAPPER_SOURCE
+                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\cite{key}"
+        ));
+        assert!(source.related.iter().any(|related| {
+            related.role == SourceSpanRole::CitationKey
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &NESTED_TEXT_WRAPPER_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "key"
+                )
+        }));
+    }
+    for text_run in &citation_text_runs {
+        assert!(text_run.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::CitationKey
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &NESTED_TEXT_WRAPPER_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "key"
+                )
+        }));
+    }
+    provenance_cases.push(serde_json::json!({
+        "case": "citation",
+        "event": {
+            "event": citation_event.event,
+            "meta": citation_event.meta,
+        },
+        "ir_source": citation_inline.source,
+        "display_list": citation_text_runs
+            .iter()
+            .map(|run| serde_json::json!({
+                "text": run.text,
+                "source": run.source,
+                "clusters": run.clusters,
+            }))
+            .collect::<Vec<_>>(),
+    }));
+
+    let reference_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::InlineReference(reference)
+                    if reference.keys == vec!["sec:intro".to_string()]
+                        && reference.command == "ref"
+            )
+        })
+        .expect("nested reference event");
+    let reference_inline = paragraph
+        .content
+        .iter()
+        .find_map(|node| match node {
+            InlineNode::Reference(reference)
+                if reference.keys == vec!["sec:intro".to_string()]
+                    && reference.command == "ref" =>
+            {
+                Some(reference)
+            }
+            _ => None,
+        })
+        .expect("nested reference IR node");
+    let reference_text_runs = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run)
+                if matches!(
+                    &run.source.primary,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &NESTED_TEXT_WRAPPER_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\ref{sec:intro}"
+                ) =>
+            {
+                Some(run)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(!reference_text_runs.is_empty(), "reference text run");
+
+    for source in [&reference_event.meta.source, &reference_inline.source] {
+        assert!(matches!(
+            &source.primary,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == "main.tex"
+                    && &NESTED_TEXT_WRAPPER_SOURCE
+                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\ref{sec:intro}"
+        ));
+        assert!(source.related.iter().any(|related| {
+            related.role == SourceSpanRole::ReferenceKey
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &NESTED_TEXT_WRAPPER_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "sec:intro"
+                )
+        }));
+    }
+    for text_run in &reference_text_runs {
+        assert!(text_run.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::ReferenceKey
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &NESTED_TEXT_WRAPPER_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "sec:intro"
+                )
+        }));
+    }
+    provenance_cases.push(serde_json::json!({
+        "case": "reference",
+        "event": {
+            "event": reference_event.event,
+            "meta": reference_event.meta,
+        },
+        "ir_source": reference_inline.source,
+        "display_list": reference_text_runs
+            .iter()
+            .map(|run| serde_json::json!({
+                "text": run.text,
+                "source": run.source,
+                "clusters": run.clusters,
+            }))
+            .collect::<Vec<_>>(),
+    }));
+
+    let provenance_snapshot = serde_json::json!({
+        "source": NESTED_TEXT_WRAPPER_SOURCE,
+        "cases": provenance_cases,
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/nested-inline.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn nested_text_wrapper_link_capture_survives_ir_without_hidden_targets() {
     let capture = capture_internal_render_ir(
         "main.tex",

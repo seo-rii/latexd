@@ -1385,9 +1385,11 @@ approximate.
 - Semantic golden normalization now covers compact event, IR, and display-list
   fixtures while eliding noisy source/cache fields. Exact provenance goldens now
   cover title emit/content spans, citation invocation/key spans, direct plus
-  macro heading argument/invocation spans, reference and starred-reference
-  invocation/key spans, label definition key/invocation spans, link visible
-  text/target/invocation spans, `NoHyper` visible link text/invocation spans,
+  nested citation invocation/key spans, direct plus macro heading
+  argument/invocation spans, reference and starred-reference invocation/key
+  spans, nested reference invocation/key spans, label definition
+  key/invocation spans, link visible text/target/invocation spans, `NoHyper`
+  visible link text/invocation spans,
   `hyperref`/`hyperlink`/`hypertarget` visible text/target/invocation spans,
   nested link visible text/target/invocation spans, and graphic
   invocation/path argument spans, caption and `captionof`
