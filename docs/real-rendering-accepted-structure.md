@@ -46,9 +46,10 @@ As of 2026-05-21, the first implementation batch is complete:
   wrapper macros, citation/reference/link/label wrapper macros that preserve
   `InlineCitation`/`InlineReference`/`InlineLink`/`LabelDefinition` events
   instead of flattening to text, direct `\let` aliases to migrated inline
-  commands, citation wrappers with multiple key arguments, link wrappers with
-  literal or templated targets, reference/label wrappers with templated keys,
-  reference range wrappers with multiple label arguments, title metadata
+  commands, citation wrappers with multiple key arguments, citation wrappers
+  with templated keys, link wrappers with literal or templated targets,
+  reference/label wrappers with templated keys, reference range wrappers with
+  multiple label arguments, title metadata
   definition spans, `\maketitle` emission spans, and citation invocation/key
   span separation.
 
@@ -259,6 +260,10 @@ The next implementation step has started with a narrow display-list spike:
   `\newcommand{\mycitepair}[2]{\cite{#1,#2}}` and their `\let` aliases
   preserve every key argument in order through event capture and IR while
   keeping raw keys out of display-list text;
+- citation wrapper macros also preserve templated keys such as
+  `\newcommand{\papercite}[1]{\cite{paper:#1}}`, so semantic aux lookup sees
+  `paper:intro` while source provenance still points at the invocation
+  argument;
 - VM render-event capture now emits `LabelDefinition` events for `\label{...}`,
   and `DocumentIr` preserves labels as invisible metadata rather than body text;
 - simple label wrapper macros such as `\newcommand{\seclabel}[1]{\label{#1}}`
