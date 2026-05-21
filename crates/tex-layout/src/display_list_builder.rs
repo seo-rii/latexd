@@ -693,16 +693,7 @@ pub fn build_page_display_lists(
                     for segment in line_segments {
                         record_source_spans(&segment.source, &mut pending.source_spans);
                         let advance = segment.text.chars().count() as f32 * logical.size_pt * 0.5;
-                        let clusters = if segment.text.is_empty() {
-                            None
-                        } else {
-                            Some(vec![TextCluster {
-                                text_start_utf8: 0,
-                                text_end_utf8: segment.text.len() as u32,
-                                glyph_start: 0,
-                                glyph_end: segment.text.chars().count() as u32,
-                            }])
-                        };
+                        let clusters = approximate_text_clusters(&segment.text);
                         let source = segment.source;
                         pending.ops.push(DrawOp::TextRun(PositionedTextRun {
                             origin: Point { x, y },
@@ -859,6 +850,31 @@ pub fn build_page_display_lists(
     pages
 }
 
+fn approximate_text_clusters(text: &str) -> Option<Vec<TextCluster>> {
+    if text.is_empty() {
+        return None;
+    }
+    let glyph_count = text.chars().count() as u32;
+    if text.len() == glyph_count as usize {
+        return Some(vec![TextCluster {
+            text_start_utf8: 0,
+            text_end_utf8: text.len() as u32,
+            glyph_start: 0,
+            glyph_end: glyph_count,
+        }]);
+    }
+    let mut clusters = Vec::new();
+    for (glyph_index, (start, ch)) in text.char_indices().enumerate() {
+        clusters.push(TextCluster {
+            text_start_utf8: start as u32,
+            text_end_utf8: (start + ch.len_utf8()) as u32,
+            glyph_start: glyph_index as u32,
+            glyph_end: glyph_index as u32 + 1,
+        });
+    }
+    Some(clusters)
+}
+
 #[cfg(test)]
 mod tests {
     use tex_render_model::{
@@ -936,12 +952,20 @@ mod tests {
 
         assert_eq!(
             run.clusters.clone(),
-            Some(vec![TextCluster {
-                text_start_utf8: 0,
-                text_end_utf8: 3,
-                glyph_start: 0,
-                glyph_end: 2,
-            }])
+            Some(vec![
+                TextCluster {
+                    text_start_utf8: 0,
+                    text_end_utf8: 1,
+                    glyph_start: 0,
+                    glyph_end: 1,
+                },
+                TextCluster {
+                    text_start_utf8: 1,
+                    text_end_utf8: 3,
+                    glyph_start: 1,
+                    glyph_end: 2,
+                }
+            ])
         );
     }
 

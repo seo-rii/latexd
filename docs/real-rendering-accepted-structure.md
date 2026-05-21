@@ -1416,10 +1416,11 @@ approximate.
 - Raw fallback stores bounded excerpts, visible text, source hashes, and
   deterministic full-source debug artifact paths; internal debug artifact
   writing materializes those source files from persisted source spans.
-- `PageDisplayList` text runs now expose approximate whole-run clusters, not
-  real shaped glyph runs. A renderer-neutral font resolver, shaper, glyph ids,
-  and cluster mapping are required before Skia or PDF fidelity work should be
-  treated as serious.
+- `PageDisplayList` text runs now expose approximate clusters: ASCII runs stay
+  whole-run, while non-ASCII runs are split by UTF-8 scalar value. A
+  renderer-neutral font resolver, shaper, glyph ids, and real shaped cluster
+  mapping are still required before Skia or PDF fidelity work should be treated
+  as serious.
 - External PDF/EPS/SVG asset handling is still a placeholder path. Ghostscript
   or Poppler-backed conversion/embedding policy remains out of scope for this
   batch.
