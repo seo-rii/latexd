@@ -725,7 +725,7 @@ struct RenderEventScanState {
     include_only: Option<HashSet<Utf8PathBuf>>,
     graphic_paths: Vec<Utf8PathBuf>,
     graphic_extensions: Vec<String>,
-    section_macros: HashMap<String, RenderMacroDefinitionSpan>,
+    section_macros: HashMap<String, RenderSectionMacro>,
     readable_wrapper_macros: HashMap<String, RenderReadableWrapperMacro>,
     structured_environments: HashSet<String>,
     theorem_like_environments: HashSet<String>,
@@ -737,6 +737,14 @@ struct RenderMacroDefinitionSpan {
     path: Utf8PathBuf,
     start_utf8: usize,
     end_utf8: usize,
+}
+
+#[derive(Debug, Clone)]
+struct RenderSectionMacro {
+    definition_span: RenderMacroDefinitionSpan,
+    parameter_count: usize,
+    optional_first_argument: bool,
+    heading_parameter: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -1326,31 +1334,53 @@ impl<'i> Vm<'i> {
                     {
                         let mut after_signature = after_target;
                         let mut parameter_count = 0usize;
+                        let mut optional_first_argument = false;
                         if let Some((arity, _, _, after_arity)) =
                             read_bracket_source_argument(source, after_signature)
                         {
                             parameter_count = arity.trim().parse::<usize>().unwrap_or(0);
                             after_signature = after_arity;
+                            let after_optional_default =
+                                skip_ascii_whitespace(source, after_signature);
+                            if let Some((_, _, _, after_default)) =
+                                read_bracket_source_argument(source, after_optional_default)
+                            {
+                                optional_first_argument = true;
+                                after_signature = after_default;
+                            }
                         }
                         if let Some((body, _, _, after_body)) =
                             read_braced_source_argument(source, after_signature)
                         {
                             let macro_name = target.trim().trim_start_matches('\\');
-                            if body.contains("\\section") && body.contains("#1") {
+                            let heading_parameter = if body.contains("\\section") {
+                                (1..=parameter_count)
+                                    .rev()
+                                    .find(|parameter| body.contains(&format!("#{parameter}")))
+                            } else {
+                                None
+                            };
+                            if let Some(heading_parameter) = heading_parameter {
                                 let definition_span = RenderMacroDefinitionSpan {
                                     path: source_path.to_owned(),
                                     start_utf8: command_start,
                                     end_utf8: after_body,
                                 };
+                                let section_macro = RenderSectionMacro {
+                                    definition_span,
+                                    parameter_count,
+                                    optional_first_argument,
+                                    heading_parameter,
+                                };
                                 if command == "providecommand" {
                                     scan_state
                                         .section_macros
                                         .entry(macro_name.to_string())
-                                        .or_insert(definition_span);
+                                        .or_insert(section_macro);
                                 } else {
                                     scan_state
                                         .section_macros
-                                        .insert(macro_name.to_string(), definition_span);
+                                        .insert(macro_name.to_string(), section_macro);
                                 }
                             }
                             if parameter_count == 1 && body.contains("#1") && !body.contains("#2") {
@@ -6463,44 +6493,76 @@ impl<'i> Vm<'i> {
                     );
                 }
                 _ if in_document => {
-                    if let Some(definition_span) = scan_state.section_macros.get(command)
-                        && let Some((heading, content_start, content_end, after)) =
-                            read_braced_source_argument(source, index)
-                    {
-                        self.emit_render_event(
-                            RenderEvent::Heading(HeadingEvent {
-                                level: 1,
-                                text: normalize_latex_text_with_inline_placeholders(heading),
-                                number: None,
-                            }),
-                            SourceProvenance::file(
-                                source_path.to_owned(),
-                                content_start as u32,
-                                content_end as u32,
-                            )
-                            .with_related(
-                                SourceSpanRole::Invocation,
-                                ProvenanceSpan::File(SourceSpan {
-                                    path: source_path.to_owned(),
-                                    start_utf8: command_start as u32,
-                                    end_utf8: after as u32,
+                    if let Some(section_macro) = scan_state.section_macros.get(command) {
+                        let mut argument_index = skip_ascii_whitespace(source, index);
+                        let mut invocation_end = index;
+                        let mut selected_heading = None;
+                        let mut parameter = 1usize;
+                        if section_macro.optional_first_argument {
+                            if let Some((argument, content_start, content_end, after_optional)) =
+                                read_bracket_source_argument(source, argument_index)
+                            {
+                                if section_macro.heading_parameter == 1 {
+                                    selected_heading = Some((argument, content_start, content_end));
+                                }
+                                argument_index = after_optional;
+                                invocation_end = after_optional;
+                            }
+                            parameter = 2;
+                        }
+                        while parameter <= section_macro.parameter_count {
+                            argument_index = skip_ascii_whitespace(source, argument_index);
+                            let Some((argument, content_start, content_end, after_argument)) =
+                                read_braced_source_argument(source, argument_index)
+                            else {
+                                break;
+                            };
+                            if parameter == section_macro.heading_parameter {
+                                selected_heading = Some((argument, content_start, content_end));
+                            }
+                            argument_index = after_argument;
+                            invocation_end = after_argument;
+                            parameter += 1;
+                        }
+                        if let Some((heading, content_start, content_end)) = selected_heading {
+                            self.emit_render_event(
+                                RenderEvent::Heading(HeadingEvent {
+                                    level: 1,
+                                    text: normalize_latex_text_with_inline_placeholders(heading),
+                                    number: None,
                                 }),
-                            )
-                            .with_expansion_frame(ExpansionFrame {
-                                call_span: ProvenanceSpan::File(SourceSpan {
-                                    path: source_path.to_owned(),
-                                    start_utf8: command_start as u32,
-                                    end_utf8: after as u32,
-                                }),
-                                definition_span: Some(ProvenanceSpan::File(SourceSpan {
-                                    path: definition_span.path.clone(),
-                                    start_utf8: definition_span.start_utf8 as u32,
-                                    end_utf8: definition_span.end_utf8 as u32,
-                                })),
-                                command_name: Some(command.to_string()),
-                            }),
-                        );
-                        index = after;
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    content_start as u32,
+                                    content_end as u32,
+                                )
+                                .with_related(
+                                    SourceSpanRole::Invocation,
+                                    ProvenanceSpan::File(SourceSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: command_start as u32,
+                                        end_utf8: invocation_end as u32,
+                                    }),
+                                )
+                                .with_expansion_frame(
+                                    ExpansionFrame {
+                                        call_span: ProvenanceSpan::File(SourceSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start as u32,
+                                            end_utf8: invocation_end as u32,
+                                        }),
+                                        definition_span: Some(ProvenanceSpan::File(SourceSpan {
+                                            path: section_macro.definition_span.path.clone(),
+                                            start_utf8: section_macro.definition_span.start_utf8
+                                                as u32,
+                                            end_utf8: section_macro.definition_span.end_utf8 as u32,
+                                        })),
+                                        command_name: Some(command.to_string()),
+                                    },
+                                ),
+                            );
+                            index = invocation_end;
+                        }
                     } else if let Some(wrapper_macro) =
                         scan_state.readable_wrapper_macros.get(command)
                     {
@@ -24933,6 +24995,60 @@ Fallback text.
                     if span.path == Utf8PathBuf::from("main.tex")
                         && &source[span.start_utf8 as usize..span.end_utf8 as usize]
                             == definition_text
+            ));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_records_optional_section_macro_provenance() {
+        for (source, heading_text, invocation_text) in [
+            (
+                r"\newcommand{\mysection}[2][]{\section[#1]{#2}}\begin{document}\mysection[Short]{Long Title}\end{document}",
+                "Long Title",
+                r"\mysection[Short]{Long Title}",
+            ),
+            (
+                r"\newcommand{\mysection}[2][]{\section[#1]{#2}}\begin{document}\mysection{Default Title}\end{document}",
+                "Default Title",
+                r"\mysection{Default Title}",
+            ),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.set_entry_source_path("main.tex");
+            vm.enable_render_event_capture();
+            let outcome = vm.run_plain(source);
+            let heading = outcome
+                .render_events
+                .iter()
+                .find(|event| {
+                    matches!(&event.event, RenderEvent::Heading(heading) if heading.text == heading_text)
+                })
+                .expect("heading event");
+
+            assert!(matches!(
+                &heading.meta.source.primary,
+                tex_render_model::ProvenanceSpan::File(span)
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == heading_text
+            ));
+            assert!(heading.meta.source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        tex_render_model::ProvenanceSpan::File(span)
+                            if span.path == Utf8PathBuf::from("main.tex")
+                                && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+            assert!(matches!(
+                &heading.meta.source.expansion_stack[0].definition_span,
+                Some(tex_render_model::ProvenanceSpan::File(span))
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == r"\newcommand{\mysection}[2][]{\section[#1]{#2}}"
             ));
         }
     }

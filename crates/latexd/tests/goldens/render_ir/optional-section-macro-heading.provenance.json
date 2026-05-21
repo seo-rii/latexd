@@ -1,0 +1,226 @@
+{
+  "display_list": {
+    "clusters": [
+      {
+        "glyph_end": 10,
+        "glyph_start": 0,
+        "text_end_utf8": 10,
+        "text_start_utf8": 0
+      }
+    ],
+    "source": {
+      "expansion_stack": [
+        {
+          "call_span": {
+            "end_utf8": 91,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 62
+          },
+          "command_name": "mysection",
+          "definition_span": {
+            "end_utf8": 46,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 0
+          }
+        }
+      ],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 90,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 80
+      },
+      "related": [
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 91,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 62
+          }
+        }
+      ]
+    },
+    "text": "Long Title"
+  },
+  "event": {
+    "event": {
+      "kind": "heading",
+      "level": 1,
+      "text": "Long Title"
+    },
+    "meta": {
+      "confidence": "high",
+      "event_id": 1,
+      "mode_hint": "unknown",
+      "producer": "command",
+      "source": {
+        "expansion_stack": [
+          {
+            "call_span": {
+              "end_utf8": 91,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 62
+            },
+            "command_name": "mysection",
+            "definition_span": {
+              "end_utf8": 46,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 0
+            }
+          }
+        ],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 90,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 80
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 91,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 62
+            }
+          }
+        ]
+      }
+    }
+  },
+  "ir": {
+    "content": [
+      {
+        "kind": "text",
+        "source": {
+          "expansion_stack": [
+            {
+              "call_span": {
+                "end_utf8": 91,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 62
+              },
+              "command_name": "mysection",
+              "definition_span": {
+                "end_utf8": 46,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 0
+              }
+            }
+          ],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 90,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 80
+          },
+          "related": [
+            {
+              "role": "invocation",
+              "span": {
+                "end_utf8": 91,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 62
+              }
+            }
+          ]
+        },
+        "text": "Long Title"
+      }
+    ],
+    "level": 1,
+    "source": {
+      "expansion_stack": [
+        {
+          "call_span": {
+            "end_utf8": 91,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 62
+          },
+          "command_name": "mysection",
+          "definition_span": {
+            "end_utf8": 46,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 0
+          }
+        }
+      ],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 90,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 80
+      },
+      "related": [
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 91,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 62
+          }
+        }
+      ]
+    },
+    "text_source": {
+      "expansion_stack": [
+        {
+          "call_span": {
+            "end_utf8": 91,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 62
+          },
+          "command_name": "mysection",
+          "definition_span": {
+            "end_utf8": 46,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 0
+          }
+        }
+      ],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 90,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 80
+      },
+      "related": [
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 91,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 62
+          }
+        }
+      ]
+    }
+  },
+  "source": "\\newcommand{\\mysection}[2][]{\\section[#1]{#2}}\\begin{document}\\mysection[Short]{Long Title}\\end{document}"
+}
