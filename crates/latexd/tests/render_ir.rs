@@ -12147,6 +12147,86 @@ fn aux_resolved_references_and_citations_survive_ir_and_display_list() {
 }
 
 #[test]
+fn aux_resolved_numeric_citation_ranges_survive_ir_and_display_list() {
+    let mut aux = SemanticAux::default();
+    for (key, label) in [
+        ("alpha", "1"),
+        ("beta", "2"),
+        ("gamma", "3"),
+        ("delta", "5"),
+    ] {
+        aux.bibliography.push(BibliographyEntry {
+            key: key.to_string(),
+            text: format!("{key} entry."),
+            label: Some(label.to_string()),
+            file: Utf8PathBuf::from("refs.bbl"),
+        });
+    }
+
+    let capture = capture_internal_render_ir("main.tex", AUX_CITATION_RANGE_SOURCE, &aux);
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::Citation(citation)
+                if citation.keys
+                    == vec![
+                        "alpha".to_string(),
+                        "beta".to_string(),
+                        "gamma".to_string(),
+                        "delta".to_string()
+                    ]
+                    && citation.resolved_label.as_deref() == Some("[1-3,5]")
+                    && citation.display_text == "[1-3,5]"
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("See [1-3,5]."), "{extracted_text}");
+    for hidden in ["alpha", "beta", "gamma", "delta"] {
+        assert!(
+            !extracted_text.contains(hidden),
+            "{hidden} leaked in {extracted_text}"
+        );
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("See [1-3,5]."),
+        "{display_list_text}"
+    );
+    for hidden in ["alpha", "beta", "gamma", "delta"] {
+        assert!(
+            !display_list_text.contains(hidden),
+            "{hidden} leaked in {display_list_text}"
+        );
+    }
+
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+    assert!(pdf_text.contains("([1-3,5]) Tj"));
+    for hidden in ["alpha", "beta", "gamma", "delta"] {
+        assert!(!pdf_text.contains(hidden), "{hidden} leaked in {pdf_text}");
+    }
+}
+
+#[test]
 fn aux_natexlab_labels_are_normalized_in_ir_and_display_list() {
     let mut aux = SemanticAux::default();
     aux.bibliography.push(BibliographyEntry {
@@ -12865,6 +12945,9 @@ const STARRED_NEWTHEOREM_DEFINED_ENVIRONMENT_SOURCE: &str = r"\newtheorem*{named
 
 const AUX_RESOLUTION_SOURCE: &str =
     r"\begin{document}See \ref{sec:intro} and \cite{key}.\end{document}";
+
+const AUX_CITATION_RANGE_SOURCE: &str =
+    r"\begin{document}See \cite{alpha,beta,gamma,delta}.\end{document}";
 
 const AUX_NATEXLAB_SOURCE: &str = r"\begin{document}See \cite{alpha,beta}.\end{document}";
 

@@ -235,7 +235,30 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         }
                     }
                     let resolved_label = if labels.len() == event.keys.len() && !labels.is_empty() {
-                        Some(format!("[{}]", labels.join(",")))
+                        let mut compacted_labels = Vec::new();
+                        let mut index = 0usize;
+                        while index < labels.len() {
+                            let Some(start) = labels[index].parse::<i64>().ok() else {
+                                compacted_labels.push(labels[index].clone());
+                                index += 1;
+                                continue;
+                            };
+                            let mut end_index = index;
+                            let mut end = start;
+                            while end_index + 1 < labels.len()
+                                && labels[end_index + 1].parse::<i64>().ok() == Some(end + 1)
+                            {
+                                end_index += 1;
+                                end += 1;
+                            }
+                            if end_index - index + 1 >= 3 {
+                                compacted_labels.push(format!("{start}-{end}"));
+                            } else {
+                                compacted_labels.extend(labels[index..=end_index].iter().cloned());
+                            }
+                            index = end_index + 1;
+                        }
+                        Some(format!("[{}]", compacted_labels.join(",")))
                     } else {
                         None
                     };
@@ -660,6 +683,41 @@ mod tests {
         );
 
         assert_eq!(ir.extracted_text(), "[1,2]");
+    }
+
+    #[test]
+    fn resolved_numeric_citations_compact_three_or_more_consecutive_labels() {
+        let stream = RenderEventStream::new(
+            Some("citation-range".to_string()),
+            vec![RenderEventEnvelope::new(
+                1,
+                RenderEvent::InlineCitation(InlineCitationEvent {
+                    keys: vec![
+                        "alpha".to_string(),
+                        "beta".to_string(),
+                        "gamma".to_string(),
+                        "delta".to_string(),
+                    ],
+                    command: "cite".to_string(),
+                    style_hint: CitationStyleHint::Numeric,
+                }),
+                SourceProvenance::file("main.tex", 0, 30),
+            )],
+        );
+        let ir = build_document_ir(
+            &stream,
+            &Labels {
+                labels: BTreeMap::from([
+                    ("alpha".to_string(), "1".to_string()),
+                    ("beta".to_string(), "2".to_string()),
+                    ("gamma".to_string(), "3".to_string()),
+                    ("delta".to_string(), "5".to_string()),
+                ]),
+                targets: BTreeMap::new(),
+            },
+        );
+
+        assert_eq!(ir.extracted_text(), "[1-3,5]");
     }
 
     #[test]

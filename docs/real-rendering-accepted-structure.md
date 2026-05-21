@@ -1407,8 +1407,9 @@ approximate.
   starts owning package/class semantic policy rather than layout-adjacent
   normalization.
 - `tex-aux` implements the `AuxView` adapter, but citation formatting remains
-  intentionally narrow. Wider natbib/biblatex grammar, citation ranges, and
-  author-year rendering still need separate design and tests.
+  intentionally narrow. Numeric citation labels now compact three-or-more
+  consecutive resolved labels into ranges, but wider natbib/biblatex grammar
+  and author-year rendering still need separate design and tests.
 - Source spans are persisted as UTF-8 byte offsets, but broader conversion from
   every VM token/macro span into precise output provenance still needs focused
   coverage.
