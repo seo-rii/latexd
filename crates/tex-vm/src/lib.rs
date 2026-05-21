@@ -1354,14 +1354,15 @@ impl<'i> Vm<'i> {
                             read_braced_source_argument(source, after_signature)
                         {
                             let macro_name = target.trim().trim_start_matches('\\');
-                            let heading_parameter = if body.contains("\\section") {
+                            let heading_level = heading_level_from_macro_body(body);
+                            let heading_parameter = heading_level.and_then(|_| {
                                 (1..=parameter_count)
                                     .rev()
                                     .find(|parameter| body.contains(&format!("#{parameter}")))
-                            } else {
-                                None
-                            };
-                            if let Some(heading_parameter) = heading_parameter {
+                            });
+                            if let (Some(level), Some(heading_parameter)) =
+                                (heading_level, heading_parameter)
+                            {
                                 let definition_span = RenderMacroDefinitionSpan {
                                     path: source_path.to_owned(),
                                     start_utf8: command_start,
@@ -1369,7 +1370,7 @@ impl<'i> Vm<'i> {
                                 };
                                 let section_macro = RenderSectionMacro {
                                     definition_span,
-                                    level: 1,
+                                    level,
                                     parameter_count,
                                     optional_first_argument,
                                     heading_parameter,
@@ -1457,14 +1458,15 @@ impl<'i> Vm<'i> {
                         if let Some((body, _, _, after_body)) =
                             read_braced_source_argument(source, signature_index)
                         {
-                            let heading_parameter = if body.contains("\\section") {
+                            let heading_level = heading_level_from_macro_body(body);
+                            let heading_parameter = heading_level.and_then(|_| {
                                 (1..=parameter_count)
                                     .rev()
                                     .find(|parameter| body.contains(&format!("#{parameter}")))
-                            } else {
-                                None
-                            };
-                            if let Some(heading_parameter) = heading_parameter {
+                            });
+                            if let (Some(level), Some(heading_parameter)) =
+                                (heading_level, heading_parameter)
+                            {
                                 scan_state.section_macros.insert(
                                     macro_name.to_string(),
                                     RenderSectionMacro {
@@ -1473,7 +1475,7 @@ impl<'i> Vm<'i> {
                                             start_utf8: command_start,
                                             end_utf8: after_body,
                                         },
-                                        level: 1,
+                                        level,
                                         parameter_count,
                                         optional_first_argument: false,
                                         heading_parameter,
@@ -1548,15 +1550,7 @@ impl<'i> Vm<'i> {
                             } else {
                                 ""
                             };
-                            let level = match source_name {
-                                "part" | "chapter" => Some(0),
-                                "section" => Some(1),
-                                "subsection" => Some(2),
-                                "subsubsection" => Some(3),
-                                "paragraph" => Some(4),
-                                "subparagraph" => Some(5),
-                                _ => None,
-                            };
+                            let level = heading_level_from_command_name(source_name);
                             if let Some(level) = level {
                                 scan_state.section_macros.insert(
                                     macro_name.to_string(),
@@ -14044,6 +14038,32 @@ fn skip_ascii_whitespace(source: &str, mut index: usize) -> usize {
     index
 }
 
+fn heading_level_from_command_name(command: &str) -> Option<u8> {
+    match command {
+        "part" | "chapter" => Some(0),
+        "section" => Some(1),
+        "subsection" => Some(2),
+        "subsubsection" => Some(3),
+        "paragraph" => Some(4),
+        "subparagraph" => Some(5),
+        _ => None,
+    }
+}
+
+fn heading_level_from_macro_body(body: &str) -> Option<u8> {
+    [
+        ("part", 0),
+        ("chapter", 0),
+        ("section", 1),
+        ("subsection", 2),
+        ("subsubsection", 3),
+        ("paragraph", 4),
+        ("subparagraph", 5),
+    ]
+    .into_iter()
+    .find_map(|(command, level)| body.contains(&format!("\\{command}")).then_some(level))
+}
+
 fn read_braced_source_argument(source: &str, index: usize) -> Option<(&str, usize, usize, usize)> {
     read_delimited_source_argument(source, index, b'{', b'}')
 }
@@ -25109,46 +25129,69 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_section_macro_provenance() {
-        let source = r"\newcommand{\mysection}[1]{\section{#1}}\begin{document}\mysection{Intro}\end{document}";
-        let mut interner = ControlSequenceInterner::new();
-        let mut vm = Vm::new(&mut interner);
-        vm.set_entry_source_path("main.tex");
-        vm.enable_render_event_capture();
-        let outcome = vm.run_plain(source);
-        let heading = outcome
-            .render_events
-            .iter()
-            .find(|event| matches!(&event.event, RenderEvent::Heading(_)))
-            .expect("heading event");
+        for (source, heading_text, invocation_text, command_name, level) in [
+            (
+                r"\newcommand{\mysection}[1]{\section{#1}}\begin{document}\mysection{Intro}\end{document}",
+                "Intro",
+                r"\mysection{Intro}",
+                "mysection",
+                1,
+            ),
+            (
+                r"\newcommand{\mysubsection}[1]{\subsection{#1}}\begin{document}\mysubsection{Details}\end{document}",
+                "Details",
+                r"\mysubsection{Details}",
+                "mysubsection",
+                2,
+            ),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.set_entry_source_path("main.tex");
+            vm.enable_render_event_capture();
+            let outcome = vm.run_plain(source);
+            let heading = outcome
+                .render_events
+                .iter()
+                .find(|event| {
+                    matches!(&event.event, RenderEvent::Heading(heading) if heading.text == heading_text)
+                })
+                .expect("heading event");
 
-        assert!(matches!(
-            &heading.meta.source.primary,
-            tex_render_model::ProvenanceSpan::File(span)
-                if span.path == Utf8PathBuf::from("main.tex")
-                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "Intro"
-        ));
-        assert!(heading.meta.source.related.iter().any(|related| {
-            related.role == SourceSpanRole::Invocation
-                && matches!(
-                    &related.span,
-                    tex_render_model::ProvenanceSpan::File(span)
-                        if span.path == Utf8PathBuf::from("main.tex")
-                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
-                                == r"\mysection{Intro}"
-                )
-        }));
-        assert_eq!(heading.meta.source.expansion_stack.len(), 1);
-        assert_eq!(
-            heading.meta.source.expansion_stack[0]
-                .command_name
-                .as_deref(),
-            Some("mysection")
-        );
-        assert!(
-            heading.meta.source.expansion_stack[0]
-                .definition_span
-                .is_some()
-        );
+            assert!(matches!(
+                &heading.event,
+                RenderEvent::Heading(heading) if heading.level == level
+            ));
+            assert!(matches!(
+                &heading.meta.source.primary,
+                tex_render_model::ProvenanceSpan::File(span)
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == heading_text
+            ));
+            assert!(heading.meta.source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        tex_render_model::ProvenanceSpan::File(span)
+                            if span.path == Utf8PathBuf::from("main.tex")
+                                && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+            assert_eq!(heading.meta.source.expansion_stack.len(), 1);
+            assert_eq!(
+                heading.meta.source.expansion_stack[0]
+                    .command_name
+                    .as_deref(),
+                Some(command_name)
+            );
+            assert!(
+                heading.meta.source.expansion_stack[0]
+                    .definition_span
+                    .is_some()
+            );
+        }
     }
 
     #[test]
@@ -25256,42 +25299,64 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_def_section_macro_provenance() {
-        let source =
-            r"\def\mysection#1{\section{#1}}\begin{document}\mysection{Plain Def}\end{document}";
-        let mut interner = ControlSequenceInterner::new();
-        let mut vm = Vm::new(&mut interner);
-        vm.set_entry_source_path("main.tex");
-        vm.enable_render_event_capture();
-        let outcome = vm.run_plain(source);
-        let heading = outcome
-            .render_events
-            .iter()
-            .find(|event| matches!(&event.event, RenderEvent::Heading(heading) if heading.text == "Plain Def"))
-            .expect("heading event");
+        for (source, heading_text, invocation_text, definition_text, level) in [
+            (
+                r"\def\mysection#1{\section{#1}}\begin{document}\mysection{Plain Def}\end{document}",
+                "Plain Def",
+                r"\mysection{Plain Def}",
+                r"\def\mysection#1{\section{#1}}",
+                1,
+            ),
+            (
+                r"\def\mysubsection#1{\subsection{#1}}\begin{document}\mysubsection{Def Details}\end{document}",
+                "Def Details",
+                r"\mysubsection{Def Details}",
+                r"\def\mysubsection#1{\subsection{#1}}",
+                2,
+            ),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.set_entry_source_path("main.tex");
+            vm.enable_render_event_capture();
+            let outcome = vm.run_plain(source);
+            let heading = outcome
+                .render_events
+                .iter()
+                .find(|event| {
+                    matches!(&event.event, RenderEvent::Heading(heading) if heading.text == heading_text)
+                })
+                .expect("heading event");
 
-        assert!(matches!(
-            &heading.meta.source.primary,
-            tex_render_model::ProvenanceSpan::File(span)
-                if span.path == Utf8PathBuf::from("main.tex")
-                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "Plain Def"
-        ));
-        assert!(heading.meta.source.related.iter().any(|related| {
-            related.role == SourceSpanRole::Invocation
-                && matches!(
-                    &related.span,
-                    tex_render_model::ProvenanceSpan::File(span)
-                        if span.path == Utf8PathBuf::from("main.tex")
-                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
-                                == r"\mysection{Plain Def}"
-                )
-        }));
-        assert!(matches!(
-            &heading.meta.source.expansion_stack[0].definition_span,
-            Some(tex_render_model::ProvenanceSpan::File(span))
-                if span.path == Utf8PathBuf::from("main.tex")
-                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
-                        == r"\def\mysection#1{\section{#1}}"
-        ));
+            assert!(matches!(
+                &heading.event,
+                RenderEvent::Heading(heading) if heading.level == level
+            ));
+            assert!(matches!(
+                &heading.meta.source.primary,
+                tex_render_model::ProvenanceSpan::File(span)
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == heading_text
+            ));
+            assert!(heading.meta.source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        tex_render_model::ProvenanceSpan::File(span)
+                            if span.path == Utf8PathBuf::from("main.tex")
+                                && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+            assert!(matches!(
+                &heading.meta.source.expansion_stack[0].definition_span,
+                Some(tex_render_model::ProvenanceSpan::File(span))
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == definition_text
+            ));
+        }
     }
 
     #[test]
