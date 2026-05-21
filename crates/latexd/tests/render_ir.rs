@@ -13024,6 +13024,87 @@ fn label_wrapper_macro_capture_survives_ir_without_visible_key() {
 }
 
 #[test]
+fn templated_reference_and_label_wrapper_keys_survive_ir_without_visible_keys() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        TEMPLATED_REFERENCE_LABEL_WRAPPER_SOURCE,
+        &SemanticAux::default(),
+    );
+
+    let label = capture
+        .document_ir
+        .labels
+        .iter()
+        .find(|label| label.key == "sec:intro")
+        .expect("templated label");
+    assert!(matches!(
+        &label.source.primary,
+        ProvenanceSpan::File(span)
+            if &TEMPLATED_REFERENCE_LABEL_WRAPPER_SOURCE
+                [span.start_utf8 as usize..span.end_utf8 as usize]
+                == "intro"
+    ));
+
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let reference = paragraph
+        .content
+        .iter()
+        .find_map(|node| match node {
+            InlineNode::Reference(reference) => Some(reference),
+            _ => None,
+        })
+        .expect("templated reference");
+    assert_eq!(reference.command, "ref");
+    assert_eq!(reference.keys, vec!["sec:intro".to_string()]);
+    assert!(matches!(
+        &reference.source.primary,
+        ProvenanceSpan::File(span)
+            if &TEMPLATED_REFERENCE_LABEL_WRAPPER_SOURCE
+                [span.start_utf8 as usize..span.end_utf8 as usize]
+                == r"\secref{intro}"
+    ));
+    assert!(reference.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::ReferenceKey
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if &TEMPLATED_REFERENCE_LABEL_WRAPPER_SOURCE
+                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                        == "intro"
+            )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Intro"), "{extracted_text}");
+    assert!(extracted_text.contains("See [?]."), "{extracted_text}");
+    assert!(!extracted_text.contains("sec:intro"));
+    assert!(!extracted_text.contains(r"\seclabel"));
+    assert!(!extracted_text.contains(r"\secref"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("See [?]."));
+    assert!(!display_list_text.contains("sec:intro"));
+    assert!(!display_list_text.contains(r"\seclabel"));
+    assert!(!display_list_text.contains(r"\secref"));
+}
+
+#[test]
 fn label_definition_provenance_preserves_key_and_invocation_spans() {
     let capture = capture_internal_render_ir("main.tex", LABEL_SOURCE, &SemanticAux::default());
     let label_event = capture
@@ -13765,6 +13846,8 @@ const LABEL_SOURCE: &str =
     r"\begin{document}\section{Intro}\label{sec:intro}See \ref{sec:intro}.\end{document}";
 
 const LABEL_WRAPPER_SOURCE: &str = r"\newcommand{\seclabel}[1]{\label{#1}}\let\aliaslabel\seclabel\begin{document}\section{Intro}\seclabel{sec:intro}See \ref{sec:intro} and \ref{sec:alias}.\aliaslabel{sec:alias}\end{document}";
+
+const TEMPLATED_REFERENCE_LABEL_WRAPPER_SOURCE: &str = r"\newcommand{\seclabel}[1]{\label{sec:#1}}\newcommand{\secref}[1]{\ref{sec:#1}}\begin{document}\section{Intro}\seclabel{intro}See \secref{intro}.\end{document}";
 
 const MACRO_SECTION_SOURCE: &str =
     r"\newcommand{\mysection}[1]{\section{#1}}\begin{document}\mysection{Intro}\end{document}";
