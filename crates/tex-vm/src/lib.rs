@@ -744,6 +744,15 @@ struct RenderMacroDefinitionSpan {
 }
 
 #[derive(Debug, Clone)]
+struct RenderMacroArgument<'a> {
+    parameter: usize,
+    argument: &'a str,
+    path: Utf8PathBuf,
+    start_utf8: usize,
+    end_utf8: usize,
+}
+
+#[derive(Debug, Clone)]
 struct RenderSectionMacro {
     definition_span: RenderMacroDefinitionSpan,
     level: u8,
@@ -7376,12 +7385,13 @@ impl<'i> Vm<'i> {
                                 read_bracket_source_argument(source, argument_index)
                             {
                                 if citation_macro.key_parameters.contains(&1) {
-                                    parsed_arguments.push((
-                                        1,
+                                    parsed_arguments.push(RenderMacroArgument {
+                                        parameter: 1,
                                         argument,
-                                        content_start,
-                                        content_end,
-                                    ));
+                                        path: source_path.to_owned(),
+                                        start_utf8: content_start,
+                                        end_utf8: content_end,
+                                    });
                                 }
                                 argument_index = after_optional;
                                 invocation_end = after_optional;
@@ -7391,12 +7401,13 @@ impl<'i> Vm<'i> {
                                     citation_macro.optional_first_default_span.as_ref(),
                                 )
                             {
-                                parsed_arguments.push((
-                                    1,
-                                    default,
-                                    default_span.start_utf8,
-                                    default_span.end_utf8,
-                                ));
+                                parsed_arguments.push(RenderMacroArgument {
+                                    parameter: 1,
+                                    argument: default,
+                                    path: default_span.path.clone(),
+                                    start_utf8: default_span.start_utf8,
+                                    end_utf8: default_span.end_utf8,
+                                });
                             }
                             parameter = 2;
                         }
@@ -7408,12 +7419,13 @@ impl<'i> Vm<'i> {
                                 break;
                             };
                             if citation_macro.key_parameters.contains(&parameter) {
-                                parsed_arguments.push((
+                                parsed_arguments.push(RenderMacroArgument {
                                     parameter,
                                     argument,
-                                    content_start,
-                                    content_end,
-                                ));
+                                    path: source_path.to_owned(),
+                                    start_utf8: content_start,
+                                    end_utf8: content_end,
+                                });
                             }
                             argument_index = after_argument;
                             invocation_end = after_argument;
@@ -7426,7 +7438,7 @@ impl<'i> Vm<'i> {
                                 .all(|required_parameter| {
                                     parsed_arguments
                                         .iter()
-                                        .any(|(parameter, _, _, _)| parameter == required_parameter)
+                                        .any(|argument| argument.parameter == *required_parameter)
                                 });
                         if has_required_arguments && !citation_macro.key_templates.is_empty() {
                             let keys = citation_macro
@@ -7445,27 +7457,19 @@ impl<'i> Vm<'i> {
                                 &citation_macro.key_parameters,
                                 &parsed_arguments,
                             )
-                            .map(|(start_utf8, end_utf8)| {
-                                (source_path.to_owned(), start_utf8, end_utf8)
-                            })
-                            .or_else(|| {
-                                citation_macro
-                                    .key_template_spans
-                                    .first()
-                                    .map(|span| (span.path.clone(), span.start_utf8, span.end_utf8))
-                            });
+                            .or_else(|| citation_macro.key_template_spans.first().cloned());
                             let mut provenance = SourceProvenance::file(
                                 source_path.to_owned(),
                                 command_start as u32,
                                 invocation_end as u32,
                             );
-                            if let Some((path, start_utf8, end_utf8)) = key_span {
+                            if let Some(key_span) = key_span {
                                 provenance = provenance.with_related(
                                     SourceSpanRole::CitationKey,
                                     ProvenanceSpan::File(SourceSpan {
-                                        path,
-                                        start_utf8: start_utf8 as u32,
-                                        end_utf8: end_utf8 as u32,
+                                        path: key_span.path,
+                                        start_utf8: key_span.start_utf8 as u32,
+                                        end_utf8: key_span.end_utf8 as u32,
                                     }),
                                 );
                             }
@@ -7501,19 +7505,26 @@ impl<'i> Vm<'i> {
                             if let Some((argument, content_start, content_end, after_optional)) =
                                 read_bracket_source_argument(source, argument_index)
                             {
-                                parsed_arguments.push((1, argument, content_start, content_end));
+                                parsed_arguments.push(RenderMacroArgument {
+                                    parameter: 1,
+                                    argument,
+                                    path: source_path.to_owned(),
+                                    start_utf8: content_start,
+                                    end_utf8: content_end,
+                                });
                                 argument_index = after_optional;
                                 invocation_end = after_optional;
                             } else if let (Some(default), Some(default_span)) = (
                                 reference_macro.optional_first_default.as_deref(),
                                 reference_macro.optional_first_default_span.as_ref(),
                             ) {
-                                parsed_arguments.push((
-                                    1,
-                                    default,
-                                    default_span.start_utf8,
-                                    default_span.end_utf8,
-                                ));
+                                parsed_arguments.push(RenderMacroArgument {
+                                    parameter: 1,
+                                    argument: default,
+                                    path: default_span.path.clone(),
+                                    start_utf8: default_span.start_utf8,
+                                    end_utf8: default_span.end_utf8,
+                                });
                             }
                             parameter = 2;
                         }
@@ -7524,12 +7535,13 @@ impl<'i> Vm<'i> {
                             else {
                                 break;
                             };
-                            parsed_arguments.push((
+                            parsed_arguments.push(RenderMacroArgument {
                                 parameter,
                                 argument,
-                                content_start,
-                                content_end,
-                            ));
+                                path: source_path.to_owned(),
+                                start_utf8: content_start,
+                                end_utf8: content_end,
+                            });
                             argument_index = after_argument;
                             invocation_end = after_argument;
                             parameter += 1;
@@ -7541,7 +7553,7 @@ impl<'i> Vm<'i> {
                                 .all(|required_parameter| {
                                     parsed_arguments
                                         .iter()
-                                        .any(|(parameter, _, _, _)| parameter == required_parameter)
+                                        .any(|argument| argument.parameter == *required_parameter)
                                 });
                         if has_required_arguments && !reference_macro.key_templates.is_empty() {
                             let keys = reference_macro
@@ -7560,27 +7572,19 @@ impl<'i> Vm<'i> {
                                 &reference_macro.key_parameters,
                                 &parsed_arguments,
                             )
-                            .map(|(start_utf8, end_utf8)| {
-                                (source_path.to_owned(), start_utf8, end_utf8)
-                            })
-                            .or_else(|| {
-                                reference_macro
-                                    .key_template_spans
-                                    .first()
-                                    .map(|span| (span.path.clone(), span.start_utf8, span.end_utf8))
-                            });
+                            .or_else(|| reference_macro.key_template_spans.first().cloned());
                             let mut provenance = SourceProvenance::file(
                                 source_path.to_owned(),
                                 command_start as u32,
                                 invocation_end as u32,
                             );
-                            if let Some((path, start_utf8, end_utf8)) = key_span {
+                            if let Some(key_span) = key_span {
                                 provenance = provenance.with_related(
                                     SourceSpanRole::ReferenceKey,
                                     ProvenanceSpan::File(SourceSpan {
-                                        path,
-                                        start_utf8: start_utf8 as u32,
-                                        end_utf8: end_utf8 as u32,
+                                        path: key_span.path,
+                                        start_utf8: key_span.start_utf8 as u32,
+                                        end_utf8: key_span.end_utf8 as u32,
                                     }),
                                 );
                             }
@@ -7615,19 +7619,26 @@ impl<'i> Vm<'i> {
                             if let Some((argument, content_start, content_end, after_optional)) =
                                 read_bracket_source_argument(source, argument_index)
                             {
-                                parsed_arguments.push((1, argument, content_start, content_end));
+                                parsed_arguments.push(RenderMacroArgument {
+                                    parameter: 1,
+                                    argument,
+                                    path: source_path.to_owned(),
+                                    start_utf8: content_start,
+                                    end_utf8: content_end,
+                                });
                                 argument_index = after_optional;
                                 invocation_end = after_optional;
                             } else if let (Some(default), Some(default_span)) = (
                                 label_macro.optional_first_default.as_deref(),
                                 label_macro.optional_first_default_span.as_ref(),
                             ) {
-                                parsed_arguments.push((
-                                    1,
-                                    default,
-                                    default_span.start_utf8,
-                                    default_span.end_utf8,
-                                ));
+                                parsed_arguments.push(RenderMacroArgument {
+                                    parameter: 1,
+                                    argument: default,
+                                    path: default_span.path.clone(),
+                                    start_utf8: default_span.start_utf8,
+                                    end_utf8: default_span.end_utf8,
+                                });
                             }
                             parameter = 2;
                         }
@@ -7638,12 +7649,13 @@ impl<'i> Vm<'i> {
                             else {
                                 break;
                             };
-                            parsed_arguments.push((
+                            parsed_arguments.push(RenderMacroArgument {
                                 parameter,
                                 argument,
-                                content_start,
-                                content_end,
-                            ));
+                                path: source_path.to_owned(),
+                                start_utf8: content_start,
+                                end_utf8: content_end,
+                            });
                             argument_index = after_argument;
                             invocation_end = after_argument;
                             parameter += 1;
@@ -7652,7 +7664,7 @@ impl<'i> Vm<'i> {
                             label_macro.key_parameters.iter().all(|required_parameter| {
                                 parsed_arguments
                                     .iter()
-                                    .any(|(parameter, _, _, _)| parameter == required_parameter)
+                                    .any(|argument| argument.parameter == *required_parameter)
                             });
                         if has_required_arguments && !label_macro.key_template.is_empty() {
                             let key = expand_macro_argument_template(
@@ -7664,18 +7676,17 @@ impl<'i> Vm<'i> {
                                 start_utf8: command_start as u32,
                                 end_utf8: invocation_end as u32,
                             });
-                            let provenance = if let Some((content_start, content_end)) =
+                            let provenance = if let Some(content_span) =
                                 macro_argument_span_for_parameters(
                                     &label_macro.key_parameters,
                                     &parsed_arguments,
                                 ) {
-                                Self::label_definition_provenance(
-                                    source_path,
-                                    command_start,
-                                    invocation_end,
-                                    content_start,
-                                    content_end,
+                                SourceProvenance::file(
+                                    content_span.path,
+                                    content_span.start_utf8 as u32,
+                                    content_span.end_utf8 as u32,
                                 )
+                                .with_related(SourceSpanRole::Invocation, invocation_span)
                             } else if let Some(span) = &label_macro.key_template_span {
                                 SourceProvenance::file(
                                     span.path.clone(),
@@ -7723,19 +7734,26 @@ impl<'i> Vm<'i> {
                             if let Some((argument, content_start, content_end, after_optional)) =
                                 read_bracket_source_argument(source, argument_index)
                             {
-                                parsed_arguments.push((1, argument, content_start, content_end));
+                                parsed_arguments.push(RenderMacroArgument {
+                                    parameter: 1,
+                                    argument,
+                                    path: source_path.to_owned(),
+                                    start_utf8: content_start,
+                                    end_utf8: content_end,
+                                });
                                 argument_index = after_optional;
                                 invocation_end = after_optional;
                             } else if let (Some(default), Some(default_span)) = (
                                 link_macro.optional_first_default.as_deref(),
                                 link_macro.optional_first_default_span.as_ref(),
                             ) {
-                                parsed_arguments.push((
-                                    1,
-                                    default,
-                                    default_span.start_utf8,
-                                    default_span.end_utf8,
-                                ));
+                                parsed_arguments.push(RenderMacroArgument {
+                                    parameter: 1,
+                                    argument: default,
+                                    path: default_span.path.clone(),
+                                    start_utf8: default_span.start_utf8,
+                                    end_utf8: default_span.end_utf8,
+                                });
                             }
                             parameter = 2;
                         }
@@ -7746,12 +7764,13 @@ impl<'i> Vm<'i> {
                             else {
                                 break;
                             };
-                            parsed_arguments.push((
+                            parsed_arguments.push(RenderMacroArgument {
                                 parameter,
                                 argument,
-                                content_start,
-                                content_end,
-                            ));
+                                path: source_path.to_owned(),
+                                start_utf8: content_start,
+                                end_utf8: content_end,
+                            });
                             argument_index = after_argument;
                             invocation_end = after_argument;
                             parameter += 1;
@@ -7763,66 +7782,32 @@ impl<'i> Vm<'i> {
                             .all(|required_parameter| {
                                 parsed_arguments
                                     .iter()
-                                    .any(|(parameter, _, _, _)| parameter == required_parameter)
+                                    .any(|argument| argument.parameter == *required_parameter)
                             });
                         if has_required_arguments && !link_macro.text_parameters.is_empty() {
                             let mut target = link_macro.target_template.clone();
                             let mut text = link_macro.text_template.clone();
-                            for (parameter, argument, _, _) in &parsed_arguments {
-                                let placeholder = format!("#{parameter}");
-                                target = target.replace(&placeholder, argument);
-                                text = text.replace(&placeholder, argument);
+                            for argument in &parsed_arguments {
+                                let placeholder = format!("#{}", argument.parameter);
+                                target = target.replace(&placeholder, argument.argument);
+                                text = text.replace(&placeholder, argument.argument);
                             }
-                            let text_start = link_macro
-                                .text_parameters
-                                .iter()
-                                .filter_map(|text_parameter| {
-                                    parsed_arguments
-                                        .iter()
-                                        .find(|(parameter, _, _, _)| parameter == text_parameter)
-                                        .map(|(_, _, content_start, _)| *content_start)
-                                })
-                                .min()
-                                .unwrap_or(command_start);
-                            let text_end = link_macro
-                                .text_parameters
-                                .iter()
-                                .filter_map(|text_parameter| {
-                                    parsed_arguments
-                                        .iter()
-                                        .find(|(parameter, _, _, _)| parameter == text_parameter)
-                                        .map(|(_, _, _, content_end)| *content_end)
-                                })
-                                .max()
-                                .unwrap_or(invocation_end);
+                            let text_span = macro_argument_span_for_parameters(
+                                &link_macro.text_parameters,
+                                &parsed_arguments,
+                            )
+                            .unwrap_or(RenderMacroDefinitionSpan {
+                                path: source_path.to_owned(),
+                                start_utf8: command_start,
+                                end_utf8: invocation_end,
+                            });
                             let target_span = (link_macro.target_parameters
                                 != link_macro.text_parameters)
                                 .then(|| {
-                                    let target_start = link_macro
-                                        .target_parameters
-                                        .iter()
-                                        .filter_map(|target_parameter| {
-                                            parsed_arguments
-                                                .iter()
-                                                .find(|(parameter, _, _, _)| {
-                                                    parameter == target_parameter
-                                                })
-                                                .map(|(_, _, content_start, _)| *content_start)
-                                        })
-                                        .min();
-                                    let target_end = link_macro
-                                        .target_parameters
-                                        .iter()
-                                        .filter_map(|target_parameter| {
-                                            parsed_arguments
-                                                .iter()
-                                                .find(|(parameter, _, _, _)| {
-                                                    parameter == target_parameter
-                                                })
-                                                .map(|(_, _, _, content_end)| *content_end)
-                                        })
-                                        .max();
-                                    target_start.zip(target_end)
+                                    macro_argument_span_for_parameters(
+                                        &link_macro.target_parameters,
+                                        &parsed_arguments,
+                                    )
                                 })
                                 .flatten();
                             let text = normalize_latex_text_with_inline_placeholders(&text);
@@ -7836,12 +7821,11 @@ impl<'i> Vm<'i> {
                                         command: link_macro.command.clone(),
                                     })
                                 },
-                                Self::link_provenance(
+                                Self::link_provenance_with_spans(
                                     source_path,
                                     command_start,
                                     invocation_end,
-                                    text_start,
-                                    text_end,
+                                    text_span,
                                     target_span,
                                 )
                                 .with_expansion_frame(
@@ -8296,23 +8280,50 @@ impl<'i> Vm<'i> {
         text_end: usize,
         target_span: Option<(usize, usize)>,
     ) -> SourceProvenance {
-        let mut provenance =
-            SourceProvenance::file(source_path.to_owned(), text_start as u32, text_end as u32)
-                .with_related(
-                    SourceSpanRole::Invocation,
-                    ProvenanceSpan::File(SourceSpan {
-                        path: source_path.to_owned(),
-                        start_utf8: command_start as u32,
-                        end_utf8: command_end as u32,
-                    }),
-                );
-        if let Some((target_start, target_end)) = target_span {
+        Self::link_provenance_with_spans(
+            source_path,
+            command_start,
+            command_end,
+            RenderMacroDefinitionSpan {
+                path: source_path.to_owned(),
+                start_utf8: text_start,
+                end_utf8: text_end,
+            },
+            target_span.map(|(target_start, target_end)| RenderMacroDefinitionSpan {
+                path: source_path.to_owned(),
+                start_utf8: target_start,
+                end_utf8: target_end,
+            }),
+        )
+    }
+
+    fn link_provenance_with_spans(
+        source_path: &Utf8Path,
+        command_start: usize,
+        command_end: usize,
+        text_span: RenderMacroDefinitionSpan,
+        target_span: Option<RenderMacroDefinitionSpan>,
+    ) -> SourceProvenance {
+        let mut provenance = SourceProvenance::file(
+            text_span.path,
+            text_span.start_utf8 as u32,
+            text_span.end_utf8 as u32,
+        )
+        .with_related(
+            SourceSpanRole::Invocation,
+            ProvenanceSpan::File(SourceSpan {
+                path: source_path.to_owned(),
+                start_utf8: command_start as u32,
+                end_utf8: command_end as u32,
+            }),
+        );
+        if let Some(target_span) = target_span {
             provenance = provenance.with_related(
                 SourceSpanRole::Argument,
                 ProvenanceSpan::File(SourceSpan {
-                    path: source_path.to_owned(),
-                    start_utf8: target_start as u32,
-                    end_utf8: target_end as u32,
+                    path: target_span.path,
+                    start_utf8: target_span.start_utf8 as u32,
+                    end_utf8: target_span.end_utf8 as u32,
                 }),
             );
         }
@@ -15285,38 +15296,49 @@ fn template_parameters_for_macro_argument(argument: &str, parameter_count: usize
 
 fn expand_macro_argument_template(
     template: &str,
-    parsed_arguments: &[(usize, &str, usize, usize)],
+    parsed_arguments: &[RenderMacroArgument<'_>],
 ) -> String {
     let mut expanded = template.to_string();
-    for (parameter, argument, _, _) in parsed_arguments {
-        expanded = expanded.replace(&format!("#{parameter}"), argument);
+    for argument in parsed_arguments {
+        expanded = expanded.replace(&format!("#{}", argument.parameter), argument.argument);
     }
     expanded
 }
 
 fn macro_argument_span_for_parameters(
     parameters: &[usize],
-    parsed_arguments: &[(usize, &str, usize, usize)],
-) -> Option<(usize, usize)> {
-    let start = parameters
+    parsed_arguments: &[RenderMacroArgument<'_>],
+) -> Option<RenderMacroDefinitionSpan> {
+    let matched_arguments = parameters
         .iter()
         .filter_map(|required_parameter| {
             parsed_arguments
                 .iter()
-                .find(|(parameter, _, _, _)| parameter == required_parameter)
-                .map(|(_, _, content_start, _)| *content_start)
+                .find(|argument| argument.parameter == *required_parameter)
         })
-        .min()?;
-    let end = parameters
+        .collect::<Vec<_>>();
+    let first = matched_arguments.first()?;
+    if matched_arguments
         .iter()
-        .filter_map(|required_parameter| {
-            parsed_arguments
+        .all(|argument| argument.path == first.path)
+    {
+        return Some(RenderMacroDefinitionSpan {
+            path: first.path.clone(),
+            start_utf8: matched_arguments
                 .iter()
-                .find(|(parameter, _, _, _)| parameter == required_parameter)
-                .map(|(_, _, _, content_end)| *content_end)
-        })
-        .max()?;
-    Some((start, end))
+                .map(|argument| argument.start_utf8)
+                .min()?,
+            end_utf8: matched_arguments
+                .iter()
+                .map(|argument| argument.end_utf8)
+                .max()?,
+        });
+    }
+    Some(RenderMacroDefinitionSpan {
+        path: first.path.clone(),
+        start_utf8: first.start_utf8,
+        end_utf8: first.end_utf8,
+    })
 }
 
 fn citation_macro_from_body(
@@ -27334,6 +27356,152 @@ Fallback text.
                 RenderEvent::Text(text) if text.text.contains(expected_key)
             )));
         }
+    }
+
+    #[test]
+    fn render_event_capture_records_optional_default_key_wrapper_definition_file_provenance() {
+        let defs = r"\newcommand{\defaultcite}[1][core]{\cite{#1}}\newcommand{\defaultref}[1][sec:intro]{\ref{#1}}\newcommand{\defaultlabel}[1][sec:intro]{\label{#1}}";
+        let source = r"\input{defs}\begin{document}See \defaultcite, \defaultref.\defaultlabel\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("defs.tex", defs);
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let citation = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineCitation(_)))
+            .expect("citation event");
+        assert!(matches!(
+            &citation.meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\defaultcite"
+        ));
+        assert!(citation.meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::CitationKey
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("defs.tex")
+                            && &defs[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "core"
+                )
+        }));
+
+        let reference = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineReference(_)))
+            .expect("reference event");
+        assert!(matches!(
+            &reference.meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\defaultref"
+        ));
+        assert!(reference.meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::ReferenceKey
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("defs.tex")
+                            && &defs[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "sec:intro"
+                )
+        }));
+
+        let label = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::LabelDefinition(_)))
+            .expect("label event");
+        assert!(matches!(
+            &label.meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("defs.tex")
+                    && &defs[span.start_utf8 as usize..span.end_utf8 as usize] == "sec:intro"
+        ));
+        assert!(label.meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\defaultlabel"
+                )
+        }));
+    }
+
+    #[test]
+    fn render_event_capture_records_optional_default_link_wrapper_definition_file_provenance() {
+        let defs = r"\newcommand{\defaultdoclink}[1][guide]{\href{https://constant.test}{#1}}\newcommand{\defaultdoilink}[1][10.1000/default]{\href{https://doi.org/#1}{#1}}";
+        let source =
+            r"\input{defs}\begin{document}Read \defaultdoclink and \defaultdoilink.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("defs.tex", defs);
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let links = outcome
+            .render_events
+            .iter()
+            .filter(|event| matches!(&event.event, RenderEvent::InlineLink(_)))
+            .collect::<Vec<_>>();
+        assert_eq!(links.len(), 2);
+
+        assert!(matches!(
+            &links[0].event,
+            RenderEvent::InlineLink(link)
+                if link.target == "https://constant.test" && link.text == "guide"
+        ));
+        assert!(matches!(
+            &links[0].meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("defs.tex")
+                    && &defs[span.start_utf8 as usize..span.end_utf8 as usize] == "guide"
+        ));
+        assert!(links[0].meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\defaultdoclink"
+                )
+        }));
+
+        assert!(matches!(
+            &links[1].event,
+            RenderEvent::InlineLink(link)
+                if link.target == "https://doi.org/10.1000/default"
+                    && link.text == "10.1000/default"
+        ));
+        assert!(matches!(
+            &links[1].meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("defs.tex")
+                    && &defs[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == "10.1000/default"
+        ));
+        assert!(links[1].meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\defaultdoilink"
+                )
+        }));
     }
 
     #[test]
