@@ -7453,17 +7453,19 @@ impl<'i> Vm<'i> {
                                         .collect::<Vec<_>>()
                                 })
                                 .collect::<Vec<_>>();
-                            let key_span = macro_argument_span_for_parameters(
+                            let mut key_spans = macro_argument_spans_for_parameters(
                                 &citation_macro.key_parameters,
                                 &parsed_arguments,
-                            )
-                            .or_else(|| citation_macro.key_template_spans.first().cloned());
+                            );
+                            if key_spans.is_empty() {
+                                key_spans = citation_macro.key_template_spans.clone();
+                            }
                             let mut provenance = SourceProvenance::file(
                                 source_path.to_owned(),
                                 command_start as u32,
                                 invocation_end as u32,
                             );
-                            if let Some(key_span) = key_span {
+                            for key_span in key_spans {
                                 provenance = provenance.with_related(
                                     SourceSpanRole::CitationKey,
                                     ProvenanceSpan::File(SourceSpan {
@@ -7568,17 +7570,19 @@ impl<'i> Vm<'i> {
                                         .collect::<Vec<_>>()
                                 })
                                 .collect::<Vec<_>>();
-                            let key_span = macro_argument_span_for_parameters(
+                            let mut key_spans = macro_argument_spans_for_parameters(
                                 &reference_macro.key_parameters,
                                 &parsed_arguments,
-                            )
-                            .or_else(|| reference_macro.key_template_spans.first().cloned());
+                            );
+                            if key_spans.is_empty() {
+                                key_spans = reference_macro.key_template_spans.clone();
+                            }
                             let mut provenance = SourceProvenance::file(
                                 source_path.to_owned(),
                                 command_start as u32,
                                 invocation_end as u32,
                             );
-                            if let Some(key_span) = key_span {
+                            for key_span in key_spans {
                                 provenance = provenance.with_related(
                                     SourceSpanRole::ReferenceKey,
                                     ProvenanceSpan::File(SourceSpan {
@@ -15309,6 +15313,15 @@ fn macro_argument_span_for_parameters(
     parameters: &[usize],
     parsed_arguments: &[RenderMacroArgument<'_>],
 ) -> Option<RenderMacroDefinitionSpan> {
+    macro_argument_spans_for_parameters(parameters, parsed_arguments)
+        .into_iter()
+        .next()
+}
+
+fn macro_argument_spans_for_parameters(
+    parameters: &[usize],
+    parsed_arguments: &[RenderMacroArgument<'_>],
+) -> Vec<RenderMacroDefinitionSpan> {
     let matched_arguments = parameters
         .iter()
         .filter_map(|required_parameter| {
@@ -15317,28 +15330,35 @@ fn macro_argument_span_for_parameters(
                 .find(|argument| argument.parameter == *required_parameter)
         })
         .collect::<Vec<_>>();
-    let first = matched_arguments.first()?;
+    let Some(first) = matched_arguments.first() else {
+        return Vec::new();
+    };
     if matched_arguments
         .iter()
         .all(|argument| argument.path == first.path)
     {
-        return Some(RenderMacroDefinitionSpan {
+        return vec![RenderMacroDefinitionSpan {
             path: first.path.clone(),
             start_utf8: matched_arguments
                 .iter()
                 .map(|argument| argument.start_utf8)
-                .min()?,
+                .min()
+                .expect("matched argument start"),
             end_utf8: matched_arguments
                 .iter()
                 .map(|argument| argument.end_utf8)
-                .max()?,
-        });
+                .max()
+                .expect("matched argument end"),
+        }];
     }
-    Some(RenderMacroDefinitionSpan {
-        path: first.path.clone(),
-        start_utf8: first.start_utf8,
-        end_utf8: first.end_utf8,
-    })
+    matched_arguments
+        .into_iter()
+        .map(|argument| RenderMacroDefinitionSpan {
+            path: argument.path.clone(),
+            start_utf8: argument.start_utf8,
+            end_utf8: argument.end_utf8,
+        })
+        .collect()
 }
 
 fn citation_macro_from_body(
@@ -23724,6 +23744,57 @@ Fallback text.
                     if text.text.contains("fig:a") || text.text.contains("fig:b")
             )));
         }
+    }
+
+    #[test]
+    fn render_event_capture_records_cross_file_optional_default_range_wrapper_key_provenance() {
+        let defs = r"\newcommand{\defaultrange}[2][fig:a]{\crefrange{#1}{#2}}";
+        let source = r"\input{defs}\begin{document}See \defaultrange{fig:b}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("defs.tex", defs);
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let reference = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineReference(_)))
+            .expect("reference event");
+
+        assert!(matches!(
+            &reference.event,
+            RenderEvent::InlineReference(reference)
+                if reference.command == "crefrange"
+                    && reference.keys == vec!["fig:a".to_string(), "fig:b".to_string()]
+        ));
+        assert!(matches!(
+            &reference.meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\defaultrange{fig:b}"
+        ));
+        assert!(reference.meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::ReferenceKey
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("defs.tex")
+                            && &defs[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "fig:a"
+                )
+        }));
+        assert!(reference.meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::ReferenceKey
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "fig:b"
+                )
+        }));
     }
 
     #[test]
