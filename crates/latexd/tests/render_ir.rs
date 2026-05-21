@@ -6379,6 +6379,135 @@ fn nested_text_wrapper_inside_wrapper_survives_ir_without_raw_braces() {
 }
 
 #[test]
+fn nested_text_wrapper_provenance_preserves_inner_wrapper_content_and_invocation_spans() {
+    let mut provenance_cases = Vec::new();
+
+    for (case, source, display_text, invocation_text) in [
+        (
+            "direct",
+            NESTED_TEXT_WRAPPER_WRAPPER_SOURCE,
+            "inner text",
+            r"\textbf{inner text}",
+        ),
+        (
+            "unknown_command",
+            NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_TEXT_WRAPPER_SOURCE,
+            "inner text",
+            r"\textbf{inner text}",
+        ),
+    ] {
+        let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+        let paragraph = capture
+            .document_ir
+            .blocks
+            .iter()
+            .find_map(|block| match block {
+                IrBlock::Paragraph(paragraph) => Some(paragraph),
+                _ => None,
+            })
+            .expect("paragraph");
+        let text_event = capture
+            .events
+            .events
+            .iter()
+            .find(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RenderEvent::Text(text) if text.text == display_text
+                )
+            })
+            .expect("inner wrapper text event");
+        let ir_source = paragraph
+            .content
+            .iter()
+            .find_map(|node| match node {
+                InlineNode::Text { text, source } if text == display_text => Some(source),
+                _ => None,
+            })
+            .expect("inner wrapper text IR source");
+        let text_runs = capture.page_display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run)
+                    if matches!(
+                        &run.source.primary,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == display_text
+                    ) =>
+                {
+                    Some(run)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(!text_runs.is_empty(), "text run for {case}");
+
+        for source_provenance in [&text_event.meta.source, ir_source] {
+            assert!(matches!(
+                &source_provenance.primary,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == display_text
+            ));
+            assert!(source_provenance.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+        }
+        for text_run in &text_runs {
+            assert!(text_run.source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+        }
+
+        provenance_cases.push(serde_json::json!({
+            "case": case,
+            "source": source,
+            "event": {
+                "event": text_event.event,
+                "meta": text_event.meta,
+            },
+            "ir_source": ir_source,
+            "display_list": text_runs
+                .iter()
+                .map(|run| serde_json::json!({
+                    "text": run.text,
+                    "source": run.source,
+                    "clusters": run.clusters,
+                }))
+                .collect::<Vec<_>>(),
+        }));
+    }
+
+    let provenance_snapshot = serde_json::json!({
+        "cases": provenance_cases,
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/nested-text-wrapper.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn nested_text_wrapper_unknown_command_survives_ir_without_raw_braces() {
     let capture = capture_internal_render_ir(
         "main.tex",
