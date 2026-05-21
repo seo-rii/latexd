@@ -39,7 +39,9 @@ As of 2026-05-21, the first implementation batch is complete:
   event/IR path as `abstract` instead of falling back to unsupported raw text.
 - Focused provenance tests and goldens cover macro-expanded section text,
   direct input-file headings, cross-file input macro call/definition spans,
-  title metadata definition spans, `\maketitle` emission spans, and citation
+  preamble-input/package/class macro definitions, starred/provided
+  section-wrapper declarations, optional-default section wrappers, title
+  metadata definition spans, `\maketitle` emission spans, and citation
   invocation/key span separation.
 
 Still intentionally outside this batch:
