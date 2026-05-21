@@ -1,0 +1,193 @@
+{
+  "cases": [
+    {
+      "display_list": [
+        {
+          "clusters": [
+            {
+              "glyph_end": 3,
+              "glyph_start": 0,
+              "text_end_utf8": 3,
+              "text_start_utf8": 0
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 38,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 35
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 39,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 34
+                }
+              }
+            ]
+          },
+          "text": "x^2"
+        }
+      ],
+      "event": {
+        "event": {
+          "kind": "inline_math",
+          "raw_source": "x^2"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 5,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 38,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 35
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 39,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 34
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir_source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 38,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 35
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 39,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 34
+            }
+          }
+        ]
+      },
+      "raw_source": "x^2"
+    },
+    {
+      "display_list": [
+        {
+          "clusters": [
+            {
+              "glyph_end": 3,
+              "glyph_start": 0,
+              "text_end_utf8": 3,
+              "text_start_utf8": 0
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 49,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 46
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 51,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 44
+                }
+              }
+            ]
+          },
+          "text": "y^2"
+        }
+      ],
+      "event": {
+        "event": {
+          "kind": "inline_math",
+          "raw_source": "y^2"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 9,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 49,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 46
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 51,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 44
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir_source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 49,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 46
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 51,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 44
+            }
+          }
+        ]
+      },
+      "raw_source": "y^2"
+    }
+  ],
+  "source": "\\begin{document}Nested \\emph{area $x^2$ and \\(y^2\\)} text.\\end{document}"
+}

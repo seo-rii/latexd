@@ -6221,6 +6221,131 @@ fn nested_text_wrapper_math_capture_survives_ir_without_raw_delimiters() {
 }
 
 #[test]
+fn nested_text_wrapper_math_provenance_preserves_body_and_delimiter_spans() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        NESTED_TEXT_WRAPPER_MATH_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    let mut provenance_cases = Vec::new();
+    for (raw_source, invocation_text) in [("x^2", "$x^2$"), ("y^2", r"\(y^2\)")] {
+        let math_event = capture
+            .events
+            .events
+            .iter()
+            .find(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RenderEvent::InlineMath(math) if math.raw_source == raw_source
+                )
+            })
+            .expect("inline math event");
+        let ir_source = paragraph
+            .content
+            .iter()
+            .find_map(|node| match node {
+                InlineNode::InlineMath {
+                    raw_source: node_raw_source,
+                    source,
+                    ..
+                } if node_raw_source == raw_source => Some(source),
+                _ => None,
+            })
+            .expect("inline math IR source");
+        let text_runs = capture.page_display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if run.text == raw_source => Some(run),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(!text_runs.is_empty(), "text run for {raw_source}");
+
+        for source in [&math_event.meta.source, ir_source] {
+            assert!(matches!(
+                &source.primary,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &NESTED_TEXT_WRAPPER_MATH_SOURCE
+                            [span.start_utf8 as usize..span.end_utf8 as usize]
+                            == raw_source
+            ));
+            assert!(source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &NESTED_TEXT_WRAPPER_MATH_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+        }
+        for text_run in &text_runs {
+            assert!(matches!(
+                &text_run.source.primary,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &NESTED_TEXT_WRAPPER_MATH_SOURCE
+                            [span.start_utf8 as usize..span.end_utf8 as usize]
+                            == raw_source
+            ));
+            assert!(text_run.source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &NESTED_TEXT_WRAPPER_MATH_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+        }
+
+        provenance_cases.push(serde_json::json!({
+            "raw_source": raw_source,
+            "event": {
+                "event": math_event.event,
+                "meta": math_event.meta,
+            },
+            "ir_source": ir_source,
+            "display_list": text_runs
+                .iter()
+                .map(|run| serde_json::json!({
+                    "text": run.text,
+                    "source": run.source,
+                    "clusters": run.clusters,
+                }))
+                .collect::<Vec<_>>(),
+        }));
+    }
+
+    let provenance_snapshot = serde_json::json!({
+        "source": NESTED_TEXT_WRAPPER_MATH_SOURCE,
+        "cases": provenance_cases,
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/nested-math.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn nested_text_wrapper_inside_wrapper_survives_ir_without_raw_braces() {
     let capture = capture_internal_render_ir(
         "main.tex",

@@ -3688,6 +3688,14 @@ impl<'i> Vm<'i> {
                                                 source_path.to_owned(),
                                                 math_start as u32,
                                                 math_end as u32,
+                                            )
+                                            .with_related(
+                                                SourceSpanRole::Invocation,
+                                                ProvenanceSpan::File(SourceSpan {
+                                                    path: source_path.to_owned(),
+                                                    start_utf8: inner_index as u32,
+                                                    end_utf8: (math_end + delimiter_len) as u32,
+                                                }),
                                             ),
                                         );
                                         inner_index = math_end + delimiter_len;
@@ -3745,6 +3753,14 @@ impl<'i> Vm<'i> {
                                                     source_path.to_owned(),
                                                     math_start as u32,
                                                     math_end as u32,
+                                                )
+                                                .with_related(
+                                                    SourceSpanRole::Invocation,
+                                                    ProvenanceSpan::File(SourceSpan {
+                                                        path: source_path.to_owned(),
+                                                        start_utf8: inner_command_start as u32,
+                                                        end_utf8: (math_end + 2) as u32,
+                                                    }),
                                                 ),
                                             );
                                             inner_index = math_end + 2;
@@ -3767,6 +3783,14 @@ impl<'i> Vm<'i> {
                                                     source_path.to_owned(),
                                                     math_start as u32,
                                                     math_end as u32,
+                                                )
+                                                .with_related(
+                                                    SourceSpanRole::Invocation,
+                                                    ProvenanceSpan::File(SourceSpan {
+                                                        path: source_path.to_owned(),
+                                                        start_utf8: inner_command_start as u32,
+                                                        end_utf8: (math_end + 2) as u32,
+                                                    }),
                                                 ),
                                             );
                                             inner_index = math_end + 2;
@@ -4326,6 +4350,21 @@ impl<'i> Vm<'i> {
                                                                     source_path.to_owned(),
                                                                     math_start as u32,
                                                                     math_end as u32,
+                                                                )
+                                                                .with_related(
+                                                                    SourceSpanRole::Invocation,
+                                                                    ProvenanceSpan::File(
+                                                                        SourceSpan {
+                                                                            path: source_path
+                                                                                .to_owned(),
+                                                                            start_utf8:
+                                                                                argument_inner_index
+                                                                                    as u32,
+                                                                            end_utf8: (math_end
+                                                                                + delimiter_len)
+                                                                                as u32,
+                                                                        },
+                                                                    ),
                                                                 ),
                                                             );
                                                             argument_inner_index =
@@ -4398,6 +4437,21 @@ impl<'i> Vm<'i> {
                                                                         source_path.to_owned(),
                                                                         math_start as u32,
                                                                         math_end as u32,
+                                                                    )
+                                                                    .with_related(
+                                                                        SourceSpanRole::Invocation,
+                                                                        ProvenanceSpan::File(
+                                                                            SourceSpan {
+                                                                                path: source_path
+                                                                                    .to_owned(),
+                                                                                start_utf8:
+                                                                                    argument_command_start
+                                                                                        as u32,
+                                                                                end_utf8: (math_end
+                                                                                    + 2)
+                                                                                    as u32,
+                                                                            },
+                                                                        ),
                                                                     ),
                                                                 );
                                                                 argument_inner_index = math_end + 2;
@@ -4428,6 +4482,21 @@ impl<'i> Vm<'i> {
                                                                         source_path.to_owned(),
                                                                         math_start as u32,
                                                                         math_end as u32,
+                                                                    )
+                                                                    .with_related(
+                                                                        SourceSpanRole::Invocation,
+                                                                        ProvenanceSpan::File(
+                                                                            SourceSpan {
+                                                                                path: source_path
+                                                                                    .to_owned(),
+                                                                                start_utf8:
+                                                                                    argument_command_start
+                                                                                        as u32,
+                                                                                end_utf8: (math_end
+                                                                                    + 2)
+                                                                                    as u32,
+                                                                            },
+                                                                        ),
                                                                     ),
                                                                 );
                                                                 argument_inner_index = math_end + 2;
