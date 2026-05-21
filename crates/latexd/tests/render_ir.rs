@@ -3318,6 +3318,7 @@ fn citation_wrapper_macro_capture_survives_ir_without_dropping_keys() {
     let expected = [
         vec!["alpha".to_string(), "beta".to_string()],
         vec!["gamma".to_string(), "delta".to_string()],
+        vec!["paper:one".to_string()],
     ];
     assert_eq!(citations.len(), expected.len());
     for (citation, keys) in citations.iter().zip(expected) {
@@ -3335,8 +3336,8 @@ fn citation_wrapper_macro_capture_survives_ir_without_dropping_keys() {
         })
         .collect::<Vec<_>>()
         .join("");
-    assert!(display_list_text.contains("See [?] and [?]."));
-    for hidden in ["alpha", "beta", "gamma", "delta"] {
+    assert!(display_list_text.contains("See [?], [?], and [?]."));
+    for hidden in ["alpha", "beta", "gamma", "delta", "paper:one"] {
         assert!(!display_list_text.contains(hidden), "{display_list_text}");
     }
 }
@@ -13568,7 +13569,7 @@ const HEADING_INLINE_KEY_SOURCE: &str =
 
 const CITATION_VARIANTS_SOURCE: &str = r"\begin{document}\citep[see][p.~3]{alpha,beta}\citet*{gamma}\parencite{delta}\textcite{epsilon}\citep*{zeta}\citealt*{eta}\citealp*{theta}\Textcite*{iota}\Citealt{lambda}\Citealp{mu}\end{document}";
 
-const CITATION_WRAPPER_SOURCE: &str = r"\newcommand{\mycitepair}[2]{\cite{#1,#2}}\let\aliascitepair\mycitepair\begin{document}See \mycitepair{alpha}{beta} and \aliascitepair{gamma}{delta}.\end{document}";
+const CITATION_WRAPPER_SOURCE: &str = r"\newcommand{\mycitepair}[2]{\cite{#1,#2}}\let\aliascitepair\mycitepair\newcommand{\papercite}[1]{\cite{paper:#1}}\begin{document}See \mycitepair{alpha}{beta}, \aliascitepair{gamma}{delta}, and \papercite{one}.\end{document}";
 
 const CITATION_METADATA_ALIAS_SOURCE: &str = r"\begin{document}\Citeauthor{alpha} \Citeyear{beta} \Citeyearpar{gamma} \citetitle{delta} \Citetitle{epsilon} \citefullauthor{zeta} \Citefullauthor*{eta}\end{document}";
 
