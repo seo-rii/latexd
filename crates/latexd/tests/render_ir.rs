@@ -1,7 +1,10 @@
 use std::{env, fs, path::Path, process::Command};
 
 use camino::Utf8PathBuf;
-use latexd::compiler::{capture_internal_render_ir, capture_internal_render_ir_with_mounted_files};
+use latexd::compiler::{
+    InternalRenderIrCapture, capture_internal_render_ir,
+    capture_internal_render_ir_with_mounted_files,
+};
 use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{
     CitationStyleHint, DrawOp, GraphicAssetFormat, ListKind, MetadataField, RenderEvent,
@@ -7844,125 +7847,21 @@ fn input_macro_heading_provenance_preserves_call_and_definition_files() {
         &SemanticAux::default(),
         &[("child.tex", INPUT_SHARED_STATE_CHILD_SOURCE)],
     );
-    let heading_event = capture
-        .events
-        .events
-        .iter()
-        .find(|envelope| {
-            matches!(
-                &envelope.event,
-                RenderEvent::Heading(heading) if heading.text == "Included"
-            )
-        })
-        .expect("heading event");
-    let heading_block = capture
-        .document_ir
-        .blocks
-        .iter()
-        .find_map(|block| match block {
-            IrBlock::Heading(heading)
-                if matches!(
-                    heading.content.first(),
-                    Some(InlineNode::Text { text, .. }) if text == "Included"
-                ) =>
-            {
-                Some(heading)
-            }
-            _ => None,
-        })
-        .expect("heading block");
-    let heading_text_source = heading_block
-        .content
-        .iter()
-        .find_map(|node| match node {
-            InlineNode::Text { text, source } if text == "Included" => Some(source),
-            _ => None,
-        })
-        .expect("heading text source");
-    let heading_run = capture.page_display_lists[0]
-        .ops
-        .iter()
-        .find_map(|op| match op {
-            DrawOp::TextRun(run) if run.text == "Included" => Some(run),
-            _ => None,
-        })
-        .expect("heading display-list run");
 
-    for source in [
-        &heading_event.meta.source,
-        &heading_block.source,
-        heading_text_source,
-        &heading_run.source,
-    ] {
-        assert!(matches!(
-            &source.primary,
-            ProvenanceSpan::File(span)
-                if span.path.as_str() == "child.tex"
-                    && &INPUT_SHARED_STATE_CHILD_SOURCE
-                        [span.start_utf8 as usize..span.end_utf8 as usize]
-                        == "Included"
-        ));
-        assert!(source.related.iter().any(|related| {
-            related.role == SourceSpanRole::Invocation
-                && matches!(
-                    &related.span,
-                    ProvenanceSpan::File(span)
-                        if span.path.as_str() == "child.tex"
-                            && &INPUT_SHARED_STATE_CHILD_SOURCE
-                                [span.start_utf8 as usize..span.end_utf8 as usize]
-                                == r"\mysection{Included}"
-                )
-        }));
-
-        assert_eq!(source.expansion_stack.len(), 1);
-        let expansion = &source.expansion_stack[0];
-        assert_eq!(expansion.command_name.as_deref(), Some("mysection"));
-        assert!(matches!(
-            &expansion.call_span,
-            ProvenanceSpan::File(span)
-                if span.path.as_str() == "child.tex"
-                    && &INPUT_SHARED_STATE_CHILD_SOURCE
-                        [span.start_utf8 as usize..span.end_utf8 as usize]
-                        == r"\mysection{Included}"
-        ));
-        assert!(
-            matches!(
-                &expansion.definition_span,
-                Some(ProvenanceSpan::File(span))
-                    if span.path.as_str() == "main.tex"
-                        && &INPUT_SHARED_STATE_MAIN_SOURCE
-                            [span.start_utf8 as usize..span.end_utf8 as usize]
-                            == r"\newcommand{\mysection}[1]{\section{#1}}"
-            ),
-            "unexpected definition span: {:?}",
-            expansion.definition_span
-        );
-    }
-
-    let provenance_snapshot = serde_json::json!({
-        "main_source": INPUT_SHARED_STATE_MAIN_SOURCE,
-        "child_source": INPUT_SHARED_STATE_CHILD_SOURCE,
-        "event": {
-            "event": heading_event.event,
-            "meta": heading_event.meta,
-        },
-        "ir": {
-            "level": heading_block.level,
-            "content": heading_block.content,
-            "source": heading_block.source,
-            "text_source": heading_text_source,
-        },
-        "display_list": {
-            "text": heading_run.text,
-            "source": heading_run.source,
-            "clusters": heading_run.clusters,
-        },
-    });
-    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
-
-    assert_or_update_golden(
+    assert_macro_heading_provenance_golden(
+        &capture,
+        "Included",
+        "child.tex",
+        INPUT_SHARED_STATE_CHILD_SOURCE,
+        r"\mysection{Included}",
+        "main.tex",
+        INPUT_SHARED_STATE_MAIN_SOURCE,
+        r"\newcommand{\mysection}[1]{\section{#1}}",
+        &[
+            ("main_source", INPUT_SHARED_STATE_MAIN_SOURCE),
+            ("child_source", INPUT_SHARED_STATE_CHILD_SOURCE),
+        ],
         "tests/goldens/render_ir/input-macro-heading.provenance.json",
-        &provenance_json,
     );
 }
 
@@ -8047,125 +7946,21 @@ fn preamble_input_macro_heading_provenance_preserves_definition_file() {
         &SemanticAux::default(),
         &[("macros.tex", PREAMBLE_INPUT_MACRO_SOURCE)],
     );
-    let heading_event = capture
-        .events
-        .events
-        .iter()
-        .find(|envelope| {
-            matches!(
-                &envelope.event,
-                RenderEvent::Heading(heading) if heading.text == "From Preamble"
-            )
-        })
-        .expect("heading event");
-    let heading_block = capture
-        .document_ir
-        .blocks
-        .iter()
-        .find_map(|block| match block {
-            IrBlock::Heading(heading)
-                if matches!(
-                    heading.content.first(),
-                    Some(InlineNode::Text { text, .. }) if text == "From Preamble"
-                ) =>
-            {
-                Some(heading)
-            }
-            _ => None,
-        })
-        .expect("heading block");
-    let heading_text_source = heading_block
-        .content
-        .iter()
-        .find_map(|node| match node {
-            InlineNode::Text { text, source } if text == "From Preamble" => Some(source),
-            _ => None,
-        })
-        .expect("heading text source");
-    let heading_run = capture.page_display_lists[0]
-        .ops
-        .iter()
-        .find_map(|op| match op {
-            DrawOp::TextRun(run) if run.text == "From Preamble" => Some(run),
-            _ => None,
-        })
-        .expect("heading display-list run");
 
-    for source in [
-        &heading_event.meta.source,
-        &heading_block.source,
-        heading_text_source,
-        &heading_run.source,
-    ] {
-        assert!(matches!(
-            &source.primary,
-            ProvenanceSpan::File(span)
-                if span.path.as_str() == "main.tex"
-                    && &PREAMBLE_INPUT_MACRO_MAIN_SOURCE
-                        [span.start_utf8 as usize..span.end_utf8 as usize]
-                        == "From Preamble"
-        ));
-        assert!(source.related.iter().any(|related| {
-            related.role == SourceSpanRole::Invocation
-                && matches!(
-                    &related.span,
-                    ProvenanceSpan::File(span)
-                        if span.path.as_str() == "main.tex"
-                            && &PREAMBLE_INPUT_MACRO_MAIN_SOURCE
-                                [span.start_utf8 as usize..span.end_utf8 as usize]
-                                == r"\mysection{From Preamble}"
-                )
-        }));
-
-        assert_eq!(source.expansion_stack.len(), 1);
-        let expansion = &source.expansion_stack[0];
-        assert_eq!(expansion.command_name.as_deref(), Some("mysection"));
-        assert!(matches!(
-            &expansion.call_span,
-            ProvenanceSpan::File(span)
-                if span.path.as_str() == "main.tex"
-                    && &PREAMBLE_INPUT_MACRO_MAIN_SOURCE
-                        [span.start_utf8 as usize..span.end_utf8 as usize]
-                        == r"\mysection{From Preamble}"
-        ));
-        assert!(
-            matches!(
-                &expansion.definition_span,
-                Some(ProvenanceSpan::File(span))
-                    if span.path.as_str() == "macros.tex"
-                        && &PREAMBLE_INPUT_MACRO_SOURCE
-                            [span.start_utf8 as usize..span.end_utf8 as usize]
-                            == r"\newcommand{\mysection}[1]{\section{#1}}"
-            ),
-            "unexpected definition span: {:?}",
-            expansion.definition_span
-        );
-    }
-
-    let provenance_snapshot = serde_json::json!({
-        "main_source": PREAMBLE_INPUT_MACRO_MAIN_SOURCE,
-        "macros_source": PREAMBLE_INPUT_MACRO_SOURCE,
-        "event": {
-            "event": heading_event.event,
-            "meta": heading_event.meta,
-        },
-        "ir": {
-            "level": heading_block.level,
-            "content": heading_block.content,
-            "source": heading_block.source,
-            "text_source": heading_text_source,
-        },
-        "display_list": {
-            "text": heading_run.text,
-            "source": heading_run.source,
-            "clusters": heading_run.clusters,
-        },
-    });
-    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
-
-    assert_or_update_golden(
+    assert_macro_heading_provenance_golden(
+        &capture,
+        "From Preamble",
+        "main.tex",
+        PREAMBLE_INPUT_MACRO_MAIN_SOURCE,
+        r"\mysection{From Preamble}",
+        "macros.tex",
+        PREAMBLE_INPUT_MACRO_SOURCE,
+        r"\newcommand{\mysection}[1]{\section{#1}}",
+        &[
+            ("main_source", PREAMBLE_INPUT_MACRO_MAIN_SOURCE),
+            ("macros_source", PREAMBLE_INPUT_MACRO_SOURCE),
+        ],
         "tests/goldens/render_ir/preamble-input-macro-heading.provenance.json",
-        &provenance_json,
     );
 }
 
@@ -8234,125 +8029,21 @@ fn package_macro_heading_provenance_preserves_definition_file() {
         &SemanticAux::default(),
         &[("macros.sty", PACKAGE_MACRO_SOURCE)],
     );
-    let heading_event = capture
-        .events
-        .events
-        .iter()
-        .find(|envelope| {
-            matches!(
-                &envelope.event,
-                RenderEvent::Heading(heading) if heading.text == "From Package"
-            )
-        })
-        .expect("heading event");
-    let heading_block = capture
-        .document_ir
-        .blocks
-        .iter()
-        .find_map(|block| match block {
-            IrBlock::Heading(heading)
-                if matches!(
-                    heading.content.first(),
-                    Some(InlineNode::Text { text, .. }) if text == "From Package"
-                ) =>
-            {
-                Some(heading)
-            }
-            _ => None,
-        })
-        .expect("heading block");
-    let heading_text_source = heading_block
-        .content
-        .iter()
-        .find_map(|node| match node {
-            InlineNode::Text { text, source } if text == "From Package" => Some(source),
-            _ => None,
-        })
-        .expect("heading text source");
-    let heading_run = capture.page_display_lists[0]
-        .ops
-        .iter()
-        .find_map(|op| match op {
-            DrawOp::TextRun(run) if run.text == "From Package" => Some(run),
-            _ => None,
-        })
-        .expect("heading display-list run");
 
-    for source in [
-        &heading_event.meta.source,
-        &heading_block.source,
-        heading_text_source,
-        &heading_run.source,
-    ] {
-        assert!(matches!(
-            &source.primary,
-            ProvenanceSpan::File(span)
-                if span.path.as_str() == "main.tex"
-                    && &PACKAGE_MACRO_MAIN_SOURCE
-                        [span.start_utf8 as usize..span.end_utf8 as usize]
-                        == "From Package"
-        ));
-        assert!(source.related.iter().any(|related| {
-            related.role == SourceSpanRole::Invocation
-                && matches!(
-                    &related.span,
-                    ProvenanceSpan::File(span)
-                        if span.path.as_str() == "main.tex"
-                            && &PACKAGE_MACRO_MAIN_SOURCE
-                                [span.start_utf8 as usize..span.end_utf8 as usize]
-                                == r"\mysection{From Package}"
-                )
-        }));
-
-        assert_eq!(source.expansion_stack.len(), 1);
-        let expansion = &source.expansion_stack[0];
-        assert_eq!(expansion.command_name.as_deref(), Some("mysection"));
-        assert!(matches!(
-            &expansion.call_span,
-            ProvenanceSpan::File(span)
-                if span.path.as_str() == "main.tex"
-                    && &PACKAGE_MACRO_MAIN_SOURCE
-                        [span.start_utf8 as usize..span.end_utf8 as usize]
-                        == r"\mysection{From Package}"
-        ));
-        assert!(
-            matches!(
-                &expansion.definition_span,
-                Some(ProvenanceSpan::File(span))
-                    if span.path.as_str() == "macros.sty"
-                        && &PACKAGE_MACRO_SOURCE
-                            [span.start_utf8 as usize..span.end_utf8 as usize]
-                            == r"\newcommand{\mysection}[1]{\section{#1}}"
-            ),
-            "unexpected definition span: {:?}",
-            expansion.definition_span
-        );
-    }
-
-    let provenance_snapshot = serde_json::json!({
-        "main_source": PACKAGE_MACRO_MAIN_SOURCE,
-        "package_source": PACKAGE_MACRO_SOURCE,
-        "event": {
-            "event": heading_event.event,
-            "meta": heading_event.meta,
-        },
-        "ir": {
-            "level": heading_block.level,
-            "content": heading_block.content,
-            "source": heading_block.source,
-            "text_source": heading_text_source,
-        },
-        "display_list": {
-            "text": heading_run.text,
-            "source": heading_run.source,
-            "clusters": heading_run.clusters,
-        },
-    });
-    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
-
-    assert_or_update_golden(
+    assert_macro_heading_provenance_golden(
+        &capture,
+        "From Package",
+        "main.tex",
+        PACKAGE_MACRO_MAIN_SOURCE,
+        r"\mysection{From Package}",
+        "macros.sty",
+        PACKAGE_MACRO_SOURCE,
+        r"\newcommand{\mysection}[1]{\section{#1}}",
+        &[
+            ("main_source", PACKAGE_MACRO_MAIN_SOURCE),
+            ("package_source", PACKAGE_MACRO_SOURCE),
+        ],
         "tests/goldens/render_ir/package-macro-heading.provenance.json",
-        &provenance_json,
     );
 }
 
@@ -8421,125 +8112,21 @@ fn class_macro_heading_provenance_preserves_definition_file() {
         &SemanticAux::default(),
         &[("wrapper.cls", CLASS_MACRO_SOURCE)],
     );
-    let heading_event = capture
-        .events
-        .events
-        .iter()
-        .find(|envelope| {
-            matches!(
-                &envelope.event,
-                RenderEvent::Heading(heading) if heading.text == "From Class"
-            )
-        })
-        .expect("heading event");
-    let heading_block = capture
-        .document_ir
-        .blocks
-        .iter()
-        .find_map(|block| match block {
-            IrBlock::Heading(heading)
-                if matches!(
-                    heading.content.first(),
-                    Some(InlineNode::Text { text, .. }) if text == "From Class"
-                ) =>
-            {
-                Some(heading)
-            }
-            _ => None,
-        })
-        .expect("heading block");
-    let heading_text_source = heading_block
-        .content
-        .iter()
-        .find_map(|node| match node {
-            InlineNode::Text { text, source } if text == "From Class" => Some(source),
-            _ => None,
-        })
-        .expect("heading text source");
-    let heading_run = capture.page_display_lists[0]
-        .ops
-        .iter()
-        .find_map(|op| match op {
-            DrawOp::TextRun(run) if run.text == "From Class" => Some(run),
-            _ => None,
-        })
-        .expect("heading display-list run");
 
-    for source in [
-        &heading_event.meta.source,
-        &heading_block.source,
-        heading_text_source,
-        &heading_run.source,
-    ] {
-        assert!(matches!(
-            &source.primary,
-            ProvenanceSpan::File(span)
-                if span.path.as_str() == "main.tex"
-                    && &CLASS_MACRO_MAIN_SOURCE
-                        [span.start_utf8 as usize..span.end_utf8 as usize]
-                        == "From Class"
-        ));
-        assert!(source.related.iter().any(|related| {
-            related.role == SourceSpanRole::Invocation
-                && matches!(
-                    &related.span,
-                    ProvenanceSpan::File(span)
-                        if span.path.as_str() == "main.tex"
-                            && &CLASS_MACRO_MAIN_SOURCE
-                                [span.start_utf8 as usize..span.end_utf8 as usize]
-                                == r"\mysection{From Class}"
-                )
-        }));
-
-        assert_eq!(source.expansion_stack.len(), 1);
-        let expansion = &source.expansion_stack[0];
-        assert_eq!(expansion.command_name.as_deref(), Some("mysection"));
-        assert!(matches!(
-            &expansion.call_span,
-            ProvenanceSpan::File(span)
-                if span.path.as_str() == "main.tex"
-                    && &CLASS_MACRO_MAIN_SOURCE
-                        [span.start_utf8 as usize..span.end_utf8 as usize]
-                        == r"\mysection{From Class}"
-        ));
-        assert!(
-            matches!(
-                &expansion.definition_span,
-                Some(ProvenanceSpan::File(span))
-                    if span.path.as_str() == "wrapper.cls"
-                        && &CLASS_MACRO_SOURCE
-                            [span.start_utf8 as usize..span.end_utf8 as usize]
-                            == r"\newcommand{\mysection}[1]{\section{#1}}"
-            ),
-            "unexpected definition span: {:?}",
-            expansion.definition_span
-        );
-    }
-
-    let provenance_snapshot = serde_json::json!({
-        "main_source": CLASS_MACRO_MAIN_SOURCE,
-        "class_source": CLASS_MACRO_SOURCE,
-        "event": {
-            "event": heading_event.event,
-            "meta": heading_event.meta,
-        },
-        "ir": {
-            "level": heading_block.level,
-            "content": heading_block.content,
-            "source": heading_block.source,
-            "text_source": heading_text_source,
-        },
-        "display_list": {
-            "text": heading_run.text,
-            "source": heading_run.source,
-            "clusters": heading_run.clusters,
-        },
-    });
-    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
-
-    assert_or_update_golden(
+    assert_macro_heading_provenance_golden(
+        &capture,
+        "From Class",
+        "main.tex",
+        CLASS_MACRO_MAIN_SOURCE,
+        r"\mysection{From Class}",
+        "wrapper.cls",
+        CLASS_MACRO_SOURCE,
+        r"\newcommand{\mysection}[1]{\section{#1}}",
+        &[
+            ("main_source", CLASS_MACRO_MAIN_SOURCE),
+            ("class_source", CLASS_MACRO_SOURCE),
+        ],
         "tests/goldens/render_ir/class-macro-heading.provenance.json",
-        &provenance_json,
     );
 }
 
@@ -13671,6 +13258,146 @@ const LABEL_SOURCE: &str =
 
 const MACRO_SECTION_SOURCE: &str =
     r"\newcommand{\mysection}[1]{\section{#1}}\begin{document}\mysection{Intro}\end{document}";
+
+fn assert_macro_heading_provenance_golden(
+    capture: &InternalRenderIrCapture,
+    heading_text: &str,
+    primary_path: &str,
+    primary_source: &str,
+    invocation_text: &str,
+    definition_path: &str,
+    definition_source: &str,
+    definition_text: &str,
+    snapshot_sources: &[(&str, &str)],
+    golden_path: &str,
+) {
+    let heading_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::Heading(heading) if heading.text == heading_text
+            )
+        })
+        .expect("heading event");
+    let heading_block = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Heading(heading)
+                if matches!(
+                    heading.content.first(),
+                    Some(InlineNode::Text { text, .. }) if text == heading_text
+                ) =>
+            {
+                Some(heading)
+            }
+            _ => None,
+        })
+        .expect("heading block");
+    let heading_text_source = heading_block
+        .content
+        .iter()
+        .find_map(|node| match node {
+            InlineNode::Text { text, source } if text == heading_text => Some(source),
+            _ => None,
+        })
+        .expect("heading text source");
+    let heading_run = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == heading_text => Some(run),
+            _ => None,
+        })
+        .expect("heading display-list run");
+
+    for source in [
+        &heading_event.meta.source,
+        &heading_block.source,
+        heading_text_source,
+        &heading_run.source,
+    ] {
+        assert!(matches!(
+            &source.primary,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == primary_path
+                    && &primary_source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == heading_text
+        ));
+        assert!(source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == primary_path
+                            && &primary_source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == invocation_text
+                )
+        }));
+
+        assert_eq!(source.expansion_stack.len(), 1);
+        let expansion = &source.expansion_stack[0];
+        assert_eq!(expansion.command_name.as_deref(), Some("mysection"));
+        assert!(matches!(
+            &expansion.call_span,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == primary_path
+                    && &primary_source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == invocation_text
+        ));
+        assert!(
+            matches!(
+                &expansion.definition_span,
+                Some(ProvenanceSpan::File(span))
+                    if span.path.as_str() == definition_path
+                        && &definition_source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == definition_text
+            ),
+            "unexpected definition span: {:?}",
+            expansion.definition_span
+        );
+    }
+
+    let mut provenance_snapshot = serde_json::Map::new();
+    for (key, source) in snapshot_sources {
+        provenance_snapshot.insert(
+            (*key).to_string(),
+            serde_json::Value::String((*source).into()),
+        );
+    }
+    provenance_snapshot.insert(
+        "event".to_string(),
+        serde_json::json!({
+            "event": heading_event.event,
+            "meta": heading_event.meta,
+        }),
+    );
+    provenance_snapshot.insert(
+        "ir".to_string(),
+        serde_json::json!({
+            "level": heading_block.level,
+            "content": heading_block.content,
+            "source": heading_block.source,
+            "text_source": heading_text_source,
+        }),
+    );
+    provenance_snapshot.insert(
+        "display_list".to_string(),
+        serde_json::json!({
+            "text": heading_run.text,
+            "source": heading_run.source,
+            "clusters": heading_run.clusters,
+        }),
+    );
+    let provenance_json =
+        to_pretty_json(&serde_json::Value::Object(provenance_snapshot)).expect("provenance json");
+
+    assert_or_update_golden(golden_path, &provenance_json);
+}
 
 fn assert_or_update_golden(relative_path: &str, actual: &str) {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join(relative_path);
