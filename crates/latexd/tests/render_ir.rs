@@ -7502,6 +7502,64 @@ fn linebreak_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn linebreak_provenance_preserves_delimiter_and_optional_spacing_span() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        LINEBREAK_OPTIONAL_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let linebreak_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| matches!(&envelope.event, RenderEvent::LineBreak(_)))
+        .expect("linebreak event");
+    let ir_source = paragraph
+        .content
+        .iter()
+        .find_map(|node| match node {
+            InlineNode::LineBreak { source } => Some(source),
+            _ => None,
+        })
+        .expect("linebreak IR source");
+
+    for source in [&linebreak_event.meta.source, ir_source] {
+        assert!(matches!(
+            &source.primary,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == "main.tex"
+                    && &LINEBREAK_OPTIONAL_SOURCE
+                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\\[0.5em]"
+        ));
+    }
+
+    let provenance_snapshot = serde_json::json!({
+        "source": LINEBREAK_OPTIONAL_SOURCE,
+        "event": {
+            "event": linebreak_event.event,
+            "meta": linebreak_event.meta,
+        },
+        "ir_source": ir_source,
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/linebreak.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn tabular_fallback_capture_uses_normalized_visible_text() {
     let capture =
         capture_internal_render_ir("main.tex", TABULAR_FALLBACK_SOURCE, &SemanticAux::default());
@@ -10609,6 +10667,8 @@ const NONBREAKING_TILDE_SOURCE: &str =
     r"\begin{document}Figure~1 references Related~Work.\section{Related~Work}\end{document}";
 
 const LINEBREAK_SOURCE: &str = r"\begin{document}First line\\Second line.\end{document}";
+const LINEBREAK_OPTIONAL_SOURCE: &str =
+    r"\begin{document}First line\\[0.5em]Second line.\end{document}";
 
 const TABULAR_FALLBACK_SOURCE: &str = r"\begin{document}\begin{tabular}{ll}Alpha & Beta \\ Gamma & \textbf{Delta} \\\hline\end{tabular}\end{document}";
 

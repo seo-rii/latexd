@@ -1,0 +1,39 @@
+{
+  "event": {
+    "event": {
+      "kind": "line_break",
+      "reason": "explicit"
+    },
+    "meta": {
+      "confidence": "high",
+      "event_id": 4,
+      "mode_hint": "unknown",
+      "producer": "command",
+      "source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 35,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 26
+        },
+        "related": []
+      }
+    }
+  },
+  "ir_source": {
+    "expansion_stack": [],
+    "expansion_stack_truncated": false,
+    "generated_by": "source",
+    "primary": {
+      "end_utf8": 35,
+      "kind": "file",
+      "path": "main.tex",
+      "start_utf8": 26
+    },
+    "related": []
+  },
+  "source": "\\begin{document}First line\\\\[0.5em]Second line.\\end{document}"
+}

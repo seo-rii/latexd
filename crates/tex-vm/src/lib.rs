@@ -4174,6 +4174,14 @@ impl<'i> Vm<'i> {
                                         );
                                     }
                                     "\\" => {
+                                        let linebreak_end = if let Some((_, _, _, command_after)) =
+                                            read_bracket_source_argument(source, inner_index)
+                                            && command_after <= content_end
+                                        {
+                                            command_after
+                                        } else {
+                                            inner_index
+                                        };
                                         self.emit_render_event(
                                             RenderEvent::LineBreak(LineBreakEvent {
                                                 reason: LineBreakReason::Explicit,
@@ -4181,15 +4189,10 @@ impl<'i> Vm<'i> {
                                             SourceProvenance::file(
                                                 source_path.to_owned(),
                                                 inner_command_start as u32,
-                                                inner_index as u32,
+                                                linebreak_end as u32,
                                             ),
                                         );
-                                        if let Some((_, _, _, command_after)) =
-                                            read_bracket_source_argument(source, inner_index)
-                                            && command_after <= content_end
-                                        {
-                                            inner_index = command_after;
-                                        }
+                                        inner_index = linebreak_end;
                                     }
                                     _ => {
                                         let argument_index =
@@ -5016,6 +5019,21 @@ impl<'i> Vm<'i> {
                                                             );
                                                         }
                                                         "\\" => {
+                                                            let linebreak_end =
+                                                                if let Some((
+                                                                    _,
+                                                                    _,
+                                                                    _,
+                                                                    command_after,
+                                                                )) = read_bracket_source_argument(
+                                                                    source,
+                                                                    argument_inner_index,
+                                                                ) && command_after <= text_end
+                                                                {
+                                                                    command_after
+                                                                } else {
+                                                                    argument_inner_index
+                                                                };
                                                             self.emit_render_event(
                                                                 RenderEvent::LineBreak(
                                                                     LineBreakEvent {
@@ -5026,19 +5044,10 @@ impl<'i> Vm<'i> {
                                                                 SourceProvenance::file(
                                                                     source_path.to_owned(),
                                                                     argument_command_start as u32,
-                                                                    argument_inner_index as u32,
+                                                                    linebreak_end as u32,
                                                                 ),
                                                             );
-                                                            if let Some((_, _, _, command_after)) =
-                                                                read_bracket_source_argument(
-                                                                    source,
-                                                                    argument_inner_index,
-                                                                )
-                                                                && command_after <= text_end
-                                                            {
-                                                                argument_inner_index =
-                                                                    command_after;
-                                                            }
+                                                            argument_inner_index = linebreak_end;
                                                         }
                                                         _ => {
                                                             let argument_index =
@@ -5927,6 +5936,13 @@ impl<'i> Vm<'i> {
                     );
                 }
                 "\\" if in_document => {
+                    let linebreak_end = if let Some((_, _, _, after)) =
+                        read_bracket_source_argument(source, index)
+                    {
+                        after
+                    } else {
+                        index
+                    };
                     self.emit_render_event(
                         RenderEvent::LineBreak(LineBreakEvent {
                             reason: LineBreakReason::Explicit,
@@ -5934,12 +5950,10 @@ impl<'i> Vm<'i> {
                         SourceProvenance::file(
                             source_path.to_owned(),
                             command_start as u32,
-                            index as u32,
+                            linebreak_end as u32,
                         ),
                     );
-                    if let Some((_, _, _, after)) = read_bracket_source_argument(source, index) {
-                        index = after;
-                    }
+                    index = linebreak_end;
                 }
                 "label" if in_document => {
                     index = skip_ascii_whitespace(source, index);
