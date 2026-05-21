@@ -759,6 +759,8 @@ struct RenderCitationMacro {
     style_hint: CitationStyleHint,
     parameter_count: usize,
     optional_first_argument: bool,
+    optional_first_default: Option<String>,
+    optional_first_default_span: Option<RenderMacroDefinitionSpan>,
     key_templates: Vec<String>,
     key_template_spans: Vec<RenderMacroDefinitionSpan>,
     key_parameters: Vec<usize>,
@@ -770,6 +772,8 @@ struct RenderReferenceMacro {
     command: String,
     parameter_count: usize,
     optional_first_argument: bool,
+    optional_first_default: Option<String>,
+    optional_first_default_span: Option<RenderMacroDefinitionSpan>,
     key_templates: Vec<String>,
     key_template_spans: Vec<RenderMacroDefinitionSpan>,
     key_parameters: Vec<usize>,
@@ -781,6 +785,8 @@ struct RenderLabelMacro {
     command: String,
     parameter_count: usize,
     optional_first_argument: bool,
+    optional_first_default: Option<String>,
+    optional_first_default_span: Option<RenderMacroDefinitionSpan>,
     key_template: String,
     key_template_span: Option<RenderMacroDefinitionSpan>,
     key_parameters: Vec<usize>,
@@ -1386,6 +1392,8 @@ impl<'i> Vm<'i> {
                         let mut after_signature = after_target;
                         let mut parameter_count = 0usize;
                         let mut optional_first_argument = false;
+                        let mut optional_first_default = None;
+                        let mut optional_first_default_span = None;
                         if let Some((arity, _, _, after_arity)) =
                             read_bracket_source_argument(source, after_signature)
                         {
@@ -1393,10 +1401,16 @@ impl<'i> Vm<'i> {
                             after_signature = after_arity;
                             let after_optional_default =
                                 skip_ascii_whitespace(source, after_signature);
-                            if let Some((_, _, _, after_default)) =
+                            if let Some((default, default_start, default_end, after_default)) =
                                 read_bracket_source_argument(source, after_optional_default)
                             {
                                 optional_first_argument = true;
+                                optional_first_default = Some(default.to_string());
+                                optional_first_default_span = Some(RenderMacroDefinitionSpan {
+                                    path: source_path.to_owned(),
+                                    start_utf8: default_start,
+                                    end_utf8: default_end,
+                                });
                                 after_signature = after_default;
                             }
                         }
@@ -1462,6 +1476,9 @@ impl<'i> Vm<'i> {
                                     style_hint,
                                     parameter_count,
                                     optional_first_argument,
+                                    optional_first_default: optional_first_default.clone(),
+                                    optional_first_default_span: optional_first_default_span
+                                        .clone(),
                                     key_templates,
                                     key_template_spans,
                                     key_parameters,
@@ -1501,6 +1518,9 @@ impl<'i> Vm<'i> {
                                     command: reference_command,
                                     parameter_count,
                                     optional_first_argument,
+                                    optional_first_default: optional_first_default.clone(),
+                                    optional_first_default_span: optional_first_default_span
+                                        .clone(),
                                     key_templates,
                                     key_template_spans,
                                     key_parameters,
@@ -1540,6 +1560,9 @@ impl<'i> Vm<'i> {
                                     command: label_command,
                                     parameter_count,
                                     optional_first_argument,
+                                    optional_first_default: optional_first_default.clone(),
+                                    optional_first_default_span: optional_first_default_span
+                                        .clone(),
                                     key_template,
                                     key_template_span,
                                     key_parameters,
@@ -1712,6 +1735,8 @@ impl<'i> Vm<'i> {
                                         style_hint,
                                         parameter_count,
                                         optional_first_argument: false,
+                                        optional_first_default: None,
+                                        optional_first_default_span: None,
                                         key_templates,
                                         key_template_spans,
                                         key_parameters,
@@ -1744,6 +1769,8 @@ impl<'i> Vm<'i> {
                                         command: reference_command,
                                         parameter_count,
                                         optional_first_argument: false,
+                                        optional_first_default: None,
+                                        optional_first_default_span: None,
                                         key_templates,
                                         key_template_spans,
                                         key_parameters,
@@ -1776,6 +1803,8 @@ impl<'i> Vm<'i> {
                                         command: label_command,
                                         parameter_count,
                                         optional_first_argument: false,
+                                        optional_first_default: None,
+                                        optional_first_default_span: None,
                                         key_template,
                                         key_template_span,
                                         key_parameters,
@@ -1966,6 +1995,8 @@ impl<'i> Vm<'i> {
                                         style_hint: citation_style_hint_for_command(source_name),
                                         parameter_count: 1,
                                         optional_first_argument: false,
+                                        optional_first_default: None,
+                                        optional_first_default_span: None,
                                         key_templates: vec!["#1".to_string()],
                                         key_template_spans: Vec::new(),
                                         key_parameters: vec![1],
@@ -2007,6 +2038,8 @@ impl<'i> Vm<'i> {
                                         command: source_name.to_string(),
                                         parameter_count: 2,
                                         optional_first_argument: false,
+                                        optional_first_default: None,
+                                        optional_first_default_span: None,
                                         key_templates: vec!["#1".to_string(), "#2".to_string()],
                                         key_template_spans: Vec::new(),
                                         key_parameters: vec![1, 2],
@@ -2055,6 +2088,8 @@ impl<'i> Vm<'i> {
                                         command: source_name.to_string(),
                                         parameter_count: 1,
                                         optional_first_argument: false,
+                                        optional_first_default: None,
+                                        optional_first_default_span: None,
                                         key_templates: vec!["#1".to_string()],
                                         key_template_spans: Vec::new(),
                                         key_parameters: vec![1],
@@ -2086,6 +2121,8 @@ impl<'i> Vm<'i> {
                                         command: source_name.to_string(),
                                         parameter_count: 1,
                                         optional_first_argument: false,
+                                        optional_first_default: None,
+                                        optional_first_default_span: None,
                                         key_template: "#1".to_string(),
                                         key_template_span: None,
                                         key_parameters: vec![1],
@@ -7337,6 +7374,18 @@ impl<'i> Vm<'i> {
                                 }
                                 argument_index = after_optional;
                                 invocation_end = after_optional;
+                            } else if citation_macro.key_parameters.contains(&1)
+                                && let (Some(default), Some(default_span)) = (
+                                    citation_macro.optional_first_default.as_deref(),
+                                    citation_macro.optional_first_default_span.as_ref(),
+                                )
+                            {
+                                parsed_arguments.push((
+                                    1,
+                                    default,
+                                    default_span.start_utf8,
+                                    default_span.end_utf8,
+                                ));
                             }
                             parameter = 2;
                         }
@@ -7444,6 +7493,16 @@ impl<'i> Vm<'i> {
                                 parsed_arguments.push((1, argument, content_start, content_end));
                                 argument_index = after_optional;
                                 invocation_end = after_optional;
+                            } else if let (Some(default), Some(default_span)) = (
+                                reference_macro.optional_first_default.as_deref(),
+                                reference_macro.optional_first_default_span.as_ref(),
+                            ) {
+                                parsed_arguments.push((
+                                    1,
+                                    default,
+                                    default_span.start_utf8,
+                                    default_span.end_utf8,
+                                ));
                             }
                             parameter = 2;
                         }
@@ -7548,6 +7607,16 @@ impl<'i> Vm<'i> {
                                 parsed_arguments.push((1, argument, content_start, content_end));
                                 argument_index = after_optional;
                                 invocation_end = after_optional;
+                            } else if let (Some(default), Some(default_span)) = (
+                                label_macro.optional_first_default.as_deref(),
+                                label_macro.optional_first_default_span.as_ref(),
+                            ) {
+                                parsed_arguments.push((
+                                    1,
+                                    default,
+                                    default_span.start_utf8,
+                                    default_span.end_utf8,
+                                ));
                             }
                             parameter = 2;
                         }
@@ -22726,6 +22795,13 @@ Fallback text.
                 &["core"][..],
             ),
             (
+                r"\newcommand{\defaultcite}[1][core]{\cite{#1}}\begin{document}See \defaultcite.\end{document}",
+                r"\defaultcite",
+                r"\newcommand{\defaultcite}[1][core]{\cite{#1}}",
+                "core",
+                &["core"][..],
+            ),
+            (
                 r"\newcommand{\mycite}[1]{\cite{#1}}\let\aliascite\mycite\begin{document}See \aliascite{alpha,beta}.\end{document}",
                 r"\aliascite{alpha,beta}",
                 r"\let\aliascite\mycite",
@@ -22750,6 +22826,13 @@ Fallback text.
                 r"\newcommand{\corecite}{\cite{core}}\let\aliascorecite\corecite\begin{document}See \aliascorecite.\end{document}",
                 r"\aliascorecite",
                 r"\let\aliascorecite\corecite",
+                "core",
+                &["core"][..],
+            ),
+            (
+                r"\newcommand{\defaultcite}[1][core]{\cite{#1}}\let\aliasdefaultcite\defaultcite\begin{document}See \aliasdefaultcite.\end{document}",
+                r"\aliasdefaultcite",
+                r"\let\aliasdefaultcite\defaultcite",
                 "core",
                 &["core"][..],
             ),
@@ -23441,6 +23524,14 @@ Fallback text.
                 "ref",
             ),
             (
+                r"\newcommand{\defaultref}[1][sec:intro]{\ref{#1}}\begin{document}See \defaultref.\end{document}",
+                r"\defaultref",
+                r"\newcommand{\defaultref}[1][sec:intro]{\ref{#1}}",
+                "sec:intro",
+                "sec:intro",
+                "ref",
+            ),
+            (
                 r"\newcommand{\myautoref}[2][]{\autoref{#2}}\begin{document}See \myautoref[Section]{sec:auto}.\end{document}",
                 r"\myautoref[Section]{sec:auto}",
                 r"\newcommand{\myautoref}[2][]{\autoref{#2}}",
@@ -23468,6 +23559,14 @@ Fallback text.
                 r"\newcommand{\introref}{\ref{sec:intro}}\let\aliasintroref\introref\begin{document}See \aliasintroref.\end{document}",
                 r"\aliasintroref",
                 r"\let\aliasintroref\introref",
+                "sec:intro",
+                "sec:intro",
+                "ref",
+            ),
+            (
+                r"\newcommand{\defaultref}[1][sec:intro]{\ref{#1}}\let\aliasdefaultref\defaultref\begin{document}See \aliasdefaultref.\end{document}",
+                r"\aliasdefaultref",
+                r"\let\aliasdefaultref\defaultref",
                 "sec:intro",
                 "sec:intro",
                 "ref",
@@ -27120,6 +27219,13 @@ Fallback text.
                 "sec:intro",
             ),
             (
+                r"\newcommand{\defaultlabel}[1][sec:intro]{\label{#1}}\begin{document}\section{Intro}\defaultlabel See \ref{sec:intro}.\end{document}",
+                r"\defaultlabel",
+                r"\newcommand{\defaultlabel}[1][sec:intro]{\label{#1}}",
+                "sec:intro",
+                "sec:intro",
+            ),
+            (
                 r"\newcommand{\seclabel}[1]{\label{#1}}\let\introlabel\seclabel\begin{document}\section{Intro}\introlabel{sec:intro}See \ref{sec:intro}.\end{document}",
                 r"\introlabel{sec:intro}",
                 r"\let\introlabel\seclabel",
@@ -27137,6 +27243,13 @@ Fallback text.
                 r"\newcommand{\fixedlabel}{\label{sec:intro}}\let\aliasfixedlabel\fixedlabel\begin{document}\section{Intro}\aliasfixedlabel See \ref{sec:intro}.\end{document}",
                 r"\aliasfixedlabel",
                 r"\let\aliasfixedlabel\fixedlabel",
+                "sec:intro",
+                "sec:intro",
+            ),
+            (
+                r"\newcommand{\defaultlabel}[1][sec:intro]{\label{#1}}\let\aliasdefaultlabel\defaultlabel\begin{document}\section{Intro}\aliasdefaultlabel See \ref{sec:intro}.\end{document}",
+                r"\aliasdefaultlabel",
+                r"\let\aliasdefaultlabel\defaultlabel",
                 "sec:intro",
                 "sec:intro",
             ),
