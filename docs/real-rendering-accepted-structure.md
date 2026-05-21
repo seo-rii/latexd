@@ -45,8 +45,10 @@ As of 2026-05-21, the first implementation batch is complete:
   deeper heading commands, alias chains through user-defined heading/readable
   wrapper macros, citation/reference/link/label wrapper macros that preserve
   `InlineCitation`/`InlineReference`/`InlineLink`/`LabelDefinition` events
-  instead of flattening to text, title metadata definition spans, `\maketitle`
-  emission spans, and citation invocation/key span separation.
+  instead of flattening to text, direct `\let` aliases to migrated inline
+  commands, reference range wrappers with multiple label arguments, title
+  metadata definition spans, `\maketitle` emission spans, and citation
+  invocation/key span separation.
 
 Still intentionally outside this batch:
 
@@ -244,6 +246,10 @@ The next implementation step has started with a narrow display-list spike:
   `cpagerefrange`/`Cpagerefrange`, `pagerefrange`, `vpagerefrange`,
   `vrefrange`, and `Vrefrange` now emit a single reference event with both
   endpoint labels instead of exposing either label in visible text;
+- simple range reference wrappers such as
+  `\newcommand{\myrange}[2]{\crefrange{#1}{#2}}`, aliases to those wrappers,
+  and direct `\let` aliases to range commands preserve both endpoint labels
+  through event capture, IR, and display-list text redaction;
 - VM render-event capture now emits `LabelDefinition` events for `\label{...}`,
   and `DocumentIr` preserves labels as invisible metadata rather than body text;
 - simple label wrapper macros such as `\newcommand{\seclabel}[1]{\label{#1}}`
