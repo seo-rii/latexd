@@ -728,6 +728,7 @@ struct RenderEventScanState {
     section_macros: HashMap<String, RenderSectionMacro>,
     citation_macros: HashMap<String, RenderCitationMacro>,
     reference_macros: HashMap<String, RenderReferenceMacro>,
+    link_macros: HashMap<String, RenderLinkMacro>,
     readable_wrapper_macros: HashMap<String, RenderReadableWrapperMacro>,
     structured_environments: HashSet<String>,
     theorem_like_environments: HashSet<String>,
@@ -767,6 +768,16 @@ struct RenderReferenceMacro {
     parameter_count: usize,
     optional_first_argument: bool,
     key_parameter: usize,
+}
+
+#[derive(Debug, Clone)]
+struct RenderLinkMacro {
+    definition_span: RenderMacroDefinitionSpan,
+    command: String,
+    parameter_count: usize,
+    optional_first_argument: bool,
+    target_parameter: usize,
+    text_parameter: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -1458,6 +1469,32 @@ impl<'i> Vm<'i> {
                                         .insert(macro_name.to_string(), reference_macro);
                                 }
                             }
+                            if let Some((link_command, target_parameter, text_parameter)) =
+                                link_macro_from_body(body, parameter_count)
+                            {
+                                let link_macro = RenderLinkMacro {
+                                    definition_span: RenderMacroDefinitionSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: command_start,
+                                        end_utf8: after_body,
+                                    },
+                                    command: link_command,
+                                    parameter_count,
+                                    optional_first_argument,
+                                    target_parameter,
+                                    text_parameter,
+                                };
+                                if command == "providecommand" {
+                                    scan_state
+                                        .link_macros
+                                        .entry(macro_name.to_string())
+                                        .or_insert(link_macro);
+                                } else {
+                                    scan_state
+                                        .link_macros
+                                        .insert(macro_name.to_string(), link_macro);
+                                }
+                            }
                             if parameter_count == 1 && body.contains("#1") && !body.contains("#2") {
                                 let wrapper_macro = RenderReadableWrapperMacro {
                                     definition_span: RenderMacroDefinitionSpan {
@@ -1591,6 +1628,25 @@ impl<'i> Vm<'i> {
                                     },
                                 );
                             }
+                            if let Some((link_command, target_parameter, text_parameter)) =
+                                link_macro_from_body(body, parameter_count)
+                            {
+                                scan_state.link_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderLinkMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: after_body,
+                                        },
+                                        command: link_command,
+                                        parameter_count,
+                                        optional_first_argument: false,
+                                        target_parameter,
+                                        text_parameter,
+                                    },
+                                );
+                            }
                             if parameter_count == 1 && body.contains("#1") && !body.contains("#2") {
                                 scan_state.readable_wrapper_macros.insert(
                                     macro_name.to_string(),
@@ -1709,6 +1765,20 @@ impl<'i> Vm<'i> {
                                 scan_state.reference_macros.insert(
                                     macro_name.to_string(),
                                     RenderReferenceMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: source_end,
+                                        },
+                                        ..source_macro
+                                    },
+                                );
+                            } else if let Some(source_macro) =
+                                scan_state.link_macros.get(source_name).cloned()
+                            {
+                                scan_state.link_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderLinkMacro {
                                         definition_span: RenderMacroDefinitionSpan {
                                             path: source_path.to_owned(),
                                             start_utf8: command_start,
@@ -7024,6 +7094,88 @@ impl<'i> Vm<'i> {
                                                 as u32,
                                             end_utf8: reference_macro.definition_span.end_utf8
                                                 as u32,
+                                        })),
+                                        command_name: Some(command.to_string()),
+                                    },
+                                ),
+                            );
+                            index = invocation_end;
+                        }
+                    } else if let Some(link_macro) = scan_state.link_macros.get(command) {
+                        let mut argument_index = skip_ascii_whitespace(source, index);
+                        let mut invocation_end = index;
+                        let mut selected_target = None;
+                        let mut selected_text = None;
+                        let mut parameter = 1usize;
+                        if link_macro.optional_first_argument {
+                            if let Some((argument, content_start, content_end, after_optional)) =
+                                read_bracket_source_argument(source, argument_index)
+                            {
+                                if link_macro.target_parameter == 1 {
+                                    selected_target = Some((argument, content_start, content_end));
+                                }
+                                if link_macro.text_parameter == 1 {
+                                    selected_text = Some((argument, content_start, content_end));
+                                }
+                                argument_index = after_optional;
+                                invocation_end = after_optional;
+                            }
+                            parameter = 2;
+                        }
+                        while parameter <= link_macro.parameter_count {
+                            argument_index = skip_ascii_whitespace(source, argument_index);
+                            let Some((argument, content_start, content_end, after_argument)) =
+                                read_braced_source_argument(source, argument_index)
+                            else {
+                                break;
+                            };
+                            if parameter == link_macro.target_parameter {
+                                selected_target = Some((argument, content_start, content_end));
+                            }
+                            if parameter == link_macro.text_parameter {
+                                selected_text = Some((argument, content_start, content_end));
+                            }
+                            argument_index = after_argument;
+                            invocation_end = after_argument;
+                            parameter += 1;
+                        }
+                        if let (
+                            Some((target, target_start, target_end)),
+                            Some((text, text_start, text_end)),
+                        ) = (selected_target, selected_text)
+                        {
+                            let text = normalize_latex_text_with_inline_placeholders(text);
+                            self.emit_render_event(
+                                if scan_state.no_hyper_depth > 0 {
+                                    RenderEvent::Text(TextEvent { text })
+                                } else {
+                                    RenderEvent::InlineLink(InlineLinkEvent {
+                                        target: target.trim().to_string(),
+                                        text,
+                                        command: link_macro.command.clone(),
+                                    })
+                                },
+                                Self::link_provenance(
+                                    source_path,
+                                    command_start,
+                                    invocation_end,
+                                    text_start,
+                                    text_end,
+                                    (link_macro.target_parameter != link_macro.text_parameter)
+                                        .then_some((target_start, target_end)),
+                                )
+                                .with_expansion_frame(
+                                    ExpansionFrame {
+                                        call_span: ProvenanceSpan::File(SourceSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start as u32,
+                                            end_utf8: invocation_end as u32,
+                                        }),
+                                        definition_span: Some(ProvenanceSpan::File(SourceSpan {
+                                            path: link_macro.definition_span.path.clone(),
+                                            start_utf8: link_macro.definition_span.start_utf8
+                                                as u32,
+                                            end_utf8: link_macro.definition_span.end_utf8 as u32,
                                         })),
                                         command_name: Some(command.to_string()),
                                     },
@@ -14537,6 +14689,54 @@ fn reference_macro_from_body(body: &str, parameter_count: usize) -> Option<(Stri
             key_parameter_for_macro_command_body(body, command, parameter_count)
         {
             return Some((command.to_string(), parameter));
+        }
+    }
+    None
+}
+
+fn link_macro_from_body(body: &str, parameter_count: usize) -> Option<(String, usize, usize)> {
+    for command in ["href", "url"] {
+        let needle = format!("\\{command}");
+        let mut search_start = 0usize;
+        while let Some(relative_start) = body[search_start..].find(&needle) {
+            let command_start = search_start + relative_start;
+            let command_end = command_start + needle.len();
+            if body
+                .as_bytes()
+                .get(command_end)
+                .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'@')
+            {
+                search_start = command_end;
+                continue;
+            }
+
+            let argument_index = skip_ascii_whitespace(body, command_end);
+            if command == "href" {
+                if let Some((target, _, _, after_target)) =
+                    read_braced_source_argument(body, argument_index)
+                {
+                    let text_index = skip_ascii_whitespace(body, after_target);
+                    if let Some((text, _, _, _)) = read_braced_source_argument(body, text_index)
+                        && let Some(target_parameter) = (1..=parameter_count)
+                            .rev()
+                            .find(|parameter| target.contains(&format!("#{parameter}")))
+                        && let Some(text_parameter) = (1..=parameter_count)
+                            .rev()
+                            .find(|parameter| text.contains(&format!("#{parameter}")))
+                    {
+                        return Some((command.to_string(), target_parameter, text_parameter));
+                    }
+                }
+            } else if let Some((target, _, _, _)) =
+                read_url_like_source_argument(body, argument_index)
+                && let Some(parameter) = (1..=parameter_count)
+                    .rev()
+                    .find(|parameter| target.contains(&format!("#{parameter}")))
+            {
+                return Some((command.to_string(), parameter, parameter));
+            }
+
+            search_start = command_end;
         }
     }
     None
@@ -22725,6 +22925,79 @@ Fallback text.
             &event.event,
             RenderEvent::Text(text) if text.text.contains("https://example.test/paper")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_records_link_wrapper_macros() {
+        for (source, invocation_text, definition_text) in [
+            (
+                r"\newcommand{\mylink}[2]{\href{#1}{#2}}\begin{document}Read \mylink{https://hidden.test}{paper link}.\end{document}",
+                r"\mylink{https://hidden.test}{paper link}",
+                r"\newcommand{\mylink}[2]{\href{#1}{#2}}",
+            ),
+            (
+                r"\newcommand{\mylink}[2]{\href{#1}{#2}}\let\paperlink\mylink\begin{document}Read \paperlink{https://hidden.test}{paper link}.\end{document}",
+                r"\paperlink{https://hidden.test}{paper link}",
+                r"\let\paperlink\mylink",
+            ),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.set_entry_source_path("main.tex");
+            vm.enable_render_event_capture();
+            let outcome = vm.run_plain(source);
+            let link = outcome
+                .render_events
+                .iter()
+                .find(|event| matches!(&event.event, RenderEvent::InlineLink(_)))
+                .expect("link event");
+
+            assert!(matches!(
+                &link.event,
+                RenderEvent::InlineLink(link)
+                    if link.command == "href"
+                        && link.target == "https://hidden.test"
+                        && link.text == "paper link"
+            ));
+            assert!(matches!(
+                &link.meta.source.primary,
+                tex_render_model::ProvenanceSpan::File(span)
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == "paper link"
+            ));
+            assert!(link.meta.source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        tex_render_model::ProvenanceSpan::File(span)
+                            if span.path == Utf8PathBuf::from("main.tex")
+                                && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+            assert!(link.meta.source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Argument
+                    && matches!(
+                        &related.span,
+                        tex_render_model::ProvenanceSpan::File(span)
+                            if span.path == Utf8PathBuf::from("main.tex")
+                                && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == "https://hidden.test"
+                    )
+            }));
+            assert!(matches!(
+                &link.meta.source.expansion_stack[0].definition_span,
+                Some(tex_render_model::ProvenanceSpan::File(span))
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == definition_text
+            ));
+            assert!(!outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Text(text) if text.text.contains("https://hidden.test")
+            )));
+        }
     }
 
     #[test]
