@@ -7557,6 +7557,100 @@ fn input_file_content_survives_ir_and_display_list() {
 }
 
 #[test]
+fn input_file_heading_provenance_points_to_included_source() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        INPUT_MAIN_SOURCE,
+        &SemanticAux::default(),
+        &[("child.tex", INPUT_CHILD_SOURCE)],
+    );
+    let heading_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::Heading(heading) if heading.text == "Included"
+            )
+        })
+        .expect("heading event");
+    let heading_block = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Heading(heading)
+                if matches!(
+                    heading.content.first(),
+                    Some(InlineNode::Text { text, .. }) if text == "Included"
+                ) =>
+            {
+                Some(heading)
+            }
+            _ => None,
+        })
+        .expect("heading block");
+    let heading_run = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "Included" => Some(run),
+            _ => None,
+        })
+        .expect("heading display-list run");
+
+    for source in [
+        &heading_event.meta.source,
+        &heading_block.source,
+        &heading_run.source,
+    ] {
+        assert!(matches!(
+            &source.primary,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == "child.tex"
+                    && &INPUT_CHILD_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == "Included"
+        ));
+        assert!(source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "child.tex"
+                            && &INPUT_CHILD_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\section{Included}"
+                )
+        }));
+    }
+
+    let provenance_snapshot = serde_json::json!({
+        "main_source": INPUT_MAIN_SOURCE,
+        "child_source": INPUT_CHILD_SOURCE,
+        "event": {
+            "event": heading_event.event,
+            "meta": heading_event.meta,
+        },
+        "ir": {
+            "level": heading_block.level,
+            "content": heading_block.content,
+            "source": heading_block.source,
+        },
+        "display_list": {
+            "text": heading_run.text,
+            "source": heading_run.source,
+            "clusters": heading_run.clusters,
+        },
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/input.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn unbraced_input_and_include_files_survive_ir_and_display_list() {
     let capture = capture_internal_render_ir_with_mounted_files(
         "main.tex",
