@@ -8297,6 +8297,285 @@ fn nested_text_wrapper_unknown_command_links_and_math_survive_ir_without_raw_syn
 }
 
 #[test]
+fn nested_text_wrapper_unknown_command_link_math_provenance_preserves_invocation_spans() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_LINK_MATH_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    let mut provenance_cases = Vec::new();
+    for (display_text, target, invocation_text, target_argument) in [
+        (
+            "paper",
+            "https://hidden.test",
+            r"\href{https://hidden.test}{paper}",
+            Some("https://hidden.test"),
+        ),
+        (
+            "https://shown.test",
+            "https://shown.test",
+            r"\url{https://shown.test}",
+            None,
+        ),
+    ] {
+        let link_event = capture
+            .events
+            .events
+            .iter()
+            .find(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RenderEvent::InlineLink(link)
+                        if link.text == display_text && link.target == target
+                )
+            })
+            .expect("nested unknown link event");
+        let ir_link = paragraph
+            .content
+            .iter()
+            .find_map(|node| match node {
+                InlineNode::Link(link)
+                    if link.display_text == display_text && link.target == target =>
+                {
+                    Some(link)
+                }
+                _ => None,
+            })
+            .expect("nested unknown link IR node");
+        let text_runs = capture.page_display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run)
+                    if matches!(
+                        &run.source.primary,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_LINK_MATH_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == display_text
+                    ) =>
+                {
+                    Some(run)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let annotations = capture.page_display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::LinkAnnotation(link) if link.target == target => Some(link),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(!text_runs.is_empty(), "link text run for {display_text}");
+        assert!(
+            !annotations.is_empty(),
+            "link annotation for {display_text}"
+        );
+
+        for source in [&link_event.meta.source, &ir_link.source] {
+            assert!(matches!(
+                &source.primary,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_LINK_MATH_SOURCE
+                            [span.start_utf8 as usize..span.end_utf8 as usize]
+                            == display_text
+            ));
+            assert!(source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_LINK_MATH_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+            if let Some(target_argument) = target_argument {
+                assert!(source.related.iter().any(|related| {
+                    related.role == SourceSpanRole::Argument
+                        && matches!(
+                            &related.span,
+                            ProvenanceSpan::File(span)
+                                if span.path.as_str() == "main.tex"
+                                    && &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_LINK_MATH_SOURCE
+                                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                                        == target_argument
+                        )
+                }));
+            }
+        }
+        for text_run in &text_runs {
+            assert!(text_run.source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_LINK_MATH_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+        }
+        for annotation in &annotations {
+            assert!(annotation.source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_LINK_MATH_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+        }
+
+        provenance_cases.push(serde_json::json!({
+            "case": "link",
+            "text": display_text,
+            "target": target,
+            "event": {
+                "event": link_event.event,
+                "meta": link_event.meta,
+            },
+            "ir_source": ir_link.source,
+            "display_list": {
+                "text_runs": text_runs
+                    .iter()
+                    .map(|run| serde_json::json!({
+                        "text": run.text,
+                        "source": run.source,
+                        "clusters": run.clusters,
+                    }))
+                    .collect::<Vec<_>>(),
+                "annotations": annotations
+                    .iter()
+                    .map(|annotation| serde_json::json!({
+                        "target": annotation.target,
+                        "source": annotation.source,
+                    }))
+                    .collect::<Vec<_>>(),
+            },
+        }));
+    }
+
+    let raw_source = "x^2";
+    let invocation_text = "$x^2$";
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::InlineMath(math) if math.raw_source == raw_source
+            )
+        })
+        .expect("nested unknown inline math event");
+    let ir_source = paragraph
+        .content
+        .iter()
+        .find_map(|node| match node {
+            InlineNode::InlineMath {
+                raw_source: node_raw_source,
+                source,
+                ..
+            } if node_raw_source == raw_source => Some(source),
+            _ => None,
+        })
+        .expect("nested unknown inline math IR source");
+    let text_runs = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == raw_source => Some(run),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(!text_runs.is_empty(), "math text run for {raw_source}");
+
+    for source in [&math_event.meta.source, ir_source] {
+        assert!(matches!(
+            &source.primary,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == "main.tex"
+                    && &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_LINK_MATH_SOURCE
+                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                        == raw_source
+        ));
+        assert!(source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_LINK_MATH_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == invocation_text
+                )
+        }));
+    }
+    for text_run in &text_runs {
+        assert!(text_run.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_LINK_MATH_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == invocation_text
+                )
+        }));
+    }
+
+    provenance_cases.push(serde_json::json!({
+        "case": "inline_math",
+        "raw_source": raw_source,
+        "event": {
+            "event": math_event.event,
+            "meta": math_event.meta,
+        },
+        "ir_source": ir_source,
+        "display_list": text_runs
+            .iter()
+            .map(|run| serde_json::json!({
+                "text": run.text,
+                "source": run.source,
+                "clusters": run.clusters,
+            }))
+            .collect::<Vec<_>>(),
+    }));
+
+    let provenance_snapshot = serde_json::json!({
+        "source": NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_LINK_MATH_SOURCE,
+        "cases": provenance_cases,
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/nested-unknown-link-math.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn nested_text_wrapper_unknown_command_escaped_visible_chars_survive_ir() {
     let capture = capture_internal_render_ir(
         "main.tex",
