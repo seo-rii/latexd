@@ -727,6 +727,7 @@ struct RenderEventScanState {
     graphic_extensions: Vec<String>,
     section_macros: HashMap<String, RenderSectionMacro>,
     citation_macros: HashMap<String, RenderCitationMacro>,
+    reference_macros: HashMap<String, RenderReferenceMacro>,
     readable_wrapper_macros: HashMap<String, RenderReadableWrapperMacro>,
     structured_environments: HashSet<String>,
     theorem_like_environments: HashSet<String>,
@@ -754,6 +755,15 @@ struct RenderCitationMacro {
     definition_span: RenderMacroDefinitionSpan,
     command: String,
     style_hint: CitationStyleHint,
+    parameter_count: usize,
+    optional_first_argument: bool,
+    key_parameter: usize,
+}
+
+#[derive(Debug, Clone)]
+struct RenderReferenceMacro {
+    definition_span: RenderMacroDefinitionSpan,
+    command: String,
     parameter_count: usize,
     optional_first_argument: bool,
     key_parameter: usize,
@@ -1423,6 +1433,31 @@ impl<'i> Vm<'i> {
                                         .insert(macro_name.to_string(), citation_macro);
                                 }
                             }
+                            if let Some((reference_command, key_parameter)) =
+                                reference_macro_from_body(body, parameter_count)
+                            {
+                                let reference_macro = RenderReferenceMacro {
+                                    definition_span: RenderMacroDefinitionSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: command_start,
+                                        end_utf8: after_body,
+                                    },
+                                    command: reference_command,
+                                    parameter_count,
+                                    optional_first_argument,
+                                    key_parameter,
+                                };
+                                if command == "providecommand" {
+                                    scan_state
+                                        .reference_macros
+                                        .entry(macro_name.to_string())
+                                        .or_insert(reference_macro);
+                                } else {
+                                    scan_state
+                                        .reference_macros
+                                        .insert(macro_name.to_string(), reference_macro);
+                                }
+                            }
                             if parameter_count == 1 && body.contains("#1") && !body.contains("#2") {
                                 let wrapper_macro = RenderReadableWrapperMacro {
                                     definition_span: RenderMacroDefinitionSpan {
@@ -1538,6 +1573,24 @@ impl<'i> Vm<'i> {
                                     },
                                 );
                             }
+                            if let Some((reference_command, key_parameter)) =
+                                reference_macro_from_body(body, parameter_count)
+                            {
+                                scan_state.reference_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderReferenceMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: after_body,
+                                        },
+                                        command: reference_command,
+                                        parameter_count,
+                                        optional_first_argument: false,
+                                        key_parameter,
+                                    },
+                                );
+                            }
                             if parameter_count == 1 && body.contains("#1") && !body.contains("#2") {
                                 scan_state.readable_wrapper_macros.insert(
                                     macro_name.to_string(),
@@ -1642,6 +1695,20 @@ impl<'i> Vm<'i> {
                                 scan_state.citation_macros.insert(
                                     macro_name.to_string(),
                                     RenderCitationMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: source_end,
+                                        },
+                                        ..source_macro
+                                    },
+                                );
+                            } else if let Some(source_macro) =
+                                scan_state.reference_macros.get(source_name).cloned()
+                            {
+                                scan_state.reference_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderReferenceMacro {
                                         definition_span: RenderMacroDefinitionSpan {
                                             path: source_path.to_owned(),
                                             start_utf8: command_start,
@@ -6881,6 +6948,81 @@ impl<'i> Vm<'i> {
                                             start_utf8: citation_macro.definition_span.start_utf8
                                                 as u32,
                                             end_utf8: citation_macro.definition_span.end_utf8
+                                                as u32,
+                                        })),
+                                        command_name: Some(command.to_string()),
+                                    },
+                                ),
+                            );
+                            index = invocation_end;
+                        }
+                    } else if let Some(reference_macro) = scan_state.reference_macros.get(command) {
+                        let mut argument_index = skip_ascii_whitespace(source, index);
+                        let mut invocation_end = index;
+                        let mut selected_keys = None;
+                        let mut parameter = 1usize;
+                        if reference_macro.optional_first_argument {
+                            if let Some((argument, content_start, content_end, after_optional)) =
+                                read_bracket_source_argument(source, argument_index)
+                            {
+                                if reference_macro.key_parameter == 1 {
+                                    selected_keys = Some((argument, content_start, content_end));
+                                }
+                                argument_index = after_optional;
+                                invocation_end = after_optional;
+                            }
+                            parameter = 2;
+                        }
+                        while parameter <= reference_macro.parameter_count {
+                            argument_index = skip_ascii_whitespace(source, argument_index);
+                            let Some((argument, content_start, content_end, after_argument)) =
+                                read_braced_source_argument(source, argument_index)
+                            else {
+                                break;
+                            };
+                            if parameter == reference_macro.key_parameter {
+                                selected_keys = Some((argument, content_start, content_end));
+                            }
+                            argument_index = after_argument;
+                            invocation_end = after_argument;
+                            parameter += 1;
+                        }
+                        if let Some((keys, content_start, content_end)) = selected_keys {
+                            self.emit_render_event(
+                                RenderEvent::InlineReference(InlineReferenceEvent {
+                                    keys: keys
+                                        .split(',')
+                                        .map(str::trim)
+                                        .filter(|key| !key.is_empty())
+                                        .map(ToOwned::to_owned)
+                                        .collect(),
+                                    command: reference_macro.command.clone(),
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    command_start as u32,
+                                    invocation_end as u32,
+                                )
+                                .with_related(
+                                    SourceSpanRole::ReferenceKey,
+                                    ProvenanceSpan::File(SourceSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: content_start as u32,
+                                        end_utf8: content_end as u32,
+                                    }),
+                                )
+                                .with_expansion_frame(
+                                    ExpansionFrame {
+                                        call_span: ProvenanceSpan::File(SourceSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start as u32,
+                                            end_utf8: invocation_end as u32,
+                                        }),
+                                        definition_span: Some(ProvenanceSpan::File(SourceSpan {
+                                            path: reference_macro.definition_span.path.clone(),
+                                            start_utf8: reference_macro.definition_span.start_utf8
+                                                as u32,
+                                            end_utf8: reference_macro.definition_span.end_utf8
                                                 as u32,
                                         })),
                                         command_name: Some(command.to_string()),
@@ -14242,6 +14384,49 @@ fn citation_style_hint_for_command(command: &str) -> CitationStyleHint {
     }
 }
 
+fn key_parameter_for_macro_command_body(
+    body: &str,
+    command: &str,
+    parameter_count: usize,
+) -> Option<usize> {
+    let needle = format!("\\{command}");
+    let mut search_start = 0usize;
+    while let Some(relative_start) = body[search_start..].find(&needle) {
+        let command_start = search_start + relative_start;
+        let command_end = command_start + needle.len();
+        if body
+            .as_bytes()
+            .get(command_end)
+            .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'@')
+        {
+            search_start = command_end;
+            continue;
+        }
+
+        let mut argument_index = skip_ascii_whitespace(body, command_end);
+        if body[argument_index..].starts_with('*') {
+            argument_index += 1;
+        }
+        loop {
+            argument_index = skip_ascii_whitespace(body, argument_index);
+            let Some((_, _, _, after_option)) = read_bracket_source_argument(body, argument_index)
+            else {
+                break;
+            };
+            argument_index = after_option;
+        }
+        if let Some((argument, _, _, _)) = read_braced_source_argument(body, argument_index)
+            && let Some(parameter) = (1..=parameter_count)
+                .rev()
+                .find(|parameter| argument.contains(&format!("#{parameter}")))
+        {
+            return Some(parameter);
+        }
+        search_start = command_end;
+    }
+    None
+}
+
 fn citation_macro_from_body(
     body: &str,
     parameter_count: usize,
@@ -14295,45 +14480,63 @@ fn citation_macro_from_body(
         "cite",
     ];
     for command in citation_commands {
-        let needle = format!("\\{command}");
-        let mut search_start = 0usize;
-        while let Some(relative_start) = body[search_start..].find(&needle) {
-            let command_start = search_start + relative_start;
-            let command_end = command_start + needle.len();
-            if body
-                .as_bytes()
-                .get(command_end)
-                .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'@')
-            {
-                search_start = command_end;
-                continue;
-            }
+        if let Some(parameter) =
+            key_parameter_for_macro_command_body(body, command, parameter_count)
+        {
+            return Some((
+                command.to_string(),
+                citation_style_hint_for_command(command),
+                parameter,
+            ));
+        }
+    }
+    None
+}
 
-            let mut argument_index = skip_ascii_whitespace(body, command_end);
-            if body[argument_index..].starts_with('*') {
-                argument_index += 1;
-            }
-            loop {
-                argument_index = skip_ascii_whitespace(body, argument_index);
-                let Some((_, _, _, after_option)) =
-                    read_bracket_source_argument(body, argument_index)
-                else {
-                    break;
-                };
-                argument_index = after_option;
-            }
-            if let Some((argument, _, _, _)) = read_braced_source_argument(body, argument_index)
-                && let Some(parameter) = (1..=parameter_count)
-                    .rev()
-                    .find(|parameter| argument.contains(&format!("#{parameter}")))
-            {
-                return Some((
-                    command.to_string(),
-                    citation_style_hint_for_command(command),
-                    parameter,
-                ));
-            }
-            search_start = command_end;
+fn reference_macro_from_body(body: &str, parameter_count: usize) -> Option<(String, usize)> {
+    let reference_commands = [
+        "labelcpageref",
+        "cpagerefrange",
+        "Cpagerefrange",
+        "pagerefrange",
+        "vpagerefrange",
+        "crefrange",
+        "Crefrange",
+        "vrefrange",
+        "Vrefrange",
+        "autopageref",
+        "lcnamecrefs",
+        "lcnamecref",
+        "nameCrefs",
+        "namecrefs",
+        "labelcref",
+        "cpageref",
+        "Cpageref",
+        "autoref",
+        "nameref",
+        "fullref",
+        "Fullref",
+        "titleref",
+        "Titleref",
+        "nameCref",
+        "namecref",
+        "subeqref",
+        "pageref",
+        "subref",
+        "thmref",
+        "Thmref",
+        "eqref",
+        "Cref",
+        "cref",
+        "Vref",
+        "vref",
+        "ref",
+    ];
+    for command in reference_commands {
+        if let Some(parameter) =
+            key_parameter_for_macro_command_body(body, command, parameter_count)
+        {
+            return Some((command.to_string(), parameter));
         }
     }
     None
@@ -22111,6 +22314,68 @@ Fallback text.
             references[2].0.keys,
             vec!["fig:a".to_string(), "tab:b".to_string()]
         );
+    }
+
+    #[test]
+    fn render_event_capture_records_reference_wrapper_macros() {
+        for (source, invocation_text, definition_text) in [
+            (
+                r"\newcommand{\myref}[1]{\ref{#1}}\begin{document}See \myref{sec:intro}.\end{document}",
+                r"\myref{sec:intro}",
+                r"\newcommand{\myref}[1]{\ref{#1}}",
+            ),
+            (
+                r"\newcommand{\myref}[1]{\ref{#1}}\let\aliasref\myref\begin{document}See \aliasref{sec:intro}.\end{document}",
+                r"\aliasref{sec:intro}",
+                r"\let\aliasref\myref",
+            ),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.set_entry_source_path("main.tex");
+            vm.enable_render_event_capture();
+            let outcome = vm.run_plain(source);
+            let reference = outcome
+                .render_events
+                .iter()
+                .find(|event| matches!(&event.event, RenderEvent::InlineReference(_)))
+                .expect("reference event");
+
+            assert!(matches!(
+                &reference.event,
+                RenderEvent::InlineReference(reference)
+                    if reference.command == "ref"
+                        && reference.keys == vec!["sec:intro".to_string()]
+            ));
+            assert!(matches!(
+                &reference.meta.source.primary,
+                tex_render_model::ProvenanceSpan::File(span)
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == invocation_text
+            ));
+            assert!(reference.meta.source.related.iter().any(|related| {
+                related.role == SourceSpanRole::ReferenceKey
+                    && matches!(
+                        &related.span,
+                        tex_render_model::ProvenanceSpan::File(span)
+                            if span.path == Utf8PathBuf::from("main.tex")
+                                && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == "sec:intro"
+                    )
+            }));
+            assert!(matches!(
+                &reference.meta.source.expansion_stack[0].definition_span,
+                Some(tex_render_model::ProvenanceSpan::File(span))
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == definition_text
+            ));
+            assert!(!outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Text(text) if text.text.contains("sec:intro")
+            )));
+        }
     }
 
     #[test]
