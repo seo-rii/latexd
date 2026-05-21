@@ -12852,6 +12852,28 @@ fn macro_heading_provenance_matches_golden() {
     );
 }
 
+#[test]
+fn starred_providecommand_macro_heading_provenance_matches_golden() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        STARRED_PROVIDED_MACRO_SECTION_SOURCE,
+        &SemanticAux::default(),
+    );
+
+    assert_macro_heading_provenance_golden(
+        &capture,
+        "Provided",
+        "main.tex",
+        STARRED_PROVIDED_MACRO_SECTION_SOURCE,
+        r"\mysection{Provided}",
+        "main.tex",
+        STARRED_PROVIDED_MACRO_SECTION_SOURCE,
+        r"\providecommand*{\mysection}[1]{\section{#1}}",
+        &[("source", STARRED_PROVIDED_MACRO_SECTION_SOURCE)],
+        "tests/goldens/render_ir/starred-providecommand-macro-heading.provenance.json",
+    );
+}
+
 const COMPACT_SOURCE: &str = r"\title{A Paper}\author{Ada Lovelace}\date{May 1843}\begin{document}\maketitle\begin{abstract}Short abstract.\end{abstract}\section{Intro}Hello \cite{key}.\[x^2\]\begin{thebibliography}{1}\bibitem{key} Author. Title.\end{thebibliography}\begin{unknownenv}Fallback text.\end{unknownenv}\end{document}";
 
 const TITLE_INLINE_KEY_SOURCE: &str =
@@ -13258,6 +13280,8 @@ const LABEL_SOURCE: &str =
 
 const MACRO_SECTION_SOURCE: &str =
     r"\newcommand{\mysection}[1]{\section{#1}}\begin{document}\mysection{Intro}\end{document}";
+
+const STARRED_PROVIDED_MACRO_SECTION_SOURCE: &str = r"\providecommand*{\mysection}[1]{\section{#1}}\begin{document}\mysection{Provided}\end{document}";
 
 fn assert_macro_heading_provenance_golden(
     capture: &InternalRenderIrCapture,
