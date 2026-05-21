@@ -22607,20 +22607,45 @@ Fallback text.
     #[test]
     fn render_event_capture_uses_macros_declared_in_package_files() {
         let source = r"\usepackage{macros}\begin{document}\mysection{From Package}\reviewnote{package \cite{key}}\end{document}";
+        let macro_source = r"\ProvidesPackage{macros}\newcommand{\mysection}[1]{\section{#1}}\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
-        vm.mount_file(
-            "macros.sty",
-            r"\ProvidesPackage{macros}\newcommand{\mysection}[1]{\section{#1}}\newcommand{\reviewnote}[1]{{\color{red}[TODO: #1]}}",
-        );
+        vm.mount_file("macros.sty", macro_source);
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
 
-        assert!(outcome.render_events.iter().any(|event| matches!(
-            &event.event,
-            RenderEvent::Heading(heading) if heading.text == "From Package"
-        )));
+        let heading = outcome
+            .render_events
+            .iter()
+            .find(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::Heading(heading) if heading.text == "From Package"
+                )
+            })
+            .expect("heading event");
+        let expansion = heading
+            .meta
+            .source
+            .expansion_stack
+            .first()
+            .expect("heading macro expansion");
+        assert_eq!(expansion.command_name.as_deref(), Some("mysection"));
+        assert!(matches!(
+            &expansion.call_span,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\mysection{From Package}"
+        ));
+        assert!(matches!(
+            &expansion.definition_span,
+            Some(tex_render_model::ProvenanceSpan::File(span))
+                if span.path == Utf8PathBuf::from("macros.sty")
+                    && &macro_source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\newcommand{\mysection}[1]{\section{#1}}"
+        ));
 
         let visible_text = outcome
             .render_events

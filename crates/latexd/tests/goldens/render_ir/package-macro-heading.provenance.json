@@ -1,0 +1,227 @@
+{
+  "display_list": {
+    "clusters": [
+      {
+        "glyph_end": 12,
+        "glyph_start": 0,
+        "text_end_utf8": 12,
+        "text_start_utf8": 0
+      }
+    ],
+    "source": {
+      "expansion_stack": [
+        {
+          "call_span": {
+            "end_utf8": 59,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 35
+          },
+          "command_name": "mysection",
+          "definition_span": {
+            "end_utf8": 64,
+            "kind": "file",
+            "path": "macros.sty",
+            "start_utf8": 24
+          }
+        }
+      ],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 58,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 46
+      },
+      "related": [
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 59,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 35
+          }
+        }
+      ]
+    },
+    "text": "From Package"
+  },
+  "event": {
+    "event": {
+      "kind": "heading",
+      "level": 1,
+      "text": "From Package"
+    },
+    "meta": {
+      "confidence": "high",
+      "event_id": 1,
+      "mode_hint": "unknown",
+      "producer": "command",
+      "source": {
+        "expansion_stack": [
+          {
+            "call_span": {
+              "end_utf8": 59,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 35
+            },
+            "command_name": "mysection",
+            "definition_span": {
+              "end_utf8": 64,
+              "kind": "file",
+              "path": "macros.sty",
+              "start_utf8": 24
+            }
+          }
+        ],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 58,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 46
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 59,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 35
+            }
+          }
+        ]
+      }
+    }
+  },
+  "ir": {
+    "content": [
+      {
+        "kind": "text",
+        "source": {
+          "expansion_stack": [
+            {
+              "call_span": {
+                "end_utf8": 59,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 35
+              },
+              "command_name": "mysection",
+              "definition_span": {
+                "end_utf8": 64,
+                "kind": "file",
+                "path": "macros.sty",
+                "start_utf8": 24
+              }
+            }
+          ],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 58,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 46
+          },
+          "related": [
+            {
+              "role": "invocation",
+              "span": {
+                "end_utf8": 59,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 35
+              }
+            }
+          ]
+        },
+        "text": "From Package"
+      }
+    ],
+    "level": 1,
+    "source": {
+      "expansion_stack": [
+        {
+          "call_span": {
+            "end_utf8": 59,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 35
+          },
+          "command_name": "mysection",
+          "definition_span": {
+            "end_utf8": 64,
+            "kind": "file",
+            "path": "macros.sty",
+            "start_utf8": 24
+          }
+        }
+      ],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 58,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 46
+      },
+      "related": [
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 59,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 35
+          }
+        }
+      ]
+    },
+    "text_source": {
+      "expansion_stack": [
+        {
+          "call_span": {
+            "end_utf8": 59,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 35
+          },
+          "command_name": "mysection",
+          "definition_span": {
+            "end_utf8": 64,
+            "kind": "file",
+            "path": "macros.sty",
+            "start_utf8": 24
+          }
+        }
+      ],
+      "expansion_stack_truncated": false,
+      "generated_by": "source",
+      "primary": {
+        "end_utf8": 58,
+        "kind": "file",
+        "path": "main.tex",
+        "start_utf8": 46
+      },
+      "related": [
+        {
+          "role": "invocation",
+          "span": {
+            "end_utf8": 59,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 35
+          }
+        }
+      ]
+    }
+  },
+  "main_source": "\\usepackage{macros}\\begin{document}\\mysection{From Package}\\reviewnote{package \\cite{key}}\\end{document}",
+  "package_source": "\\ProvidesPackage{macros}\\newcommand{\\mysection}[1]{\\section{#1}}\\newcommand{\\reviewnote}[1]{{\\color{red}[TODO: #1]}}"
+}

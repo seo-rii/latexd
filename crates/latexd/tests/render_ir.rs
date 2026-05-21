@@ -8227,6 +8227,136 @@ fn package_file_macros_are_reused_in_document_ir_and_display_list() {
 }
 
 #[test]
+fn package_macro_heading_provenance_preserves_definition_file() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        PACKAGE_MACRO_MAIN_SOURCE,
+        &SemanticAux::default(),
+        &[("macros.sty", PACKAGE_MACRO_SOURCE)],
+    );
+    let heading_event = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::Heading(heading) if heading.text == "From Package"
+            )
+        })
+        .expect("heading event");
+    let heading_block = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Heading(heading)
+                if matches!(
+                    heading.content.first(),
+                    Some(InlineNode::Text { text, .. }) if text == "From Package"
+                ) =>
+            {
+                Some(heading)
+            }
+            _ => None,
+        })
+        .expect("heading block");
+    let heading_text_source = heading_block
+        .content
+        .iter()
+        .find_map(|node| match node {
+            InlineNode::Text { text, source } if text == "From Package" => Some(source),
+            _ => None,
+        })
+        .expect("heading text source");
+    let heading_run = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "From Package" => Some(run),
+            _ => None,
+        })
+        .expect("heading display-list run");
+
+    for source in [
+        &heading_event.meta.source,
+        &heading_block.source,
+        heading_text_source,
+        &heading_run.source,
+    ] {
+        assert!(matches!(
+            &source.primary,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == "main.tex"
+                    && &PACKAGE_MACRO_MAIN_SOURCE
+                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                        == "From Package"
+        ));
+        assert!(source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if span.path.as_str() == "main.tex"
+                            && &PACKAGE_MACRO_MAIN_SOURCE
+                                [span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\mysection{From Package}"
+                )
+        }));
+
+        assert_eq!(source.expansion_stack.len(), 1);
+        let expansion = &source.expansion_stack[0];
+        assert_eq!(expansion.command_name.as_deref(), Some("mysection"));
+        assert!(matches!(
+            &expansion.call_span,
+            ProvenanceSpan::File(span)
+                if span.path.as_str() == "main.tex"
+                    && &PACKAGE_MACRO_MAIN_SOURCE
+                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\mysection{From Package}"
+        ));
+        assert!(
+            matches!(
+                &expansion.definition_span,
+                Some(ProvenanceSpan::File(span))
+                    if span.path.as_str() == "macros.sty"
+                        && &PACKAGE_MACRO_SOURCE
+                            [span.start_utf8 as usize..span.end_utf8 as usize]
+                            == r"\newcommand{\mysection}[1]{\section{#1}}"
+            ),
+            "unexpected definition span: {:?}",
+            expansion.definition_span
+        );
+    }
+
+    let provenance_snapshot = serde_json::json!({
+        "main_source": PACKAGE_MACRO_MAIN_SOURCE,
+        "package_source": PACKAGE_MACRO_SOURCE,
+        "event": {
+            "event": heading_event.event,
+            "meta": heading_event.meta,
+        },
+        "ir": {
+            "level": heading_block.level,
+            "content": heading_block.content,
+            "source": heading_block.source,
+            "text_source": heading_text_source,
+        },
+        "display_list": {
+            "text": heading_run.text,
+            "source": heading_run.source,
+            "clusters": heading_run.clusters,
+        },
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/package-macro-heading.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn class_file_macros_are_reused_in_document_ir_and_display_list() {
     let capture = capture_internal_render_ir_with_mounted_files(
         "main.tex",
