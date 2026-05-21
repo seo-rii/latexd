@@ -15119,8 +15119,8 @@ mod tests {
     use camino::{Utf8Path, Utf8PathBuf};
     use serde_json::json;
     use tex_render_model::{
-        BeginBlockEvent, BlockKind, CitationStyleHint, HeadingEvent, ListKind, MetadataField,
-        RenderEvent, SourceSpanRole, SpaceKind,
+        BeginBlockEvent, BlockKind, CitationStyleHint, GraphicAssetFormat, HeadingEvent, ListKind,
+        MetadataField, RenderEvent, SourceSpanRole, SpaceKind,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -19589,6 +19589,36 @@ Fallback text.
                 if graphic.path == "figures/plot.pdf"
                     && graphic.options.as_deref() == Some("width=5cm")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_hashes_file_root_graphic_assets() {
+        let source = r"\begin{document}\includegraphics{figures/plot}\end{document}";
+        let root = std::env::temp_dir().join(format!(
+            "latexd-tex-vm-graphic-asset-hash-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("figures")).expect("create figures dir");
+        let asset_bytes = b"%PDF real file";
+        std::fs::write(root.join("figures/plot.pdf"), asset_bytes).expect("write asset");
+        let root = Utf8PathBuf::from_path_buf(root).expect("utf8 root");
+        let expected_hash = format!("blake3:{}", blake3::hash(asset_bytes).to_hex());
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.set_file_root(root.clone());
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.asset_format == Some(GraphicAssetFormat::Pdf)
+                    && graphic.asset_hash.as_deref() == Some(expected_hash.as_str())
+        )));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
