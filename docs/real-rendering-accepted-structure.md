@@ -48,9 +48,9 @@ As of 2026-05-21, the first implementation batch is complete:
   instead of flattening to text, direct `\let` aliases to migrated inline
   commands, citation wrappers with multiple key arguments, citation wrappers
   with templated, constant, or optional-default keys, link wrappers with
-  literal or templated targets, reference/label wrappers with templated,
-  constant, or optional-default keys, reference range wrappers with multiple
-  label arguments, title metadata
+  literal, templated, or optional-default targets/text, reference/label
+  wrappers with templated, constant, or optional-default keys, reference range
+  wrappers with multiple label arguments, title metadata
   definition spans, `\maketitle` emission spans, and citation invocation/key
   span separation.
 
@@ -362,6 +362,9 @@ The next implementation step has started with a narrow display-list spike:
   `\newcommand{\doclink}[1]{\href{https://constant.test}{#1}}` and
   `\newcommand{\doilink}[1]{\href{https://doi.org/#1}{#1}}`, without exposing
   hidden URL prefixes in visible text;
+- optional-default link wrappers such as
+  `\newcommand{\defaultdoilink}[1][10.1000/default]{\href{https://doi.org/#1}{#1}}`
+  now resolve omitted optional arguments for both target and visible text;
 - `\href{target}{visible}` visible text now uses inline citation/reference
   placeholder redaction, keeping the link target annotation while hiding raw
   citation and label keys from extracted/display-list text;
