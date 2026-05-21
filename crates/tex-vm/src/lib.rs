@@ -742,6 +742,7 @@ struct RenderMacroDefinitionSpan {
 #[derive(Debug, Clone)]
 struct RenderSectionMacro {
     definition_span: RenderMacroDefinitionSpan,
+    level: u8,
     parameter_count: usize,
     optional_first_argument: bool,
     heading_parameter: usize,
@@ -1368,6 +1369,7 @@ impl<'i> Vm<'i> {
                                 };
                                 let section_macro = RenderSectionMacro {
                                     definition_span,
+                                    level: 1,
                                     parameter_count,
                                     optional_first_argument,
                                     heading_parameter,
@@ -1471,6 +1473,7 @@ impl<'i> Vm<'i> {
                                             start_utf8: command_start,
                                             end_utf8: after_body,
                                         },
+                                        level: 1,
                                         parameter_count,
                                         optional_first_argument: false,
                                         heading_parameter,
@@ -1545,7 +1548,16 @@ impl<'i> Vm<'i> {
                             } else {
                                 ""
                             };
-                            if source_name == "section" {
+                            let level = match source_name {
+                                "part" | "chapter" => Some(0),
+                                "section" => Some(1),
+                                "subsection" => Some(2),
+                                "subsubsection" => Some(3),
+                                "paragraph" => Some(4),
+                                "subparagraph" => Some(5),
+                                _ => None,
+                            };
+                            if let Some(level) = level {
                                 scan_state.section_macros.insert(
                                     macro_name.to_string(),
                                     RenderSectionMacro {
@@ -1554,6 +1566,7 @@ impl<'i> Vm<'i> {
                                             start_utf8: command_start,
                                             end_utf8: source_end,
                                         },
+                                        level,
                                         parameter_count: 1,
                                         optional_first_argument: false,
                                         heading_parameter: 1,
@@ -6684,7 +6697,7 @@ impl<'i> Vm<'i> {
                         if let Some((heading, content_start, content_end)) = selected_heading {
                             self.emit_render_event(
                                 RenderEvent::Heading(HeadingEvent {
-                                    level: 1,
+                                    level: section_macro.level,
                                     text: normalize_latex_text_with_inline_placeholders(heading),
                                     number: None,
                                 }),
@@ -25283,41 +25296,64 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_let_section_alias_provenance() {
-        let source = r"\let\mysection\section\begin{document}\mysection{Alias Title}\end{document}";
-        let mut interner = ControlSequenceInterner::new();
-        let mut vm = Vm::new(&mut interner);
-        vm.set_entry_source_path("main.tex");
-        vm.enable_render_event_capture();
-        let outcome = vm.run_plain(source);
-        let heading = outcome
-            .render_events
-            .iter()
-            .find(|event| matches!(&event.event, RenderEvent::Heading(heading) if heading.text == "Alias Title"))
-            .expect("heading event");
+        for (source, heading_text, invocation_text, definition_text, level) in [
+            (
+                r"\let\mysection\section\begin{document}\mysection{Alias Title}\end{document}",
+                "Alias Title",
+                r"\mysection{Alias Title}",
+                r"\let\mysection\section",
+                1,
+            ),
+            (
+                r"\let\mysubsection\subsection\begin{document}\mysubsection{Alias Sub}\end{document}",
+                "Alias Sub",
+                r"\mysubsection{Alias Sub}",
+                r"\let\mysubsection\subsection",
+                2,
+            ),
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.set_entry_source_path("main.tex");
+            vm.enable_render_event_capture();
+            let outcome = vm.run_plain(source);
+            let heading = outcome
+                .render_events
+                .iter()
+                .find(|event| {
+                    matches!(&event.event, RenderEvent::Heading(heading) if heading.text == heading_text)
+                })
+                .expect("heading event");
 
-        assert!(matches!(
-            &heading.meta.source.primary,
-            tex_render_model::ProvenanceSpan::File(span)
-                if span.path == Utf8PathBuf::from("main.tex")
-                    && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "Alias Title"
-        ));
-        assert!(heading.meta.source.related.iter().any(|related| {
-            related.role == SourceSpanRole::Invocation
-                && matches!(
-                    &related.span,
-                    tex_render_model::ProvenanceSpan::File(span)
-                        if span.path == Utf8PathBuf::from("main.tex")
-                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
-                                == r"\mysection{Alias Title}"
-                )
-        }));
-        assert!(matches!(
-            &heading.meta.source.expansion_stack[0].definition_span,
-            Some(tex_render_model::ProvenanceSpan::File(span))
-                if span.path == Utf8PathBuf::from("main.tex")
-                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
-                        == r"\let\mysection\section"
-        ));
+            assert!(matches!(
+                &heading.event,
+                RenderEvent::Heading(heading) if heading.level == level
+            ));
+            assert!(matches!(
+                &heading.meta.source.primary,
+                tex_render_model::ProvenanceSpan::File(span)
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == heading_text
+            ));
+            assert!(heading.meta.source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        tex_render_model::ProvenanceSpan::File(span)
+                            if span.path == Utf8PathBuf::from("main.tex")
+                                && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+            assert!(matches!(
+                &heading.meta.source.expansion_stack[0].definition_span,
+                Some(tex_render_model::ProvenanceSpan::File(span))
+                    if span.path == Utf8PathBuf::from("main.tex")
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == definition_text
+            ));
+        }
     }
 
     #[test]
