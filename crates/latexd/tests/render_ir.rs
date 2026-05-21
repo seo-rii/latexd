@@ -4979,6 +4979,95 @@ fn link_capture_survives_ir_and_display_list_annotations() {
 }
 
 #[test]
+fn link_wrapper_macro_capture_survives_ir_and_display_list_annotations() {
+    let capture =
+        capture_internal_render_ir("main.tex", LINK_WRAPPER_SOURCE, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    for (target, display_text) in [
+        ("https://hidden.test", "paper link"),
+        ("https://alias.test", "alias link"),
+    ] {
+        let event = capture
+            .events
+            .events
+            .iter()
+            .find(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RenderEvent::InlineLink(link)
+                        if link.target == target
+                            && link.text == display_text
+                            && link.command == "href"
+                )
+            })
+            .expect("link event");
+        assert!(matches!(
+            &event.meta.source.primary,
+            ProvenanceSpan::File(span)
+                if &LINK_WRAPPER_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize]
+                    == display_text
+        ));
+
+        assert!(paragraph.content.iter().any(|node| {
+            matches!(
+                node,
+                InlineNode::Link(link)
+                    if link.target == target
+                        && link.display_text == display_text
+                        && matches!(
+                            &link.source.primary,
+                            ProvenanceSpan::File(span)
+                                if &LINK_WRAPPER_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == display_text
+                        )
+            )
+        }));
+        assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+            matches!(
+                op,
+                DrawOp::LinkAnnotation(link) if link.target == target && link.rect.width > 0.0
+            )
+        }));
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(
+        extracted_text.contains("Read paper link and alias link."),
+        "{extracted_text}"
+    );
+    assert!(!extracted_text.contains("https://hidden.test"));
+    assert!(!extracted_text.contains("https://alias.test"));
+    assert!(!extracted_text.contains(r"\mylink"));
+    assert!(!extracted_text.contains(r"\paperlink"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("Read paper link and alias link."),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("https://hidden.test"));
+    assert!(!display_list_text.contains("https://alias.test"));
+}
+
+#[test]
 fn link_provenance_preserves_text_target_and_invocation_spans() {
     let capture = capture_internal_render_ir("main.tex", LINK_SOURCE, &SemanticAux::default());
     let paragraph = capture
@@ -13133,6 +13222,8 @@ const REFERENCE_RANGE_SOURCE: &str = r"\begin{document}See \crefrange{fig:a}{fig
 const REFERENCE_RANGE_ALIAS_SOURCE: &str = r"\begin{document}See \pagerefrange{page:a}{page:b}, \vpagerefrange{vp:a}{vp:b}, \vrefrange{sec:a}{sec:b}, and \Vrefrange{chap:a}{chap:b}.\end{document}";
 
 const LINK_SOURCE: &str = r"\begin{document}Read \href{https://example.test/paper}{paper link}, \url{https://example.test/raw}, and \url|https://example.test/delimited|.\end{document}";
+
+const LINK_WRAPPER_SOURCE: &str = r"\newcommand{\mylink}[2]{\href{#1}{#2}}\let\paperlink\mylink\begin{document}Read \mylink{https://hidden.test}{paper link} and \paperlink{https://alias.test}{alias link}.\end{document}";
 
 const LINK_TEXT_INLINE_KEY_SOURCE: &str = r"\begin{document}Read \href{https://hidden.test}{see \cite{cited}, \citep*{starred}, \ref{sec:intro}, and \ref*{sec:starred}}.\end{document}";
 
