@@ -1,0 +1,132 @@
+{
+  "cases": [
+    {
+      "case": "direct",
+      "event": {
+        "event": {
+          "command": "label",
+          "key": "sec:intro",
+          "kind": "label_definition"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 4,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 50,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 41
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 51,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 34
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir": {
+        "key": "sec:intro",
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 50,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 41
+          },
+          "related": [
+            {
+              "role": "invocation",
+              "span": {
+                "end_utf8": 51,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 34
+              }
+            }
+          ]
+        }
+      },
+      "source": "\\begin{document}Nested \\emph{Intro\\label{sec:intro} text}.\\end{document}"
+    },
+    {
+      "case": "unknown_command",
+      "event": {
+        "event": {
+          "command": "label",
+          "key": "sec:intro",
+          "kind": "label_definition"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 8,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 90,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 81
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 91,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 74
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir": {
+        "key": "sec:intro",
+        "source": {
+          "expansion_stack": [],
+          "expansion_stack_truncated": false,
+          "generated_by": "source",
+          "primary": {
+            "end_utf8": 90,
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 81
+          },
+          "related": [
+            {
+              "role": "invocation",
+              "span": {
+                "end_utf8": 91,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 74
+              }
+            }
+          ]
+        }
+      },
+      "source": "\\begin{document}Nested \\emph{before \\unknowntext{outer \\innerunknown{Intro\\label{sec:intro} text} done} after}.\\end{document}"
+    }
+  ]
+}

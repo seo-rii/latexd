@@ -1387,9 +1387,9 @@ approximate.
   cover title emit/content spans, citation invocation/key spans, direct plus
   nested citation invocation/key spans, direct plus macro heading
   argument/invocation spans, reference and starred-reference invocation/key
-  spans, nested reference invocation/key spans, label definition
-  key/invocation spans, link visible text/target/invocation spans, `NoHyper`
-  visible link text/invocation spans,
+  spans, nested reference invocation/key spans, label definition and nested
+  label key/invocation spans, link visible text/target/invocation spans,
+  `NoHyper` visible link text/invocation spans,
   `hyperref`/`hyperlink`/`hypertarget` visible text/target/invocation spans,
   nested link visible text/target/invocation spans, and graphic
   invocation/path argument spans, caption and `captionof`

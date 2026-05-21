@@ -6577,6 +6577,75 @@ fn nested_text_wrapper_label_definition_survives_ir_without_visible_key() {
 }
 
 #[test]
+fn nested_text_wrapper_label_provenance_preserves_key_and_invocation_spans() {
+    let mut provenance_cases = Vec::new();
+
+    for (case, source) in [
+        ("direct", NESTED_TEXT_WRAPPER_LABEL_SOURCE),
+        (
+            "unknown_command",
+            NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_LABEL_SOURCE,
+        ),
+    ] {
+        let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+        let label_event = capture
+            .events
+            .events
+            .iter()
+            .find(|envelope| {
+                matches!(&envelope.event, RenderEvent::LabelDefinition(label) if label.key == "sec:intro")
+            })
+            .expect("nested label event");
+        let label = capture
+            .document_ir
+            .labels
+            .iter()
+            .find(|label| label.key == "sec:intro")
+            .expect("nested label IR");
+
+        for source_provenance in [&label_event.meta.source, &label.source] {
+            assert!(matches!(
+                &source_provenance.primary,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == "sec:intro"
+            ));
+            assert!(source_provenance.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == r"\label{sec:intro}"
+                    )
+            }));
+        }
+
+        provenance_cases.push(serde_json::json!({
+            "case": case,
+            "source": source,
+            "event": {
+                "event": label_event.event,
+                "meta": label_event.meta,
+            },
+            "ir": label,
+        }));
+    }
+
+    let provenance_snapshot = serde_json::json!({
+        "cases": provenance_cases,
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/nested-label.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn nested_text_wrapper_math_capture_survives_ir_without_raw_delimiters() {
     let capture = capture_internal_render_ir(
         "main.tex",
