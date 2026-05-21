@@ -1,0 +1,287 @@
+{
+  "cases": [
+    {
+      "display_list": [
+        {
+          "clusters": [
+            {
+              "glyph_end": 9,
+              "glyph_start": 0,
+              "text_end_utf8": 9,
+              "text_start_utf8": 0
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 38,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 29
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 39,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 23
+                }
+              }
+            ]
+          },
+          "text": "important"
+        }
+      ],
+      "event": {
+        "event": {
+          "kind": "text",
+          "text": "important"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 3,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 38,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 29
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 39,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 23
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir_source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 38,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 29
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 39,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 23
+            }
+          }
+        ]
+      },
+      "text": "important"
+    },
+    {
+      "display_list": [
+        {
+          "clusters": [
+            {
+              "glyph_end": 9,
+              "glyph_start": 0,
+              "text_end_utf8": 9,
+              "text_start_utf8": 0
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 61,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 52
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 62,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 44
+                }
+              }
+            ]
+          },
+          "text": "bold text"
+        }
+      ],
+      "event": {
+        "event": {
+          "kind": "text",
+          "text": "bold text"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 7,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 61,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 52
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 62,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 44
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir_source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 61,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 52
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 62,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 44
+            }
+          }
+        ]
+      },
+      "text": "bold text"
+    },
+    {
+      "display_list": [
+        {
+          "clusters": [
+            {
+              "glyph_end": 9,
+              "glyph_start": 0,
+              "text_end_utf8": 9,
+              "text_start_utf8": 0
+            }
+          ],
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 85,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 76
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 86,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 68
+                }
+              }
+            ]
+          },
+          "text": "code_path"
+        }
+      ],
+      "event": {
+        "event": {
+          "kind": "text",
+          "text": "code_path"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 11,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 85,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 76
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 86,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 68
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir_source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 85,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 76
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 86,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 68
+            }
+          }
+        ]
+      },
+      "text": "code_path"
+    }
+  ],
+  "source": "\\begin{document}Styled \\emph{important} and \\textbf{bold text} with \\texttt{code_path}.\\end{document}"
+}
