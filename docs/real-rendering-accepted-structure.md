@@ -50,9 +50,10 @@ As of 2026-05-21, the first implementation batch is complete:
   with templated, constant, or optional-default keys, link wrappers with
   literal, templated, or optional-default targets/text, reference/label
   wrappers with templated, constant, or optional-default keys, reference range
-  wrappers with multiple label arguments, title metadata
-  definition spans, `\maketitle` emission spans, and citation invocation/key
-  span separation.
+  wrappers with multiple label arguments, cross-file optional-default wrapper
+  spans for citation/reference/link/label macros, title metadata definition
+  spans, `\maketitle` emission spans, and citation invocation/key span
+  separation.
 
 Still intentionally outside this batch:
 
@@ -255,6 +256,8 @@ The next implementation step has started with a narrow display-list spike:
 - optional-default reference wrappers such as
   `\newcommand{\defaultref}[1][sec:intro]{\ref{#1}}` also resolve omitted
   optional arguments from the definition default instead of dropping the event;
+  when the wrapper is declared in an input/package/class file, the related
+  reference-key provenance stays on that definition-file default span;
 - range references such as `crefrange`/`Crefrange`,
   `cpagerefrange`/`Cpagerefrange`, `pagerefrange`, `vpagerefrange`,
   `vrefrange`, and `Vrefrange` now emit a single reference event with both
@@ -278,7 +281,9 @@ The next implementation step has started with a narrow display-list spike:
 - optional-default citation wrappers such as
   `\newcommand{\defaultcite}[1][default]{\cite{#1}}` now resolve omitted
   optional arguments from the definition default while preserving wrapper
-  invocation provenance;
+  invocation provenance; when the wrapper is declared in an input/package/class
+  file, the related citation-key provenance stays on that definition-file
+  default span;
 - VM render-event capture now emits `LabelDefinition` events for `\label{...}`,
   and `DocumentIr` preserves labels as invisible metadata rather than body text;
 - simple label wrapper macros such as `\newcommand{\seclabel}[1]{\label{#1}}`
@@ -293,7 +298,9 @@ The next implementation step has started with a narrow display-list spike:
   invocation as related provenance;
 - optional-default label wrappers such as
   `\newcommand{\defaultlabel}[1][sec:intro]{\label{#1}}` now preserve the
-  default label key when the invocation omits the optional argument;
+  default label key when the invocation omits the optional argument; cross-file
+  wrappers use the definition-file default as the label metadata primary span
+  and keep the wrapper invocation as related provenance;
 - `SemanticAux`-backed citation labels and reference targets now have latexd
   integration coverage through `RenderEvent -> DocumentIr -> PageDisplayList`;
 - `SemanticAux` citation labels now normalize natbib year-suffix markup such as
@@ -364,7 +371,10 @@ The next implementation step has started with a narrow display-list spike:
   hidden URL prefixes in visible text;
 - optional-default link wrappers such as
   `\newcommand{\defaultdoilink}[1][10.1000/default]{\href{https://doi.org/#1}{#1}}`
-  now resolve omitted optional arguments for both target and visible text;
+  now resolve omitted optional arguments for both target and visible text; when
+  the wrapper is declared in an input/package/class file, the link text
+  provenance points at the definition-file default span while the invocation
+  remains related provenance;
 - `\href{target}{visible}` visible text now uses inline citation/reference
   placeholder redaction, keeping the link target annotation while hiding raw
   citation and label keys from extracted/display-list text;
