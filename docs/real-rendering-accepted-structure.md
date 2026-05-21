@@ -46,9 +46,10 @@ As of 2026-05-21, the first implementation batch is complete:
   wrapper macros, citation/reference/link/label wrapper macros that preserve
   `InlineCitation`/`InlineReference`/`InlineLink`/`LabelDefinition` events
   instead of flattening to text, direct `\let` aliases to migrated inline
-  commands, citation wrappers with multiple key arguments, reference range
-  wrappers with multiple label arguments, title metadata definition spans,
-  `\maketitle` emission spans, and citation invocation/key span separation.
+  commands, citation wrappers with multiple key arguments, link wrappers with
+  literal or templated targets, reference range wrappers with multiple label
+  arguments, title metadata definition spans, `\maketitle` emission spans, and
+  citation invocation/key span separation.
 
 Still intentionally outside this batch:
 
@@ -323,6 +324,10 @@ The next implementation step has started with a narrow display-list spike:
   `\newcommand{\mylink}[2]{\href{#1}{#2}}` and their `\let` aliases now
   preserve `InlineLink` events, IR link nodes, and display-list annotations
   instead of flattening hidden targets into body text;
+- link wrapper macros can also preserve literal and templated targets, such as
+  `\newcommand{\doclink}[1]{\href{https://constant.test}{#1}}` and
+  `\newcommand{\doilink}[1]{\href{https://doi.org/#1}{#1}}`, without exposing
+  hidden URL prefixes in visible text;
 - `\href{target}{visible}` visible text now uses inline citation/reference
   placeholder redaction, keeping the link target annotation while hiding raw
   citation and label keys from extracted/display-list text;
