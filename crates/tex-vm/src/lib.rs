@@ -1566,6 +1566,20 @@ impl<'i> Vm<'i> {
                                         heading_parameter: 1,
                                     },
                                 );
+                            } else if let Some(source_macro) =
+                                scan_state.section_macros.get(source_name).cloned()
+                            {
+                                scan_state.section_macros.insert(
+                                    macro_name.to_string(),
+                                    RenderSectionMacro {
+                                        definition_span: RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: command_start,
+                                            end_utf8: source_end,
+                                        },
+                                        ..source_macro
+                                    },
+                                );
                             }
                             index = source_end;
                         }
@@ -25374,6 +25388,13 @@ Fallback text.
                 "Alias Sub",
                 r"\mysubsection{Alias Sub}",
                 r"\let\mysubsection\subsection",
+                2,
+            ),
+            (
+                r"\newcommand{\mysubsection}[1]{\subsection{#1}}\let\aliassubsection\mysubsection\begin{document}\aliassubsection{Alias Chain}\end{document}",
+                "Alias Chain",
+                r"\aliassubsection{Alias Chain}",
+                r"\let\aliassubsection\mysubsection",
                 2,
             ),
         ] {
