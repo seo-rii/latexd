@@ -8009,6 +8009,146 @@ fn nested_text_wrapper_unknown_command_nested_unknown_url_text_wrappers_survive_
 }
 
 #[test]
+fn nested_text_wrapper_unknown_command_nested_unknown_url_text_provenance_preserves_invocation_spans()
+ {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_URL_TEXT_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    let mut provenance_cases = Vec::new();
+    for (display_text, invocation_text) in [
+        (
+            "https://visible.test/path",
+            r"\nolinkurl{https://visible.test/path}",
+        ),
+        ("/tmp/archive", r"\path|/tmp/archive|"),
+        (r"\foo+*", r"\detokenize{\foo+*}"),
+    ] {
+        let text_event = capture
+            .events
+            .events
+            .iter()
+            .find(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RenderEvent::Text(text) if text.text == display_text
+                )
+            })
+            .expect("URL-like text event");
+        let ir_source = paragraph
+            .content
+            .iter()
+            .find_map(|node| match node {
+                InlineNode::Text { text, source } if text == display_text => Some(source),
+                _ => None,
+            })
+            .expect("URL-like text IR source");
+        let text_runs = capture.page_display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run)
+                    if matches!(
+                        &run.source.primary,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_URL_TEXT_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == display_text
+                    ) =>
+                {
+                    Some(run)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(!text_runs.is_empty(), "text run for {display_text}");
+
+        for source in [&text_event.meta.source, ir_source] {
+            assert!(matches!(
+                &source.primary,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_URL_TEXT_SOURCE
+                            [span.start_utf8 as usize..span.end_utf8 as usize]
+                            == display_text
+            ));
+            assert!(source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_URL_TEXT_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+        }
+        for text_run in &text_runs {
+            assert!(matches!(
+                &text_run.source.primary,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_URL_TEXT_SOURCE
+                            [span.start_utf8 as usize..span.end_utf8 as usize]
+                            == display_text
+            ));
+            assert!(text_run.source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_URL_TEXT_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+        }
+
+        provenance_cases.push(serde_json::json!({
+            "text": display_text,
+            "event": {
+                "event": text_event.event,
+                "meta": text_event.meta,
+            },
+            "ir_source": ir_source,
+            "display_list": text_runs
+                .iter()
+                .map(|run| serde_json::json!({
+                    "text": run.text,
+                    "source": run.source,
+                    "clusters": run.clusters,
+                }))
+                .collect::<Vec<_>>(),
+        }));
+    }
+
+    let provenance_snapshot = serde_json::json!({
+        "source": NESTED_TEXT_WRAPPER_UNKNOWN_COMMAND_NESTED_UNKNOWN_URL_TEXT_SOURCE,
+        "cases": provenance_cases,
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/nested-unknown-url-text.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn nested_text_wrapper_unknown_command_nested_unknown_label_survives_ir_without_visible_key() {
     let capture = capture_internal_render_ir(
         "main.tex",
