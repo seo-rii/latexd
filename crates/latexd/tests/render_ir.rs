@@ -3319,6 +3319,8 @@ fn citation_wrapper_macro_capture_survives_ir_without_dropping_keys() {
         vec!["alpha".to_string(), "beta".to_string()],
         vec!["gamma".to_string(), "delta".to_string()],
         vec!["paper:one".to_string()],
+        vec!["core".to_string()],
+        vec!["core".to_string()],
     ];
     assert_eq!(citations.len(), expected.len());
     for (citation, keys) in citations.iter().zip(expected) {
@@ -3336,8 +3338,8 @@ fn citation_wrapper_macro_capture_survives_ir_without_dropping_keys() {
         })
         .collect::<Vec<_>>()
         .join("");
-    assert!(display_list_text.contains("See [?], [?], and [?]."));
-    for hidden in ["alpha", "beta", "gamma", "delta", "paper:one"] {
+    assert!(display_list_text.contains("See [?], [?], [?], [?], and [?]."));
+    for hidden in ["alpha", "beta", "gamma", "delta", "paper:one", "core"] {
         assert!(!display_list_text.contains(hidden), "{display_list_text}");
     }
 }
@@ -13106,6 +13108,96 @@ fn templated_reference_and_label_wrapper_keys_survive_ir_without_visible_keys() 
 }
 
 #[test]
+fn constant_reference_and_label_wrapper_keys_survive_ir_without_visible_keys() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        CONSTANT_REFERENCE_LABEL_WRAPPER_SOURCE,
+        &SemanticAux::default(),
+    );
+
+    let label = capture
+        .document_ir
+        .labels
+        .iter()
+        .find(|label| label.key == "sec:intro")
+        .expect("constant label");
+    assert!(matches!(
+        &label.source.primary,
+        ProvenanceSpan::File(span)
+            if &CONSTANT_REFERENCE_LABEL_WRAPPER_SOURCE
+                [span.start_utf8 as usize..span.end_utf8 as usize]
+                == "sec:intro"
+    ));
+
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let references = paragraph
+        .content
+        .iter()
+        .filter_map(|node| match node {
+            InlineNode::Reference(reference) => Some(reference),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(references.len(), 2);
+    for reference in references {
+        assert_eq!(reference.command, "ref");
+        assert_eq!(reference.keys, vec!["sec:intro".to_string()]);
+        assert!(matches!(
+            &reference.source.primary,
+            ProvenanceSpan::File(span)
+                if &CONSTANT_REFERENCE_LABEL_WRAPPER_SOURCE
+                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                    == r"\introref"
+                    || &CONSTANT_REFERENCE_LABEL_WRAPPER_SOURCE
+                        [span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\aliasintroref"
+        ));
+        assert!(reference.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::ReferenceKey
+                && matches!(
+                    &related.span,
+                    ProvenanceSpan::File(span)
+                        if &CONSTANT_REFERENCE_LABEL_WRAPPER_SOURCE
+                            [span.start_utf8 as usize..span.end_utf8 as usize]
+                            == "sec:intro"
+                )
+        }));
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Intro"), "{extracted_text}");
+    assert!(
+        extracted_text.contains("See [?] and [?]."),
+        "{extracted_text}"
+    );
+    assert!(!extracted_text.contains("sec:intro"));
+    assert!(!extracted_text.contains(r"\introlabel"));
+    assert!(!extracted_text.contains(r"\introref"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("See [?] and [?]."));
+    assert!(!display_list_text.contains("sec:intro"));
+    assert!(!display_list_text.contains(r"\introlabel"));
+    assert!(!display_list_text.contains(r"\introref"));
+}
+
+#[test]
 fn label_definition_provenance_preserves_key_and_invocation_spans() {
     let capture = capture_internal_render_ir("main.tex", LABEL_SOURCE, &SemanticAux::default());
     let label_event = capture
@@ -13569,7 +13661,7 @@ const HEADING_INLINE_KEY_SOURCE: &str =
 
 const CITATION_VARIANTS_SOURCE: &str = r"\begin{document}\citep[see][p.~3]{alpha,beta}\citet*{gamma}\parencite{delta}\textcite{epsilon}\citep*{zeta}\citealt*{eta}\citealp*{theta}\Textcite*{iota}\Citealt{lambda}\Citealp{mu}\end{document}";
 
-const CITATION_WRAPPER_SOURCE: &str = r"\newcommand{\mycitepair}[2]{\cite{#1,#2}}\let\aliascitepair\mycitepair\newcommand{\papercite}[1]{\cite{paper:#1}}\begin{document}See \mycitepair{alpha}{beta}, \aliascitepair{gamma}{delta}, and \papercite{one}.\end{document}";
+const CITATION_WRAPPER_SOURCE: &str = r"\newcommand{\mycitepair}[2]{\cite{#1,#2}}\let\aliascitepair\mycitepair\newcommand{\papercite}[1]{\cite{paper:#1}}\newcommand{\corecite}{\cite{core}}\let\aliascorecite\corecite\begin{document}See \mycitepair{alpha}{beta}, \aliascitepair{gamma}{delta}, \papercite{one}, \corecite, and \aliascorecite.\end{document}";
 
 const CITATION_METADATA_ALIAS_SOURCE: &str = r"\begin{document}\Citeauthor{alpha} \Citeyear{beta} \Citeyearpar{gamma} \citetitle{delta} \Citetitle{epsilon} \citefullauthor{zeta} \Citefullauthor*{eta}\end{document}";
 
@@ -13849,6 +13941,8 @@ const LABEL_SOURCE: &str =
 const LABEL_WRAPPER_SOURCE: &str = r"\newcommand{\seclabel}[1]{\label{#1}}\let\aliaslabel\seclabel\begin{document}\section{Intro}\seclabel{sec:intro}See \ref{sec:intro} and \ref{sec:alias}.\aliaslabel{sec:alias}\end{document}";
 
 const TEMPLATED_REFERENCE_LABEL_WRAPPER_SOURCE: &str = r"\newcommand{\seclabel}[1]{\label{sec:#1}}\newcommand{\secref}[1]{\ref{sec:#1}}\begin{document}\section{Intro}\seclabel{intro}See \secref{intro}.\end{document}";
+
+const CONSTANT_REFERENCE_LABEL_WRAPPER_SOURCE: &str = r"\newcommand{\introlabel}{\label{sec:intro}}\newcommand{\introref}{\ref{sec:intro}}\let\aliasintroref\introref\begin{document}\section{Intro}\introlabel See \introref and \aliasintroref.\end{document}";
 
 const MACRO_SECTION_SOURCE: &str =
     r"\newcommand{\mysection}[1]{\section{#1}}\begin{document}\mysection{Intro}\end{document}";

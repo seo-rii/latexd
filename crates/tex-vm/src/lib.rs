@@ -760,6 +760,7 @@ struct RenderCitationMacro {
     parameter_count: usize,
     optional_first_argument: bool,
     key_templates: Vec<String>,
+    key_template_spans: Vec<RenderMacroDefinitionSpan>,
     key_parameters: Vec<usize>,
 }
 
@@ -770,6 +771,7 @@ struct RenderReferenceMacro {
     parameter_count: usize,
     optional_first_argument: bool,
     key_templates: Vec<String>,
+    key_template_spans: Vec<RenderMacroDefinitionSpan>,
     key_parameters: Vec<usize>,
 }
 
@@ -780,6 +782,7 @@ struct RenderLabelMacro {
     parameter_count: usize,
     optional_first_argument: bool,
     key_template: String,
+    key_template_span: Option<RenderMacroDefinitionSpan>,
     key_parameters: Vec<usize>,
 }
 
@@ -1397,7 +1400,7 @@ impl<'i> Vm<'i> {
                                 after_signature = after_default;
                             }
                         }
-                        if let Some((body, _, _, after_body)) =
+                        if let Some((body, body_start, _, after_body)) =
                             read_braced_source_argument(source, after_signature)
                         {
                             let macro_name = target.trim().trim_start_matches('\\');
@@ -1437,9 +1440,18 @@ impl<'i> Vm<'i> {
                                 citation_command,
                                 style_hint,
                                 key_templates,
+                                key_template_spans,
                                 key_parameters,
                             )) = citation_macro_from_body(body, parameter_count)
                             {
+                                let key_template_spans = key_template_spans
+                                    .into_iter()
+                                    .map(|(start_utf8, end_utf8)| RenderMacroDefinitionSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: body_start + start_utf8,
+                                        end_utf8: body_start + end_utf8,
+                                    })
+                                    .collect();
                                 let citation_macro = RenderCitationMacro {
                                     definition_span: RenderMacroDefinitionSpan {
                                         path: source_path.to_owned(),
@@ -1451,6 +1463,7 @@ impl<'i> Vm<'i> {
                                     parameter_count,
                                     optional_first_argument,
                                     key_templates,
+                                    key_template_spans,
                                     key_parameters,
                                 };
                                 if command == "providecommand" {
@@ -1464,9 +1477,21 @@ impl<'i> Vm<'i> {
                                         .insert(macro_name.to_string(), citation_macro);
                                 }
                             }
-                            if let Some((reference_command, key_templates, key_parameters)) =
-                                reference_macro_from_body(body, parameter_count)
+                            if let Some((
+                                reference_command,
+                                key_templates,
+                                key_template_spans,
+                                key_parameters,
+                            )) = reference_macro_from_body(body, parameter_count)
                             {
+                                let key_template_spans = key_template_spans
+                                    .into_iter()
+                                    .map(|(start_utf8, end_utf8)| RenderMacroDefinitionSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: body_start + start_utf8,
+                                        end_utf8: body_start + end_utf8,
+                                    })
+                                    .collect();
                                 let reference_macro = RenderReferenceMacro {
                                     definition_span: RenderMacroDefinitionSpan {
                                         path: source_path.to_owned(),
@@ -1477,6 +1502,7 @@ impl<'i> Vm<'i> {
                                     parameter_count,
                                     optional_first_argument,
                                     key_templates,
+                                    key_template_spans,
                                     key_parameters,
                                 };
                                 if command == "providecommand" {
@@ -1490,9 +1516,21 @@ impl<'i> Vm<'i> {
                                         .insert(macro_name.to_string(), reference_macro);
                                 }
                             }
-                            if let Some((label_command, key_template, key_parameters)) =
-                                label_macro_from_body(body, parameter_count)
+                            if let Some((
+                                label_command,
+                                key_template,
+                                key_template_span,
+                                key_parameters,
+                            )) = label_macro_from_body(body, parameter_count)
                             {
+                                let key_template_span =
+                                    key_template_span.map(|(start_utf8, end_utf8)| {
+                                        RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: body_start + start_utf8,
+                                            end_utf8: body_start + end_utf8,
+                                        }
+                                    });
                                 let label_macro = RenderLabelMacro {
                                     definition_span: RenderMacroDefinitionSpan {
                                         path: source_path.to_owned(),
@@ -1503,6 +1541,7 @@ impl<'i> Vm<'i> {
                                     parameter_count,
                                     optional_first_argument,
                                     key_template,
+                                    key_template_span,
                                     key_parameters,
                                 };
                                 if command == "providecommand" {
@@ -1618,7 +1657,7 @@ impl<'i> Vm<'i> {
                             };
                             signature_index += ch.len_utf8();
                         }
-                        if let Some((body, _, _, after_body)) =
+                        if let Some((body, body_start, _, after_body)) =
                             read_braced_source_argument(source, signature_index)
                         {
                             let heading_level = heading_level_from_macro_body(body);
@@ -1649,9 +1688,18 @@ impl<'i> Vm<'i> {
                                 citation_command,
                                 style_hint,
                                 key_templates,
+                                key_template_spans,
                                 key_parameters,
                             )) = citation_macro_from_body(body, parameter_count)
                             {
+                                let key_template_spans = key_template_spans
+                                    .into_iter()
+                                    .map(|(start_utf8, end_utf8)| RenderMacroDefinitionSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: body_start + start_utf8,
+                                        end_utf8: body_start + end_utf8,
+                                    })
+                                    .collect();
                                 scan_state.citation_macros.insert(
                                     macro_name.to_string(),
                                     RenderCitationMacro {
@@ -1665,13 +1713,26 @@ impl<'i> Vm<'i> {
                                         parameter_count,
                                         optional_first_argument: false,
                                         key_templates,
+                                        key_template_spans,
                                         key_parameters,
                                     },
                                 );
                             }
-                            if let Some((reference_command, key_templates, key_parameters)) =
-                                reference_macro_from_body(body, parameter_count)
+                            if let Some((
+                                reference_command,
+                                key_templates,
+                                key_template_spans,
+                                key_parameters,
+                            )) = reference_macro_from_body(body, parameter_count)
                             {
+                                let key_template_spans = key_template_spans
+                                    .into_iter()
+                                    .map(|(start_utf8, end_utf8)| RenderMacroDefinitionSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: body_start + start_utf8,
+                                        end_utf8: body_start + end_utf8,
+                                    })
+                                    .collect();
                                 scan_state.reference_macros.insert(
                                     macro_name.to_string(),
                                     RenderReferenceMacro {
@@ -1684,13 +1745,26 @@ impl<'i> Vm<'i> {
                                         parameter_count,
                                         optional_first_argument: false,
                                         key_templates,
+                                        key_template_spans,
                                         key_parameters,
                                     },
                                 );
                             }
-                            if let Some((label_command, key_template, key_parameters)) =
-                                label_macro_from_body(body, parameter_count)
+                            if let Some((
+                                label_command,
+                                key_template,
+                                key_template_span,
+                                key_parameters,
+                            )) = label_macro_from_body(body, parameter_count)
                             {
+                                let key_template_span =
+                                    key_template_span.map(|(start_utf8, end_utf8)| {
+                                        RenderMacroDefinitionSpan {
+                                            path: source_path.to_owned(),
+                                            start_utf8: body_start + start_utf8,
+                                            end_utf8: body_start + end_utf8,
+                                        }
+                                    });
                                 scan_state.label_macros.insert(
                                     macro_name.to_string(),
                                     RenderLabelMacro {
@@ -1703,6 +1777,7 @@ impl<'i> Vm<'i> {
                                         parameter_count,
                                         optional_first_argument: false,
                                         key_template,
+                                        key_template_span,
                                         key_parameters,
                                     },
                                 );
@@ -1892,6 +1967,7 @@ impl<'i> Vm<'i> {
                                         parameter_count: 1,
                                         optional_first_argument: false,
                                         key_templates: vec!["#1".to_string()],
+                                        key_template_spans: Vec::new(),
                                         key_parameters: vec![1],
                                     },
                                 );
@@ -1932,6 +2008,7 @@ impl<'i> Vm<'i> {
                                         parameter_count: 2,
                                         optional_first_argument: false,
                                         key_templates: vec!["#1".to_string(), "#2".to_string()],
+                                        key_template_spans: Vec::new(),
                                         key_parameters: vec![1, 2],
                                     },
                                 );
@@ -1979,6 +2056,7 @@ impl<'i> Vm<'i> {
                                         parameter_count: 1,
                                         optional_first_argument: false,
                                         key_templates: vec!["#1".to_string()],
+                                        key_template_spans: Vec::new(),
                                         key_parameters: vec![1],
                                     },
                                 );
@@ -2009,6 +2087,7 @@ impl<'i> Vm<'i> {
                                         parameter_count: 1,
                                         optional_first_argument: false,
                                         key_template: "#1".to_string(),
+                                        key_template_span: None,
                                         key_parameters: vec![1],
                                     },
                                 );
@@ -7302,47 +7381,54 @@ impl<'i> Vm<'i> {
                                         .collect::<Vec<_>>()
                                 })
                                 .collect::<Vec<_>>();
-                            let (content_start, content_end) = macro_argument_span_for_parameters(
+                            let key_span = macro_argument_span_for_parameters(
                                 &citation_macro.key_parameters,
                                 &parsed_arguments,
                             )
-                            .unwrap_or((command_start, invocation_end));
+                            .map(|(start_utf8, end_utf8)| {
+                                (source_path.to_owned(), start_utf8, end_utf8)
+                            })
+                            .or_else(|| {
+                                citation_macro
+                                    .key_template_spans
+                                    .first()
+                                    .map(|span| (span.path.clone(), span.start_utf8, span.end_utf8))
+                            });
+                            let mut provenance = SourceProvenance::file(
+                                source_path.to_owned(),
+                                command_start as u32,
+                                invocation_end as u32,
+                            );
+                            if let Some((path, start_utf8, end_utf8)) = key_span {
+                                provenance = provenance.with_related(
+                                    SourceSpanRole::CitationKey,
+                                    ProvenanceSpan::File(SourceSpan {
+                                        path,
+                                        start_utf8: start_utf8 as u32,
+                                        end_utf8: end_utf8 as u32,
+                                    }),
+                                );
+                            }
+                            provenance = provenance.with_expansion_frame(ExpansionFrame {
+                                call_span: ProvenanceSpan::File(SourceSpan {
+                                    path: source_path.to_owned(),
+                                    start_utf8: command_start as u32,
+                                    end_utf8: invocation_end as u32,
+                                }),
+                                definition_span: Some(ProvenanceSpan::File(SourceSpan {
+                                    path: citation_macro.definition_span.path.clone(),
+                                    start_utf8: citation_macro.definition_span.start_utf8 as u32,
+                                    end_utf8: citation_macro.definition_span.end_utf8 as u32,
+                                })),
+                                command_name: Some(command.to_string()),
+                            });
                             self.emit_render_event(
                                 RenderEvent::InlineCitation(InlineCitationEvent {
                                     keys,
                                     command: citation_macro.command.clone(),
                                     style_hint: citation_macro.style_hint,
                                 }),
-                                SourceProvenance::file(
-                                    source_path.to_owned(),
-                                    command_start as u32,
-                                    invocation_end as u32,
-                                )
-                                .with_related(
-                                    SourceSpanRole::CitationKey,
-                                    ProvenanceSpan::File(SourceSpan {
-                                        path: source_path.to_owned(),
-                                        start_utf8: content_start as u32,
-                                        end_utf8: content_end as u32,
-                                    }),
-                                )
-                                .with_expansion_frame(
-                                    ExpansionFrame {
-                                        call_span: ProvenanceSpan::File(SourceSpan {
-                                            path: source_path.to_owned(),
-                                            start_utf8: command_start as u32,
-                                            end_utf8: invocation_end as u32,
-                                        }),
-                                        definition_span: Some(ProvenanceSpan::File(SourceSpan {
-                                            path: citation_macro.definition_span.path.clone(),
-                                            start_utf8: citation_macro.definition_span.start_utf8
-                                                as u32,
-                                            end_utf8: citation_macro.definition_span.end_utf8
-                                                as u32,
-                                        })),
-                                        command_name: Some(command.to_string()),
-                                    },
-                                ),
+                                provenance,
                             );
                             index = invocation_end;
                         }
@@ -7400,46 +7486,53 @@ impl<'i> Vm<'i> {
                                         .collect::<Vec<_>>()
                                 })
                                 .collect::<Vec<_>>();
-                            let (content_start, content_end) = macro_argument_span_for_parameters(
+                            let key_span = macro_argument_span_for_parameters(
                                 &reference_macro.key_parameters,
                                 &parsed_arguments,
                             )
-                            .unwrap_or((command_start, invocation_end));
+                            .map(|(start_utf8, end_utf8)| {
+                                (source_path.to_owned(), start_utf8, end_utf8)
+                            })
+                            .or_else(|| {
+                                reference_macro
+                                    .key_template_spans
+                                    .first()
+                                    .map(|span| (span.path.clone(), span.start_utf8, span.end_utf8))
+                            });
+                            let mut provenance = SourceProvenance::file(
+                                source_path.to_owned(),
+                                command_start as u32,
+                                invocation_end as u32,
+                            );
+                            if let Some((path, start_utf8, end_utf8)) = key_span {
+                                provenance = provenance.with_related(
+                                    SourceSpanRole::ReferenceKey,
+                                    ProvenanceSpan::File(SourceSpan {
+                                        path,
+                                        start_utf8: start_utf8 as u32,
+                                        end_utf8: end_utf8 as u32,
+                                    }),
+                                );
+                            }
+                            provenance = provenance.with_expansion_frame(ExpansionFrame {
+                                call_span: ProvenanceSpan::File(SourceSpan {
+                                    path: source_path.to_owned(),
+                                    start_utf8: command_start as u32,
+                                    end_utf8: invocation_end as u32,
+                                }),
+                                definition_span: Some(ProvenanceSpan::File(SourceSpan {
+                                    path: reference_macro.definition_span.path.clone(),
+                                    start_utf8: reference_macro.definition_span.start_utf8 as u32,
+                                    end_utf8: reference_macro.definition_span.end_utf8 as u32,
+                                })),
+                                command_name: Some(command.to_string()),
+                            });
                             self.emit_render_event(
                                 RenderEvent::InlineReference(InlineReferenceEvent {
                                     keys,
                                     command: reference_macro.command.clone(),
                                 }),
-                                SourceProvenance::file(
-                                    source_path.to_owned(),
-                                    command_start as u32,
-                                    invocation_end as u32,
-                                )
-                                .with_related(
-                                    SourceSpanRole::ReferenceKey,
-                                    ProvenanceSpan::File(SourceSpan {
-                                        path: source_path.to_owned(),
-                                        start_utf8: content_start as u32,
-                                        end_utf8: content_end as u32,
-                                    }),
-                                )
-                                .with_expansion_frame(
-                                    ExpansionFrame {
-                                        call_span: ProvenanceSpan::File(SourceSpan {
-                                            path: source_path.to_owned(),
-                                            start_utf8: command_start as u32,
-                                            end_utf8: invocation_end as u32,
-                                        }),
-                                        definition_span: Some(ProvenanceSpan::File(SourceSpan {
-                                            path: reference_macro.definition_span.path.clone(),
-                                            start_utf8: reference_macro.definition_span.start_utf8
-                                                as u32,
-                                            end_utf8: reference_macro.definition_span.end_utf8
-                                                as u32,
-                                        })),
-                                        command_name: Some(command.to_string()),
-                                    },
-                                ),
+                                provenance,
                             );
                             index = invocation_end;
                         }
@@ -7486,16 +7579,16 @@ impl<'i> Vm<'i> {
                                 &label_macro.key_template,
                                 &parsed_arguments,
                             );
-                            let (content_start, content_end) = macro_argument_span_for_parameters(
-                                &label_macro.key_parameters,
-                                &parsed_arguments,
-                            )
-                            .unwrap_or((command_start, invocation_end));
-                            self.emit_render_event(
-                                RenderEvent::LabelDefinition(LabelDefinitionEvent {
-                                    key: key.trim().to_string(),
-                                    command: label_macro.command.clone(),
-                                }),
+                            let invocation_span = ProvenanceSpan::File(SourceSpan {
+                                path: source_path.to_owned(),
+                                start_utf8: command_start as u32,
+                                end_utf8: invocation_end as u32,
+                            });
+                            let provenance = if let Some((content_start, content_end)) =
+                                macro_argument_span_for_parameters(
+                                    &label_macro.key_parameters,
+                                    &parsed_arguments,
+                                ) {
                                 Self::label_definition_provenance(
                                     source_path,
                                     command_start,
@@ -7503,22 +7596,41 @@ impl<'i> Vm<'i> {
                                     content_start,
                                     content_end,
                                 )
-                                .with_expansion_frame(
-                                    ExpansionFrame {
-                                        call_span: ProvenanceSpan::File(SourceSpan {
-                                            path: source_path.to_owned(),
-                                            start_utf8: command_start as u32,
-                                            end_utf8: invocation_end as u32,
-                                        }),
-                                        definition_span: Some(ProvenanceSpan::File(SourceSpan {
-                                            path: label_macro.definition_span.path.clone(),
-                                            start_utf8: label_macro.definition_span.start_utf8
-                                                as u32,
-                                            end_utf8: label_macro.definition_span.end_utf8 as u32,
-                                        })),
-                                        command_name: Some(command.to_string()),
-                                    },
-                                ),
+                            } else if let Some(span) = &label_macro.key_template_span {
+                                SourceProvenance::file(
+                                    span.path.clone(),
+                                    span.start_utf8 as u32,
+                                    span.end_utf8 as u32,
+                                )
+                                .with_related(SourceSpanRole::Invocation, invocation_span)
+                            } else {
+                                Self::label_definition_provenance(
+                                    source_path,
+                                    command_start,
+                                    invocation_end,
+                                    command_start,
+                                    invocation_end,
+                                )
+                            }
+                            .with_expansion_frame(ExpansionFrame {
+                                call_span: ProvenanceSpan::File(SourceSpan {
+                                    path: source_path.to_owned(),
+                                    start_utf8: command_start as u32,
+                                    end_utf8: invocation_end as u32,
+                                }),
+                                definition_span: Some(ProvenanceSpan::File(SourceSpan {
+                                    path: label_macro.definition_span.path.clone(),
+                                    start_utf8: label_macro.definition_span.start_utf8 as u32,
+                                    end_utf8: label_macro.definition_span.end_utf8 as u32,
+                                })),
+                                command_name: Some(command.to_string()),
+                            });
+                            self.emit_render_event(
+                                RenderEvent::LabelDefinition(LabelDefinitionEvent {
+                                    key: key.trim().to_string(),
+                                    command: label_macro.command.clone(),
+                                }),
+                                provenance,
                             );
                             index = invocation_end;
                         }
@@ -15018,7 +15130,7 @@ fn key_template_for_macro_command_body(
     body: &str,
     command: &str,
     parameter_count: usize,
-) -> Option<(String, Vec<usize>)> {
+) -> Option<(String, Vec<usize>, (usize, usize))> {
     let needle = format!("\\{command}");
     let mut search_start = 0usize;
     while let Some(relative_start) = body[search_start..].find(&needle) {
@@ -15045,15 +15157,25 @@ fn key_template_for_macro_command_body(
             };
             argument_index = after_option;
         }
-        if let Some((argument, _, _, _)) = read_braced_source_argument(body, argument_index) {
+        if let Some((argument, content_start, content_end, _)) =
+            read_braced_source_argument(body, argument_index)
+        {
             let parameters = template_parameters_for_macro_argument(argument, parameter_count);
-            if !parameters.is_empty() {
-                return Some((argument.to_string(), parameters));
+            if macro_argument_has_visible_key(argument) {
+                return Some((
+                    argument.to_string(),
+                    parameters,
+                    (content_start, content_end),
+                ));
             }
         }
         search_start = command_end;
     }
     None
+}
+
+fn macro_argument_has_visible_key(argument: &str) -> bool {
+    argument.split(',').any(|key| !key.trim().is_empty())
 }
 
 fn template_parameters_for_macro_argument(argument: &str, parameter_count: usize) -> Vec<usize> {
@@ -15110,7 +15232,13 @@ fn macro_argument_span_for_parameters(
 fn citation_macro_from_body(
     body: &str,
     parameter_count: usize,
-) -> Option<(String, CitationStyleHint, Vec<String>, Vec<usize>)> {
+) -> Option<(
+    String,
+    CitationStyleHint,
+    Vec<String>,
+    Vec<(usize, usize)>,
+    Vec<usize>,
+)> {
     let citation_commands = [
         "citefullauthor",
         "Citefullauthor",
@@ -15160,13 +15288,14 @@ fn citation_macro_from_body(
         "cite",
     ];
     for command in citation_commands {
-        if let Some((template, parameters)) =
+        if let Some((template, parameters, template_span)) =
             key_template_for_macro_command_body(body, command, parameter_count)
         {
             return Some((
                 command.to_string(),
                 citation_style_hint_for_command(command),
                 vec![template],
+                vec![template_span],
                 parameters,
             ));
         }
@@ -15177,7 +15306,7 @@ fn citation_macro_from_body(
 fn reference_macro_from_body(
     body: &str,
     parameter_count: usize,
-) -> Option<(String, Vec<String>, Vec<usize>)> {
+) -> Option<(String, Vec<String>, Vec<(usize, usize)>, Vec<usize>)> {
     let reference_range_commands = [
         "cpagerefrange",
         "Cpagerefrange",
@@ -15208,23 +15337,26 @@ fn reference_macro_from_body(
                 argument_index += 1;
                 argument_index = skip_ascii_whitespace(body, argument_index);
             }
-            if let Some((first_argument, _, _, after_first)) =
+            if let Some((first_argument, first_start, first_end, after_first)) =
                 read_braced_source_argument(body, argument_index)
             {
                 let second_index = skip_ascii_whitespace(body, after_first);
-                if let Some((second_argument, _, _, _)) =
+                if let Some((second_argument, second_start, second_end, _)) =
                     read_braced_source_argument(body, second_index)
                 {
                     let first_parameters =
                         template_parameters_for_macro_argument(first_argument, parameter_count);
                     let second_parameters =
                         template_parameters_for_macro_argument(second_argument, parameter_count);
-                    if !first_parameters.is_empty() && !second_parameters.is_empty() {
+                    if macro_argument_has_visible_key(first_argument)
+                        && macro_argument_has_visible_key(second_argument)
+                    {
                         let mut key_parameters = first_parameters;
                         key_parameters.extend(second_parameters);
                         return Some((
                             command.to_string(),
                             vec![first_argument.to_string(), second_argument.to_string()],
+                            vec![(first_start, first_end), (second_start, second_end)],
                             key_parameters,
                         ));
                     }
@@ -15293,10 +15425,17 @@ fn reference_macro_from_body(
                 };
                 argument_index = after_option;
             }
-            if let Some((argument, _, _, _)) = read_braced_source_argument(body, argument_index) {
+            if let Some((argument, content_start, content_end, _)) =
+                read_braced_source_argument(body, argument_index)
+            {
                 let parameters = template_parameters_for_macro_argument(argument, parameter_count);
-                if !parameters.is_empty() {
-                    return Some((command.to_string(), vec![argument.to_string()], parameters));
+                if macro_argument_has_visible_key(argument) {
+                    return Some((
+                        command.to_string(),
+                        vec![argument.to_string()],
+                        vec![(content_start, content_end)],
+                        parameters,
+                    ));
                 }
             }
             search_start = command_end;
@@ -15308,7 +15447,7 @@ fn reference_macro_from_body(
 fn label_macro_from_body(
     body: &str,
     parameter_count: usize,
-) -> Option<(String, String, Vec<usize>)> {
+) -> Option<(String, String, Option<(usize, usize)>, Vec<usize>)> {
     let needle = "\\label";
     let mut search_start = 0usize;
     while let Some(relative_start) = body[search_start..].find(needle) {
@@ -15324,10 +15463,17 @@ fn label_macro_from_body(
         }
 
         let argument_index = skip_ascii_whitespace(body, command_end);
-        if let Some((argument, _, _, _)) = read_braced_source_argument(body, argument_index) {
+        if let Some((argument, content_start, content_end, _)) =
+            read_braced_source_argument(body, argument_index)
+        {
             let parameters = template_parameters_for_macro_argument(argument, parameter_count);
-            if !parameters.is_empty() {
-                return Some(("label".to_string(), argument.to_string(), parameters));
+            if macro_argument_has_visible_key(argument) {
+                return Some((
+                    "label".to_string(),
+                    argument.to_string(),
+                    Some((content_start, content_end)),
+                    parameters,
+                ));
             }
         }
         search_start = command_end;
@@ -22573,6 +22719,13 @@ Fallback text.
                 &["paper:one"][..],
             ),
             (
+                r"\newcommand{\corecite}{\cite{core}}\begin{document}See \corecite.\end{document}",
+                r"\corecite",
+                r"\newcommand{\corecite}{\cite{core}}",
+                "core",
+                &["core"][..],
+            ),
+            (
                 r"\newcommand{\mycite}[1]{\cite{#1}}\let\aliascite\mycite\begin{document}See \aliascite{alpha,beta}.\end{document}",
                 r"\aliascite{alpha,beta}",
                 r"\let\aliascite\mycite",
@@ -22592,6 +22745,13 @@ Fallback text.
                 r"\let\aliaspapercite\papercite",
                 "two",
                 &["paper:two"][..],
+            ),
+            (
+                r"\newcommand{\corecite}{\cite{core}}\let\aliascorecite\corecite\begin{document}See \aliascorecite.\end{document}",
+                r"\aliascorecite",
+                r"\let\aliascorecite\corecite",
+                "core",
+                &["core"][..],
             ),
         ] {
             let mut interner = ControlSequenceInterner::new();
@@ -23273,6 +23433,14 @@ Fallback text.
                 "ref",
             ),
             (
+                r"\newcommand{\introref}{\ref{sec:intro}}\begin{document}See \introref.\end{document}",
+                r"\introref",
+                r"\newcommand{\introref}{\ref{sec:intro}}",
+                "sec:intro",
+                "sec:intro",
+                "ref",
+            ),
+            (
                 r"\newcommand{\myautoref}[2][]{\autoref{#2}}\begin{document}See \myautoref[Section]{sec:auto}.\end{document}",
                 r"\myautoref[Section]{sec:auto}",
                 r"\newcommand{\myautoref}[2][]{\autoref{#2}}",
@@ -23293,6 +23461,14 @@ Fallback text.
                 r"\aliassecref{intro}",
                 r"\let\aliassecref\secref",
                 "intro",
+                "sec:intro",
+                "ref",
+            ),
+            (
+                r"\newcommand{\introref}{\ref{sec:intro}}\let\aliasintroref\introref\begin{document}See \aliasintroref.\end{document}",
+                r"\aliasintroref",
+                r"\let\aliasintroref\introref",
+                "sec:intro",
                 "sec:intro",
                 "ref",
             ),
@@ -26937,6 +27113,13 @@ Fallback text.
                 "sec:intro",
             ),
             (
+                r"\newcommand{\introlabel}{\label{sec:intro}}\begin{document}\section{Intro}\introlabel See \ref{sec:intro}.\end{document}",
+                r"\introlabel",
+                r"\newcommand{\introlabel}{\label{sec:intro}}",
+                "sec:intro",
+                "sec:intro",
+            ),
+            (
                 r"\newcommand{\seclabel}[1]{\label{#1}}\let\introlabel\seclabel\begin{document}\section{Intro}\introlabel{sec:intro}See \ref{sec:intro}.\end{document}",
                 r"\introlabel{sec:intro}",
                 r"\let\introlabel\seclabel",
@@ -26948,6 +27131,13 @@ Fallback text.
                 r"\introlabel{intro}",
                 r"\let\introlabel\seclabel",
                 "intro",
+                "sec:intro",
+            ),
+            (
+                r"\newcommand{\fixedlabel}{\label{sec:intro}}\let\aliasfixedlabel\fixedlabel\begin{document}\section{Intro}\aliasfixedlabel See \ref{sec:intro}.\end{document}",
+                r"\aliasfixedlabel",
+                r"\let\aliasfixedlabel\fixedlabel",
+                "sec:intro",
                 "sec:intro",
             ),
         ] {
