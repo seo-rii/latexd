@@ -1,0 +1,293 @@
+{
+  "cases": [
+    {
+      "display_list": {
+        "annotations": [
+          {
+            "source": {
+              "expansion_stack": [],
+              "expansion_stack_truncated": false,
+              "generated_by": "source",
+              "primary": {
+                "end_utf8": 105,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 100
+              },
+              "related": [
+                {
+                  "role": "invocation",
+                  "span": {
+                    "end_utf8": 106,
+                    "kind": "file",
+                    "path": "main.tex",
+                    "start_utf8": 73
+                  }
+                },
+                {
+                  "role": "argument",
+                  "span": {
+                    "end_utf8": 98,
+                    "kind": "file",
+                    "path": "main.tex",
+                    "start_utf8": 79
+                  }
+                }
+              ]
+            },
+            "target": "https://hidden.test"
+          }
+        ],
+        "text_runs": [
+          {
+            "clusters": [
+              {
+                "glyph_end": 5,
+                "glyph_start": 0,
+                "text_end_utf8": 5,
+                "text_start_utf8": 0
+              }
+            ],
+            "source": {
+              "expansion_stack": [],
+              "expansion_stack_truncated": false,
+              "generated_by": "source",
+              "primary": {
+                "end_utf8": 105,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 100
+              },
+              "related": [
+                {
+                  "role": "invocation",
+                  "span": {
+                    "end_utf8": 106,
+                    "kind": "file",
+                    "path": "main.tex",
+                    "start_utf8": 73
+                  }
+                },
+                {
+                  "role": "argument",
+                  "span": {
+                    "end_utf8": 98,
+                    "kind": "file",
+                    "path": "main.tex",
+                    "start_utf8": 79
+                  }
+                }
+              ]
+            },
+            "text": "paper"
+          }
+        ]
+      },
+      "event": {
+        "event": {
+          "command": "href",
+          "kind": "inline_link",
+          "target": "https://hidden.test",
+          "text": "paper"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 9,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 105,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 100
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 106,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 73
+                }
+              },
+              {
+                "role": "argument",
+                "span": {
+                  "end_utf8": 98,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 79
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir_source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 105,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 100
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 106,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 73
+            }
+          },
+          {
+            "role": "argument",
+            "span": {
+              "end_utf8": 98,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 79
+            }
+          }
+        ]
+      },
+      "target": "https://hidden.test",
+      "text": "paper"
+    },
+    {
+      "display_list": {
+        "annotations": [
+          {
+            "source": {
+              "expansion_stack": [],
+              "expansion_stack_truncated": false,
+              "generated_by": "source",
+              "primary": {
+                "end_utf8": 134,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 116
+              },
+              "related": [
+                {
+                  "role": "invocation",
+                  "span": {
+                    "end_utf8": 135,
+                    "kind": "file",
+                    "path": "main.tex",
+                    "start_utf8": 111
+                  }
+                }
+              ]
+            },
+            "target": "https://shown.test"
+          }
+        ],
+        "text_runs": [
+          {
+            "clusters": [
+              {
+                "glyph_end": 18,
+                "glyph_start": 0,
+                "text_end_utf8": 18,
+                "text_start_utf8": 0
+              }
+            ],
+            "source": {
+              "expansion_stack": [],
+              "expansion_stack_truncated": false,
+              "generated_by": "source",
+              "primary": {
+                "end_utf8": 134,
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 116
+              },
+              "related": [
+                {
+                  "role": "invocation",
+                  "span": {
+                    "end_utf8": 135,
+                    "kind": "file",
+                    "path": "main.tex",
+                    "start_utf8": 111
+                  }
+                }
+              ]
+            },
+            "text": "https://shown.test"
+          }
+        ]
+      },
+      "event": {
+        "event": {
+          "command": "url",
+          "kind": "inline_link",
+          "target": "https://shown.test",
+          "text": "https://shown.test"
+        },
+        "meta": {
+          "confidence": "high",
+          "event_id": 13,
+          "mode_hint": "unknown",
+          "producer": "command",
+          "source": {
+            "expansion_stack": [],
+            "expansion_stack_truncated": false,
+            "generated_by": "source",
+            "primary": {
+              "end_utf8": 134,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 116
+            },
+            "related": [
+              {
+                "role": "invocation",
+                "span": {
+                  "end_utf8": 135,
+                  "kind": "file",
+                  "path": "main.tex",
+                  "start_utf8": 111
+                }
+              }
+            ]
+          }
+        }
+      },
+      "ir_source": {
+        "expansion_stack": [],
+        "expansion_stack_truncated": false,
+        "generated_by": "source",
+        "primary": {
+          "end_utf8": 134,
+          "kind": "file",
+          "path": "main.tex",
+          "start_utf8": 116
+        },
+        "related": [
+          {
+            "role": "invocation",
+            "span": {
+              "end_utf8": 135,
+              "kind": "file",
+              "path": "main.tex",
+              "start_utf8": 111
+            }
+          }
+        ]
+      },
+      "target": "https://shown.test",
+      "text": "https://shown.test"
+    }
+  ],
+  "source": "\\begin{document}Nested \\emph{before \\unknowntext{outer \\innerunknown{see \\href{https://hidden.test}{paper} and \\url{https://shown.test}} done} after}.\\end{document}"
+}
