@@ -5159,6 +5159,176 @@ fn hyperref_visible_text_survives_ir_without_targets() {
 }
 
 #[test]
+fn hyperref_visible_text_provenance_preserves_invocation_and_target_spans() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        HYPERREF_VISIBLE_TEXT_SOURCE,
+        &SemanticAux::default(),
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    let mut provenance_cases = Vec::new();
+    for (display_text, invocation_text, target_argument) in [
+        ("intro", r"\hyperref[sec:intro]{intro}", "sec:intro"),
+        (
+            "anchor text",
+            r"\hyperlink{hidden-anchor}{anchor text}",
+            "hidden-anchor",
+        ),
+        (
+            "target text",
+            r"\hypertarget{target-id}{target text}",
+            "target-id",
+        ),
+    ] {
+        let text_event = capture
+            .events
+            .events
+            .iter()
+            .find(|envelope| {
+                matches!(
+                    &envelope.event,
+                    RenderEvent::Text(text) if text.text == display_text
+                )
+            })
+            .expect("hyperref text event");
+        let ir_source = paragraph
+            .content
+            .iter()
+            .find_map(|node| match node {
+                InlineNode::Text { text, source } if text == display_text => Some(source),
+                _ => None,
+            })
+            .expect("hyperref text IR source");
+        let text_runs = capture.page_display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run)
+                    if matches!(
+                        &run.source.primary,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &HYPERREF_VISIBLE_TEXT_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == display_text
+                    ) =>
+                {
+                    Some(run)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            !text_runs.is_empty(),
+            "hyperref text run for {display_text}"
+        );
+
+        for source in [&text_event.meta.source, ir_source] {
+            assert!(matches!(
+                &source.primary,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &HYPERREF_VISIBLE_TEXT_SOURCE
+                            [span.start_utf8 as usize..span.end_utf8 as usize]
+                            == display_text
+            ));
+            assert!(source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &HYPERREF_VISIBLE_TEXT_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+            assert!(source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Argument
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &HYPERREF_VISIBLE_TEXT_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == target_argument
+                    )
+            }));
+        }
+        for text_run in &text_runs {
+            let source = &text_run.source;
+            assert!(matches!(
+                &source.primary,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &HYPERREF_VISIBLE_TEXT_SOURCE
+                            [span.start_utf8 as usize..span.end_utf8 as usize]
+                            == display_text
+            ));
+            assert!(source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Invocation
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &HYPERREF_VISIBLE_TEXT_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == invocation_text
+                    )
+            }));
+            assert!(source.related.iter().any(|related| {
+                related.role == SourceSpanRole::Argument
+                    && matches!(
+                        &related.span,
+                        ProvenanceSpan::File(span)
+                            if span.path.as_str() == "main.tex"
+                                && &HYPERREF_VISIBLE_TEXT_SOURCE
+                                    [span.start_utf8 as usize..span.end_utf8 as usize]
+                                    == target_argument
+                    )
+            }));
+        }
+
+        provenance_cases.push(serde_json::json!({
+            "text": display_text,
+            "event": {
+                "event": text_event.event,
+                "meta": text_event.meta,
+            },
+            "ir_source": ir_source,
+            "display_list": text_runs
+                .iter()
+                .map(|run| serde_json::json!({
+                    "text": run.text,
+                    "source": run.source,
+                    "clusters": run.clusters,
+                }))
+                .collect::<Vec<_>>(),
+        }));
+    }
+
+    let provenance_snapshot = serde_json::json!({
+        "source": HYPERREF_VISIBLE_TEXT_SOURCE,
+        "cases": provenance_cases,
+    });
+    let provenance_json = to_pretty_json(&provenance_snapshot).expect("provenance json");
+
+    assert_or_update_golden(
+        "tests/goldens/render_ir/hyperref-visible.provenance.json",
+        &provenance_json,
+    );
+}
+
+#[test]
 fn nohyper_suppresses_links_while_preserving_visible_text() {
     let capture = capture_internal_render_ir("main.tex", NOHYPER_SOURCE, &SemanticAux::default());
     let environment = capture

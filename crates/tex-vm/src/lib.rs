@@ -3393,18 +3393,13 @@ impl<'i> Vm<'i> {
                                 RenderEvent::Text(TextEvent {
                                     text: normalize_latex_text_with_inline_placeholders(text),
                                 }),
-                                SourceProvenance::file(
-                                    source_path.to_owned(),
-                                    content_start as u32,
-                                    content_end as u32,
-                                )
-                                .with_related(
-                                    SourceSpanRole::Argument,
-                                    ProvenanceSpan::File(SourceSpan {
-                                        path: source_path.to_owned(),
-                                        start_utf8: target_start as u32,
-                                        end_utf8: target_end as u32,
-                                    }),
+                                Self::link_provenance(
+                                    source_path,
+                                    command_start,
+                                    after,
+                                    content_start,
+                                    content_end,
+                                    Some((target_start, target_end)),
                                 ),
                             );
                             index = after;
@@ -3424,18 +3419,13 @@ impl<'i> Vm<'i> {
                                 RenderEvent::Text(TextEvent {
                                     text: normalize_latex_text_with_inline_placeholders(text),
                                 }),
-                                SourceProvenance::file(
-                                    source_path.to_owned(),
-                                    content_start as u32,
-                                    content_end as u32,
-                                )
-                                .with_related(
-                                    SourceSpanRole::Argument,
-                                    ProvenanceSpan::File(SourceSpan {
-                                        path: source_path.to_owned(),
-                                        start_utf8: target_start as u32,
-                                        end_utf8: target_end as u32,
-                                    }),
+                                Self::link_provenance(
+                                    source_path,
+                                    command_start,
+                                    after,
+                                    content_start,
+                                    content_end,
+                                    Some((target_start, target_end)),
                                 ),
                             );
                             index = after;

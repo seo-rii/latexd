@@ -1388,9 +1388,10 @@ approximate.
   macro heading argument/invocation spans, reference and starred-reference
   invocation/key spans, label definition key/invocation spans, link visible
   text/target/invocation spans, `NoHyper` visible link text/invocation spans,
+  `hyperref`/`hyperlink`/`hypertarget` visible text/target/invocation spans,
   and graphic invocation/path argument spans, caption and `captionof`
-  text/invocation spans, and display math body/delimiter spans; more source-span
-  edge cases should be added as VM coverage expands.
+  text/invocation spans, and display math body/delimiter spans; more
+  source-span edge cases should be added as VM coverage expands.
 - `DocumentIrBuilder` still lives in `tex-layout`. That remains acceptable for
   the first batch, but it should split into a dedicated IR-builder crate if it
   starts owning package/class semantic policy rather than layout-adjacent
