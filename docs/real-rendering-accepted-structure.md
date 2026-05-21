@@ -43,10 +43,10 @@ As of 2026-05-21, the first implementation batch is complete:
   section-wrapper declarations, optional-default section wrappers, `\def`-style
   section/readable wrappers, level-preserving wrappers and `\let` aliases for
   deeper heading commands, alias chains through user-defined heading/readable
-  wrapper macros, citation/reference wrapper macros that preserve
-  `InlineCitation`/`InlineReference` events instead of flattening to text,
-  title metadata definition spans, `\maketitle` emission spans, and citation
-  invocation/key span separation.
+  wrapper macros, citation/reference/link/label wrapper macros that preserve
+  `InlineCitation`/`InlineReference`/`InlineLink`/`LabelDefinition` events
+  instead of flattening to text, title metadata definition spans, `\maketitle`
+  emission spans, and citation invocation/key span separation.
 
 Still intentionally outside this batch:
 
@@ -246,6 +246,9 @@ The next implementation step has started with a narrow display-list spike:
   endpoint labels instead of exposing either label in visible text;
 - VM render-event capture now emits `LabelDefinition` events for `\label{...}`,
   and `DocumentIr` preserves labels as invisible metadata rather than body text;
+- simple label wrapper macros such as `\newcommand{\seclabel}[1]{\label{#1}}`
+  and their `\let` aliases now emit `LabelDefinition` events and IR labels
+  without leaking hidden label keys into extracted or display-list text;
 - `SemanticAux`-backed citation labels and reference targets now have latexd
   integration coverage through `RenderEvent -> DocumentIr -> PageDisplayList`;
 - `SemanticAux` citation labels now normalize natbib year-suffix markup such as
@@ -306,6 +309,10 @@ The next implementation step has started with a narrow display-list spike:
   runs, and `LinkAnnotation` display-list operations without leaking hidden
   `\href` targets into visible body text; `\url` supports both braced and
   delimiter-form arguments in event capture;
+- simple link wrapper macros such as
+  `\newcommand{\mylink}[2]{\href{#1}{#2}}` and their `\let` aliases now
+  preserve `InlineLink` events, IR link nodes, and display-list annotations
+  instead of flattening hidden targets into body text;
 - `\href{target}{visible}` visible text now uses inline citation/reference
   placeholder redaction, keeping the link target annotation while hiding raw
   citation and label keys from extracted/display-list text;
