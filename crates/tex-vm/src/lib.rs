@@ -27576,6 +27576,59 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_records_cross_file_optional_default_link_target_provenance() {
+        let defs = r"\newcommand{\defaulttargetlink}[2][https://default.test]{\href{#1}{#2}}";
+        let source =
+            r"\input{defs}\begin{document}Read \defaulttargetlink{visible link}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("defs.tex", defs);
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let link_event = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineLink(_)))
+            .expect("link event");
+        assert!(matches!(
+            &link_event.event,
+            RenderEvent::InlineLink(link)
+                if link.command == "href"
+                    && link.target == "https://default.test"
+                    && link.text == "visible link"
+        ));
+        assert!(matches!(
+            &link_event.meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == "visible link"
+        ));
+        assert!(link_event.meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\defaulttargetlink{visible link}"
+                )
+        }));
+        assert!(link_event.meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Argument
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("defs.tex")
+                            && &defs[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == "https://default.test"
+                )
+        }));
+    }
+
+    #[test]
     fn render_event_capture_records_direct_inline_command_aliases() {
         let source = r"\let\mycite\cite\let\myref\ref\let\myrange\crefrange\let\myhref\href\let\mylabel\label\begin{document}\section{Intro}\mylabel{sec:intro}See \mycite{key}, \myref{sec:intro}, \myrange{fig:a}{fig:b}, and \myhref{https://hidden.test}{paper link}.\end{document}";
         let mut interner = ControlSequenceInterner::new();
