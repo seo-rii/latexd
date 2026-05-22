@@ -8527,6 +8527,115 @@ See \defaultcite, \defaultref, and \defaultdoclink.
 }
 
 #[test]
+fn cross_file_optional_default_link_target_provenance_survives_ir_and_display_list() {
+    let macros = r"\newcommand{\defaulttargetlink}[2][https://default.test]{\href{#1}{#2}}";
+    let source = r"\input{macros}
+\begin{document}
+Read \defaulttargetlink{visible link}.
+\end{document}";
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        source,
+        &SemanticAux::default(),
+        &[("macros.tex", macros)],
+    );
+
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let link = paragraph
+        .content
+        .iter()
+        .find_map(|node| match node {
+            InlineNode::Link(link) => Some(link),
+            _ => None,
+        })
+        .expect("link");
+    assert_eq!(link.target, "https://default.test");
+    assert_eq!(link.display_text, "visible link");
+    assert!(matches!(
+        &link.source.primary,
+        ProvenanceSpan::File(span)
+            if span.path.as_str() == "main.tex"
+                && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "visible link"
+    ));
+    assert!(link.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::Invocation
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == r"\defaulttargetlink{visible link}"
+            )
+    }));
+    assert!(link.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::Argument
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "macros.tex"
+                        && &macros[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == "https://default.test"
+            )
+    }));
+
+    let display_link = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "visible link" => Some(run),
+            _ => None,
+        })
+        .expect("link display-list run");
+    assert!(matches!(
+        &display_link.source.primary,
+        ProvenanceSpan::File(span)
+            if span.path.as_str() == "main.tex"
+                && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "visible link"
+    ));
+    assert!(display_link.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::Argument
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "macros.tex"
+                        && &macros[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == "https://default.test"
+            )
+    }));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::LinkAnnotation(link)
+                if link.target == "https://default.test" && link.rect.width > 0.0
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("Read visible link."),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains("https://default.test"));
+    assert!(!display_list_text.contains(r"\defaulttargetlink"));
+}
+
+#[test]
 fn cross_file_optional_default_range_provenance_survives_ir_and_display_list() {
     let macros = r"\newcommand{\defaultrange}[2][fig:a]{\crefrange{#1}{#2}}";
     let source = r"\input{macros}
