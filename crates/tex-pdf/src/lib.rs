@@ -327,6 +327,17 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
         tex_render_model::SourceSpanRole::SyntheticNumbering => "synthetic_numbering",
         tex_render_model::SourceSpanRole::FallbackSource => "fallback_source",
     };
+    let span_descriptor = |span: &tex_render_model::ProvenanceSpan| match span {
+        tex_render_model::ProvenanceSpan::File(span) => format!(
+            "file:{}:{}:{}",
+            span.path.as_str(),
+            span.start_utf8,
+            span.end_utf8
+        ),
+        tex_render_model::ProvenanceSpan::Generated(span) => {
+            format!("generated:{}:{}", span.stable_id, span.description)
+        }
+    };
     let source_attrs_for = |source: &tex_render_model::SourceProvenance| {
         let mut source_attrs = match &source.primary {
             tex_render_model::ProvenanceSpan::File(span) => format!(
@@ -373,6 +384,35 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                 source.related.len(),
                 escape_xml_text(&roles),
                 escape_xml_text(&spans)
+            ));
+        }
+        if !source.expansion_stack.is_empty() {
+            let commands = source
+                .expansion_stack
+                .iter()
+                .filter_map(|frame| frame.command_name.as_deref())
+                .collect::<Vec<_>>()
+                .join(",");
+            let calls = source
+                .expansion_stack
+                .iter()
+                .map(|frame| span_descriptor(&frame.call_span))
+                .collect::<Vec<_>>()
+                .join(";");
+            let definitions = source
+                .expansion_stack
+                .iter()
+                .filter_map(|frame| frame.definition_span.as_ref())
+                .map(span_descriptor)
+                .collect::<Vec<_>>()
+                .join(";");
+            source_attrs.push_str(&format!(
+                " data-source-expansion-depth=\"{}\" data-source-expansion-truncated=\"{}\" data-source-expansion-commands=\"{}\" data-source-expansion-calls=\"{}\" data-source-expansion-definitions=\"{}\"",
+                source.expansion_stack.len(),
+                source.expansion_stack_truncated,
+                escape_xml_text(&commands),
+                escape_xml_text(&calls),
+                escape_xml_text(&definitions)
             ));
         }
         source_attrs
@@ -499,17 +539,6 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                     ));
                 }
                 if !run.source.expansion_stack.is_empty() {
-                    let span_descriptor = |span: &tex_render_model::ProvenanceSpan| match span {
-                        tex_render_model::ProvenanceSpan::File(span) => format!(
-                            "file:{}:{}:{}",
-                            span.path.as_str(),
-                            span.start_utf8,
-                            span.end_utf8
-                        ),
-                        tex_render_model::ProvenanceSpan::Generated(span) => {
-                            format!("generated:{}:{}", span.stable_id, span.description)
-                        }
-                    };
                     let commands = run
                         .source
                         .expansion_stack
@@ -1182,14 +1211,28 @@ mod tests {
 
     #[test]
     fn renders_display_list_link_annotations_to_pdf_and_svg() {
-        let source = SourceProvenance::file("main.tex", 0, 10).with_related(
-            SourceSpanRole::Argument,
-            tex_render_model::ProvenanceSpan::File(SourceSpan {
-                path: "macros.tex".into(),
-                start_utf8: 20,
-                end_utf8: 45,
-            }),
-        );
+        let source = SourceProvenance::file("main.tex", 0, 10)
+            .with_related(
+                SourceSpanRole::Argument,
+                tex_render_model::ProvenanceSpan::File(SourceSpan {
+                    path: "macros.tex".into(),
+                    start_utf8: 20,
+                    end_utf8: 45,
+                }),
+            )
+            .with_expansion_frame(ExpansionFrame {
+                call_span: ProvenanceSpan::File(SourceSpan {
+                    path: "main.tex".into(),
+                    start_utf8: 60,
+                    end_utf8: 88,
+                }),
+                definition_span: Some(ProvenanceSpan::File(SourceSpan {
+                    path: "macros.tex".into(),
+                    start_utf8: 0,
+                    end_utf8: 20,
+                })),
+                command_name: Some("defaulttargetlink".to_string()),
+            });
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
             width_pt: 612.0,
@@ -1224,6 +1267,11 @@ mod tests {
         assert!(svg.contains("data-source-related-count=\"1\""));
         assert!(svg.contains("data-source-related-roles=\"argument\""));
         assert!(svg.contains("data-source-related-spans=\"argument:file:macros.tex:20:45\""));
+        assert!(svg.contains("data-source-expansion-depth=\"1\""));
+        assert!(svg.contains("data-source-expansion-truncated=\"false\""));
+        assert!(svg.contains("data-source-expansion-commands=\"defaulttargetlink\""));
+        assert!(svg.contains("data-source-expansion-calls=\"file:main.tex:60:88\""));
+        assert!(svg.contains("data-source-expansion-definitions=\"file:macros.tex:0:20\""));
     }
 
     #[test]
