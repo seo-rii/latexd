@@ -1128,6 +1128,14 @@ mod tests {
 
     #[test]
     fn renders_display_list_images_to_pdf_and_svg_debug_placeholders() {
+        let source = SourceProvenance::file("main.tex", 0, 10).with_related(
+            SourceSpanRole::Argument,
+            ProvenanceSpan::File(SourceSpan {
+                path: "main.tex".into(),
+                start_utf8: 30,
+                end_utf8: 48,
+            }),
+        );
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
             width_pt: 612.0,
@@ -1142,7 +1150,7 @@ mod tests {
                 asset_ref: "figures/a(b)&c.pdf".to_string(),
                 asset_format: Some(GraphicAssetFormat::Pdf),
                 asset_hash: Some("blake3:asset-hash".to_string()),
-                source: SourceProvenance::file("main.tex", 0, 10),
+                source,
             })],
             source_spans: Vec::new(),
             content_hash: "hash".to_string(),
@@ -1166,6 +1174,9 @@ mod tests {
         assert!(svg.contains("data-source-path=\"main.tex\""));
         assert!(svg.contains("data-source-start-utf8=\"0\""));
         assert!(svg.contains("data-source-end-utf8=\"10\""));
+        assert!(svg.contains("data-source-related-count=\"1\""));
+        assert!(svg.contains("data-source-related-roles=\"argument\""));
+        assert!(svg.contains("data-source-related-spans=\"argument:file:main.tex:30:48\""));
         assert!(svg.contains("[image: figures/a(b)&amp;c.pdf]"));
     }
 
@@ -1217,6 +1228,14 @@ mod tests {
 
     #[test]
     fn renders_display_list_named_destinations_to_pdf_and_svg() {
+        let source = SourceProvenance::file("main.tex", 0, 10).with_related(
+            SourceSpanRole::Invocation,
+            ProvenanceSpan::File(SourceSpan {
+                path: "main.tex".into(),
+                start_utf8: 50,
+                end_utf8: 72,
+            }),
+        );
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
             width_pt: 612.0,
@@ -1224,7 +1243,7 @@ mod tests {
             ops: vec![DrawOp::NamedDestination(Destination {
                 name: "sec:intro&more".to_string(),
                 point: Point { x: 72.0, y: 72.0 },
-                source: SourceProvenance::file("main.tex", 0, 10),
+                source,
             })],
             source_spans: Vec::new(),
             content_hash: "hash".to_string(),
@@ -1242,6 +1261,9 @@ mod tests {
         assert!(svg.contains("data-source-path=\"main.tex\""));
         assert!(svg.contains("data-source-start-utf8=\"0\""));
         assert!(svg.contains("data-source-end-utf8=\"10\""));
+        assert!(svg.contains("data-source-related-count=\"1\""));
+        assert!(svg.contains("data-source-related-roles=\"invocation\""));
+        assert!(svg.contains("data-source-related-spans=\"invocation:file:main.tex:50:72\""));
         assert!(svg.contains("<circle cx=\"72\" cy=\"72\" r=\"3\" fill=\"#dc2626\"/>"));
     }
 }
