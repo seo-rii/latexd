@@ -315,20 +315,67 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
     let mut body = String::new();
     let mut clip_index = 0usize;
     let mut svg_group_stack = Vec::new();
-    let primary_source_attrs_for = |source: &tex_render_model::SourceProvenance| match &source
-        .primary
-    {
-        tex_render_model::ProvenanceSpan::File(span) => format!(
-            " data-source-kind=\"file\" data-source-path=\"{}\" data-source-start-utf8=\"{}\" data-source-end-utf8=\"{}\"",
-            escape_xml_text(span.path.as_str()),
-            span.start_utf8,
-            span.end_utf8
-        ),
-        tex_render_model::ProvenanceSpan::Generated(span) => format!(
-            " data-source-kind=\"generated\" data-source-generated-id=\"{}\" data-source-description=\"{}\"",
-            escape_xml_text(&span.stable_id),
-            escape_xml_text(&span.description)
-        ),
+    let role_name = |role| match role {
+        tex_render_model::SourceSpanRole::Invocation => "invocation",
+        tex_render_model::SourceSpanRole::Argument => "argument",
+        tex_render_model::SourceSpanRole::ArgumentContent => "argument_content",
+        tex_render_model::SourceSpanRole::Definition => "definition",
+        tex_render_model::SourceSpanRole::EmitSite => "emit_site",
+        tex_render_model::SourceSpanRole::CitationKey => "citation_key",
+        tex_render_model::SourceSpanRole::ReferenceKey => "reference_key",
+        tex_render_model::SourceSpanRole::MetadataDefinition => "metadata_definition",
+        tex_render_model::SourceSpanRole::SyntheticNumbering => "synthetic_numbering",
+        tex_render_model::SourceSpanRole::FallbackSource => "fallback_source",
+    };
+    let source_attrs_for = |source: &tex_render_model::SourceProvenance| {
+        let mut source_attrs = match &source.primary {
+            tex_render_model::ProvenanceSpan::File(span) => format!(
+                " data-source-kind=\"file\" data-source-path=\"{}\" data-source-start-utf8=\"{}\" data-source-end-utf8=\"{}\"",
+                escape_xml_text(span.path.as_str()),
+                span.start_utf8,
+                span.end_utf8
+            ),
+            tex_render_model::ProvenanceSpan::Generated(span) => format!(
+                " data-source-kind=\"generated\" data-source-generated-id=\"{}\" data-source-description=\"{}\"",
+                escape_xml_text(&span.stable_id),
+                escape_xml_text(&span.description)
+            ),
+        };
+        if !source.related.is_empty() {
+            let roles = source
+                .related
+                .iter()
+                .map(|related| role_name(related.role))
+                .collect::<Vec<_>>()
+                .join(",");
+            let spans = source
+                .related
+                .iter()
+                .map(|related| match &related.span {
+                    tex_render_model::ProvenanceSpan::File(span) => format!(
+                        "{}:file:{}:{}:{}",
+                        role_name(related.role),
+                        span.path.as_str(),
+                        span.start_utf8,
+                        span.end_utf8
+                    ),
+                    tex_render_model::ProvenanceSpan::Generated(span) => format!(
+                        "{}:generated:{}:{}",
+                        role_name(related.role),
+                        span.stable_id,
+                        span.description
+                    ),
+                })
+                .collect::<Vec<_>>()
+                .join(";");
+            source_attrs.push_str(&format!(
+                " data-source-related-count=\"{}\" data-source-related-roles=\"{}\" data-source-related-spans=\"{}\"",
+                source.related.len(),
+                escape_xml_text(&roles),
+                escape_xml_text(&spans)
+            ));
+        }
+        source_attrs
     };
     for op in &page.ops {
         match op {
@@ -416,22 +463,6 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                     ));
                 }
                 if !run.source.related.is_empty() {
-                    let role_name = |role| match role {
-                        tex_render_model::SourceSpanRole::Invocation => "invocation",
-                        tex_render_model::SourceSpanRole::Argument => "argument",
-                        tex_render_model::SourceSpanRole::ArgumentContent => "argument_content",
-                        tex_render_model::SourceSpanRole::Definition => "definition",
-                        tex_render_model::SourceSpanRole::EmitSite => "emit_site",
-                        tex_render_model::SourceSpanRole::CitationKey => "citation_key",
-                        tex_render_model::SourceSpanRole::ReferenceKey => "reference_key",
-                        tex_render_model::SourceSpanRole::MetadataDefinition => {
-                            "metadata_definition"
-                        }
-                        tex_render_model::SourceSpanRole::SyntheticNumbering => {
-                            "synthetic_numbering"
-                        }
-                        tex_render_model::SourceSpanRole::FallbackSource => "fallback_source",
-                    };
                     let roles = run
                         .source
                         .related
@@ -543,7 +574,7 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                     escape_xml_text(&image.asset_ref),
                     asset_format_attr,
                     asset_hash_attr,
-                    primary_source_attrs_for(&image.source),
+                    source_attrs_for(&image.source),
                     image.rect.x,
                     image.rect.y,
                     image.rect.width,
@@ -562,7 +593,7 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                     link.rect.width,
                     link.rect.height,
                     escape_xml_text(&link.target),
-                    primary_source_attrs_for(&link.source)
+                    source_attrs_for(&link.source)
                 ));
             }
             DrawOp::NamedDestination(destination) => {
@@ -571,7 +602,7 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                     escape_xml_text(&destination.name),
                     destination.point.x,
                     destination.point.y,
-                    primary_source_attrs_for(&destination.source),
+                    source_attrs_for(&destination.source),
                     destination.point.x,
                     destination.point.y
                 ));
@@ -1140,6 +1171,14 @@ mod tests {
 
     #[test]
     fn renders_display_list_link_annotations_to_pdf_and_svg() {
+        let source = SourceProvenance::file("main.tex", 0, 10).with_related(
+            SourceSpanRole::Argument,
+            tex_render_model::ProvenanceSpan::File(SourceSpan {
+                path: "macros.tex".into(),
+                start_utf8: 20,
+                end_utf8: 45,
+            }),
+        );
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
             width_pt: 612.0,
@@ -1152,7 +1191,7 @@ mod tests {
                     height: 12.0,
                 },
                 target: "https://example.com/a?b=1&c=2".to_string(),
-                source: SourceProvenance::file("main.tex", 0, 10),
+                source,
             })],
             source_spans: Vec::new(),
             content_hash: "hash".to_string(),
@@ -1171,6 +1210,9 @@ mod tests {
         assert!(svg.contains("data-source-path=\"main.tex\""));
         assert!(svg.contains("data-source-start-utf8=\"0\""));
         assert!(svg.contains("data-source-end-utf8=\"10\""));
+        assert!(svg.contains("data-source-related-count=\"1\""));
+        assert!(svg.contains("data-source-related-roles=\"argument\""));
+        assert!(svg.contains("data-source-related-spans=\"argument:file:macros.tex:20:45\""));
     }
 
     #[test]
