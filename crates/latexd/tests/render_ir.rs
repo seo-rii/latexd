@@ -13895,6 +13895,62 @@ fn macro_heading_display_list_svg_preserves_expansion_provenance() {
 }
 
 #[test]
+fn link_target_default_display_list_svg_preserves_cross_file_provenance() {
+    let macros = r"\newcommand{\defaulttargetlink}[2][https://default.test]{\href{#1}{#2}}";
+    let source = r"\input{macros}
+\begin{document}
+Read \defaulttargetlink{visible link}.
+\end{document}";
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        source,
+        &SemanticAux::default(),
+        &[("macros.tex", macros)],
+    );
+    let display_link = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "visible link" => Some(run),
+            _ => None,
+        })
+        .expect("link display-list run");
+    let primary_span = match &display_link.source.primary {
+        ProvenanceSpan::File(span) => span,
+        ProvenanceSpan::Generated(_) => panic!("link text should use a file source"),
+    };
+    let target_span = display_link
+        .source
+        .related
+        .iter()
+        .find_map(|related| match &related.span {
+            ProvenanceSpan::File(span) if related.role == SourceSpanRole::Argument => Some(span),
+            _ => None,
+        })
+        .expect("target argument span");
+
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let output_dir = Utf8PathBuf::from_path_buf(tempdir.path().join("render-artifacts"))
+        .expect("utf8 temp path");
+    let paths = capture
+        .write_debug_artifacts(&output_dir)
+        .expect("write debug artifacts");
+    let display_list_svg =
+        fs::read_to_string(&paths.display_list_svgs[0]).expect("display list svg");
+
+    assert!(display_list_svg.contains(">visible link</text>"));
+    assert!(display_list_svg.contains(&format!(
+        "data-source-path=\"{}\" data-source-start-utf8=\"{}\" data-source-end-utf8=\"{}\"",
+        primary_span.path, primary_span.start_utf8, primary_span.end_utf8
+    )));
+    assert!(display_list_svg.contains("data-source-related-roles=\"invocation,argument\""));
+    assert!(display_list_svg.contains(&format!(
+        "argument:file:{}:{}:{}",
+        target_span.path, target_span.start_utf8, target_span.end_utf8
+    )));
+}
+
+#[test]
 fn macro_heading_provenance_matches_golden() {
     let capture =
         capture_internal_render_ir("main.tex", MACRO_SECTION_SOURCE, &SemanticAux::default());
