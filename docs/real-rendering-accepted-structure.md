@@ -116,6 +116,9 @@ The next implementation step has started with a narrow display-list spike:
   from `GraphicRef` through IR into display-list `Image` operations, and image
   page hashes include that value so tile/render caches invalidate when an
   external asset changes without a path change;
+- image page hashes also include the resolved graphic asset format, so a
+  same-path asset that switches PDF/SVG/EPS/bitmap rendering paths cannot reuse
+  a stale page/display-list cache entry;
 - `\graphicspath{{...}}` declarations now contribute search directories for
   later `\includegraphics` asset resolution without emitting visible text;
 - `\DeclareGraphicsExtensions{...}` now controls extensionless graphics search
