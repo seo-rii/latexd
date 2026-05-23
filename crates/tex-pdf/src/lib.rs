@@ -947,6 +947,57 @@ mod tests {
     }
 
     #[test]
+    fn display_list_svg_escapes_generated_source_provenance() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::TextRun(PositionedTextRun {
+                origin: Point { x: 72.0, y: 72.0 },
+                text: "Shim text".to_string(),
+                font: FontRequest {
+                    family: FontFamilyRequest::Serif,
+                    series: FontSeries::Regular,
+                    shape: FontShape::Upright,
+                    size_pt: 11.0,
+                    role: FontRole::Body,
+                },
+                size_pt: 11.0,
+                approximate_advance_pt: 49.5,
+                glyphs: None,
+                clusters: None,
+                source: SourceProvenance::generated(
+                    "shim:article<&\"",
+                    "article <class> & \"title\"",
+                )
+                .with_related(
+                    SourceSpanRole::EmitSite,
+                    ProvenanceSpan::Generated(tex_render_model::GeneratedSpan {
+                        stable_id: "emit<&\"".to_string(),
+                        description: "emit <site> & \"flush\"".to_string(),
+                    }),
+                ),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let svg = render_display_list_svg(&page);
+
+        assert!(svg.contains("data-source-kind=\"generated\""));
+        assert!(svg.contains("data-source-generated-id=\"shim:article&lt;&amp;&quot;\""));
+        assert!(
+            svg.contains(
+                "data-source-description=\"article &lt;class&gt; &amp; &quot;title&quot;\""
+            )
+        );
+        assert!(svg.contains("data-source-related-count=\"1\""));
+        assert!(svg.contains("data-source-related-roles=\"emit_site\""));
+        assert!(svg.contains(
+            "data-source-related-spans=\"emit_site:generated:emit&lt;&amp;&quot;:emit &lt;site&gt; &amp; &quot;flush&quot;\""
+        ));
+    }
+
+    #[test]
     fn renders_display_list_rules_to_pdf_and_svg() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
