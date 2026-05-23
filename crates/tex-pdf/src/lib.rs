@@ -1244,7 +1244,7 @@ mod tests {
                     width: 80.0,
                     height: 12.0,
                 },
-                target: "https://example.com/a?b=1&c=2".to_string(),
+                target: r"https://example.com/a(1)\b?c=2&d=3".to_string(),
                 source,
             })],
             source_spans: Vec::new(),
@@ -1257,9 +1257,9 @@ mod tests {
         assert!(pdf_text.contains("/Annots [17 0 R]"));
         assert!(pdf_text.contains("/Subtype /Link"));
         assert!(pdf_text.contains("/Rect [72 708 152 720]"));
-        assert!(pdf_text.contains("/URI (https://example.com/a?b=1&c=2)"));
-        assert!(svg.contains("<a href=\"https://example.com/a?b=1&amp;c=2\">"));
-        assert!(svg.contains("data-link-target=\"https://example.com/a?b=1&amp;c=2\""));
+        assert!(pdf_text.contains(r"/URI (https://example.com/a\(1\)\\b?c=2&d=3)"));
+        assert!(svg.contains(r#"<a href="https://example.com/a(1)\b?c=2&amp;d=3">"#));
+        assert!(svg.contains(r#"data-link-target="https://example.com/a(1)\b?c=2&amp;d=3""#));
         assert!(svg.contains("data-source-kind=\"file\""));
         assert!(svg.contains("data-source-path=\"main.tex\""));
         assert!(svg.contains("data-source-start-utf8=\"0\""));
