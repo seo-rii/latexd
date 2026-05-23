@@ -8474,6 +8474,33 @@ See \defaultcite, \defaultref, and \defaultdoclink.
             )
     }));
 
+    let destination = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::NamedDestination(destination) if destination.name == "sec:intro" => {
+                Some(destination)
+            }
+            _ => None,
+        })
+        .expect("default label should emit a named destination");
+    assert!(matches!(
+        &destination.source.primary,
+        ProvenanceSpan::File(span)
+            if span.path.as_str() == "macros.tex"
+                && &macros[span.start_utf8 as usize..span.end_utf8 as usize] == "sec:intro"
+    ));
+    assert!(destination.source.related.iter().any(|related| {
+        related.role == SourceSpanRole::Invocation
+            && matches!(
+                &related.span,
+                ProvenanceSpan::File(span)
+                    if span.path.as_str() == "main.tex"
+                        && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                            == r"\defaultlabel"
+            )
+    }));
+
     assert!(capture.page_display_lists[0].ops.iter().any(|op| {
         matches!(
             op,
