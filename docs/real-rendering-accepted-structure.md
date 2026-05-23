@@ -577,6 +577,9 @@ The next implementation step has started with a narrow display-list spike:
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`
   operations through PDF named destinations and SVG destination markers;
+- display-list PDF named destinations are escaped and sorted by destination
+  name before name-tree emission, so output is stable even when display-list
+  operations are produced in a different order;
 - display-list SVG text elements include primary source attributes plus related
   source roles and span identifiers for source-sync inspection;
 - display-list SVG text elements also include bounded expansion stack depth,
@@ -609,6 +612,9 @@ The next implementation step has started with a narrow display-list spike:
 - `LabelDefinitionIr` metadata now emits `NamedDestination` display-list ops
   near the following visible content, giving PDF/SVG backends a real
   destination surface instead of label-only IR metadata;
+- latexd integration coverage now verifies that label metadata reaches the
+  `PageDisplayList` and display-list PDF destination surface while the label key
+  remains absent from visible text;
 - numbered `HeadingBlock` values now render their semantic number prefix in
   `PageDisplayList` text instead of dropping numbering decided before layout;
 - `DocumentIr::extracted_text()` also preserves numbered heading prefixes, so
@@ -1511,8 +1517,10 @@ approximate.
   runs, link annotations, and debug SVG output for citation/reference/link
   target provenance. PageDisplayList SVG export now preserves related source
   spans for non-text renderer operations as well as text runs, including link
-  annotations, image placeholders, and named destinations. More source-span edge
-  cases should be added as VM coverage expands.
+  annotations, image placeholders, and named destinations. Display-list PDF
+  destination names now have escaping and stable-order coverage, and label
+  metadata is covered through `NamedDestination` and display-list PDF output.
+  More source-span edge cases should be added as VM coverage expands.
 - `DocumentIrBuilder` still lives in `tex-layout`. That remains acceptable for
   the first batch, but it should split into a dedicated IR-builder crate if it
   starts owning package/class semantic policy rather than layout-adjacent
