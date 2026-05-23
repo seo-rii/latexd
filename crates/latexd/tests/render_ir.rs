@@ -13494,6 +13494,26 @@ fn label_definition_capture_survives_ir_without_visible_key() {
     assert!(display_list_text.contains("Intro"));
     assert!(display_list_text.contains("[?]"));
     assert!(!display_list_text.contains("sec:intro"));
+
+    let destination = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::NamedDestination(destination) => Some(destination),
+            _ => None,
+        })
+        .expect("label should emit a named destination");
+    assert_eq!(destination.name, "sec:intro");
+    assert!(matches!(
+        &destination.source.primary,
+        ProvenanceSpan::File(span)
+            if &LABEL_SOURCE[span.start_utf8 as usize..span.end_utf8 as usize] == "sec:intro"
+    ));
+
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+    assert!(pdf_text.contains("/Names << /Dests << /Names ["));
+    assert!(pdf_text.contains("(sec:intro) [16 0 R /XYZ"));
+    assert!(!pdf_text.contains("(sec:intro) Tj"));
 }
 
 #[test]
