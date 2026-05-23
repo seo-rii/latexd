@@ -1204,7 +1204,7 @@ mod tests {
             width_pt: 612.0,
             height_pt: 792.0,
             ops: vec![DrawOp::NamedDestination(Destination {
-                name: "sec:intro&more".to_string(),
+                name: r"sec:intro(1)\more&extra".to_string(),
                 point: Point { x: 72.0, y: 72.0 },
                 source,
             })],
@@ -1216,8 +1216,8 @@ mod tests {
         let svg = render_display_list_svg(&page);
 
         assert!(pdf_text.contains("/Names << /Dests << /Names ["));
-        assert!(pdf_text.contains("(sec:intro&more) [16 0 R /XYZ 72 720 null]"));
-        assert!(svg.contains("data-destination-name=\"sec:intro&amp;more\""));
+        assert!(pdf_text.contains(r"(sec:intro\(1\)\\more&extra) [16 0 R /XYZ 72 720 null]"));
+        assert!(svg.contains(r#"data-destination-name="sec:intro(1)\more&amp;extra""#));
         assert!(svg.contains("data-destination-x=\"72\""));
         assert!(svg.contains("data-destination-y=\"72\""));
         assert!(svg.contains("data-source-kind=\"file\""));
