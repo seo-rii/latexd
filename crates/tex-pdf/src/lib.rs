@@ -465,24 +465,7 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                     tex_render_model::FontShape::Upright => "normal",
                     tex_render_model::FontShape::Italic => "italic",
                 };
-                let mut source_attrs = String::new();
-                match &run.source.primary {
-                    tex_render_model::ProvenanceSpan::File(span) => {
-                        source_attrs.push_str(&format!(
-                            " data-source-kind=\"file\" data-source-path=\"{}\" data-source-start-utf8=\"{}\" data-source-end-utf8=\"{}\"",
-                            escape_xml_text(span.path.as_str()),
-                            span.start_utf8,
-                            span.end_utf8
-                        ));
-                    }
-                    tex_render_model::ProvenanceSpan::Generated(span) => {
-                        source_attrs.push_str(&format!(
-                            " data-source-kind=\"generated\" data-source-generated-id=\"{}\" data-source-description=\"{}\"",
-                            escape_xml_text(&span.stable_id),
-                            escape_xml_text(&span.description)
-                        ));
-                    }
-                }
+                let mut source_attrs = source_attrs_for(&run.source);
                 if let Some(clusters) = &run.clusters {
                     let encoded_clusters = clusters
                         .iter()
@@ -500,74 +483,6 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                     source_attrs.push_str(&format!(
                         " data-text-clusters=\"{}\"",
                         escape_xml_text(&encoded_clusters)
-                    ));
-                }
-                if !run.source.related.is_empty() {
-                    let roles = run
-                        .source
-                        .related
-                        .iter()
-                        .map(|related| role_name(related.role))
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    let spans = run
-                        .source
-                        .related
-                        .iter()
-                        .map(|related| match &related.span {
-                            tex_render_model::ProvenanceSpan::File(span) => format!(
-                                "{}:file:{}:{}:{}",
-                                role_name(related.role),
-                                span.path.as_str(),
-                                span.start_utf8,
-                                span.end_utf8
-                            ),
-                            tex_render_model::ProvenanceSpan::Generated(span) => format!(
-                                "{}:generated:{}:{}",
-                                role_name(related.role),
-                                span.stable_id,
-                                span.description
-                            ),
-                        })
-                        .collect::<Vec<_>>()
-                        .join(";");
-                    source_attrs.push_str(&format!(
-                        " data-source-related-count=\"{}\" data-source-related-roles=\"{}\" data-source-related-spans=\"{}\"",
-                        run.source.related.len(),
-                        escape_xml_text(&roles),
-                        escape_xml_text(&spans)
-                    ));
-                }
-                if !run.source.expansion_stack.is_empty() {
-                    let commands = run
-                        .source
-                        .expansion_stack
-                        .iter()
-                        .filter_map(|frame| frame.command_name.as_deref())
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    let calls = run
-                        .source
-                        .expansion_stack
-                        .iter()
-                        .map(|frame| span_descriptor(&frame.call_span))
-                        .collect::<Vec<_>>()
-                        .join(";");
-                    let definitions = run
-                        .source
-                        .expansion_stack
-                        .iter()
-                        .filter_map(|frame| frame.definition_span.as_ref())
-                        .map(span_descriptor)
-                        .collect::<Vec<_>>()
-                        .join(";");
-                    source_attrs.push_str(&format!(
-                        " data-source-expansion-depth=\"{}\" data-source-expansion-truncated=\"{}\" data-source-expansion-commands=\"{}\" data-source-expansion-calls=\"{}\" data-source-expansion-definitions=\"{}\"",
-                        run.source.expansion_stack.len(),
-                        run.source.expansion_stack_truncated,
-                        escape_xml_text(&commands),
-                        escape_xml_text(&calls),
-                        escape_xml_text(&definitions)
                     ));
                 }
                 body.push_str(&format!(
