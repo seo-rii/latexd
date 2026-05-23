@@ -766,6 +766,11 @@ pub fn build_page_display_lists(
                 let image_text = format!("[image: {}]", logical.path);
                 pending.text.push_str(&image_text);
                 pending.hash_input.push_str(&image_text);
+                if let Some(asset_format) = logical.asset_format {
+                    pending.hash_input.push('\u{1f}');
+                    pending.hash_input.push_str("asset-format:");
+                    pending.hash_input.push_str(asset_format.as_str());
+                }
                 if let Some(asset_hash) = &logical.asset_hash {
                     pending.hash_input.push('\u{1f}');
                     pending.hash_input.push_str("asset-hash:");
@@ -890,9 +895,9 @@ fn approximate_text_clusters(text: &str) -> Option<Vec<TextCluster>> {
 mod tests {
     use tex_render_model::{
         AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint,
-        DisplayMathBlock, DocumentIr, DrawOp, GraphicBlock, HeadingBlock, InlineNode, IrBlock,
-        LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind, ParagraphBlock,
-        ReferenceInline, SourceProvenance, TextCluster, TitleBlock,
+        DisplayMathBlock, DocumentIr, DrawOp, GraphicAssetFormat, GraphicBlock, HeadingBlock,
+        InlineNode, IrBlock, LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind,
+        ParagraphBlock, ReferenceInline, SourceProvenance, TextCluster, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists};
@@ -1516,6 +1521,41 @@ mod tests {
                 .contains(&caption_related_span)
         );
         assert_eq!(display_lists[0].source_spans.len(), 3);
+    }
+
+    #[test]
+    fn graphic_asset_format_affects_page_content_hash() {
+        let source = SourceProvenance::file("main.tex", 0, 24);
+        let pdf_display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.asset".to_string(),
+                options: None,
+                asset_format: Some(GraphicAssetFormat::Pdf),
+                asset_hash: None,
+                caption: None,
+                caption_source: None,
+                source: source.clone(),
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let svg_display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.asset".to_string(),
+                options: None,
+                asset_format: Some(GraphicAssetFormat::Svg),
+                asset_hash: None,
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+
+        assert_ne!(
+            pdf_display_lists[0].content_hash,
+            svg_display_lists[0].content_hash
+        );
+        assert_ne!(pdf_display_lists[0].page_id, svg_display_lists[0].page_id);
     }
 
     #[test]
