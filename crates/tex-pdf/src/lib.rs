@@ -85,22 +85,30 @@ pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
     for (index, page) in pages.iter().enumerate() {
         for op in &page.ops {
             if let DrawOp::NamedDestination(destination) = op {
-                destination_entries.push(format!(
-                    "({}) [{} 0 R /XYZ {} {} null]",
-                    escape_pdf_text(&destination.name),
-                    page_object_id(index),
-                    destination.point.x,
-                    page.height_pt - destination.point.y
+                destination_entries.push((
+                    destination.name.clone(),
+                    format!(
+                        "({}) [{} 0 R /XYZ {} {} null]",
+                        escape_pdf_text(&destination.name),
+                        page_object_id(index),
+                        destination.point.x,
+                        page.height_pt - destination.point.y
+                    ),
                 ));
             }
         }
     }
+    destination_entries.sort_by(|left, right| left.0.cmp(&right.0));
     let names = if destination_entries.is_empty() {
         String::new()
     } else {
         format!(
             " /Names << /Dests << /Names [{}] >> >>",
-            destination_entries.join(" ")
+            destination_entries
+                .iter()
+                .map(|(_, entry)| entry.as_str())
+                .collect::<Vec<_>>()
+                .join(" ")
         )
     };
     objects.push(format!(
@@ -1228,5 +1236,39 @@ mod tests {
         assert!(svg.contains("data-source-related-roles=\"invocation\""));
         assert!(svg.contains("data-source-related-spans=\"invocation:file:main.tex:50:72\""));
         assert!(svg.contains("<circle cx=\"72\" cy=\"72\" r=\"3\" fill=\"#dc2626\"/>"));
+    }
+
+    #[test]
+    fn renders_display_list_pdf_destination_names_in_stable_order() {
+        let source = SourceProvenance::file("main.tex", 0, 10);
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![
+                DrawOp::NamedDestination(Destination {
+                    name: "sec:zeta".to_string(),
+                    point: Point { x: 72.0, y: 72.0 },
+                    source: source.clone(),
+                }),
+                DrawOp::NamedDestination(Destination {
+                    name: "sec:alpha".to_string(),
+                    point: Point { x: 72.0, y: 96.0 },
+                    source,
+                }),
+            ],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf(&[page]);
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        let alpha_index = pdf_text
+            .find("(sec:alpha) [16 0 R /XYZ 72 696 null]")
+            .expect("alpha destination should be present");
+        let zeta_index = pdf_text
+            .find("(sec:zeta) [16 0 R /XYZ 72 720 null]")
+            .expect("zeta destination should be present");
+        assert!(alpha_index < zeta_index);
     }
 }
