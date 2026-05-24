@@ -131,6 +131,7 @@ impl RenderEvent {
             Self::Text(_) | Self::Space(_) => ModeHint::Horizontal,
             Self::SetDocumentMetadata(_) => ModeHint::Preamble,
             Self::FlushTitleBlock(_) => ModeHint::Vertical,
+            Self::BeginBlock(_) | Self::EndBlock(_) => ModeHint::Vertical,
             Self::Heading(_) => ModeHint::Vertical,
             Self::InlineCitation(_) => ModeHint::Horizontal,
             Self::InlineMath(_) | Self::DisplayMath(_) => ModeHint::Math,
@@ -569,6 +570,20 @@ mod tests {
             }),
             SourceProvenance::file("main.tex", 105, 106),
         );
+        let begin_block = RenderEventEnvelope::new(
+            9,
+            RenderEvent::BeginBlock(BeginBlockEvent {
+                block: BlockKind::Abstract,
+            }),
+            SourceProvenance::file("main.tex", 110, 126),
+        );
+        let end_block = RenderEventEnvelope::new(
+            10,
+            RenderEvent::EndBlock(EndBlockEvent {
+                block: BlockKind::Abstract,
+            }),
+            SourceProvenance::file("main.tex", 140, 154),
+        );
 
         assert_eq!(metadata.meta.mode_hint, ModeHint::Preamble);
         assert_eq!(flush_title.meta.mode_hint, ModeHint::Vertical);
@@ -578,6 +593,8 @@ mod tests {
         assert_eq!(citation.meta.mode_hint, ModeHint::Horizontal);
         assert_eq!(text.meta.mode_hint, ModeHint::Horizontal);
         assert_eq!(space.meta.mode_hint, ModeHint::Horizontal);
+        assert_eq!(begin_block.meta.mode_hint, ModeHint::Vertical);
+        assert_eq!(end_block.meta.mode_hint, ModeHint::Vertical);
     }
 
     #[test]

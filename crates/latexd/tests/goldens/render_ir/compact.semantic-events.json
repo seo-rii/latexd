@@ -65,7 +65,7 @@
       "meta": {
         "confidence": "high",
         "event_id": 5,
-        "mode_hint": "unknown",
+        "mode_hint": "vertical",
         "producer": "command",
         "source": "<present>"
       }
@@ -119,7 +119,7 @@
       "meta": {
         "confidence": "high",
         "event_id": 9,
-        "mode_hint": "unknown",
+        "mode_hint": "vertical",
         "producer": "command",
         "source": "<present>"
       }
@@ -217,7 +217,7 @@
       "meta": {
         "confidence": "high",
         "event_id": 16,
-        "mode_hint": "unknown",
+        "mode_hint": "vertical",
         "producer": "command",
         "source": "<present>"
       }
@@ -246,7 +246,7 @@
       "meta": {
         "confidence": "high",
         "event_id": 18,
-        "mode_hint": "unknown",
+        "mode_hint": "vertical",
         "producer": "command",
         "source": "<present>"
       }

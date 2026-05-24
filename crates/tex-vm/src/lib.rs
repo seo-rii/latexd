@@ -20521,10 +20521,28 @@ Fallback text.
                 .iter()
                 .any(|event| matches!(&event.event, RenderEvent::FlushTitleBlock(_)))
         );
-        assert!(captured_outcome.render_events.iter().any(|event| matches!(
-            &event.event,
-            RenderEvent::BeginBlock(block) if block.block == BlockKind::Abstract
-        )));
+        let abstract_begin = captured_outcome
+            .render_events
+            .iter()
+            .find(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::BeginBlock(block) if block.block == BlockKind::Abstract
+                )
+            })
+            .expect("abstract begin block event");
+        assert_eq!(abstract_begin.meta.mode_hint, ModeHint::Vertical);
+        let abstract_end = captured_outcome
+            .render_events
+            .iter()
+            .find(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::EndBlock(block) if block.block == BlockKind::Abstract
+                )
+            })
+            .expect("abstract end block event");
+        assert_eq!(abstract_end.meta.mode_hint, ModeHint::Vertical);
         let hello_text = captured_outcome
             .render_events
             .iter()

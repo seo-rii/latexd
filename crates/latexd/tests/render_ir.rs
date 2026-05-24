@@ -7,7 +7,7 @@ use latexd::compiler::{
 };
 use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{
-    CitationStyleHint, DrawOp, EventProducer, GeneratedBy, GraphicAssetFormat, ListKind,
+    BlockKind, CitationStyleHint, DrawOp, EventProducer, GeneratedBy, GraphicAssetFormat, ListKind,
     MetadataField, ModeHint, RenderEvent, SemanticConfidence, SpaceKind, to_pretty_json,
     to_semantic_pretty_json,
 };
@@ -495,6 +495,36 @@ fn compact_text_and_space_events_are_horizontal() {
 
     assert_eq!(hello_text.meta.mode_hint, ModeHint::Horizontal);
     assert_eq!(interword_space.meta.mode_hint, ModeHint::Horizontal);
+}
+
+#[test]
+fn compact_block_boundary_events_are_vertical() {
+    let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
+    let abstract_begin = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::BeginBlock(block) if block.block == BlockKind::Abstract
+            )
+        })
+        .expect("abstract begin block event");
+    let abstract_end = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::EndBlock(block) if block.block == BlockKind::Abstract
+            )
+        })
+        .expect("abstract end block event");
+
+    assert_eq!(abstract_begin.meta.mode_hint, ModeHint::Vertical);
+    assert_eq!(abstract_end.meta.mode_hint, ModeHint::Vertical);
 }
 
 #[test]
