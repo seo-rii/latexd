@@ -503,11 +503,15 @@ fn rasterize_pdf_first_page(
             String::from_utf8_lossy(&output.stderr)
         );
     }
-    let output_path = output_prefix.with_extension("png");
+    let output_path = rasterized_singlefile_png_path(output_prefix);
     if !output_path.exists() {
         anyhow::bail!("pdftoppm did not write expected output {output_path}");
     }
     Ok(output_path)
+}
+
+fn rasterized_singlefile_png_path(output_prefix: &Utf8Path) -> Utf8PathBuf {
+    Utf8PathBuf::from(format!("{output_prefix}.png"))
 }
 
 fn extract_raster_smoke(path: &Utf8Path) -> anyhow::Result<RasterSmokeReport> {
@@ -726,6 +730,17 @@ fn arxiv_oracle_first_page_raster_paths_are_report_local() {
     assert_eq!(
         oracle_case_first_page_raster_prefix(&report_dir, "math/0301001", "v1", "oracle"),
         Utf8PathBuf::from("/tmp/latexd-report/math_0301001-v1-oracle-page-1")
+    );
+}
+
+#[test]
+fn arxiv_oracle_first_page_raster_png_path_preserves_dotted_ids() {
+    let report_dir = Utf8PathBuf::from("/tmp/latexd-report");
+    let prefix = oracle_case_first_page_raster_prefix(&report_dir, "2602.14379", "v1", "oracle");
+
+    assert_eq!(
+        rasterized_singlefile_png_path(&prefix),
+        Utf8PathBuf::from("/tmp/latexd-report/2602.14379-v1-oracle-page-1.png")
     );
 }
 
