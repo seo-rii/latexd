@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{CitationStyleHint, SourceProvenance};
+use crate::{CitationStyleHint, GeneratedBy, SourceProvenance};
 
 pub type EventId = u64;
 
@@ -31,8 +31,9 @@ pub struct RenderEventEnvelope {
 }
 
 impl RenderEventEnvelope {
-    pub fn new(event_id: EventId, event: RenderEvent, source: SourceProvenance) -> Self {
+    pub fn new(event_id: EventId, event: RenderEvent, mut source: SourceProvenance) -> Self {
         let (confidence, producer) = if matches!(event, RenderEvent::RawFallback(_)) {
+            source = source.with_generated_by(GeneratedBy::Fallback);
             (SemanticConfidence::Fallback, EventProducer::Fallback)
         } else {
             (SemanticConfidence::High, EventProducer::Command)
@@ -344,9 +345,9 @@ pub struct RenderDiagnosticEvent {
 #[cfg(test)]
 mod tests {
     use crate::{
-        EventMeta, EventProducer, FallbackReason, GraphicAssetFormat, MetadataField, ModeHint,
-        RawFallbackEvent, RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
-        SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind,
+        EventMeta, EventProducer, FallbackReason, GeneratedBy, GraphicAssetFormat, MetadataField,
+        ModeHint, RawFallbackEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
+        SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind,
     };
 
     #[test]
@@ -410,6 +411,7 @@ mod tests {
 
         assert_eq!(envelope.meta.producer, EventProducer::Fallback);
         assert_eq!(envelope.meta.confidence, SemanticConfidence::Fallback);
+        assert_eq!(envelope.meta.source.generated_by, GeneratedBy::Fallback);
     }
 
     #[test]

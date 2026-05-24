@@ -8,13 +8,12 @@ use serde::{Deserialize, Serialize};
 use tex_lexer::{CatCodeTable, Lexer, lex_plain};
 use tex_render_model::{
     BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint, EventId,
-    ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GeneratedBy, GraphicAssetFormat,
-    GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent,
-    LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent, ListKind,
-    MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan,
-    RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
-    SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
-    TextEvent,
+    ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GraphicAssetFormat, GraphicRefEvent,
+    HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
+    LineBreakEvent, LineBreakReason, ListItemEvent, ListKind, MathSourceEvent, MetadataField,
+    ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent,
+    RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent,
+    SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind, TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -3288,8 +3287,7 @@ impl<'i> Vm<'i> {
                                             source_path.to_owned(),
                                             command_start as u32,
                                             raw_end as u32,
-                                        )
-                                        .with_generated_by(GeneratedBy::Fallback),
+                                        ),
                                     );
                                     index = raw_end;
                                 }
