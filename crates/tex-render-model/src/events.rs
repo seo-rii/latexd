@@ -141,7 +141,9 @@ impl RenderEvent {
             Self::InlineReference(_) | Self::InlineLink(_) => ModeHint::Horizontal,
             Self::GraphicRef(_) | Self::Caption(_) => ModeHint::Vertical,
             Self::InlineMath(_) | Self::DisplayMath(_) => ModeHint::Math,
-            _ => ModeHint::Unknown,
+            Self::LabelDefinition(_) | Self::RawFallback(_) | Self::Diagnostic(_) => {
+                ModeHint::Unknown
+            }
         }
     }
 }
@@ -382,11 +384,11 @@ mod tests {
         BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint,
         EndBlockEvent, EventMeta, EventProducer, FallbackReason, FlushTitleBlockEvent, GeneratedBy,
         GraphicAssetFormat, GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent,
-        InlineReferenceEvent, LineBreakEvent, LineBreakReason, ListItemEvent, MathSourceEvent,
-        MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent,
-        RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
-        SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind,
-        TextEvent,
+        InlineReferenceEvent, LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent,
+        MathSourceEvent, MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason,
+        RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
+        RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance,
+        SpaceEvent, SpaceKind, TextEvent,
     };
 
     #[test]
@@ -656,6 +658,35 @@ mod tests {
             }),
             SourceProvenance::file("main.tex", 370, 383),
         );
+        let label_definition = RenderEventEnvelope::new(
+            19,
+            RenderEvent::LabelDefinition(LabelDefinitionEvent {
+                key: "sec:intro".to_string(),
+                command: "label".to_string(),
+            }),
+            SourceProvenance::file("main.tex", 390, 408),
+        );
+        let raw_fallback = RenderEventEnvelope::new(
+            20,
+            RenderEvent::RawFallback(RawFallbackEvent {
+                source_excerpt: "\\begin{unknownenv}x\\end{unknownenv}".to_string(),
+                expanded_text: None,
+                normalized_visible_text: Some("x".to_string()),
+                environment: Some("unknownenv".to_string()),
+                reason: FallbackReason::UnsupportedEnvironment,
+                source_hash: None,
+                full_source_artifact: None,
+                truncated: false,
+            }),
+            SourceProvenance::file("main.tex", 420, 455),
+        );
+        let diagnostic = RenderEventEnvelope::new(
+            21,
+            RenderEvent::Diagnostic(RenderDiagnosticEvent {
+                message: "missing input missing.tex".to_string(),
+            }),
+            SourceProvenance::file("main.tex", 460, 481),
+        );
 
         assert_eq!(metadata.meta.mode_hint, ModeHint::Preamble);
         assert_eq!(flush_title.meta.mode_hint, ModeHint::Vertical);
@@ -675,6 +706,9 @@ mod tests {
         assert_eq!(line_break.meta.mode_hint, ModeHint::Horizontal);
         assert_eq!(paragraph_break.meta.mode_hint, ModeHint::Vertical);
         assert_eq!(list_item.meta.mode_hint, ModeHint::Vertical);
+        assert_eq!(label_definition.meta.mode_hint, ModeHint::Unknown);
+        assert_eq!(raw_fallback.meta.mode_hint, ModeHint::Unknown);
+        assert_eq!(diagnostic.meta.mode_hint, ModeHint::Unknown);
     }
 
     #[test]
