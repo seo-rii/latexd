@@ -515,6 +515,18 @@ pub fn build_page_display_lists(
                 }
             }
         }
+        for frame in &source.expansion_stack {
+            if let ProvenanceSpan::File(span) = &frame.call_span {
+                if !source_spans.contains(span) {
+                    source_spans.push(span.clone());
+                }
+            }
+            if let Some(ProvenanceSpan::File(span)) = &frame.definition_span {
+                if !source_spans.contains(span) {
+                    source_spans.push(span.clone());
+                }
+            }
+        }
     };
     let mut emit_due_destinations =
         |current_source: &SourceProvenance, point: Point, pending: &mut PendingPage| {
@@ -897,7 +909,8 @@ mod tests {
         AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint,
         DisplayMathBlock, DocumentIr, DrawOp, GraphicAssetFormat, GraphicBlock, HeadingBlock,
         InlineNode, IrBlock, LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind,
-        ParagraphBlock, ReferenceInline, SourceProvenance, TextCluster, TitleBlock,
+        ParagraphBlock, ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan, TextCluster,
+        TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists};
@@ -941,6 +954,40 @@ mod tests {
         assert_eq!(text_runs[1].text, "Ada Lovelace");
         assert_eq!(text_runs[2].text, "Hello world");
         assert_eq!(display_lists[0].source_spans.len(), 1);
+    }
+
+    #[test]
+    fn page_source_spans_include_expansion_stack_frames() {
+        let call_span = SourceSpan {
+            path: "main.tex".into(),
+            start_utf8: 0,
+            end_utf8: 9,
+        };
+        let definition_span = SourceSpan {
+            path: "macros.tex".into(),
+            start_utf8: 12,
+            end_utf8: 40,
+        };
+        let source = SourceProvenance::file("main.tex", 20, 24).with_expansion_frame(
+            tex_render_model::ExpansionFrame {
+                call_span: ProvenanceSpan::File(call_span.clone()),
+                definition_span: Some(ProvenanceSpan::File(definition_span.clone())),
+                command_name: Some("mytext".to_string()),
+            },
+        );
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: "Text".to_string(),
+                    source: source.clone(),
+                }],
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+
+        assert!(display_lists[0].source_spans.contains(&call_span));
+        assert!(display_lists[0].source_spans.contains(&definition_span));
     }
 
     #[test]
