@@ -576,6 +576,10 @@ The next implementation step has started with a narrow display-list spike:
 - VM-generated `RawFallbackEvent` values now bound `source_excerpt` to 2 KiB
   at a valid UTF-8 boundary and populate a `blake3:` hash of the full fallback
   source for artifact/debug correlation;
+- VM-generated `RawFallbackEvent` envelopes now mark their source provenance as
+  `GeneratedBy::Fallback` and their event metadata as `producer = fallback` /
+  `confidence = fallback`, so fallbacks are distinguishable from normal command
+  output in event, IR, and display-list artifacts;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`
@@ -585,6 +589,9 @@ The next implementation step has started with a narrow display-list spike:
   operations are produced in a different order;
 - display-list SVG text elements include primary source attributes plus related
   source roles and span identifiers for source-sync inspection;
+- display-list SVG source attributes now include `data-source-generated-by` for
+  file and generated provenance, making source, shim, aux, generated, and
+  fallback output visible to debug tooling;
 - display-list SVG text elements also include bounded expansion stack depth,
   command names, call spans, and definition spans for macro provenance
   inspection;
