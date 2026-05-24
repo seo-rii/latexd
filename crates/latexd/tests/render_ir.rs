@@ -8,7 +8,8 @@ use latexd::compiler::{
 use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{
     CitationStyleHint, DrawOp, EventProducer, GeneratedBy, GraphicAssetFormat, ListKind,
-    MetadataField, RenderEvent, SemanticConfidence, to_pretty_json, to_semantic_pretty_json,
+    MetadataField, ModeHint, RenderEvent, SemanticConfidence, to_pretty_json,
+    to_semantic_pretty_json,
 };
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole};
 
@@ -220,6 +221,10 @@ fn compact_title_provenance_matches_golden() {
         .iter()
         .find(|envelope| matches!(&envelope.event, RenderEvent::FlushTitleBlock(_)))
         .expect("flush title event");
+
+    assert_eq!(title_event.meta.mode_hint, ModeHint::Preamble);
+    assert_eq!(author_event.meta.mode_hint, ModeHint::Preamble);
+    assert_eq!(date_event.meta.mode_hint, ModeHint::Preamble);
     let title = capture
         .document_ir
         .blocks

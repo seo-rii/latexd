@@ -10,7 +10,7 @@
       "meta": {
         "confidence": "high",
         "event_id": 1,
-        "mode_hint": "unknown",
+        "mode_hint": "preamble",
         "producer": "command",
         "source": "<present>"
       }
@@ -24,7 +24,7 @@
       "meta": {
         "confidence": "high",
         "event_id": 2,
-        "mode_hint": "unknown",
+        "mode_hint": "preamble",
         "producer": "command",
         "source": "<present>"
       }
@@ -38,7 +38,7 @@
       "meta": {
         "confidence": "high",
         "event_id": 3,
-        "mode_hint": "unknown",
+        "mode_hint": "preamble",
         "producer": "command",
         "source": "<present>"
       }

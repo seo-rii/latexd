@@ -11,7 +11,7 @@ use tex_render_model::{
     EndBlockEvent, EventId, ExpansionFrame, FallbackReason, FlushTitleBlockEvent,
     GraphicAssetFormat, GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent,
     InlineReferenceEvent, LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent,
-    ListKind, MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason,
+    ListKind, MathSourceEvent, MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason,
     ProvenanceSpan, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
     SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
     TextEvent,
@@ -8658,8 +8658,13 @@ impl<'i> Vm<'i> {
     fn emit_render_event(&mut self, event: RenderEvent, source: SourceProvenance) {
         let event_id = self.next_render_event_id;
         self.next_render_event_id += 1;
-        self.render_events
-            .push(RenderEventEnvelope::new(event_id, event, source));
+        let envelope = RenderEventEnvelope::new(event_id, event, source);
+        let envelope = if matches!(&envelope.event, RenderEvent::SetDocumentMetadata(_)) {
+            envelope.with_mode_hint(ModeHint::Preamble)
+        } else {
+            envelope
+        };
+        self.render_events.push(envelope);
     }
 
     pub fn run(&mut self, tokens: Vec<Token>) -> VmOutcome {
@@ -17065,8 +17070,8 @@ mod tests {
     use serde_json::json;
     use tex_render_model::{
         BeginBlockEvent, BlockKind, CitationStyleHint, EndBlockEvent, EventProducer, GeneratedBy,
-        GraphicAssetFormat, HeadingEvent, ListKind, MetadataField, RenderEvent, SemanticConfidence,
-        SourceSpanRole, SpaceKind,
+        GraphicAssetFormat, HeadingEvent, ListKind, MetadataField, ModeHint, RenderEvent,
+        SemanticConfidence, SourceSpanRole, SpaceKind,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -28040,6 +28045,7 @@ Fallback text.
             .find(|event| matches!(&event.event, RenderEvent::FlushTitleBlock(_)))
             .expect("flush title event");
 
+        assert_eq!(title.meta.mode_hint, ModeHint::Preamble);
         assert!(matches!(
             &title.meta.source.primary,
             tex_render_model::ProvenanceSpan::File(span)
