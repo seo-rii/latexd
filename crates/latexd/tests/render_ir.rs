@@ -497,6 +497,7 @@ fn compact_display_math_provenance_preserves_body_and_delimiter_spans() {
         })
         .expect("display math text run");
 
+    assert_eq!(display_math_event.meta.mode_hint, ModeHint::Math);
     for source in [
         &display_math_event.meta.source,
         &display_math_block.source,

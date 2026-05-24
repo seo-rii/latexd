@@ -202,7 +202,7 @@
       "meta": {
         "confidence": "high",
         "event_id": 15,
-        "mode_hint": "unknown",
+        "mode_hint": "math",
         "producer": "command",
         "source": "<present>"
       }

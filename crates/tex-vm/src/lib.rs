@@ -8662,6 +8662,9 @@ impl<'i> Vm<'i> {
         let envelope = match &envelope.event {
             RenderEvent::SetDocumentMetadata(_) => envelope.with_mode_hint(ModeHint::Preamble),
             RenderEvent::FlushTitleBlock(_) => envelope.with_mode_hint(ModeHint::Vertical),
+            RenderEvent::InlineMath(_) | RenderEvent::DisplayMath(_) => {
+                envelope.with_mode_hint(ModeHint::Math)
+            }
             _ => envelope,
         };
         self.render_events.push(envelope);
@@ -22475,6 +22478,7 @@ Fallback text.
             &inline_math.event,
             RenderEvent::InlineMath(math) if math.raw_source == "x^2 + y^2"
         ));
+        assert_eq!(inline_math.meta.mode_hint, ModeHint::Math);
         assert!(matches!(
             &inline_math.meta.source.primary,
             tex_render_model::ProvenanceSpan::File(span)
@@ -22516,6 +22520,7 @@ Fallback text.
             &inline_math.event,
             RenderEvent::InlineMath(math) if math.raw_source == "x^2 + y^2"
         ));
+        assert_eq!(inline_math.meta.mode_hint, ModeHint::Math);
         assert!(matches!(
             &inline_math.meta.source.primary,
             tex_render_model::ProvenanceSpan::File(span)
@@ -22536,6 +22541,7 @@ Fallback text.
             &display_math.event,
             RenderEvent::DisplayMath(math) if math.raw_source == "z^2"
         ));
+        assert_eq!(display_math.meta.mode_hint, ModeHint::Math);
         assert!(matches!(
             &display_math.meta.source.primary,
             tex_render_model::ProvenanceSpan::File(span)
