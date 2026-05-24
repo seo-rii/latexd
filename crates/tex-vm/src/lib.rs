@@ -22794,7 +22794,7 @@ Fallback text.
             .render_events
             .iter()
             .filter_map(|event| match &event.event {
-                RenderEvent::InlineCitation(citation) => Some((citation, &event.meta.source)),
+                RenderEvent::InlineCitation(citation) => Some((citation, &event.meta)),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -22806,14 +22806,15 @@ Fallback text.
             citations[0].0.keys,
             vec!["alpha".to_string(), "beta".to_string()]
         );
+        assert_eq!(citations[0].1.mode_hint, ModeHint::Horizontal);
         assert!(matches!(
-            &citations[0].1.primary,
+            &citations[0].1.source.primary,
             tex_render_model::ProvenanceSpan::File(span)
                 if span.path == Utf8PathBuf::from("main.tex")
                     && &source[span.start_utf8 as usize..span.end_utf8 as usize]
                         == r"\citep[see][p.~3]{alpha,beta}"
         ));
-        assert!(citations[0].1.related.iter().any(|related| {
+        assert!(citations[0].1.source.related.iter().any(|related| {
             related.role == tex_render_model::SourceSpanRole::CitationKey
                 && matches!(
                     &related.span,

@@ -326,6 +326,7 @@ fn compact_citation_provenance_preserves_invocation_and_key_spans() {
         })
         .expect("citation text run");
 
+    assert_eq!(citation_event.meta.mode_hint, ModeHint::Horizontal);
     for source in [
         &citation_event.meta.source,
         &citation_inline.source,

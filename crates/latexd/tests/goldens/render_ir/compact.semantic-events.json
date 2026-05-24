@@ -176,7 +176,7 @@
       "meta": {
         "confidence": "high",
         "event_id": 13,
-        "mode_hint": "unknown",
+        "mode_hint": "horizontal",
         "producer": "command",
         "source": "<present>"
       }

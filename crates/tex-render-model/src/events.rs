@@ -131,6 +131,7 @@ impl RenderEvent {
             Self::SetDocumentMetadata(_) => ModeHint::Preamble,
             Self::FlushTitleBlock(_) => ModeHint::Vertical,
             Self::Heading(_) => ModeHint::Vertical,
+            Self::InlineCitation(_) => ModeHint::Horizontal,
             Self::InlineMath(_) | Self::DisplayMath(_) => ModeHint::Math,
             _ => ModeHint::Unknown,
         }
@@ -370,11 +371,12 @@ pub struct RenderDiagnosticEvent {
 #[cfg(test)]
 mod tests {
     use crate::{
-        BeginBlockEvent, BlockKind, EndBlockEvent, EventMeta, EventProducer, FallbackReason,
-        FlushTitleBlockEvent, GeneratedBy, GraphicAssetFormat, HeadingEvent, MathSourceEvent,
-        MetadataField, ModeHint, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent,
-        RenderEventEnvelope, RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent,
-        SourceProvenance, SpaceEvent, SpaceKind, TextEvent,
+        BeginBlockEvent, BlockKind, CitationStyleHint, EndBlockEvent, EventMeta, EventProducer,
+        FallbackReason, FlushTitleBlockEvent, GeneratedBy, GraphicAssetFormat, HeadingEvent,
+        InlineCitationEvent, MathSourceEvent, MetadataField, ModeHint, RawFallbackEvent,
+        RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
+        SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind,
+        TextEvent,
     };
 
     #[test]
@@ -543,12 +545,22 @@ mod tests {
             }),
             SourceProvenance::file("main.tex", 70, 75),
         );
+        let citation = RenderEventEnvelope::new(
+            6,
+            RenderEvent::InlineCitation(InlineCitationEvent {
+                keys: vec!["key".to_string()],
+                command: "cite".to_string(),
+                style_hint: CitationStyleHint::Parenthetical,
+            }),
+            SourceProvenance::file("main.tex", 80, 90),
+        );
 
         assert_eq!(metadata.meta.mode_hint, ModeHint::Preamble);
         assert_eq!(flush_title.meta.mode_hint, ModeHint::Vertical);
         assert_eq!(inline_math.meta.mode_hint, ModeHint::Math);
         assert_eq!(display_math.meta.mode_hint, ModeHint::Math);
         assert_eq!(heading.meta.mode_hint, ModeHint::Vertical);
+        assert_eq!(citation.meta.mode_hint, ModeHint::Horizontal);
     }
 
     #[test]
