@@ -506,8 +506,8 @@
           "expansion_stack_truncated": false
         },
         "mode_hint": "unknown",
-        "confidence": "high",
-        "producer": "command"
+        "confidence": "fallback",
+        "producer": "fallback"
       }
     }
   ]

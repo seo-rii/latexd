@@ -263,10 +263,10 @@
         "truncated": false
       },
       "meta": {
-        "confidence": "high",
+        "confidence": "fallback",
         "event_id": 19,
         "mode_hint": "unknown",
-        "producer": "command",
+        "producer": "fallback",
         "source": "<present>"
       }
     }

@@ -8,13 +8,13 @@ use serde::{Deserialize, Serialize};
 use tex_lexer::{CatCodeTable, Lexer, lex_plain};
 use tex_render_model::{
     BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint, EventId,
-    ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GeneratedBy, GraphicAssetFormat,
-    GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent,
-    LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent, ListKind,
-    MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan,
-    RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
-    SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
-    TextEvent,
+    EventProducer, ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GeneratedBy,
+    GraphicAssetFormat, GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent,
+    InlineReferenceEvent, LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent,
+    ListKind, MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason,
+    ProvenanceSpan, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
+    SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole,
+    SpaceEvent, SpaceKind, TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -8659,8 +8659,12 @@ impl<'i> Vm<'i> {
     fn emit_render_event(&mut self, event: RenderEvent, source: SourceProvenance) {
         let event_id = self.next_render_event_id;
         self.next_render_event_id += 1;
-        self.render_events
-            .push(RenderEventEnvelope::new(event_id, event, source));
+        let mut envelope = RenderEventEnvelope::new(event_id, event, source);
+        if matches!(envelope.event, RenderEvent::RawFallback(_)) {
+            envelope.meta.producer = EventProducer::Fallback;
+            envelope.meta.confidence = SemanticConfidence::Fallback;
+        }
+        self.render_events.push(envelope);
     }
 
     pub fn run(&mut self, tokens: Vec<Token>) -> VmOutcome {
@@ -17065,8 +17069,9 @@ mod tests {
     use camino::{Utf8Path, Utf8PathBuf};
     use serde_json::json;
     use tex_render_model::{
-        BeginBlockEvent, BlockKind, CitationStyleHint, GeneratedBy, GraphicAssetFormat,
-        HeadingEvent, ListKind, MetadataField, RenderEvent, SourceSpanRole, SpaceKind,
+        BeginBlockEvent, BlockKind, CitationStyleHint, EventProducer, GeneratedBy,
+        GraphicAssetFormat, HeadingEvent, ListKind, MetadataField, RenderEvent, SemanticConfidence,
+        SourceSpanRole, SpaceKind,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -21355,20 +21360,22 @@ Fallback text.
         vm.set_entry_source_path("main.tex");
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
-        let source = outcome
+        let event = outcome
             .render_events
             .iter()
             .find_map(|event| match &event.event {
                 RenderEvent::RawFallback(fallback)
                     if fallback.environment.as_deref() == Some("unknownenv") =>
                 {
-                    Some(&event.meta.source)
+                    Some(event)
                 }
                 _ => None,
             })
             .expect("unknownenv fallback source");
 
-        assert_eq!(source.generated_by, GeneratedBy::Fallback);
+        assert_eq!(event.meta.source.generated_by, GeneratedBy::Fallback);
+        assert_eq!(event.meta.producer, EventProducer::Fallback);
+        assert_eq!(event.meta.confidence, SemanticConfidence::Fallback);
     }
 
     #[test]
