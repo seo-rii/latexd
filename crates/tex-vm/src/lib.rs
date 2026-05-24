@@ -20636,15 +20636,17 @@ Fallback text.
         vm.set_entry_source_path("main.tex");
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
-        let item_text = outcome
+        let item_event = outcome
             .render_events
             .iter()
             .find_map(|event| match &event.event {
-                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                RenderEvent::BibliographyItem(item) => Some((item, &event.meta)),
                 _ => None,
             })
             .expect("bibliography item");
+        let item_text = item_event.0.text.as_str();
 
+        assert_eq!(item_event.1.mode_hint, ModeHint::Vertical);
         assert_eq!(item_text, "See [?] and [?].");
         assert!(!item_text.contains("cited"));
         assert!(!item_text.contains("sec:intro"));

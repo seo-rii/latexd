@@ -231,7 +231,7 @@
       "meta": {
         "confidence": "high",
         "event_id": 17,
-        "mode_hint": "unknown",
+        "mode_hint": "vertical",
         "producer": "command",
         "source": "<present>"
       }

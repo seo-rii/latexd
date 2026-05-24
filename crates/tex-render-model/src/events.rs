@@ -134,6 +134,7 @@ impl RenderEvent {
             Self::BeginBlock(_) | Self::EndBlock(_) => ModeHint::Vertical,
             Self::Heading(_) => ModeHint::Vertical,
             Self::InlineCitation(_) => ModeHint::Horizontal,
+            Self::BibliographyItem(_) => ModeHint::Vertical,
             Self::InlineReference(_) | Self::InlineLink(_) => ModeHint::Horizontal,
             Self::GraphicRef(_) | Self::Caption(_) => ModeHint::Vertical,
             Self::InlineMath(_) | Self::DisplayMath(_) => ModeHint::Math,
@@ -375,12 +376,13 @@ pub struct RenderDiagnosticEvent {
 #[cfg(test)]
 mod tests {
     use crate::{
-        BeginBlockEvent, BlockKind, CaptionEvent, CitationStyleHint, EndBlockEvent, EventMeta,
-        EventProducer, FallbackReason, FlushTitleBlockEvent, GeneratedBy, GraphicAssetFormat,
-        GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent,
-        MathSourceEvent, MetadataField, ModeHint, RawFallbackEvent, RenderDiagnosticEvent,
-        RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
-        SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind, TextEvent,
+        BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint,
+        EndBlockEvent, EventMeta, EventProducer, FallbackReason, FlushTitleBlockEvent, GeneratedBy,
+        GraphicAssetFormat, GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent,
+        InlineReferenceEvent, MathSourceEvent, MetadataField, ModeHint, RawFallbackEvent,
+        RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
+        SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind,
+        TextEvent,
     };
 
     #[test]
@@ -620,6 +622,15 @@ mod tests {
             }),
             SourceProvenance::file("main.tex", 290, 303),
         );
+        let bibliography_item = RenderEventEnvelope::new(
+            15,
+            RenderEvent::BibliographyItem(BibliographyItemEvent {
+                key: "ref".to_string(),
+                label_hint: None,
+                text: "Author. Title.".to_string(),
+            }),
+            SourceProvenance::file("main.tex", 310, 340),
+        );
 
         assert_eq!(metadata.meta.mode_hint, ModeHint::Preamble);
         assert_eq!(flush_title.meta.mode_hint, ModeHint::Vertical);
@@ -635,6 +646,7 @@ mod tests {
         assert_eq!(link.meta.mode_hint, ModeHint::Horizontal);
         assert_eq!(graphic.meta.mode_hint, ModeHint::Vertical);
         assert_eq!(caption.meta.mode_hint, ModeHint::Vertical);
+        assert_eq!(bibliography_item.meta.mode_hint, ModeHint::Vertical);
     }
 
     #[test]
