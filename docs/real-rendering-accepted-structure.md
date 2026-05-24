@@ -38,6 +38,9 @@ As of 2026-05-24, the first implementation batch is complete:
 - Raw fallback and diagnostic event envelopes now carry non-default metadata:
   fallbacks are `producer = fallback` / `confidence = fallback`, while
   diagnostics are `producer = unknown` / `confidence = low`.
+- Context-free `RawFallback` still defaults to `mode_hint = unknown`, but
+  VM-emitted unsupported-environment fallbacks override it to `vertical`
+  because they behave as block-level IR content.
 - `abstract*` and `onecolabstract` now follow the same semantic abstract
   event/IR path as `abstract` instead of falling back to unsupported raw text.
 - Focused provenance tests and goldens cover macro-expanded section text,
@@ -583,6 +586,9 @@ The next implementation step has started with a narrow display-list spike:
   `GeneratedBy::Fallback` and their event metadata as `producer = fallback` /
   `confidence = fallback`, so fallbacks are distinguishable from normal command
   output in event, IR, and display-list artifacts;
+- unsupported-environment `RawFallbackEvent` envelopes now carry
+  `mode_hint = vertical`, while the shared event default remains `unknown` for
+  context-free fallback constructors;
 - display-list PDF/SVG debug rendering now exposes `LinkAnnotation` operations
   as PDF link annotations and SVG clickable rectangles;
 - display-list PDF/SVG debug rendering now exposes `NamedDestination`
@@ -1548,6 +1554,9 @@ approximate.
 - Raw fallback stores bounded excerpts, visible text, source hashes, and
   deterministic full-source debug artifact paths; internal debug artifact
   writing materializes those source files from persisted source spans.
+  Unsupported-environment fallbacks are block-level events and therefore carry
+  `mode_hint = vertical`; generic fallback constructors remain `unknown` until
+  their emitter supplies context.
 - `PageDisplayList` text runs now expose approximate clusters: ASCII runs stay
   whole-run, while non-ASCII runs are split by UTF-8 scalar value. A
   renderer-neutral font resolver, shaper, glyph ids, and real shaped cluster
