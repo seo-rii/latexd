@@ -103,7 +103,7 @@ pub enum RenderEvent {
     SetDocumentMetadata(SetDocumentMetadataEvent),
     FlushTitleBlock(FlushTitleBlockEvent),
     BeginBlock(BeginBlockEvent),
-    EndBlock(BeginBlockEvent),
+    EndBlock(EndBlockEvent),
     Heading(HeadingEvent),
     InlineCitation(InlineCitationEvent),
     InlineReference(InlineReferenceEvent),
@@ -181,6 +181,11 @@ pub struct FlushTitleBlockEvent;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BeginBlockEvent {
+    pub block: BlockKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EndBlockEvent {
     pub block: BlockKind,
 }
 
@@ -347,10 +352,10 @@ pub struct RenderDiagnosticEvent {
 #[cfg(test)]
 mod tests {
     use crate::{
-        EventMeta, EventProducer, FallbackReason, GeneratedBy, GraphicAssetFormat, MetadataField,
-        ModeHint, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
-        RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance,
-        SpaceEvent, SpaceKind,
+        BeginBlockEvent, BlockKind, EndBlockEvent, EventMeta, EventProducer, FallbackReason,
+        GeneratedBy, GraphicAssetFormat, MetadataField, ModeHint, RawFallbackEvent,
+        RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
+        SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind,
     };
 
     #[test]
@@ -393,6 +398,37 @@ mod tests {
 
         assert!(encoded.contains("\"kind\": \"space\""));
         assert!(encoded.contains("\"space_kind\": \"interword\""));
+    }
+
+    #[test]
+    fn block_boundary_events_use_separate_payload_types_without_changing_json_shape() {
+        let stream = RenderEventStream::new(
+            Some("block-boundary".to_string()),
+            vec![
+                RenderEventEnvelope::new(
+                    1,
+                    RenderEvent::BeginBlock(BeginBlockEvent {
+                        block: BlockKind::Abstract,
+                    }),
+                    SourceProvenance::file("main.tex", 0, 16),
+                ),
+                RenderEventEnvelope::new(
+                    2,
+                    RenderEvent::EndBlock(EndBlockEvent {
+                        block: BlockKind::Abstract,
+                    }),
+                    SourceProvenance::file("main.tex", 17, 31),
+                ),
+            ],
+        );
+
+        let encoded = serde_json::to_string_pretty(&stream).expect("encode stream");
+        assert!(encoded.contains("\"kind\": \"begin_block\""));
+        assert!(encoded.contains("\"kind\": \"end_block\""));
+        assert_eq!(encoded.matches("\"kind\": \"abstract\"").count(), 2);
+
+        let decoded: RenderEventStream = serde_json::from_str(&encoded).expect("decode stream");
+        assert_eq!(decoded, stream);
     }
 
     #[test]

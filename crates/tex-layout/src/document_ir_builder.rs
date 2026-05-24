@@ -500,7 +500,7 @@ mod tests {
 
     use tex_render_model::{
         BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationLabel,
-        CitationStyleHint, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
+        CitationStyleHint, EndBlockEvent, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
         InlineCitationEvent, InlineLinkEvent, InlineNode, InlineReferenceEvent, IrBlock,
         LabelDefinitionEvent, LabelTargetView, MathSourceEvent, MetadataField, ParagraphBreakEvent,
         ParagraphBreakReason, RawFallbackEvent, RenderEvent, RenderEventEnvelope,
@@ -567,7 +567,7 @@ mod tests {
                 push(RenderEvent::Text(TextEvent {
                     text: "Short abstract.".to_string(),
                 })),
-                push(RenderEvent::EndBlock(BeginBlockEvent {
+                push(RenderEvent::EndBlock(EndBlockEvent {
                     block: BlockKind::Abstract,
                 })),
                 push(RenderEvent::Heading(HeadingEvent {
@@ -598,7 +598,7 @@ mod tests {
                     label_hint: None,
                     text: "Author. Title.".to_string(),
                 })),
-                push(RenderEvent::EndBlock(BeginBlockEvent {
+                push(RenderEvent::EndBlock(EndBlockEvent {
                     block: BlockKind::Bibliography,
                 })),
             ],
@@ -911,7 +911,7 @@ mod tests {
                 ),
                 RenderEventEnvelope::new(
                     4,
-                    RenderEvent::EndBlock(BeginBlockEvent {
+                    RenderEvent::EndBlock(EndBlockEvent {
                         block: BlockKind::Figure,
                     }),
                     SourceProvenance::file("main.tex", 68, 80),
@@ -932,7 +932,7 @@ mod tests {
                 ),
                 RenderEventEnvelope::new(
                     7,
-                    RenderEvent::EndBlock(BeginBlockEvent {
+                    RenderEvent::EndBlock(EndBlockEvent {
                         block: BlockKind::Table,
                     }),
                     SourceProvenance::file("main.tex", 118, 130),

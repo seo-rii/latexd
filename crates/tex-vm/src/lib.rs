@@ -7,13 +7,14 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 use tex_lexer::{CatCodeTable, Lexer, lex_plain};
 use tex_render_model::{
-    BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint, EventId,
-    ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GraphicAssetFormat, GraphicRefEvent,
-    HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
-    LineBreakEvent, LineBreakReason, ListItemEvent, ListKind, MathSourceEvent, MetadataField,
-    ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent,
-    RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent,
-    SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind, TextEvent,
+    BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint,
+    EndBlockEvent, EventId, ExpansionFrame, FallbackReason, FlushTitleBlockEvent,
+    GraphicAssetFormat, GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent,
+    InlineReferenceEvent, LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent,
+    ListKind, MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason,
+    ProvenanceSpan, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
+    SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
+    TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -3015,7 +3016,7 @@ impl<'i> Vm<'i> {
                                         body_index = body_command_index;
                                     }
                                     self.emit_render_event(
-                                        RenderEvent::EndBlock(BeginBlockEvent { block }),
+                                        RenderEvent::EndBlock(EndBlockEvent { block }),
                                         SourceProvenance::file(
                                             source_path.to_owned(),
                                             body_end as u32,
@@ -3308,7 +3309,7 @@ impl<'i> Vm<'i> {
                             }
                             "abstract" | "abstract*" | "onecolabstract" if in_document => {
                                 self.emit_render_event(
-                                    RenderEvent::EndBlock(BeginBlockEvent {
+                                    RenderEvent::EndBlock(EndBlockEvent {
                                         block: BlockKind::Abstract,
                                     }),
                                     SourceProvenance::file(
@@ -3320,7 +3321,7 @@ impl<'i> Vm<'i> {
                             }
                             "thebibliography" if in_document => {
                                 self.emit_render_event(
-                                    RenderEvent::EndBlock(BeginBlockEvent {
+                                    RenderEvent::EndBlock(EndBlockEvent {
                                         block: BlockKind::Bibliography,
                                     }),
                                     SourceProvenance::file(
@@ -3338,7 +3339,7 @@ impl<'i> Vm<'i> {
                                     _ => unreachable!(),
                                 };
                                 self.emit_render_event(
-                                    RenderEvent::EndBlock(BeginBlockEvent {
+                                    RenderEvent::EndBlock(EndBlockEvent {
                                         block: BlockKind::List { list_kind: kind },
                                     }),
                                     SourceProvenance::file(
@@ -3353,7 +3354,7 @@ impl<'i> Vm<'i> {
                                     && scan_state.structured_environments.contains(other) =>
                             {
                                 self.emit_render_event(
-                                    RenderEvent::EndBlock(BeginBlockEvent {
+                                    RenderEvent::EndBlock(EndBlockEvent {
                                         block: BlockKind::Environment {
                                             name: other.to_string(),
                                         },
@@ -3598,7 +3599,7 @@ impl<'i> Vm<'i> {
                             ),
                         );
                         self.emit_render_event(
-                            RenderEvent::EndBlock(BeginBlockEvent {
+                            RenderEvent::EndBlock(EndBlockEvent {
                                 block: BlockKind::Bibliography,
                             }),
                             SourceProvenance::file(
@@ -3640,7 +3641,7 @@ impl<'i> Vm<'i> {
                                 ),
                             );
                             self.emit_render_event(
-                                RenderEvent::EndBlock(BeginBlockEvent {
+                                RenderEvent::EndBlock(EndBlockEvent {
                                     block: BlockKind::Bibliography,
                                 }),
                                 SourceProvenance::file(
@@ -17063,7 +17064,7 @@ mod tests {
     use camino::{Utf8Path, Utf8PathBuf};
     use serde_json::json;
     use tex_render_model::{
-        BeginBlockEvent, BlockKind, CitationStyleHint, EventProducer, GeneratedBy,
+        BeginBlockEvent, BlockKind, CitationStyleHint, EndBlockEvent, EventProducer, GeneratedBy,
         GraphicAssetFormat, HeadingEvent, ListKind, MetadataField, RenderEvent, SemanticConfidence,
         SourceSpanRole, SpaceKind,
     };
@@ -23239,7 +23240,7 @@ Fallback text.
         )));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
-            RenderEvent::EndBlock(BeginBlockEvent {
+            RenderEvent::EndBlock(EndBlockEvent {
                 block: BlockKind::Bibliography
             })
         )));
@@ -23278,7 +23279,7 @@ Fallback text.
         )));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
-            RenderEvent::EndBlock(BeginBlockEvent {
+            RenderEvent::EndBlock(EndBlockEvent {
                 block: BlockKind::Bibliography
             })
         )));
@@ -24328,7 +24329,7 @@ Fallback text.
         )));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
-            RenderEvent::EndBlock(BeginBlockEvent {
+            RenderEvent::EndBlock(EndBlockEvent {
                 block: BlockKind::Environment { name }
             }) if name == "NoHyper"
         )));
@@ -26014,7 +26015,7 @@ Fallback text.
             .render_events
             .iter()
             .filter_map(|event| match &event.event {
-                RenderEvent::EndBlock(BeginBlockEvent {
+                RenderEvent::EndBlock(EndBlockEvent {
                     block: BlockKind::Environment { name },
                 }) => Some(name.as_str()),
                 _ => None,
@@ -27069,7 +27070,7 @@ Fallback text.
             .render_events
             .iter()
             .filter_map(|event| match &event.event {
-                RenderEvent::EndBlock(BeginBlockEvent {
+                RenderEvent::EndBlock(EndBlockEvent {
                     block: BlockKind::Environment { name },
                 }) => Some(name.as_str()),
                 _ => None,
@@ -27128,7 +27129,7 @@ Fallback text.
             .render_events
             .iter()
             .filter_map(|event| match &event.event {
-                RenderEvent::EndBlock(BeginBlockEvent {
+                RenderEvent::EndBlock(EndBlockEvent {
                     block: BlockKind::Environment { name },
                 }) => Some(name.as_str()),
                 _ => None,
@@ -27214,7 +27215,7 @@ Fallback text.
             .render_events
             .iter()
             .filter_map(|event| match &event.event {
-                RenderEvent::EndBlock(BeginBlockEvent {
+                RenderEvent::EndBlock(EndBlockEvent {
                     block: BlockKind::Environment { name },
                 }) => Some(name.as_str()),
                 _ => None,
