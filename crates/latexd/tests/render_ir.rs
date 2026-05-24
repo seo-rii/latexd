@@ -7,8 +7,8 @@ use latexd::compiler::{
 };
 use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{
-    CitationStyleHint, DrawOp, GeneratedBy, GraphicAssetFormat, ListKind, MetadataField,
-    RenderEvent, to_pretty_json, to_semantic_pretty_json,
+    CitationStyleHint, DrawOp, EventProducer, GeneratedBy, GraphicAssetFormat, ListKind,
+    MetadataField, RenderEvent, SemanticConfidence, to_pretty_json, to_semantic_pretty_json,
 };
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole};
 
@@ -9047,10 +9047,20 @@ fn missing_package_and_class_files_emit_render_diagnostics_without_visible_leaka
     );
 
     for missing in ["missing class ghost.cls", "missing package missing.sty"] {
-        assert!(capture.events.events.iter().any(|event| matches!(
-            &event.event,
-            RenderEvent::Diagnostic(diagnostic) if diagnostic.message.contains(missing)
-        )));
+        let event = capture
+            .events
+            .events
+            .iter()
+            .find(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::Diagnostic(diagnostic) if diagnostic.message.contains(missing)
+                )
+            })
+            .expect("missing diagnostic event");
+        assert_eq!(event.meta.producer, EventProducer::Unknown);
+        assert_eq!(event.meta.confidence, SemanticConfidence::Low);
+        assert_eq!(event.meta.source.generated_by, GeneratedBy::Source);
     }
 
     let extracted_text = capture.document_ir.extracted_text();
