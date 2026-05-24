@@ -53,7 +53,7 @@
         "meta": {
           "confidence": "high",
           "event_id": 3,
-          "mode_hint": "unknown",
+          "mode_hint": "horizontal",
           "producer": "command",
           "source": {
             "expansion_stack": [],
@@ -174,7 +174,7 @@
         "meta": {
           "confidence": "high",
           "event_id": 6,
-          "mode_hint": "unknown",
+          "mode_hint": "horizontal",
           "producer": "command",
           "source": {
             "expansion_stack": [],
@@ -295,7 +295,7 @@
         "meta": {
           "confidence": "high",
           "event_id": 11,
-          "mode_hint": "unknown",
+          "mode_hint": "horizontal",
           "producer": "command",
           "source": {
             "expansion_stack": [],

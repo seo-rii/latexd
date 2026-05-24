@@ -128,6 +128,7 @@ pub enum RenderEvent {
 impl RenderEvent {
     pub fn default_mode_hint(&self) -> ModeHint {
         match self {
+            Self::Text(_) | Self::Space(_) => ModeHint::Horizontal,
             Self::SetDocumentMetadata(_) => ModeHint::Preamble,
             Self::FlushTitleBlock(_) => ModeHint::Vertical,
             Self::Heading(_) => ModeHint::Vertical,
@@ -554,6 +555,20 @@ mod tests {
             }),
             SourceProvenance::file("main.tex", 80, 90),
         );
+        let text = RenderEventEnvelope::new(
+            7,
+            RenderEvent::Text(TextEvent {
+                text: "Hello".to_string(),
+            }),
+            SourceProvenance::file("main.tex", 100, 105),
+        );
+        let space = RenderEventEnvelope::new(
+            8,
+            RenderEvent::Space(SpaceEvent {
+                kind: SpaceKind::Interword,
+            }),
+            SourceProvenance::file("main.tex", 105, 106),
+        );
 
         assert_eq!(metadata.meta.mode_hint, ModeHint::Preamble);
         assert_eq!(flush_title.meta.mode_hint, ModeHint::Vertical);
@@ -561,6 +576,8 @@ mod tests {
         assert_eq!(display_math.meta.mode_hint, ModeHint::Math);
         assert_eq!(heading.meta.mode_hint, ModeHint::Vertical);
         assert_eq!(citation.meta.mode_hint, ModeHint::Horizontal);
+        assert_eq!(text.meta.mode_hint, ModeHint::Horizontal);
+        assert_eq!(space.meta.mode_hint, ModeHint::Horizontal);
     }
 
     #[test]

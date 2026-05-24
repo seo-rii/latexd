@@ -20525,6 +20525,23 @@ Fallback text.
             &event.event,
             RenderEvent::BeginBlock(block) if block.block == BlockKind::Abstract
         )));
+        let hello_text = captured_outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::Text(text) if text.text == "Hello"))
+            .expect("hello text event");
+        assert_eq!(hello_text.meta.mode_hint, ModeHint::Horizontal);
+        let interword_space = captured_outcome
+            .render_events
+            .iter()
+            .find(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::Space(space) if space.kind == SpaceKind::Interword
+                )
+            })
+            .expect("interword space event");
+        assert_eq!(interword_space.meta.mode_hint, ModeHint::Horizontal);
         assert!(captured_outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::InlineCitation(citation) if citation.keys == vec!["key".to_string()]

@@ -8,7 +8,7 @@ use latexd::compiler::{
 use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{
     CitationStyleHint, DrawOp, EventProducer, GeneratedBy, GraphicAssetFormat, ListKind,
-    MetadataField, ModeHint, RenderEvent, SemanticConfidence, to_pretty_json,
+    MetadataField, ModeHint, RenderEvent, SemanticConfidence, SpaceKind, to_pretty_json,
     to_semantic_pretty_json,
 };
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole};
@@ -465,6 +465,36 @@ fn compact_heading_provenance_preserves_argument_and_invocation_spans() {
         "tests/goldens/render_ir/compact-heading.provenance.json",
         &provenance_json,
     );
+}
+
+#[test]
+fn compact_text_and_space_events_are_horizontal() {
+    let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
+    let hello_text = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::Text(text) if text.text == "Hello"
+            )
+        })
+        .expect("hello text event");
+    let interword_space = capture
+        .events
+        .events
+        .iter()
+        .find(|envelope| {
+            matches!(
+                &envelope.event,
+                RenderEvent::Space(space) if space.kind == SpaceKind::Interword
+            )
+        })
+        .expect("interword space event");
+
+    assert_eq!(hello_text.meta.mode_hint, ModeHint::Horizontal);
+    assert_eq!(interword_space.meta.mode_hint, ModeHint::Horizontal);
 }
 
 #[test]
