@@ -502,7 +502,7 @@
           },
           "related": [],
           "expansion_stack": [],
-          "generated_by": "source",
+          "generated_by": "fallback",
           "expansion_stack_truncated": false
         },
         "mode_hint": "unknown",

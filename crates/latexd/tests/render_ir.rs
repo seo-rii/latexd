@@ -7,8 +7,8 @@ use latexd::compiler::{
 };
 use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{
-    CitationStyleHint, DrawOp, GraphicAssetFormat, ListKind, MetadataField, RenderEvent,
-    to_pretty_json, to_semantic_pretty_json,
+    CitationStyleHint, DrawOp, GeneratedBy, GraphicAssetFormat, ListKind, MetadataField,
+    RenderEvent, to_pretty_json, to_semantic_pretty_json,
 };
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole};
 
@@ -13899,6 +13899,7 @@ fn raw_fallback_debug_artifacts_write_full_source_files() {
 
     assert!(artifact.starts_with("fallbacks/"));
     assert!(artifact.ends_with(".tex"));
+    assert_eq!(fallback.source.generated_by, GeneratedBy::Fallback);
 
     let tempdir = tempfile::tempdir().expect("tempdir");
     let output_dir = Utf8PathBuf::from_path_buf(tempdir.path().join("render-artifacts"))
@@ -13918,6 +13919,10 @@ fn raw_fallback_debug_artifacts_write_full_source_files() {
     ));
     assert!(written_source.contains(r"\draw (0,0) -- (1,1);"));
     assert!(written_source.contains(r"\node {Should not render};"));
+
+    let display_list_svg =
+        fs::read_to_string(&paths.display_list_svgs[0]).expect("display list svg");
+    assert!(display_list_svg.contains("data-source-generated-by=\"fallback\""));
 }
 
 #[test]

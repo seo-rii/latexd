@@ -8,12 +8,13 @@ use serde::{Deserialize, Serialize};
 use tex_lexer::{CatCodeTable, Lexer, lex_plain};
 use tex_render_model::{
     BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint, EventId,
-    ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GraphicAssetFormat, GraphicRefEvent,
-    HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
-    LineBreakEvent, LineBreakReason, ListItemEvent, ListKind, MathSourceEvent, MetadataField,
-    ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent,
-    RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent,
-    SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind, TextEvent,
+    ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GeneratedBy, GraphicAssetFormat,
+    GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent,
+    LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent, ListKind,
+    MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan,
+    RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
+    SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
+    TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -3287,7 +3288,8 @@ impl<'i> Vm<'i> {
                                             source_path.to_owned(),
                                             command_start as u32,
                                             raw_end as u32,
-                                        ),
+                                        )
+                                        .with_generated_by(GeneratedBy::Fallback),
                                     );
                                     index = raw_end;
                                 }
@@ -17063,8 +17065,8 @@ mod tests {
     use camino::{Utf8Path, Utf8PathBuf};
     use serde_json::json;
     use tex_render_model::{
-        BeginBlockEvent, BlockKind, CitationStyleHint, GraphicAssetFormat, HeadingEvent, ListKind,
-        MetadataField, RenderEvent, SourceSpanRole, SpaceKind,
+        BeginBlockEvent, BlockKind, CitationStyleHint, GeneratedBy, GraphicAssetFormat,
+        HeadingEvent, ListKind, MetadataField, RenderEvent, SourceSpanRole, SpaceKind,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -21342,6 +21344,31 @@ Fallback text.
         assert!(!visible.contains("sec:intro"));
         assert!(!visible.contains("cite"));
         assert!(!visible.contains("ref"));
+    }
+
+    #[test]
+    fn render_event_capture_marks_raw_fallback_source_as_fallback_generated() {
+        let source =
+            r"\begin{document}\begin{unknownenv}Fallback text.\end{unknownenv}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let source = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("unknownenv") =>
+                {
+                    Some(&event.meta.source)
+                }
+                _ => None,
+            })
+            .expect("unknownenv fallback source");
+
+        assert_eq!(source.generated_by, GeneratedBy::Fallback);
     }
 
     #[test]
