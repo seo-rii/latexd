@@ -1534,9 +1534,11 @@ approximate.
   unknown commands and nested unknown commands. Cross-file optional-default
   wrappers are now covered through VM events, Document IR, PageDisplayList text
   runs, link annotations, and debug SVG output for citation/reference/link
-  target provenance. PageDisplayList SVG export now preserves related source
-  spans for non-text renderer operations as well as text runs, including link
-  annotations, image placeholders, and named destinations. Display-list PDF
+  target provenance. PageDisplayList source-span collection now includes
+  expansion-stack call and definition spans as well as primary/related spans,
+  and SVG export preserves related source spans for non-text renderer
+  operations as well as text runs, including link annotations, image
+  placeholders, and named destinations. Display-list PDF
   destination names now have escaping and stable-order coverage, and label
   metadata is covered through `NamedDestination` and display-list PDF output.
   More source-span edge cases should be added as VM coverage expands.
