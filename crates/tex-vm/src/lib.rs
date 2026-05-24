@@ -25960,12 +25960,12 @@ Fallback text.
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
 
-        assert!(
-            outcome
-                .render_events
-                .iter()
-                .any(|event| matches!(&event.event, RenderEvent::LineBreak(_)))
-        );
+        let line_break = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::LineBreak(_)))
+            .expect("line break event");
+        assert_eq!(line_break.meta.mode_hint, ModeHint::Horizontal);
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Text(text) if text.text == "First"

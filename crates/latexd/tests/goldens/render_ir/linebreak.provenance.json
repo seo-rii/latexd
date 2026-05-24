@@ -7,7 +7,7 @@
     "meta": {
       "confidence": "high",
       "event_id": 4,
-      "mode_hint": "unknown",
+      "mode_hint": "horizontal",
       "producer": "command",
       "source": {
         "expansion_stack": [],

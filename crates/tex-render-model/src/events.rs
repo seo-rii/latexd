@@ -129,6 +129,7 @@ impl RenderEvent {
     pub fn default_mode_hint(&self) -> ModeHint {
         match self {
             Self::Text(_) | Self::Space(_) => ModeHint::Horizontal,
+            Self::LineBreak(_) => ModeHint::Horizontal,
             Self::SetDocumentMetadata(_) => ModeHint::Preamble,
             Self::FlushTitleBlock(_) => ModeHint::Vertical,
             Self::BeginBlock(_) | Self::EndBlock(_) => ModeHint::Vertical,
@@ -379,10 +380,10 @@ mod tests {
         BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint,
         EndBlockEvent, EventMeta, EventProducer, FallbackReason, FlushTitleBlockEvent, GeneratedBy,
         GraphicAssetFormat, GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent,
-        InlineReferenceEvent, MathSourceEvent, MetadataField, ModeHint, RawFallbackEvent,
-        RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
-        SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind,
-        TextEvent,
+        InlineReferenceEvent, LineBreakEvent, LineBreakReason, MathSourceEvent, MetadataField,
+        ModeHint, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
+        RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance,
+        SpaceEvent, SpaceKind, TextEvent,
     };
 
     #[test]
@@ -631,6 +632,13 @@ mod tests {
             }),
             SourceProvenance::file("main.tex", 310, 340),
         );
+        let line_break = RenderEventEnvelope::new(
+            16,
+            RenderEvent::LineBreak(LineBreakEvent {
+                reason: LineBreakReason::Explicit,
+            }),
+            SourceProvenance::file("main.tex", 350, 352),
+        );
 
         assert_eq!(metadata.meta.mode_hint, ModeHint::Preamble);
         assert_eq!(flush_title.meta.mode_hint, ModeHint::Vertical);
@@ -647,6 +655,7 @@ mod tests {
         assert_eq!(graphic.meta.mode_hint, ModeHint::Vertical);
         assert_eq!(caption.meta.mode_hint, ModeHint::Vertical);
         assert_eq!(bibliography_item.meta.mode_hint, ModeHint::Vertical);
+        assert_eq!(line_break.meta.mode_hint, ModeHint::Horizontal);
     }
 
     #[test]

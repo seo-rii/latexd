@@ -10942,6 +10942,7 @@ fn linebreak_provenance_preserves_delimiter_and_optional_spacing_span() {
         })
         .expect("linebreak IR source");
 
+    assert_eq!(linebreak_event.meta.mode_hint, ModeHint::Horizontal);
     for source in [&linebreak_event.meta.source, ir_source] {
         assert!(matches!(
             &source.primary,
