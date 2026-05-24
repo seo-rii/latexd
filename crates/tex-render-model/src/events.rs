@@ -40,12 +40,13 @@ impl RenderEventEnvelope {
             RenderEvent::Diagnostic(_) => (SemanticConfidence::Low, EventProducer::Unknown),
             _ => (SemanticConfidence::High, EventProducer::Command),
         };
+        let mode_hint = event.default_mode_hint();
         Self {
             event,
             meta: EventMeta {
                 event_id,
                 source,
-                mode_hint: ModeHint::Unknown,
+                mode_hint,
                 confidence,
                 producer,
             },
@@ -122,6 +123,17 @@ pub enum RenderEvent {
     DisplayMath(MathSourceEvent),
     RawFallback(RawFallbackEvent),
     Diagnostic(RenderDiagnosticEvent),
+}
+
+impl RenderEvent {
+    pub fn default_mode_hint(&self) -> ModeHint {
+        match self {
+            Self::SetDocumentMetadata(_) => ModeHint::Preamble,
+            Self::FlushTitleBlock(_) => ModeHint::Vertical,
+            Self::InlineMath(_) | Self::DisplayMath(_) => ModeHint::Math,
+            _ => ModeHint::Unknown,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -358,9 +370,10 @@ pub struct RenderDiagnosticEvent {
 mod tests {
     use crate::{
         BeginBlockEvent, BlockKind, EndBlockEvent, EventMeta, EventProducer, FallbackReason,
-        GeneratedBy, GraphicAssetFormat, MetadataField, ModeHint, RawFallbackEvent,
-        RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
-        SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind,
+        FlushTitleBlockEvent, GeneratedBy, GraphicAssetFormat, MathSourceEvent, MetadataField,
+        ModeHint, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
+        RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance,
+        SpaceEvent, SpaceKind, TextEvent,
     };
 
     #[test]
@@ -477,17 +490,54 @@ mod tests {
     fn envelope_builder_can_override_mode_hint_without_rebuilding_metadata() {
         let envelope = RenderEventEnvelope::new(
             1,
+            RenderEvent::Text(TextEvent {
+                text: "A Paper".to_string(),
+            }),
+            SourceProvenance::file("main.tex", 0, 15),
+        )
+        .with_mode_hint(ModeHint::Horizontal);
+
+        assert_eq!(envelope.meta.mode_hint, ModeHint::Horizontal);
+        assert_eq!(envelope.meta.producer, EventProducer::Command);
+        assert_eq!(envelope.meta.confidence, SemanticConfidence::High);
+    }
+
+    #[test]
+    fn envelope_new_applies_event_default_mode_hints() {
+        let metadata = RenderEventEnvelope::new(
+            1,
             RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
                 field: MetadataField::Title,
                 value: "A Paper".to_string(),
             }),
             SourceProvenance::file("main.tex", 0, 15),
-        )
-        .with_mode_hint(ModeHint::Preamble);
+        );
+        let flush_title = RenderEventEnvelope::new(
+            2,
+            RenderEvent::FlushTitleBlock(FlushTitleBlockEvent),
+            SourceProvenance::file("main.tex", 30, 40),
+        );
+        let inline_math = RenderEventEnvelope::new(
+            3,
+            RenderEvent::InlineMath(MathSourceEvent {
+                raw_source: "x^2".to_string(),
+                normalized_text: None,
+            }),
+            SourceProvenance::file("main.tex", 50, 53),
+        );
+        let display_math = RenderEventEnvelope::new(
+            4,
+            RenderEvent::DisplayMath(MathSourceEvent {
+                raw_source: "y^2".to_string(),
+                normalized_text: None,
+            }),
+            SourceProvenance::file("main.tex", 60, 63),
+        );
 
-        assert_eq!(envelope.meta.mode_hint, ModeHint::Preamble);
-        assert_eq!(envelope.meta.producer, EventProducer::Command);
-        assert_eq!(envelope.meta.confidence, SemanticConfidence::High);
+        assert_eq!(metadata.meta.mode_hint, ModeHint::Preamble);
+        assert_eq!(flush_title.meta.mode_hint, ModeHint::Vertical);
+        assert_eq!(inline_math.meta.mode_hint, ModeHint::Math);
+        assert_eq!(display_math.meta.mode_hint, ModeHint::Math);
     }
 
     #[test]

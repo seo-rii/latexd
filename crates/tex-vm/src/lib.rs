@@ -11,7 +11,7 @@ use tex_render_model::{
     EndBlockEvent, EventId, ExpansionFrame, FallbackReason, FlushTitleBlockEvent,
     GraphicAssetFormat, GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent,
     InlineReferenceEvent, LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent,
-    ListKind, MathSourceEvent, MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason,
+    ListKind, MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason,
     ProvenanceSpan, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
     SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
     TextEvent,
@@ -8659,14 +8659,6 @@ impl<'i> Vm<'i> {
         let event_id = self.next_render_event_id;
         self.next_render_event_id += 1;
         let envelope = RenderEventEnvelope::new(event_id, event, source);
-        let envelope = match &envelope.event {
-            RenderEvent::SetDocumentMetadata(_) => envelope.with_mode_hint(ModeHint::Preamble),
-            RenderEvent::FlushTitleBlock(_) => envelope.with_mode_hint(ModeHint::Vertical),
-            RenderEvent::InlineMath(_) | RenderEvent::DisplayMath(_) => {
-                envelope.with_mode_hint(ModeHint::Math)
-            }
-            _ => envelope,
-        };
         self.render_events.push(envelope);
     }
 
