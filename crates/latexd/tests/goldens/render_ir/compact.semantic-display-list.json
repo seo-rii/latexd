@@ -4,7 +4,7 @@
     "height_pt": 792.0,
     "ops": [
       {
-        "approximate_advance_pt": 63.0,
+        "approximate_advance_pt": 67.39920043945312,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -23,7 +23,7 @@
         "text": "A Paper"
       },
       {
-        "approximate_advance_pt": 66.0,
+        "approximate_advance_pt": 64.79000091552734,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -42,7 +42,7 @@
         "text": "Ada Lovelace"
       },
       {
-        "approximate_advance_pt": 44.0,
+        "approximate_advance_pt": 44.77000045776367,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -61,7 +61,7 @@
         "text": "May 1843"
       },
       {
-        "approximate_advance_pt": 27.5,
+        "approximate_advance_pt": 29.479999542236328,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -80,7 +80,7 @@
         "text": "Short"
       },
       {
-        "approximate_advance_pt": 5.5,
+        "approximate_advance_pt": 2.75,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -91,7 +91,7 @@
         },
         "kind": "text_run",
         "origin": {
-          "x": 117.5,
+          "x": 119.47999572753906,
           "y": 128.0
         },
         "size_pt": 11.0,
@@ -99,7 +99,7 @@
         "text": " "
       },
       {
-        "approximate_advance_pt": 49.5,
+        "approximate_advance_pt": 47.630001068115234,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -110,7 +110,7 @@
         },
         "kind": "text_run",
         "origin": {
-          "x": 123.0,
+          "x": 122.22999572753906,
           "y": 128.0
         },
         "size_pt": 11.0,
@@ -118,7 +118,7 @@
         "text": "abstract."
       },
       {
-        "approximate_advance_pt": 37.5,
+        "approximate_advance_pt": 35.567996978759766,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -137,7 +137,7 @@
         "text": "Intro"
       },
       {
-        "approximate_advance_pt": 27.5,
+        "approximate_advance_pt": 24.639999389648438,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -156,7 +156,7 @@
         "text": "Hello"
       },
       {
-        "approximate_advance_pt": 5.5,
+        "approximate_advance_pt": 2.75,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -167,7 +167,7 @@
         },
         "kind": "text_run",
         "origin": {
-          "x": 99.5,
+          "x": 96.63999938964844,
           "y": 170.0
         },
         "size_pt": 11.0,
@@ -175,7 +175,7 @@
         "text": " "
       },
       {
-        "approximate_advance_pt": 16.5,
+        "approximate_advance_pt": 13.860000610351562,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -186,7 +186,7 @@
         },
         "kind": "text_run",
         "origin": {
-          "x": 105.0,
+          "x": 99.38999938964844,
           "y": 170.0
         },
         "size_pt": 11.0,
@@ -194,7 +194,7 @@
         "text": "[?]"
       },
       {
-        "approximate_advance_pt": 5.5,
+        "approximate_advance_pt": 3.630000114440918,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -205,7 +205,7 @@
         },
         "kind": "text_run",
         "origin": {
-          "x": 121.5,
+          "x": 113.25,
           "y": 170.0
         },
         "size_pt": 11.0,
@@ -213,7 +213,7 @@
         "text": "."
       },
       {
-        "approximate_advance_pt": 16.5,
+        "approximate_advance_pt": 19.139999389648438,
         "clusters": "<present>",
         "font": {
           "family": "math",
@@ -232,7 +232,7 @@
         "text": "x^2"
       },
       {
-        "approximate_advance_pt": 77.0,
+        "approximate_advance_pt": 69.62999725341797,
         "clusters": "<present>",
         "font": {
           "family": "serif",
@@ -251,7 +251,7 @@
         "text": "Author. Title."
       },
       {
-        "approximate_advance_pt": 77.0,
+        "approximate_advance_pt": 69.5199966430664,
         "clusters": "<present>",
         "font": {
           "family": "serif",

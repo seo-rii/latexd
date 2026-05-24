@@ -1,6 +1,6 @@
 [
   {
-    "page_id": "e743524d8bffc2014feca3576b003e2cb36110bbce5340a28461bcc2688da40d",
+    "page_id": "8787e902d27c8153a092b55a8e21e9de4676af914da2418ada0e896250da7f96",
     "width_pt": 612.0,
     "height_pt": 792.0,
     "ops": [
@@ -19,7 +19,7 @@
           "role": "heading"
         },
         "size_pt": 18.0,
-        "approximate_advance_pt": 63.0,
+        "approximate_advance_pt": 67.3992,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -66,7 +66,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 66.0,
+        "approximate_advance_pt": 64.79,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -113,7 +113,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 44.0,
+        "approximate_advance_pt": 44.77,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -160,7 +160,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 27.5,
+        "approximate_advance_pt": 29.48,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -185,7 +185,7 @@
       {
         "kind": "text_run",
         "origin": {
-          "x": 117.5,
+          "x": 119.479996,
           "y": 128.0
         },
         "text": " ",
@@ -197,7 +197,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 5.5,
+        "approximate_advance_pt": 2.75,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -222,7 +222,7 @@
       {
         "kind": "text_run",
         "origin": {
-          "x": 123.0,
+          "x": 122.229996,
           "y": 128.0
         },
         "text": "abstract.",
@@ -234,7 +234,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 49.5,
+        "approximate_advance_pt": 47.63,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -271,7 +271,7 @@
           "role": "heading"
         },
         "size_pt": 15.0,
-        "approximate_advance_pt": 37.5,
+        "approximate_advance_pt": 35.567997,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -318,7 +318,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 27.5,
+        "approximate_advance_pt": 24.64,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -343,7 +343,7 @@
       {
         "kind": "text_run",
         "origin": {
-          "x": 99.5,
+          "x": 96.64,
           "y": 170.0
         },
         "text": " ",
@@ -355,7 +355,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 5.5,
+        "approximate_advance_pt": 2.75,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -380,7 +380,7 @@
       {
         "kind": "text_run",
         "origin": {
-          "x": 105.0,
+          "x": 99.39,
           "y": 170.0
         },
         "text": "[?]",
@@ -392,7 +392,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 16.5,
+        "approximate_advance_pt": 13.860001,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -427,7 +427,7 @@
       {
         "kind": "text_run",
         "origin": {
-          "x": 121.5,
+          "x": 113.25,
           "y": 170.0
         },
         "text": ".",
@@ -439,7 +439,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 5.5,
+        "approximate_advance_pt": 3.63,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -476,7 +476,7 @@
           "role": "math"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 16.5,
+        "approximate_advance_pt": 19.14,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -523,7 +523,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 77.0,
+        "approximate_advance_pt": 69.63,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -560,7 +560,7 @@
           "role": "body"
         },
         "size_pt": 11.0,
-        "approximate_advance_pt": 77.0,
+        "approximate_advance_pt": 69.52,
         "clusters": [
           {
             "text_start_utf8": 0,
@@ -660,6 +660,6 @@
         "end_utf8": 284
       }
     ],
-    "content_hash": "1e0b35100971438e3767b59c686c707f61d73bf7913c4578b5dd581436c5b820"
+    "content_hash": "45702e1921507005923d96ae0fcab662ad3e484e857bb9de8975f33ed0ab2f4e"
   }
 ]

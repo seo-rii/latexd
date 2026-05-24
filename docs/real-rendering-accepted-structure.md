@@ -1559,11 +1559,14 @@ approximate.
   Unsupported-environment fallbacks are block-level events and therefore carry
   `mode_hint = vertical`; generic fallback constructors remain `unknown` until
   their emitter supplies context.
-- `PageDisplayList` text runs now expose approximate clusters: ASCII runs stay
-  whole-run, while non-ASCII runs are split by UTF-8 scalar value. A
-  renderer-neutral font resolver, shaper, glyph ids, and real shaped cluster
-  mapping are still required before Skia or PDF fidelity work should be treated
-  as serious.
+- `PageDisplayList` text runs now expose approximate clusters and basic
+  metric-derived advances. ASCII runs stay whole-run, while non-ASCII runs are
+  split by UTF-8 scalar value. `tex-layout` uses family/series-aware width
+  estimates instead of a fixed `0.5em` character advance, and page content
+  hashes include the basic font-metrics version plus text-run geometry. A real
+  renderer-neutral font resolver, shaper, glyph ids, and shaped cluster mapping
+  are still required before Skia or PDF fidelity work should be treated as
+  serious.
 - External PDF/EPS/SVG asset handling is still a placeholder path. Ghostscript
   or Poppler-backed conversion/embedding policy remains out of scope for this
   batch.

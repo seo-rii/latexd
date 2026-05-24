@@ -497,7 +497,7 @@ pub fn build_page_display_lists(
         ops: Vec::new(),
         source_spans: Vec::new(),
         text: String::new(),
-        hash_input: format!("options:{options:?}"),
+        hash_input: format!("options:{options:?}:font-metrics:basic-v1"),
     };
     let mut pending = new_pending_page();
     let mut page_index = 0usize;
@@ -568,11 +568,13 @@ pub fn build_page_display_lists(
                 let widest_indent = logical
                     .first_line_indent_pt
                     .max(logical.continuation_indent_pt);
+                let average_glyph_width_pt =
+                    text_advance_pt("n", &logical.font, logical.size_pt).max(0.1);
                 let available_width_pt =
                     (options.page_width_pt - options.margin_left_pt * 2.0 - widest_indent)
-                        .max(logical.size_pt * 0.5);
+                        .max(average_glyph_width_pt);
                 let width_limited_chars =
-                    (available_width_pt / (logical.size_pt * 0.5).max(0.1)).floor() as usize;
+                    (available_width_pt / average_glyph_width_pt).floor() as usize;
                 let max_chars_per_line = options
                     .max_chars_per_line
                     .max(1)
@@ -708,7 +710,13 @@ pub fn build_page_display_lists(
                     let mut x = line_x;
                     for segment in line_segments {
                         record_source_spans(&segment.source, &mut pending.source_spans);
-                        let advance = segment.text.chars().count() as f32 * logical.size_pt * 0.5;
+                        let advance =
+                            text_advance_pt(&segment.text, &logical.font, logical.size_pt);
+                        pending.hash_input.push('\u{1f}');
+                        pending.hash_input.push_str(&format!(
+                            "text_segment:{x:.3}:{advance:.3}:{}",
+                            segment.text
+                        ));
                         let clusters = approximate_text_clusters(&segment.text);
                         let source = segment.source;
                         pending.ops.push(DrawOp::TextRun(PositionedTextRun {
@@ -814,6 +822,13 @@ pub fn build_page_display_lists(
                         .caption_source
                         .clone()
                         .unwrap_or_else(|| logical.source.clone());
+                    let caption_advance =
+                        text_advance_pt(caption, &body_font, options.body_font_size_pt);
+                    pending.hash_input.push('\u{1f}');
+                    pending.hash_input.push_str(&format!(
+                        "text_segment:{:.3}:{caption_advance:.3}:{}",
+                        options.margin_left_pt, caption
+                    ));
                     record_source_spans(&caption_source, &mut pending.source_spans);
                     pending.ops.push(DrawOp::TextRun(PositionedTextRun {
                         origin: Point {
@@ -823,9 +838,7 @@ pub fn build_page_display_lists(
                         text: caption.clone(),
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
-                        approximate_advance_pt: caption.chars().count() as f32
-                            * options.body_font_size_pt
-                            * 0.5,
+                        approximate_advance_pt: caption_advance,
                         glyphs: None,
                         clusters: None,
                         source: caption_source,
@@ -854,13 +867,61 @@ pub fn build_page_display_lists(
 
     if pending.ops.is_empty() && pages.is_empty() {
         pending.text = String::new();
-        pending.hash_input = format!("options:{options:?}");
+        pending.hash_input = format!("options:{options:?}:font-metrics:basic-v1");
         finish_page(&mut pages, page_index, pending);
     } else if !pending.ops.is_empty() {
         finish_page(&mut pages, page_index, pending);
     }
 
     pages
+}
+
+fn text_advance_pt(text: &str, font: &FontRequest, size_pt: f32) -> f32 {
+    text.chars()
+        .map(|ch| {
+            let em_width = match font.family {
+                FontFamilyRequest::Mono => 0.6,
+                FontFamilyRequest::Math => {
+                    if ch.is_whitespace() {
+                        0.25
+                    } else if ch.is_ascii_digit() {
+                        0.5
+                    } else {
+                        0.62
+                    }
+                }
+                FontFamilyRequest::Serif
+                | FontFamilyRequest::Sans
+                | FontFamilyRequest::Named(_) => {
+                    if ch.is_whitespace() {
+                        0.25
+                    } else if matches!(ch, 'i' | 'j' | 'l' | 'I' | '!' | '|' | '\'' | '`') {
+                        0.28
+                    } else if matches!(ch, '.' | ',' | ';' | ':' | '-' | '/' | '\\') {
+                        0.33
+                    } else if matches!(ch, '(' | ')' | '[' | ']' | '{' | '}') {
+                        0.38
+                    } else if matches!(ch, 'm' | 'w' | 'M' | 'W') {
+                        0.82
+                    } else if ch.is_ascii_uppercase() {
+                        0.68
+                    } else if ch.is_ascii_digit() {
+                        0.5
+                    } else if ch.is_ascii() {
+                        0.5
+                    } else {
+                        0.8
+                    }
+                }
+            };
+            let series_adjust = if font.series == FontSeries::Bold && !ch.is_whitespace() {
+                1.04
+            } else {
+                1.0
+            };
+            em_width * series_adjust * size_pt
+        })
+        .sum()
 }
 
 fn approximate_text_clusters(text: &str) -> Option<Vec<TextCluster>> {
@@ -1051,6 +1112,85 @@ mod tests {
                 }
             ])
         );
+    }
+
+    #[test]
+    fn text_run_advances_use_basic_font_metrics() {
+        let source = SourceProvenance::file("main.tex", 0, 7);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![
+                IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "WWW".to_string(),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                }),
+                IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "iii".to_string(),
+                        source: source.clone(),
+                    }],
+                    source,
+                }),
+            ]),
+            PageDisplayListOptions::default(),
+        );
+
+        let advances = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if run.text == "WWW" || run.text == "iii" => {
+                    Some((run.text.as_str(), run.approximate_advance_pt))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let wide = advances
+            .iter()
+            .find_map(|(text, advance)| (*text == "WWW").then_some(*advance))
+            .expect("wide advance");
+        let narrow = advances
+            .iter()
+            .find_map(|(text, advance)| (*text == "iii").then_some(*advance))
+            .expect("narrow advance");
+        assert!(wide > narrow, "wide={wide} narrow={narrow}");
+    }
+
+    #[test]
+    fn text_run_segmentation_affects_page_content_hash() {
+        let source = SourceProvenance::file("main.tex", 0, 2);
+        let combined = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: "Wi".to_string(),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let split = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![
+                    InlineNode::Text {
+                        text: "W".to_string(),
+                        source: source.clone(),
+                    },
+                    InlineNode::Text {
+                        text: "i".to_string(),
+                        source: source.clone(),
+                    },
+                ],
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+
+        assert_ne!(combined[0].content_hash, split[0].content_hash);
+        assert_ne!(combined[0].page_id, split[0].page_id);
     }
 
     #[test]
