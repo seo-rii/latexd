@@ -51,6 +51,11 @@ impl RenderEventEnvelope {
             },
         }
     }
+
+    pub fn with_mode_hint(mut self, mode_hint: ModeHint) -> Self {
+        self.meta.mode_hint = mode_hint;
+        self
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -466,6 +471,23 @@ mod tests {
         assert_eq!(envelope.meta.producer, EventProducer::Unknown);
         assert_eq!(envelope.meta.confidence, SemanticConfidence::Low);
         assert_eq!(envelope.meta.source.generated_by, GeneratedBy::Source);
+    }
+
+    #[test]
+    fn envelope_builder_can_override_mode_hint_without_rebuilding_metadata() {
+        let envelope = RenderEventEnvelope::new(
+            1,
+            RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
+                field: MetadataField::Title,
+                value: "A Paper".to_string(),
+            }),
+            SourceProvenance::file("main.tex", 0, 15),
+        )
+        .with_mode_hint(ModeHint::Preamble);
+
+        assert_eq!(envelope.meta.mode_hint, ModeHint::Preamble);
+        assert_eq!(envelope.meta.producer, EventProducer::Command);
+        assert_eq!(envelope.meta.confidence, SemanticConfidence::High);
     }
 
     #[test]
