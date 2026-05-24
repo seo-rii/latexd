@@ -10,7 +10,7 @@
       "meta": {
         "confidence": "high",
         "event_id": 3,
-        "mode_hint": "unknown",
+        "mode_hint": "horizontal",
         "producer": "command",
         "source": {
           "expansion_stack": [],
@@ -46,7 +46,7 @@
       "meta": {
         "confidence": "high",
         "event_id": 6,
-        "mode_hint": "unknown",
+        "mode_hint": "horizontal",
         "producer": "command",
         "source": {
           "expansion_stack": [],
@@ -82,7 +82,7 @@
       "meta": {
         "confidence": "high",
         "event_id": 9,
-        "mode_hint": "unknown",
+        "mode_hint": "horizontal",
         "producer": "command",
         "source": {
           "expansion_stack": [],
@@ -118,7 +118,7 @@
       "meta": {
         "confidence": "high",
         "event_id": 12,
-        "mode_hint": "unknown",
+        "mode_hint": "horizontal",
         "producer": "command",
         "source": {
           "expansion_stack": [],
@@ -154,7 +154,7 @@
       "meta": {
         "confidence": "high",
         "event_id": 17,
-        "mode_hint": "unknown",
+        "mode_hint": "horizontal",
         "producer": "command",
         "source": {
           "expansion_stack": [],

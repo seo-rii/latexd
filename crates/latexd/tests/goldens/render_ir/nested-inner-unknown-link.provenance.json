@@ -93,7 +93,7 @@
         "meta": {
           "confidence": "high",
           "event_id": 9,
-          "mode_hint": "unknown",
+          "mode_hint": "horizontal",
           "producer": "command",
           "source": {
             "expansion_stack": [],
@@ -237,7 +237,7 @@
         "meta": {
           "confidence": "high",
           "event_id": 13,
-          "mode_hint": "unknown",
+          "mode_hint": "horizontal",
           "producer": "command",
           "source": {
             "expansion_stack": [],

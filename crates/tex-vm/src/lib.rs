@@ -23588,21 +23588,24 @@ Fallback text.
             .render_events
             .iter()
             .filter_map(|event| match &event.event {
-                RenderEvent::InlineReference(reference) => Some((reference, &event.meta.source)),
+                RenderEvent::InlineReference(reference) => Some((reference, &event.meta)),
                 _ => None,
             })
             .collect::<Vec<_>>();
 
         assert_eq!(references.len(), 3);
+        for (_, meta) in &references {
+            assert_eq!(meta.mode_hint, ModeHint::Horizontal);
+        }
         assert_eq!(references[0].0.command, "ref");
         assert_eq!(references[0].0.keys, vec!["sec:intro".to_string()]);
         assert!(matches!(
-            &references[0].1.primary,
+            &references[0].1.source.primary,
             tex_render_model::ProvenanceSpan::File(span)
                 if span.path == Utf8PathBuf::from("main.tex")
                     && &source[span.start_utf8 as usize..span.end_utf8 as usize] == r"\ref{sec:intro}"
         ));
-        assert!(references[0].1.related.iter().any(|related| {
+        assert!(references[0].1.source.related.iter().any(|related| {
             related.role == tex_render_model::SourceSpanRole::ReferenceKey
                 && matches!(
                     &related.span,
@@ -24155,17 +24158,20 @@ Fallback text.
             .render_events
             .iter()
             .filter_map(|event| match &event.event {
-                RenderEvent::InlineLink(link) => Some((link, &event.meta.source.primary)),
+                RenderEvent::InlineLink(link) => Some((link, &event.meta)),
                 _ => None,
             })
             .collect::<Vec<_>>();
 
         assert_eq!(links.len(), 3);
+        for (_, meta) in &links {
+            assert_eq!(meta.mode_hint, ModeHint::Horizontal);
+        }
         assert_eq!(links[0].0.command, "href");
         assert_eq!(links[0].0.target, "https://example.test/paper");
         assert_eq!(links[0].0.text, "paper link");
         assert!(matches!(
-            links[0].1,
+            &links[0].1.source.primary,
             tex_render_model::ProvenanceSpan::File(span)
                 if span.path == Utf8PathBuf::from("main.tex")
                     && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "paper link"
@@ -24177,7 +24183,7 @@ Fallback text.
         assert_eq!(links[2].0.target, "https://example.test/delimited");
         assert_eq!(links[2].0.text, "https://example.test/delimited");
         assert!(matches!(
-            links[2].1,
+            &links[2].1.source.primary,
             tex_render_model::ProvenanceSpan::File(span)
                 if span.path == Utf8PathBuf::from("main.tex")
                     && &source[span.start_utf8 as usize..span.end_utf8 as usize]

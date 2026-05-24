@@ -134,6 +134,7 @@ impl RenderEvent {
             Self::BeginBlock(_) | Self::EndBlock(_) => ModeHint::Vertical,
             Self::Heading(_) => ModeHint::Vertical,
             Self::InlineCitation(_) => ModeHint::Horizontal,
+            Self::InlineReference(_) | Self::InlineLink(_) => ModeHint::Horizontal,
             Self::InlineMath(_) | Self::DisplayMath(_) => ModeHint::Math,
             _ => ModeHint::Unknown,
         }
@@ -375,10 +376,10 @@ mod tests {
     use crate::{
         BeginBlockEvent, BlockKind, CitationStyleHint, EndBlockEvent, EventMeta, EventProducer,
         FallbackReason, FlushTitleBlockEvent, GeneratedBy, GraphicAssetFormat, HeadingEvent,
-        InlineCitationEvent, MathSourceEvent, MetadataField, ModeHint, RawFallbackEvent,
-        RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
-        SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind,
-        TextEvent,
+        InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, MathSourceEvent, MetadataField,
+        ModeHint, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
+        RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance,
+        SpaceEvent, SpaceKind, TextEvent,
     };
 
     #[test]
@@ -584,6 +585,23 @@ mod tests {
             }),
             SourceProvenance::file("main.tex", 140, 154),
         );
+        let reference = RenderEventEnvelope::new(
+            11,
+            RenderEvent::InlineReference(InlineReferenceEvent {
+                keys: vec!["sec:intro".to_string()],
+                command: "ref".to_string(),
+            }),
+            SourceProvenance::file("main.tex", 160, 175),
+        );
+        let link = RenderEventEnvelope::new(
+            12,
+            RenderEvent::InlineLink(InlineLinkEvent {
+                target: "https://example.test".to_string(),
+                text: "example".to_string(),
+                command: "href".to_string(),
+            }),
+            SourceProvenance::file("main.tex", 180, 220),
+        );
 
         assert_eq!(metadata.meta.mode_hint, ModeHint::Preamble);
         assert_eq!(flush_title.meta.mode_hint, ModeHint::Vertical);
@@ -595,6 +613,8 @@ mod tests {
         assert_eq!(space.meta.mode_hint, ModeHint::Horizontal);
         assert_eq!(begin_block.meta.mode_hint, ModeHint::Vertical);
         assert_eq!(end_block.meta.mode_hint, ModeHint::Vertical);
+        assert_eq!(reference.meta.mode_hint, ModeHint::Horizontal);
+        assert_eq!(link.meta.mode_hint, ModeHint::Horizontal);
     }
 
     #[test]

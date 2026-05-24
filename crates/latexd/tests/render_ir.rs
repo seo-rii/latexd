@@ -4487,9 +4487,17 @@ fn reference_provenance_preserves_invocation_and_key_spans() {
         }));
     }
 
-    let event_cases = capture
+    let reference_events = capture
         .events
         .events
+        .iter()
+        .filter(|envelope| matches!(&envelope.event, RenderEvent::InlineReference(_)))
+        .collect::<Vec<_>>();
+    assert_eq!(reference_events.len(), 3);
+    for envelope in &reference_events {
+        assert_eq!(envelope.meta.mode_hint, ModeHint::Horizontal);
+    }
+    let event_cases = reference_events
         .iter()
         .filter_map(|envelope| match &envelope.event {
             RenderEvent::InlineReference(reference) => Some(serde_json::json!({
@@ -5480,6 +5488,7 @@ fn link_provenance_preserves_text_target_and_invocation_spans() {
                 )
             })
             .expect("link event");
+        assert_eq!(link_event.meta.mode_hint, ModeHint::Horizontal);
         let link = paragraph
             .content
             .iter()
