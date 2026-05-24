@@ -11280,7 +11280,21 @@ fn raw_fallback_inline_keys_are_redacted_in_ir_and_display_list() {
             _ => None,
         })
         .expect("unknownenv fallback");
+    let fallback_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("unknownenv") =>
+            {
+                Some(event)
+            }
+            _ => None,
+        })
+        .expect("unknownenv fallback event");
 
+    assert_eq!(fallback_event.meta.mode_hint, ModeHint::Vertical);
     assert_eq!(
         fallback.normalized_visible_text.as_deref(),
         Some("See [?] and [?].")
