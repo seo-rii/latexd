@@ -22725,7 +22725,7 @@ Fallback text.
             .render_events
             .iter()
             .filter_map(|event| match &event.event {
-                RenderEvent::Heading(heading) => Some((heading, &event.meta.source)),
+                RenderEvent::Heading(heading) => Some((heading, &event.meta)),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -22733,13 +22733,14 @@ Fallback text.
         assert_eq!(headings.len(), 4);
         assert_eq!(headings[0].0.level, 1);
         assert_eq!(headings[0].0.text, "Long Section");
+        assert_eq!(headings[0].1.mode_hint, ModeHint::Vertical);
         assert!(matches!(
-            &headings[0].1.primary,
+            &headings[0].1.source.primary,
             tex_render_model::ProvenanceSpan::File(span)
                 if span.path == Utf8PathBuf::from("main.tex")
                     && &source[span.start_utf8 as usize..span.end_utf8 as usize] == "Long Section"
         ));
-        assert!(headings[0].1.related.iter().any(|related| {
+        assert!(headings[0].1.source.related.iter().any(|related| {
             related.role == SourceSpanRole::Invocation
                 && matches!(
                     &related.span,

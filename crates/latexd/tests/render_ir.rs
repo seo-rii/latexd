@@ -414,6 +414,7 @@ fn compact_heading_provenance_preserves_argument_and_invocation_spans() {
         })
         .expect("heading text run");
 
+    assert_eq!(heading_event.meta.mode_hint, ModeHint::Vertical);
     for source in [
         &heading_event.meta.source,
         &heading_block.source,

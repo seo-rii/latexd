@@ -130,6 +130,7 @@ impl RenderEvent {
         match self {
             Self::SetDocumentMetadata(_) => ModeHint::Preamble,
             Self::FlushTitleBlock(_) => ModeHint::Vertical,
+            Self::Heading(_) => ModeHint::Vertical,
             Self::InlineMath(_) | Self::DisplayMath(_) => ModeHint::Math,
             _ => ModeHint::Unknown,
         }
@@ -370,10 +371,10 @@ pub struct RenderDiagnosticEvent {
 mod tests {
     use crate::{
         BeginBlockEvent, BlockKind, EndBlockEvent, EventMeta, EventProducer, FallbackReason,
-        FlushTitleBlockEvent, GeneratedBy, GraphicAssetFormat, MathSourceEvent, MetadataField,
-        ModeHint, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
-        RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance,
-        SpaceEvent, SpaceKind, TextEvent,
+        FlushTitleBlockEvent, GeneratedBy, GraphicAssetFormat, HeadingEvent, MathSourceEvent,
+        MetadataField, ModeHint, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent,
+        RenderEventEnvelope, RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent,
+        SourceProvenance, SpaceEvent, SpaceKind, TextEvent,
     };
 
     #[test]
@@ -533,11 +534,21 @@ mod tests {
             }),
             SourceProvenance::file("main.tex", 60, 63),
         );
+        let heading = RenderEventEnvelope::new(
+            5,
+            RenderEvent::Heading(HeadingEvent {
+                level: 1,
+                text: "Intro".to_string(),
+                number: None,
+            }),
+            SourceProvenance::file("main.tex", 70, 75),
+        );
 
         assert_eq!(metadata.meta.mode_hint, ModeHint::Preamble);
         assert_eq!(flush_title.meta.mode_hint, ModeHint::Vertical);
         assert_eq!(inline_math.meta.mode_hint, ModeHint::Math);
         assert_eq!(display_math.meta.mode_hint, ModeHint::Math);
+        assert_eq!(heading.meta.mode_hint, ModeHint::Vertical);
     }
 
     #[test]

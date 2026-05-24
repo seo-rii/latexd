@@ -254,7 +254,7 @@
           "generated_by": "source",
           "expansion_stack_truncated": false
         },
-        "mode_hint": "unknown",
+        "mode_hint": "vertical",
         "confidence": "high",
         "producer": "command"
       }
