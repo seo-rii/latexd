@@ -24,8 +24,12 @@ LATEXD_ARXIV_CC0_CORPUS=/tmp/latexd-arxiv-cc0 \
   cargo test -p latexd --test arxiv_oracle -- --ignored --nocapture
 ```
 
-The oracle currently compares build success, diagnostics, extracted text token
-counts, and unique-token overlap. Use `LATEXD_ARXIV_ORACLE_STRICT=1` to turn the
+The oracle compares build success, diagnostics, extracted text token counts,
+unique-token overlap, page count, and first-page raster gross status. Each CC0
+case can configure `max_page_count_delta` and `min_first_page_ink_ratio`; the
+report records `page_count_within_tolerance` and `first_page_raster_gross` so
+Phase 2 page-count and missing-major-text-block regressions are visible without
+manual artifact inspection. Use `LATEXD_ARXIV_ORACLE_STRICT=1` to turn the
 configured thresholds into hard failures.
 
 ## 테스트 전략

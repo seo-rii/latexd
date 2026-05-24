@@ -22,6 +22,10 @@ struct OracleCase {
     min_oracle_tokens: usize,
     min_internal_tokens: usize,
     min_common_token_ratio: f64,
+    #[serde(default = "default_max_page_count_delta")]
+    max_page_count_delta: usize,
+    #[serde(default = "default_min_first_page_ink_ratio")]
+    min_first_page_ink_ratio: f64,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -45,6 +49,8 @@ struct OracleCaseReport {
     oracle_page_count: usize,
     oracle_first_page_raster: Utf8PathBuf,
     oracle_first_page_raster_smoke: RasterSmokeReport,
+    max_page_count_delta: usize,
+    min_first_page_ink_ratio: f64,
     source_root: Utf8PathBuf,
     oracle_token_count: usize,
     oracle_unique_token_count: usize,
@@ -58,8 +64,10 @@ struct OracleCaseReport {
     internal_pdf: Option<Utf8PathBuf>,
     internal_page_count: Option<usize>,
     page_count_delta: Option<i64>,
+    page_count_within_tolerance: Option<bool>,
     internal_first_page_raster: Option<Utf8PathBuf>,
     internal_first_page_raster_smoke: Option<RasterSmokeReport>,
+    first_page_raster_gross: Option<RasterGrossReport>,
     internal_build_failure: Option<String>,
     internal_diagnostics: Vec<String>,
 }
@@ -77,6 +85,33 @@ struct RasterBoundingBox {
     y: u32,
     width: u32,
     height: u32,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+struct RasterGrossReport {
+    status: RasterGrossStatus,
+    page_size_matches: bool,
+    oracle_ink_bbox_area_px: Option<u64>,
+    internal_ink_bbox_area_px: Option<u64>,
+    internal_to_oracle_ink_bbox_ratio: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum RasterGrossStatus {
+    Pass,
+    PageSizeMismatch,
+    BlankOraclePage,
+    BlankInternalPage,
+    MissingMajorTextBlocks,
+}
+
+fn default_max_page_count_delta() -> usize {
+    2
+}
+
+fn default_min_first_page_ink_ratio() -> f64 {
+    0.35
 }
 
 #[tokio::test]
@@ -202,6 +237,8 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             oracle_page_count,
             oracle_first_page_raster,
             oracle_first_page_raster_smoke,
+            max_page_count_delta: case.max_page_count_delta,
+            min_first_page_ink_ratio: case.min_first_page_ink_ratio,
             source_root: source_root.clone(),
             oracle_token_count: oracle_tokens.len(),
             oracle_unique_token_count: oracle_unique.len(),
@@ -215,8 +252,10 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             internal_pdf: None,
             internal_page_count: None,
             page_count_delta: None,
+            page_count_within_tolerance: None,
             internal_first_page_raster: None,
             internal_first_page_raster_smoke: None,
+            first_page_raster_gross: None,
             internal_build_failure: None,
             internal_diagnostics: Vec::new(),
         };
@@ -296,7 +335,17 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                 report.internal_page_count = Some(internal_page_count);
                 report.page_count_delta =
                     Some(internal_page_count as i64 - oracle_page_count as i64);
+                report.page_count_within_tolerance = Some(page_count_within_tolerance(
+                    oracle_page_count,
+                    internal_page_count,
+                    case.max_page_count_delta,
+                ));
                 report.internal_first_page_raster = Some(internal_first_page_raster);
+                report.first_page_raster_gross = Some(compare_raster_smoke(
+                    &report.oracle_first_page_raster_smoke,
+                    &internal_first_page_raster_smoke,
+                    case.min_first_page_ink_ratio,
+                ));
                 report.internal_first_page_raster_smoke = Some(internal_first_page_raster_smoke);
                 if strict {
                     assert!(
@@ -310,6 +359,23 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                         "{} common unique token ratio {ratio:.4} was below {:.4}",
                         case.arxiv_id,
                         case.min_common_token_ratio
+                    );
+                    assert!(
+                        report.page_count_within_tolerance == Some(true),
+                        "{} page count delta {:?} exceeded tolerance {}",
+                        case.arxiv_id,
+                        report.page_count_delta,
+                        case.max_page_count_delta
+                    );
+                    assert_eq!(
+                        report
+                            .first_page_raster_gross
+                            .as_ref()
+                            .expect("raster gross report")
+                            .status,
+                        RasterGrossStatus::Pass,
+                        "{} first-page raster gross smoke failed",
+                        case.arxiv_id
                     );
                 }
             }
@@ -504,6 +570,59 @@ fn raster_smoke_from_rgba(
     })
 }
 
+fn page_count_within_tolerance(
+    oracle_page_count: usize,
+    internal_page_count: usize,
+    max_page_count_delta: usize,
+) -> bool {
+    oracle_page_count.abs_diff(internal_page_count) <= max_page_count_delta
+}
+
+fn compare_raster_smoke(
+    oracle: &RasterSmokeReport,
+    internal: &RasterSmokeReport,
+    min_internal_to_oracle_ink_ratio: f64,
+) -> RasterGrossReport {
+    let page_size_matches =
+        oracle.width_px == internal.width_px && oracle.height_px == internal.height_px;
+    let oracle_ink_bbox_area_px = oracle
+        .non_white_bbox
+        .as_ref()
+        .map(|bbox| bbox.width as u64 * bbox.height as u64);
+    let internal_ink_bbox_area_px = internal
+        .non_white_bbox
+        .as_ref()
+        .map(|bbox| bbox.width as u64 * bbox.height as u64);
+    let internal_to_oracle_ink_bbox_ratio =
+        match (oracle_ink_bbox_area_px, internal_ink_bbox_area_px) {
+            (Some(oracle_area), Some(internal_area)) if oracle_area > 0 => {
+                Some(internal_area as f64 / oracle_area as f64)
+            }
+            _ => None,
+        };
+    let status = if !page_size_matches {
+        RasterGrossStatus::PageSizeMismatch
+    } else if oracle_ink_bbox_area_px.is_none() {
+        RasterGrossStatus::BlankOraclePage
+    } else if internal_ink_bbox_area_px.is_none() {
+        RasterGrossStatus::BlankInternalPage
+    } else if internal_to_oracle_ink_bbox_ratio
+        .is_some_and(|ratio| ratio < min_internal_to_oracle_ink_ratio)
+    {
+        RasterGrossStatus::MissingMajorTextBlocks
+    } else {
+        RasterGrossStatus::Pass
+    };
+
+    RasterGrossReport {
+        status,
+        page_size_matches,
+        oracle_ink_bbox_area_px,
+        internal_ink_bbox_area_px,
+        internal_to_oracle_ink_bbox_ratio,
+    }
+}
+
 fn copy_dir(source_root: &Utf8Path, target_root: &Utf8Path) {
     let mut stack = vec![(source_root.to_owned(), target_root.to_owned())];
     while let Some((source_dir, target_dir)) = stack.pop() {
@@ -629,5 +748,139 @@ fn arxiv_oracle_raster_smoke_reports_non_white_bbox() {
             width: 1,
             height: 2,
         })
+    );
+}
+
+#[test]
+fn arxiv_oracle_manifest_defaults_phase2_budgets() {
+    let manifest = serde_json::from_str::<OracleManifest>(
+        r#"{
+          "cases": [{
+            "arxiv_id": "2301.01234",
+            "version": "v1",
+            "title": "A Paper",
+            "toplevel": "main.tex",
+            "license": "cc0",
+            "source_url": "https://example.invalid/source",
+            "pdf_url": "https://example.invalid/pdf",
+            "min_oracle_tokens": 10,
+            "min_internal_tokens": 5,
+            "min_common_token_ratio": 0.5
+          }]
+        }"#,
+    )
+    .expect("parse manifest");
+
+    let case = &manifest.cases[0];
+    assert_eq!(case.max_page_count_delta, 2);
+    assert_eq!(case.min_first_page_ink_ratio, 0.35);
+}
+
+#[test]
+fn arxiv_oracle_page_count_tolerance_uses_absolute_delta() {
+    assert!(page_count_within_tolerance(10, 12, 2));
+    assert!(page_count_within_tolerance(12, 10, 2));
+    assert!(!page_count_within_tolerance(10, 13, 2));
+}
+
+#[test]
+fn arxiv_oracle_raster_gross_passes_with_enough_matching_first_page_ink() {
+    let oracle = RasterSmokeReport {
+        width_px: 100,
+        height_px: 100,
+        non_white_bbox: Some(RasterBoundingBox {
+            x: 10,
+            y: 10,
+            width: 50,
+            height: 40,
+        }),
+    };
+    let internal = RasterSmokeReport {
+        width_px: 100,
+        height_px: 100,
+        non_white_bbox: Some(RasterBoundingBox {
+            x: 12,
+            y: 12,
+            width: 40,
+            height: 30,
+        }),
+    };
+
+    let report = compare_raster_smoke(&oracle, &internal, 0.5);
+
+    assert_eq!(report.status, RasterGrossStatus::Pass);
+    assert_eq!(report.oracle_ink_bbox_area_px, Some(2000));
+    assert_eq!(report.internal_ink_bbox_area_px, Some(1200));
+    assert_eq!(report.internal_to_oracle_ink_bbox_ratio, Some(0.6));
+}
+
+#[test]
+fn arxiv_oracle_raster_gross_flags_missing_major_text_blocks() {
+    let oracle = RasterSmokeReport {
+        width_px: 100,
+        height_px: 100,
+        non_white_bbox: Some(RasterBoundingBox {
+            x: 5,
+            y: 5,
+            width: 80,
+            height: 80,
+        }),
+    };
+    let internal = RasterSmokeReport {
+        width_px: 100,
+        height_px: 100,
+        non_white_bbox: Some(RasterBoundingBox {
+            x: 5,
+            y: 5,
+            width: 20,
+            height: 20,
+        }),
+    };
+
+    let report = compare_raster_smoke(&oracle, &internal, 0.35);
+
+    assert_eq!(report.status, RasterGrossStatus::MissingMajorTextBlocks);
+    assert!(
+        report
+            .internal_to_oracle_ink_bbox_ratio
+            .is_some_and(|ratio| ratio < 0.35)
+    );
+}
+
+#[test]
+fn arxiv_oracle_raster_gross_flags_blank_and_page_size_failures() {
+    let oracle = RasterSmokeReport {
+        width_px: 100,
+        height_px: 100,
+        non_white_bbox: Some(RasterBoundingBox {
+            x: 0,
+            y: 0,
+            width: 80,
+            height: 80,
+        }),
+    };
+    let blank_internal = RasterSmokeReport {
+        width_px: 100,
+        height_px: 100,
+        non_white_bbox: None,
+    };
+    let wrong_size_internal = RasterSmokeReport {
+        width_px: 90,
+        height_px: 100,
+        non_white_bbox: Some(RasterBoundingBox {
+            x: 0,
+            y: 0,
+            width: 80,
+            height: 80,
+        }),
+    };
+
+    assert_eq!(
+        compare_raster_smoke(&oracle, &blank_internal, 0.35).status,
+        RasterGrossStatus::BlankInternalPage
+    );
+    assert_eq!(
+        compare_raster_smoke(&oracle, &wrong_size_internal, 0.35).status,
+        RasterGrossStatus::PageSizeMismatch
     );
 }

@@ -10,7 +10,9 @@
       "pdf_url": "https://arxiv.org/pdf/2602.14379v1",
       "min_oracle_tokens": 200,
       "min_internal_tokens": 20,
-      "min_common_token_ratio": 0.01
+      "min_common_token_ratio": 0.01,
+      "max_page_count_delta": 2,
+      "min_first_page_ink_ratio": 0.35
     },
     {
       "arxiv_id": "2508.10038",
@@ -22,7 +24,9 @@
       "pdf_url": "https://arxiv.org/pdf/2508.10038v1",
       "min_oracle_tokens": 100,
       "min_internal_tokens": 20,
-      "min_common_token_ratio": 0.01
+      "min_common_token_ratio": 0.01,
+      "max_page_count_delta": 2,
+      "min_first_page_ink_ratio": 0.35
     },
     {
       "arxiv_id": "2404.05196",
@@ -34,7 +38,9 @@
       "pdf_url": "https://arxiv.org/pdf/2404.05196v2",
       "min_oracle_tokens": 100,
       "min_internal_tokens": 20,
-      "min_common_token_ratio": 0.01
+      "min_common_token_ratio": 0.01,
+      "max_page_count_delta": 2,
+      "min_first_page_ink_ratio": 0.35
     },
     {
       "arxiv_id": "2403.07956",
@@ -46,7 +52,9 @@
       "pdf_url": "https://arxiv.org/pdf/2403.07956v1",
       "min_oracle_tokens": 200,
       "min_internal_tokens": 20,
-      "min_common_token_ratio": 0.01
+      "min_common_token_ratio": 0.01,
+      "max_page_count_delta": 2,
+      "min_first_page_ink_ratio": 0.35
     },
     {
       "arxiv_id": "2102.03748",
@@ -58,7 +66,9 @@
       "pdf_url": "https://arxiv.org/pdf/2102.03748v1",
       "min_oracle_tokens": 100,
       "min_internal_tokens": 20,
-      "min_common_token_ratio": 0.01
+      "min_common_token_ratio": 0.01,
+      "max_page_count_delta": 2,
+      "min_first_page_ink_ratio": 0.35
     },
     {
       "arxiv_id": "2302.01837",
@@ -70,7 +80,9 @@
       "pdf_url": "https://arxiv.org/pdf/2302.01837v1",
       "min_oracle_tokens": 100,
       "min_internal_tokens": 20,
-      "min_common_token_ratio": 0.01
+      "min_common_token_ratio": 0.01,
+      "max_page_count_delta": 2,
+      "min_first_page_ink_ratio": 0.35
     }
   ]
 }
