@@ -21508,6 +21508,23 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_records_paragraph_breaks_as_vertical() {
+        let source = r"\begin{document}First\par Second\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let paragraph_break = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::ParagraphBreak(_)))
+            .expect("paragraph break event");
+
+        assert_eq!(paragraph_break.meta.mode_hint, ModeHint::Vertical);
+    }
+
+    #[test]
     fn render_event_capture_records_graphics_and_captions() {
         let source = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\end{figure}\end{document}";
         let mut interner = ControlSequenceInterner::new();
@@ -26019,13 +26036,20 @@ Fallback text.
             .render_events
             .iter()
             .filter_map(|event| match &event.event {
-                RenderEvent::ListItem(item) => Some((item, &event.meta.source.primary)),
+                RenderEvent::ListItem(item) => {
+                    Some((item, &event.meta.source.primary, event.meta.mode_hint))
+                }
                 _ => None,
             })
             .collect::<Vec<_>>();
         assert_eq!(items.len(), 6);
         assert_eq!(items[0].0.marker, None);
         assert_eq!(items[1].0.marker.as_deref(), Some("Custom"));
+        assert!(
+            items
+                .iter()
+                .all(|(_, _, mode_hint)| *mode_hint == ModeHint::Vertical)
+        );
         assert!(matches!(
             items[1].1,
             tex_render_model::ProvenanceSpan::File(span)

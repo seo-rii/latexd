@@ -130,10 +130,12 @@ impl RenderEvent {
         match self {
             Self::Text(_) | Self::Space(_) => ModeHint::Horizontal,
             Self::LineBreak(_) => ModeHint::Horizontal,
+            Self::ParagraphBreak(_) => ModeHint::Vertical,
             Self::SetDocumentMetadata(_) => ModeHint::Preamble,
             Self::FlushTitleBlock(_) => ModeHint::Vertical,
             Self::BeginBlock(_) | Self::EndBlock(_) => ModeHint::Vertical,
             Self::Heading(_) => ModeHint::Vertical,
+            Self::ListItem(_) => ModeHint::Vertical,
             Self::InlineCitation(_) => ModeHint::Horizontal,
             Self::BibliographyItem(_) => ModeHint::Vertical,
             Self::InlineReference(_) | Self::InlineLink(_) => ModeHint::Horizontal,
@@ -380,10 +382,11 @@ mod tests {
         BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint,
         EndBlockEvent, EventMeta, EventProducer, FallbackReason, FlushTitleBlockEvent, GeneratedBy,
         GraphicAssetFormat, GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent,
-        InlineReferenceEvent, LineBreakEvent, LineBreakReason, MathSourceEvent, MetadataField,
-        ModeHint, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
-        RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance,
-        SpaceEvent, SpaceKind, TextEvent,
+        InlineReferenceEvent, LineBreakEvent, LineBreakReason, ListItemEvent, MathSourceEvent,
+        MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent,
+        RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
+        SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind,
+        TextEvent,
     };
 
     #[test]
@@ -639,6 +642,20 @@ mod tests {
             }),
             SourceProvenance::file("main.tex", 350, 352),
         );
+        let paragraph_break = RenderEventEnvelope::new(
+            17,
+            RenderEvent::ParagraphBreak(ParagraphBreakEvent {
+                reason: ParagraphBreakReason::ParCommand,
+            }),
+            SourceProvenance::file("main.tex", 360, 364),
+        );
+        let list_item = RenderEventEnvelope::new(
+            18,
+            RenderEvent::ListItem(ListItemEvent {
+                marker: Some("Custom".to_string()),
+            }),
+            SourceProvenance::file("main.tex", 370, 383),
+        );
 
         assert_eq!(metadata.meta.mode_hint, ModeHint::Preamble);
         assert_eq!(flush_title.meta.mode_hint, ModeHint::Vertical);
@@ -656,6 +673,8 @@ mod tests {
         assert_eq!(caption.meta.mode_hint, ModeHint::Vertical);
         assert_eq!(bibliography_item.meta.mode_hint, ModeHint::Vertical);
         assert_eq!(line_break.meta.mode_hint, ModeHint::Horizontal);
+        assert_eq!(paragraph_break.meta.mode_hint, ModeHint::Vertical);
+        assert_eq!(list_item.meta.mode_hint, ModeHint::Vertical);
     }
 
     #[test]
