@@ -335,6 +335,15 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
         tex_render_model::SourceSpanRole::SyntheticNumbering => "synthetic_numbering",
         tex_render_model::SourceSpanRole::FallbackSource => "fallback_source",
     };
+    let generated_by_name = |generated_by| match generated_by {
+        tex_render_model::GeneratedBy::Source => "source",
+        tex_render_model::GeneratedBy::MacroExpansion => "macro_expansion",
+        tex_render_model::GeneratedBy::Command => "command",
+        tex_render_model::GeneratedBy::Shim => "shim",
+        tex_render_model::GeneratedBy::AuxFile => "aux_file",
+        tex_render_model::GeneratedBy::Fallback => "fallback",
+        tex_render_model::GeneratedBy::Generated => "generated",
+    };
     let span_descriptor = |span: &tex_render_model::ProvenanceSpan| match span {
         tex_render_model::ProvenanceSpan::File(span) => format!(
             "file:{}:{}:{}",
@@ -360,6 +369,10 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                 escape_xml_text(&span.description)
             ),
         };
+        source_attrs.push_str(&format!(
+            " data-source-generated-by=\"{}\"",
+            generated_by_name(source.generated_by)
+        ));
         if !source.related.is_empty() {
             let roles = source
                 .related
@@ -984,6 +997,7 @@ mod tests {
         let svg = render_display_list_svg(&page);
 
         assert!(svg.contains("data-source-kind=\"generated\""));
+        assert!(svg.contains("data-source-generated-by=\"generated\""));
         assert!(svg.contains("data-source-generated-id=\"shim:article&lt;&amp;&quot;\""));
         assert!(
             svg.contains(
