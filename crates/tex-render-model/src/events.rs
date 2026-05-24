@@ -135,6 +135,7 @@ impl RenderEvent {
             Self::Heading(_) => ModeHint::Vertical,
             Self::InlineCitation(_) => ModeHint::Horizontal,
             Self::InlineReference(_) | Self::InlineLink(_) => ModeHint::Horizontal,
+            Self::GraphicRef(_) | Self::Caption(_) => ModeHint::Vertical,
             Self::InlineMath(_) | Self::DisplayMath(_) => ModeHint::Math,
             _ => ModeHint::Unknown,
         }
@@ -374,12 +375,12 @@ pub struct RenderDiagnosticEvent {
 #[cfg(test)]
 mod tests {
     use crate::{
-        BeginBlockEvent, BlockKind, CitationStyleHint, EndBlockEvent, EventMeta, EventProducer,
-        FallbackReason, FlushTitleBlockEvent, GeneratedBy, GraphicAssetFormat, HeadingEvent,
-        InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, MathSourceEvent, MetadataField,
-        ModeHint, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
-        RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance,
-        SpaceEvent, SpaceKind, TextEvent,
+        BeginBlockEvent, BlockKind, CaptionEvent, CitationStyleHint, EndBlockEvent, EventMeta,
+        EventProducer, FallbackReason, FlushTitleBlockEvent, GeneratedBy, GraphicAssetFormat,
+        GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent,
+        MathSourceEvent, MetadataField, ModeHint, RawFallbackEvent, RenderDiagnosticEvent,
+        RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
+        SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind, TextEvent,
     };
 
     #[test]
@@ -602,6 +603,23 @@ mod tests {
             }),
             SourceProvenance::file("main.tex", 180, 220),
         );
+        let graphic = RenderEventEnvelope::new(
+            13,
+            RenderEvent::GraphicRef(GraphicRefEvent {
+                path: "figures/plot.pdf".to_string(),
+                options: Some("width=5cm".to_string()),
+                asset_format: Some(GraphicAssetFormat::Pdf),
+                asset_hash: None,
+            }),
+            SourceProvenance::file("main.tex", 230, 278),
+        );
+        let caption = RenderEventEnvelope::new(
+            14,
+            RenderEvent::Caption(CaptionEvent {
+                text: "Plot caption.".to_string(),
+            }),
+            SourceProvenance::file("main.tex", 290, 303),
+        );
 
         assert_eq!(metadata.meta.mode_hint, ModeHint::Preamble);
         assert_eq!(flush_title.meta.mode_hint, ModeHint::Vertical);
@@ -615,6 +633,8 @@ mod tests {
         assert_eq!(end_block.meta.mode_hint, ModeHint::Vertical);
         assert_eq!(reference.meta.mode_hint, ModeHint::Horizontal);
         assert_eq!(link.meta.mode_hint, ModeHint::Horizontal);
+        assert_eq!(graphic.meta.mode_hint, ModeHint::Vertical);
+        assert_eq!(caption.meta.mode_hint, ModeHint::Vertical);
     }
 
     #[test]

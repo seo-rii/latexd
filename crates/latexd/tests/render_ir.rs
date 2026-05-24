@@ -1831,6 +1831,7 @@ fn graphic_provenance_preserves_invocation_and_path_argument_spans() {
         })
         .expect("image op");
 
+    assert_eq!(graphic_event.meta.mode_hint, ModeHint::Vertical);
     for source in [
         &graphic_event.meta.source,
         &graphic_block.source,
@@ -1895,6 +1896,7 @@ fn caption_provenance_preserves_text_and_invocation_spans() {
             matches!(&envelope.event, RenderEvent::Caption(caption) if caption.text == "Plot caption.")
         })
         .expect("caption event");
+    assert_eq!(caption_event.meta.mode_hint, ModeHint::Vertical);
     let graphic_block = capture
         .document_ir
         .blocks

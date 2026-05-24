@@ -21530,6 +21530,7 @@ Fallback text.
                 )
             })
             .expect("graphic event");
+        assert_eq!(graphic_event.meta.mode_hint, ModeHint::Vertical);
         assert!(matches!(
             &graphic_event.meta.source.primary,
             tex_render_model::ProvenanceSpan::File(span)
@@ -21557,6 +21558,7 @@ Fallback text.
                 )
             })
             .expect("caption event");
+        assert_eq!(caption_event.meta.mode_hint, ModeHint::Vertical);
         assert!(matches!(
             &caption_event.meta.source.primary,
             tex_render_model::ProvenanceSpan::File(span)

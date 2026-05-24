@@ -36,7 +36,7 @@
     "meta": {
       "confidence": "high",
       "event_id": 2,
-      "mode_hint": "unknown",
+      "mode_hint": "vertical",
       "producer": "command",
       "source": {
         "expansion_stack": [],
