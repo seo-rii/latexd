@@ -8,13 +8,13 @@ use serde::{Deserialize, Serialize};
 use tex_lexer::{CatCodeTable, Lexer, lex_plain};
 use tex_render_model::{
     BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint, EventId,
-    EventProducer, ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GeneratedBy,
-    GraphicAssetFormat, GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent,
-    InlineReferenceEvent, LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent,
-    ListKind, MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason,
-    ProvenanceSpan, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
-    SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole,
-    SpaceEvent, SpaceKind, TextEvent,
+    ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GeneratedBy, GraphicAssetFormat,
+    GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent,
+    LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent, ListKind,
+    MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan,
+    RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
+    SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
+    TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -8659,12 +8659,8 @@ impl<'i> Vm<'i> {
     fn emit_render_event(&mut self, event: RenderEvent, source: SourceProvenance) {
         let event_id = self.next_render_event_id;
         self.next_render_event_id += 1;
-        let mut envelope = RenderEventEnvelope::new(event_id, event, source);
-        if matches!(envelope.event, RenderEvent::RawFallback(_)) {
-            envelope.meta.producer = EventProducer::Fallback;
-            envelope.meta.confidence = SemanticConfidence::Fallback;
-        }
-        self.render_events.push(envelope);
+        self.render_events
+            .push(RenderEventEnvelope::new(event_id, event, source));
     }
 
     pub fn run(&mut self, tokens: Vec<Token>) -> VmOutcome {

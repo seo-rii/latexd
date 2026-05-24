@@ -32,14 +32,19 @@ pub struct RenderEventEnvelope {
 
 impl RenderEventEnvelope {
     pub fn new(event_id: EventId, event: RenderEvent, source: SourceProvenance) -> Self {
+        let (confidence, producer) = if matches!(event, RenderEvent::RawFallback(_)) {
+            (SemanticConfidence::Fallback, EventProducer::Fallback)
+        } else {
+            (SemanticConfidence::High, EventProducer::Command)
+        };
         Self {
             event,
             meta: EventMeta {
                 event_id,
                 source,
                 mode_hint: ModeHint::Unknown,
-                confidence: SemanticConfidence::High,
-                producer: EventProducer::Command,
+                confidence,
+                producer,
             },
         }
     }
@@ -339,9 +344,9 @@ pub struct RenderDiagnosticEvent {
 #[cfg(test)]
 mod tests {
     use crate::{
-        EventMeta, EventProducer, GraphicAssetFormat, MetadataField, ModeHint, RenderEvent,
-        RenderEventEnvelope, RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent,
-        SourceProvenance, SpaceEvent, SpaceKind,
+        EventMeta, EventProducer, FallbackReason, GraphicAssetFormat, MetadataField, ModeHint,
+        RawFallbackEvent, RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
+        SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind,
     };
 
     #[test]
@@ -384,6 +389,27 @@ mod tests {
 
         assert!(encoded.contains("\"kind\": \"space\""));
         assert!(encoded.contains("\"space_kind\": \"interword\""));
+    }
+
+    #[test]
+    fn raw_fallback_envelope_defaults_to_fallback_metadata() {
+        let envelope = RenderEventEnvelope::new(
+            1,
+            RenderEvent::RawFallback(RawFallbackEvent {
+                source_excerpt: "\\begin{unknownenv}x\\end{unknownenv}".to_string(),
+                expanded_text: None,
+                normalized_visible_text: Some("x".to_string()),
+                environment: Some("unknownenv".to_string()),
+                reason: FallbackReason::UnsupportedEnvironment,
+                source_hash: None,
+                full_source_artifact: None,
+                truncated: false,
+            }),
+            SourceProvenance::file("main.tex", 0, 35),
+        );
+
+        assert_eq!(envelope.meta.producer, EventProducer::Fallback);
+        assert_eq!(envelope.meta.confidence, SemanticConfidence::Fallback);
     }
 
     #[test]
