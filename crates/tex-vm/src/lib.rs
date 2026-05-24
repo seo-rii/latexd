@@ -8659,10 +8659,10 @@ impl<'i> Vm<'i> {
         let event_id = self.next_render_event_id;
         self.next_render_event_id += 1;
         let envelope = RenderEventEnvelope::new(event_id, event, source);
-        let envelope = if matches!(&envelope.event, RenderEvent::SetDocumentMetadata(_)) {
-            envelope.with_mode_hint(ModeHint::Preamble)
-        } else {
-            envelope
+        let envelope = match &envelope.event {
+            RenderEvent::SetDocumentMetadata(_) => envelope.with_mode_hint(ModeHint::Preamble),
+            RenderEvent::FlushTitleBlock(_) => envelope.with_mode_hint(ModeHint::Vertical),
+            _ => envelope,
         };
         self.render_events.push(envelope);
     }
@@ -28046,6 +28046,7 @@ Fallback text.
             .expect("flush title event");
 
         assert_eq!(title.meta.mode_hint, ModeHint::Preamble);
+        assert_eq!(flush.meta.mode_hint, ModeHint::Vertical);
         assert!(matches!(
             &title.meta.source.primary,
             tex_render_model::ProvenanceSpan::File(span)

@@ -225,6 +225,7 @@ fn compact_title_provenance_matches_golden() {
     assert_eq!(title_event.meta.mode_hint, ModeHint::Preamble);
     assert_eq!(author_event.meta.mode_hint, ModeHint::Preamble);
     assert_eq!(date_event.meta.mode_hint, ModeHint::Preamble);
+    assert_eq!(flush_event.meta.mode_hint, ModeHint::Vertical);
     let title = capture
         .document_ir
         .blocks
