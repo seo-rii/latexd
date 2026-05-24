@@ -48,6 +48,11 @@ impl SourceProvenance {
         self
     }
 
+    pub fn with_generated_by(mut self, generated_by: GeneratedBy) -> Self {
+        self.generated_by = generated_by;
+        self
+    }
+
     pub fn with_expansion_frame(mut self, frame: ExpansionFrame) -> Self {
         if self.expansion_stack.len() < MAX_EXPANSION_FRAMES_IN_EVENT {
             self.expansion_stack.push(frame);
@@ -123,8 +128,8 @@ pub enum GeneratedBy {
 #[cfg(test)]
 mod tests {
     use super::{
-        ExpansionFrame, MAX_EXPANSION_FRAMES_IN_EVENT, ProvenanceSpan, SourceProvenance,
-        SourceSpan, SourceSpanRole,
+        ExpansionFrame, GeneratedBy, MAX_EXPANSION_FRAMES_IN_EVENT, ProvenanceSpan,
+        SourceProvenance, SourceSpan, SourceSpanRole,
     };
 
     #[test]
@@ -134,6 +139,16 @@ mod tests {
         let decoded: SourceProvenance = serde_json::from_str(&encoded).expect("decode provenance");
 
         assert_eq!(decoded, provenance);
+    }
+
+    #[test]
+    fn generated_provenance_can_record_specific_producer() {
+        let provenance = SourceProvenance::generated("shim:article", "article class shim")
+            .with_generated_by(GeneratedBy::Shim);
+        let encoded = serde_json::to_string(&provenance).expect("encode provenance");
+
+        assert_eq!(provenance.generated_by, GeneratedBy::Shim);
+        assert!(encoded.contains("\"generated_by\":\"shim\""));
     }
 
     #[test]
