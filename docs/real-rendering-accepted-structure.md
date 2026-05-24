@@ -22,7 +22,7 @@ shaping, external asset conversion, or a real page builder in this batch.
 
 ## Current Implementation Status
 
-As of 2026-05-21, the first implementation batch is complete:
+As of 2026-05-24, the first implementation batch is complete:
 
 - `tex-render-model` owns shared provenance, event, IR, display-list skeleton,
   `AuxView`, and JSON golden helper types.
@@ -35,6 +35,9 @@ As of 2026-05-21, the first implementation batch is complete:
 - Compact event and IR JSON goldens cover title, author, date, abstract,
   heading, paragraph text, unresolved citation, display math, bibliography, and
   raw fallback.
+- Raw fallback and diagnostic event envelopes now carry non-default metadata:
+  fallbacks are `producer = fallback` / `confidence = fallback`, while
+  diagnostics are `producer = unknown` / `confidence = low`.
 - `abstract*` and `onecolabstract` now follow the same semantic abstract
   event/IR path as `abstract` instead of falling back to unsupported raw text.
 - Focused provenance tests and goldens cover macro-expanded section text,
