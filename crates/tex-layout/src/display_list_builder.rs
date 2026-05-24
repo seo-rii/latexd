@@ -788,18 +788,7 @@ pub fn build_page_display_lists(
                     pending.hash_input.push_str("asset-hash:");
                     pending.hash_input.push_str(asset_hash);
                 }
-                if let ProvenanceSpan::File(span) = &logical.source.primary {
-                    if !pending.source_spans.contains(span) {
-                        pending.source_spans.push(span.clone());
-                    }
-                }
-                for related in &logical.source.related {
-                    if let ProvenanceSpan::File(span) = &related.span {
-                        if !pending.source_spans.contains(span) {
-                            pending.source_spans.push(span.clone());
-                        }
-                    }
-                }
+                record_source_spans(&logical.source, &mut pending.source_spans);
                 pending.ops.push(DrawOp::Image(PositionedImage {
                     rect: Rect {
                         x: options.margin_left_pt,
@@ -825,11 +814,7 @@ pub fn build_page_display_lists(
                         .caption_source
                         .clone()
                         .unwrap_or_else(|| logical.source.clone());
-                    if let ProvenanceSpan::File(span) = &caption_source.primary {
-                        if !pending.source_spans.contains(span) {
-                            pending.source_spans.push(span.clone());
-                        }
-                    }
+                    record_source_spans(&caption_source, &mut pending.source_spans);
                     pending.ops.push(DrawOp::TextRun(PositionedTextRun {
                         origin: Point {
                             x: options.margin_left_pt,
@@ -981,6 +966,42 @@ mod tests {
                     text: "Text".to_string(),
                     source: source.clone(),
                 }],
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+
+        assert!(display_lists[0].source_spans.contains(&call_span));
+        assert!(display_lists[0].source_spans.contains(&definition_span));
+    }
+
+    #[test]
+    fn graphic_source_spans_include_expansion_stack_frames() {
+        let call_span = SourceSpan {
+            path: "main.tex".into(),
+            start_utf8: 0,
+            end_utf8: 18,
+        };
+        let definition_span = SourceSpan {
+            path: "macros.tex".into(),
+            start_utf8: 10,
+            end_utf8: 52,
+        };
+        let source = SourceProvenance::file("main.tex", 24, 42).with_expansion_frame(
+            tex_render_model::ExpansionFrame {
+                call_span: ProvenanceSpan::File(call_span.clone()),
+                definition_span: Some(ProvenanceSpan::File(definition_span.clone())),
+                command_name: Some("mygraphic".to_string()),
+            },
+        );
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.pdf".to_string(),
+                options: None,
+                asset_format: None,
+                asset_hash: None,
+                caption: None,
+                caption_source: None,
                 source,
             })]),
             PageDisplayListOptions::default(),
