@@ -11,7 +11,7 @@ use tex_render_model::{
     EndBlockEvent, EventId, ExpansionFrame, FallbackReason, FlushTitleBlockEvent,
     GraphicAssetFormat, GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent,
     InlineReferenceEvent, LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent,
-    ListKind, MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason,
+    ListKind, MathSourceEvent, MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason,
     ProvenanceSpan, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
     SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
     TextEvent,
@@ -3273,7 +3273,7 @@ impl<'i> Vm<'i> {
                                     let source_hash = format!("blake3:{source_digest}");
                                     let full_source_artifact =
                                         format!("fallbacks/{source_digest}.tex");
-                                    self.emit_render_event(
+                                    let fallback_event = self.emit_render_event(
                                         RenderEvent::RawFallback(RawFallbackEvent {
                                             source_excerpt,
                                             expanded_text: None,
@@ -3290,6 +3290,7 @@ impl<'i> Vm<'i> {
                                             raw_end as u32,
                                         ),
                                     );
+                                    fallback_event.meta.mode_hint = ModeHint::Vertical;
                                     index = raw_end;
                                 }
                             }
@@ -8655,11 +8656,18 @@ impl<'i> Vm<'i> {
         }
     }
 
-    fn emit_render_event(&mut self, event: RenderEvent, source: SourceProvenance) {
+    fn emit_render_event(
+        &mut self,
+        event: RenderEvent,
+        source: SourceProvenance,
+    ) -> &mut RenderEventEnvelope {
         let event_id = self.next_render_event_id;
         self.next_render_event_id += 1;
         let envelope = RenderEventEnvelope::new(event_id, event, source);
         self.render_events.push(envelope);
+        self.render_events
+            .last_mut()
+            .expect("just pushed render event")
     }
 
     pub fn run(&mut self, tokens: Vec<Token>) -> VmOutcome {
@@ -21406,6 +21414,7 @@ Fallback text.
             .expect("unknownenv fallback source");
 
         assert_eq!(event.meta.source.generated_by, GeneratedBy::Fallback);
+        assert_eq!(event.meta.mode_hint, ModeHint::Vertical);
         assert_eq!(event.meta.producer, EventProducer::Fallback);
         assert_eq!(event.meta.confidence, SemanticConfidence::Fallback);
     }

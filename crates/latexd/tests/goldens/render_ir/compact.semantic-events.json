@@ -265,7 +265,7 @@
       "meta": {
         "confidence": "fallback",
         "event_id": 19,
-        "mode_hint": "unknown",
+        "mode_hint": "vertical",
         "producer": "fallback",
         "source": "<present>"
       }
