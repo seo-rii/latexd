@@ -25,20 +25,22 @@ class formatting, citations, and math vocabulary stay much lower.
 
 ## Current Baseline
 
-Strict CC0 oracle run after the arXiv blocker fixes:
+Strict CC0 oracle run after the Phase 2 page-model pass:
 
-| arXiv id | Internal build | Diagnostics | Internal/oracle token count | Unique-token overlap |
-| --- | --- | ---: | ---: | ---: |
-| `2602.14379` | ok | 0 | 0.861 | 0.598 |
-| `2508.10038` | ok | 0 | 0.892 | 0.742 |
-| `2404.05196` | ok | 0 | 0.728 | 0.568 |
-| `2403.07956` | ok | 0 | 0.579 | 0.535 |
-| `2102.03748` | ok | 0 | 0.953 | 0.885 |
-| `2302.01837` | ok | 0 | 0.895 | 0.660 |
+| arXiv id | Internal build | Diagnostics | Pages | Raster gross | Internal/oracle token count | Unique-token overlap |
+| --- | --- | ---: | ---: | --- | ---: | ---: |
+| `2602.14379` | ok | 0 | `36 / 37` | pass | 0.862 | 0.600 |
+| `2508.10038` | ok | 0 | `16 / 14` | pass | 0.894 | 0.747 |
+| `2404.05196` | ok | 0 | `11 / 10` | pass | 0.738 | 0.579 |
+| `2403.07956` | ok | 0 | `8 / 10` | pass | 0.583 | 0.538 |
+| `2102.03748` | ok | 0 | `13 / 13` | pass | 0.833 | 0.836 |
+| `2302.01837` | ok | 0 | `17 / 17` | pass | 0.708 | 0.592 |
 
 The important reading is:
 
 - diagnostics are no longer the primary blocker for these papers;
+- every CC0 smoke case is now inside the configured page-count tolerance and
+  first-page raster gross checks pass;
 - token-count recall can be decent, so large parts of body text already survive;
 - unique-token overlap is pulled down by missing front matter, figure text,
   citation formatting, Unicode/math normalization, and raw macro/citation output;

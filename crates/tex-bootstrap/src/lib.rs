@@ -16,10 +16,13 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\relax{}
 \def\begin#1{}
 \def\end#1{}
-\def\title#1{}
-\newcommand{\author}[2][]{}
-\def\date#1{}
-\def\maketitle{}
+\def\latexdtitle{}
+\def\latexdauthor{}
+\def\latexddate{}
+\def\title#1{\gdef\latexdtitle{#1}}
+\newcommand{\author}[2][]{\gdef\latexdauthor{#2}}
+\def\date#1{\gdef\latexddate{#1}}
+\def\maketitle{\latexdtitle \latexdauthor \latexddate}
 \newcommand{\thanks}[1]{}
 \newcommand{\affil}[2][]{}
 \newcommand{\institute}[1]{}
@@ -27,6 +30,8 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \newcommand{\orcidID}[1]{}
 \newcommand{\titlerunning}[1]{}
 \newcommand{\authorrunning}[1]{}
+\def\and{and}
+\newcommand{\IEEEmembership}[1]{#1}
 \newcommand{\keywords}[1]{#1}
 \def\chapter#1{#1}
 \def\section#1{#1}
@@ -401,6 +406,17 @@ pub struct ProjectRunResult {
     pub module_checkpoints: Vec<VmModuleCheckpoint>,
     pub source_lengths: BTreeMap<Utf8PathBuf, usize>,
     pub body_source_start_utf8: u32,
+    pub layout_profile: ProjectLayoutProfile,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProjectLayoutProfile {
+    Default,
+    ArticleSingleColumn,
+    ArticleTwoColumn,
+    Llncs,
+    IeeeTran,
+    Revtex,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -715,6 +731,7 @@ pub fn run_project_from_base_snapshot_with_mounts(
             module_checkpoints,
             source_lengths,
             body_source_start_utf8: body_start as u32,
+            layout_profile: layout_profile_from_source(&source),
         },
         preamble_checkpoint,
     ))
@@ -825,11 +842,12 @@ pub fn run_project_from_checkpoint_with_mounts(
         module_checkpoints,
         source_lengths,
         body_source_start_utf8: body_start as u32,
+        layout_profile: layout_profile_from_source(&source),
     })
 }
 
 fn build_project_pdf_from_run(run: ProjectRunResult) -> ProjectPdfBuild {
-    let layout = layout_text(&run.output, LayoutOptions::default());
+    let layout = layout_text(&run.output, layout_options_for_profile(&run.layout_profile));
     let output_len = run.output.len().max(1);
     let primary_source_len = run
         .source_lengths
@@ -1151,7 +1169,99 @@ pub fn run_project_with_snapshot(
         module_checkpoints: outcome.module_checkpoints,
         source_lengths,
         body_source_start_utf8: 0,
+        layout_profile: layout_profile_from_source(&source),
     })
+}
+
+fn layout_options_for_profile(profile: &ProjectLayoutProfile) -> LayoutOptions {
+    match profile {
+        ProjectLayoutProfile::Default => LayoutOptions::default(),
+        ProjectLayoutProfile::ArticleSingleColumn => LayoutOptions {
+            chars_per_line: 56,
+            ..LayoutOptions::default()
+        },
+        ProjectLayoutProfile::ArticleTwoColumn => LayoutOptions::default(),
+        ProjectLayoutProfile::Llncs => LayoutOptions {
+            chars_per_line: 64,
+            lines_per_page: 40,
+            ..LayoutOptions::default()
+        },
+        ProjectLayoutProfile::IeeeTran => LayoutOptions {
+            chars_per_line: 96,
+            lines_per_page: 60,
+            ..LayoutOptions::default()
+        },
+        ProjectLayoutProfile::Revtex => LayoutOptions {
+            lines_per_page: 66,
+            ..LayoutOptions::default()
+        },
+    }
+}
+
+fn layout_profile_from_source(source: &str) -> ProjectLayoutProfile {
+    for line in source.lines() {
+        let mut visible = String::new();
+        let mut escaped = false;
+        for character in line.chars() {
+            if character == '%' && !escaped {
+                break;
+            }
+            visible.push(character);
+            escaped = character == '\\' && !escaped;
+            if character != '\\' {
+                escaped = false;
+            }
+        }
+        let Some(command_offset) = visible.find(r"\documentclass") else {
+            continue;
+        };
+        let mut index = command_offset + r"\documentclass".len();
+        let bytes = visible.as_bytes();
+        while bytes
+            .get(index)
+            .is_some_and(|byte| byte.is_ascii_whitespace())
+        {
+            index += 1;
+        }
+        let mut options = String::new();
+        if bytes.get(index) == Some(&b'[') {
+            let option_start = index + 1;
+            if let Some(relative_end) = visible[option_start..].find(']') {
+                let option_end = option_start + relative_end;
+                options = visible[option_start..option_end].to_ascii_lowercase();
+                index = option_end + 1;
+                while bytes
+                    .get(index)
+                    .is_some_and(|byte| byte.is_ascii_whitespace())
+                {
+                    index += 1;
+                }
+            }
+        }
+        if bytes.get(index) != Some(&b'{') {
+            continue;
+        }
+        let class_start = index + 1;
+        let Some(relative_end) = visible[class_start..].find('}') else {
+            continue;
+        };
+        let class = visible[class_start..class_start + relative_end].trim();
+        return match class {
+            "article"
+                if options
+                    .split(',')
+                    .any(|option| option.trim() == "twocolumn") =>
+            {
+                ProjectLayoutProfile::ArticleTwoColumn
+            }
+            "article" => ProjectLayoutProfile::ArticleSingleColumn,
+            "llncs" => ProjectLayoutProfile::Llncs,
+            "IEEEtran" => ProjectLayoutProfile::IeeeTran,
+            "revtex4-2" => ProjectLayoutProfile::Revtex,
+            _ => ProjectLayoutProfile::Default,
+        };
+    }
+    ProjectLayoutProfile::Default
 }
 
 fn read_toplevel_source(
@@ -1214,7 +1324,8 @@ mod tests {
     use tex_world::ProjectWorld;
 
     use super::{
-        build_project_pdf, capture_page_checkpoints, compile_mini_kernel_snapshot, run_project,
+        ProjectLayoutProfile, build_project_pdf, capture_page_checkpoints,
+        compile_mini_kernel_snapshot, layout_profile_from_source, run_project,
         run_project_from_checkpoint, run_project_with_snapshot,
     };
 
@@ -1360,6 +1471,66 @@ mod tests {
         assert_eq!(build.page_metadata[0].line_count, 1);
         assert!(pdf_text.starts_with("%PDF-1.4"));
         assert!(pdf_text.contains("/Type /Page"));
+    }
+
+    #[test]
+    fn layout_profile_uses_uncommented_documentclass() {
+        let source = "%\\documentclass{IEEEtran}\n\\documentclass[runningheads]{llncs}";
+
+        assert_eq!(
+            layout_profile_from_source(source),
+            ProjectLayoutProfile::Llncs
+        );
+    }
+
+    #[test]
+    fn project_pdf_build_uses_article_layout_profile() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            "\\documentclass[11pt]{article}\\begin{document}Body\\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let build = build_project_pdf(&world).expect("project pdf");
+
+        assert_eq!(
+            build.run.layout_profile,
+            ProjectLayoutProfile::ArticleSingleColumn
+        );
+        assert_eq!(build.layout.options.chars_per_line, 56);
+    }
+
+    #[test]
+    fn mini_kernel_maketitle_preserves_basic_front_matter() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            "\\title{A Paper}\\author{Ada Lovelace}\\date{1843}\\begin{document}\\maketitle Body\\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        assert!(result.output.contains("A Paper"));
+        assert!(result.output.contains("Ada Lovelace"));
+        assert!(result.output.contains("1843"));
+        assert!(result.output.contains("Body"));
+        assert!(result.output.find("A Paper") < result.output.find("Body"));
     }
 
     #[test]
