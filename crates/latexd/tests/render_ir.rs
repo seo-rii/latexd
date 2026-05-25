@@ -3,7 +3,7 @@ use std::{env, fs, path::Path, process::Command};
 use camino::Utf8PathBuf;
 use latexd::compiler::{
     InternalRenderIrCapture, capture_internal_render_ir,
-    capture_internal_render_ir_with_mounted_files,
+    capture_internal_render_ir_from_project_root, capture_internal_render_ir_with_mounted_files,
 };
 use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{
@@ -2155,6 +2155,47 @@ fn graphic_display_list_pdf_can_embed_resolved_png_assets() {
     assert!(pdf_text.contains("/Im1 Do"));
     assert!(!pdf_text.contains("[image: figures/plot.png]"));
     assert!(pdf_text.contains("(Plot caption.) Tj"));
+}
+
+#[test]
+fn project_root_render_ir_capture_embeds_png_assets_in_debug_pdf() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
+    fs::create_dir_all(root.join("figures").as_std_path()).expect("create figures dir");
+    fs::write(root.join("main.tex").as_std_path(), GRAPHICSPATH_SOURCE).expect("write source");
+    fs::write(
+        root.join("figures/plot.png").as_std_path(),
+        tiny_png_bytes(),
+    )
+    .expect("write image");
+
+    let capture =
+        capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
+            .expect("capture project render ir");
+
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::Image(image)
+                if image.asset_ref == "figures/plot.png"
+                    && image.asset_format == Some(GraphicAssetFormat::Png)
+                    && image.asset_hash.as_deref().is_some_and(|hash| hash.starts_with("blake3:"))
+        )
+    }));
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+    assert!(pdf_text.contains("/Subtype /Image"));
+    assert!(pdf_text.contains("/Im1 Do"));
+    assert!(!pdf_text.contains("[image: figures/plot.png]"));
+    assert!(pdf_text.contains("(Plot caption.) Tj"));
+
+    let output_dir = root.join("render-artifacts");
+    let paths = capture
+        .write_debug_artifacts(&output_dir)
+        .expect("write debug artifacts");
+    let artifact_pdf = fs::read(paths.display_list_pdf).expect("read display-list pdf");
+    let artifact_pdf_text = String::from_utf8_lossy(&artifact_pdf);
+    assert!(artifact_pdf_text.contains("/Subtype /Image"));
+    assert!(!artifact_pdf_text.contains("[image: figures/plot.png]"));
 }
 
 #[test]

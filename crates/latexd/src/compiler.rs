@@ -28,7 +28,8 @@ use tex_checkpoint::{
 };
 use tex_pdf::{
     PAGE_FONT_SIZE_PT, PAGE_LINE_HEIGHT_PT, PAGE_TEXT_LEFT_PT, PAGE_TEXT_TOP_PT,
-    render_display_list_pdf, render_display_list_svg, render_page_svg, render_single_page_pdf,
+    render_display_list_pdf, render_display_list_pdf_with_assets, render_display_list_svg,
+    render_page_svg, render_single_page_pdf,
 };
 use tex_render_model::{
     AuxView, DocumentIr, PageDisplayList, ProvenanceSpan, RenderEvent, RenderEventStream,
@@ -198,7 +199,7 @@ pub fn capture_internal_render_ir(
     source: &str,
     aux: &impl AuxView,
 ) -> InternalRenderIrCapture {
-    capture_internal_render_ir_with_mounted_files(source_path, source, aux, &[])
+    capture_internal_render_ir_with_options(source_path.into(), source, aux, &[], None)
 }
 
 pub fn capture_internal_render_ir_with_mounted_files(
@@ -207,10 +208,44 @@ pub fn capture_internal_render_ir_with_mounted_files(
     aux: &impl AuxView,
     mounted_files: &[(&str, &str)],
 ) -> InternalRenderIrCapture {
+    capture_internal_render_ir_with_options(source_path.into(), source, aux, mounted_files, None)
+}
+
+pub fn capture_internal_render_ir_from_project_root(
+    root: impl AsRef<Utf8Path>,
+    source_path: impl Into<Utf8PathBuf>,
+    aux: &impl AuxView,
+) -> anyhow::Result<InternalRenderIrCapture> {
+    let root = root.as_ref();
     let source_path = source_path.into();
+    let source = fs::read_to_string(root.join(&source_path).as_std_path()).with_context(|| {
+        format!(
+            "failed to read render IR source {}",
+            root.join(&source_path)
+        )
+    })?;
+    Ok(capture_internal_render_ir_with_options(
+        source_path,
+        &source,
+        aux,
+        &[],
+        Some(root),
+    ))
+}
+
+fn capture_internal_render_ir_with_options(
+    source_path: Utf8PathBuf,
+    source: &str,
+    aux: &impl AuxView,
+    mounted_files: &[(&str, &str)],
+    file_root: Option<&Utf8Path>,
+) -> InternalRenderIrCapture {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = tex_vm::Vm::new(&mut interner);
     vm.set_entry_source_path(source_path.clone());
+    if let Some(root) = file_root {
+        vm.set_file_root(root.to_path_buf());
+    }
     for (path, source) in mounted_files {
         vm.mount_file(*path, *source);
     }
@@ -222,7 +257,13 @@ pub fn capture_internal_render_ir_with_mounted_files(
         &document_ir,
         tex_layout::PageDisplayListOptions::default(),
     );
-    let display_list_pdf = render_display_list_pdf(&page_display_lists);
+    let display_list_pdf = if let Some(root) = file_root {
+        render_display_list_pdf_with_assets(&page_display_lists, |asset_ref| {
+            read_display_list_asset(root, asset_ref)
+        })
+    } else {
+        render_display_list_pdf(&page_display_lists)
+    };
     let mut source_files = BTreeMap::new();
     source_files.insert(source_path.clone(), source.to_string());
     for (path, source) in mounted_files {
@@ -237,6 +278,16 @@ pub fn capture_internal_render_ir_with_mounted_files(
         display_list_pdf,
         source_files,
     }
+}
+
+fn read_display_list_asset(root: &Utf8Path, asset_ref: &str) -> Option<Vec<u8>> {
+    let asset_path = Utf8Path::new(asset_ref);
+    let resolved_path = if asset_path.is_absolute() {
+        asset_path.to_path_buf()
+    } else {
+        root.join(asset_path)
+    };
+    fs::read(resolved_path.as_std_path()).ok()
 }
 
 impl Display for CompileFailure {
