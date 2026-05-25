@@ -1818,6 +1818,23 @@ fn graphic_render_ir_capture_derives_display_list_image() {
 }
 
 #[test]
+fn graphic_render_ir_capture_applies_includegraphics_width_hint() {
+    let capture = capture_internal_render_ir("main.tex", GRAPHIC_SOURCE, &SemanticAux::default());
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.pdf" => Some(image),
+            _ => None,
+        })
+        .expect("image op");
+
+    assert!((image.rect.width - (5.0 * 72.0 / 2.54)).abs() < 0.01);
+    assert!(image.rect.height < 30.0);
+    assert!(image.rect.height > 20.0);
+}
+
+#[test]
 fn graphic_provenance_preserves_invocation_and_path_argument_spans() {
     let capture = capture_internal_render_ir("main.tex", GRAPHIC_SOURCE, &SemanticAux::default());
     let graphic_event = capture

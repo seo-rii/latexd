@@ -70,6 +70,7 @@ struct LogicalTextRun {
 
 struct LogicalImage {
     path: String,
+    options: Option<String>,
     asset_format: Option<tex_render_model::GraphicAssetFormat>,
     asset_hash: Option<String>,
     caption: Option<String>,
@@ -403,6 +404,7 @@ pub fn build_page_display_lists(
             IrBlock::Graphic(block) => {
                 logical_items.push(LogicalItem::Image(LogicalImage {
                     path: block.path.clone(),
+                    options: block.options.clone(),
                     asset_format: block.asset_format,
                     asset_hash: block.asset_hash.clone(),
                     caption: None,
@@ -546,6 +548,66 @@ pub fn build_page_display_lists(
         source_spans: Vec::new(),
         text: String::new(),
         hash_input: format!("options:{options:?}:font-metrics:basic-v1"),
+    };
+    let content_width_pt = (options.page_width_pt - options.margin_left_pt * 2.0).max(1.0);
+    let content_height_pt =
+        (options.page_height_pt - options.margin_top_pt - options.margin_bottom_pt).max(1.0);
+    let parse_graphic_dimension_pt = |raw_value: &str| -> Option<f32> {
+        let normalized = raw_value
+            .trim()
+            .trim_matches(|ch| ch == '{' || ch == '}')
+            .chars()
+            .filter(|ch| !ch.is_whitespace())
+            .collect::<String>();
+        if normalized.is_empty() {
+            return None;
+        }
+
+        for (name, reference_pt) in [
+            ("\\linewidth", content_width_pt),
+            ("\\textwidth", content_width_pt),
+            ("\\columnwidth", content_width_pt),
+            ("\\textheight", content_height_pt),
+            ("\\paperheight", options.page_height_pt),
+        ] {
+            if normalized == name {
+                return Some(reference_pt);
+            }
+            if let Some(prefix) = normalized.strip_suffix(name) {
+                let factor = prefix.strip_suffix('*').unwrap_or(prefix);
+                let factor = if factor.is_empty() {
+                    Some(1.0)
+                } else {
+                    factor.parse::<f32>().ok()
+                }?;
+                let dimension = reference_pt * factor;
+                if dimension.is_finite() && dimension > 0.0 {
+                    return Some(dimension);
+                }
+            }
+        }
+
+        for (unit, multiplier) in [
+            ("truept", 1.0),
+            ("bp", 1.0),
+            ("pt", 1.0),
+            ("in", 72.0),
+            ("cm", 72.0 / 2.54),
+            ("mm", 72.0 / 25.4),
+            ("pc", 12.0),
+            ("em", options.body_font_size_pt),
+            ("ex", options.body_font_size_pt * 0.5),
+        ] {
+            if let Some(number) = normalized.strip_suffix(unit) {
+                let dimension = number.parse::<f32>().ok()? * multiplier;
+                if dimension.is_finite() && dimension > 0.0 {
+                    return Some(dimension);
+                }
+            }
+        }
+
+        let dimension = normalized.parse::<f32>().ok()?;
+        (dimension.is_finite() && dimension > 0.0).then_some(dimension)
     };
     let mut pending = new_pending_page();
     let mut page_index = 0usize;
@@ -802,8 +864,48 @@ pub fn build_page_display_lists(
                 y += logical.gap_after_pt;
             }
             LogicalItem::Image(logical) => {
-                let image_width = options.page_width_pt - options.margin_left_pt * 2.0;
-                let image_height = options.line_height_pt * 6.0;
+                let default_image_width = content_width_pt;
+                let default_image_height = options.line_height_pt * 6.0;
+                let mut width_hint_pt = None;
+                let mut height_hint_pt = None;
+                let mut scale_hint = None;
+                if let Some(graphic_options) = &logical.options {
+                    for part in graphic_options.split(',') {
+                        let Some((key, value)) = part.split_once('=') else {
+                            continue;
+                        };
+                        match key.trim() {
+                            "width" => width_hint_pt = parse_graphic_dimension_pt(value),
+                            "height" | "totalheight" => {
+                                height_hint_pt = parse_graphic_dimension_pt(value);
+                            }
+                            "scale" => {
+                                let scale = value
+                                    .trim()
+                                    .parse::<f32>()
+                                    .ok()
+                                    .filter(|value| value.is_finite() && *value > 0.0);
+                                scale_hint = scale;
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+                let (image_width, image_height) = match (width_hint_pt, height_hint_pt) {
+                    (Some(width), Some(height)) => (width, height),
+                    (Some(width), None) => (
+                        width,
+                        (default_image_height * (width / default_image_width)).max(1.0),
+                    ),
+                    (None, Some(height)) => (
+                        (default_image_width * (height / default_image_height)).max(1.0),
+                        height,
+                    ),
+                    (None, None) => {
+                        let scale = scale_hint.unwrap_or(1.0);
+                        (default_image_width * scale, default_image_height * scale)
+                    }
+                };
                 let required_height = image_height
                     + if logical.caption.is_some() {
                         options.line_height_pt
@@ -834,6 +936,11 @@ pub fn build_page_display_lists(
                 let image_text = format!("[image: {}]", logical.path);
                 pending.text.push_str(&image_text);
                 pending.hash_input.push_str(&image_text);
+                if let Some(graphic_options) = &logical.options {
+                    pending.hash_input.push('\u{1f}');
+                    pending.hash_input.push_str("graphic-options:");
+                    pending.hash_input.push_str(graphic_options);
+                }
                 if let Some(asset_format) = logical.asset_format {
                     pending.hash_input.push('\u{1f}');
                     pending.hash_input.push_str("asset-format:");
@@ -844,6 +951,11 @@ pub fn build_page_display_lists(
                     pending.hash_input.push_str("asset-hash:");
                     pending.hash_input.push_str(asset_hash);
                 }
+                pending.hash_input.push('\u{1f}');
+                pending.hash_input.push_str(&format!(
+                    "image-rect:{:.3}:{:.3}:{image_width:.3}:{image_height:.3}",
+                    options.margin_left_pt, y
+                ));
                 record_source_spans(&logical.source, &mut pending.source_spans);
                 pending.ops.push(DrawOp::Image(PositionedImage {
                     rect: Rect {
@@ -1752,14 +1864,17 @@ mod tests {
         );
 
         assert_eq!(display_lists.len(), 1);
-        assert!(display_lists[0].ops.iter().any(|op| {
-            matches!(
-                op,
-                DrawOp::Image(image) if image.asset_ref == "figures/plot.pdf"
-                    && image.rect.x == 72.0
-                    && image.rect.width == 468.0
-            )
-        }));
+        let image = display_lists[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::Image(image) if image.asset_ref == "figures/plot.pdf" => Some(image),
+                _ => None,
+            })
+            .expect("image op");
+        assert_eq!(image.rect.x, 72.0);
+        assert!((image.rect.width - 374.4).abs() < 0.01);
+        assert!((image.rect.height - 67.2).abs() < 0.01);
         assert!(display_lists[0].ops.iter().any(|op| {
             matches!(
                 op,
@@ -1777,6 +1892,50 @@ mod tests {
                 .contains(&caption_related_span)
         );
         assert_eq!(display_lists[0].source_spans.len(), 3);
+    }
+
+    #[test]
+    fn graphic_absolute_dimension_options_affect_image_rect_and_hash() {
+        let source = SourceProvenance::file("main.tex", 0, 24);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.pdf".to_string(),
+                options: Some("width=5cm,height=2cm".to_string()),
+                asset_format: None,
+                asset_hash: None,
+                caption: None,
+                caption_source: None,
+                source: source.clone(),
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let different_width = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.pdf".to_string(),
+                options: Some("width=6cm,height=2cm".to_string()),
+                asset_format: None,
+                asset_hash: None,
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let image = display_lists[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::Image(image) if image.asset_ref == "figures/plot.pdf" => Some(image),
+                _ => None,
+            })
+            .expect("image op");
+
+        assert!((image.rect.width - (5.0 * 72.0 / 2.54)).abs() < 0.01);
+        assert!((image.rect.height - (2.0 * 72.0 / 2.54)).abs() < 0.01);
+        assert_ne!(
+            display_lists[0].content_hash,
+            different_width[0].content_hash
+        );
     }
 
     #[test]
