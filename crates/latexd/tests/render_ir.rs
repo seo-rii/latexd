@@ -13,6 +13,24 @@ use tex_render_model::{
 };
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole};
 
+fn tiny_png_bytes() -> Vec<u8> {
+    use image::ImageEncoder;
+
+    let mut bytes = Vec::new();
+    image::codecs::png::PngEncoder::new(&mut bytes)
+        .write_image(
+            &[
+                255, 0, 0, 0, 255, 0, //
+                0, 0, 255, 255, 255, 0,
+            ],
+            2,
+            2,
+            image::ExtendedColorType::Rgb8,
+        )
+        .expect("encode png");
+    bytes
+}
+
 #[test]
 fn compact_render_ir_capture_matches_goldens() {
     let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
@@ -2116,6 +2134,27 @@ fn graphicspath_assets_resolve_before_ir_and_display_list() {
     let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
     assert!(pdf_text.contains("[image: figures/plot.png]"));
     assert!(!pdf_text.contains("[image: plot]"));
+}
+
+#[test]
+fn graphic_display_list_pdf_can_embed_resolved_png_assets() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        GRAPHICSPATH_SOURCE,
+        &SemanticAux::default(),
+        &[("figures/plot.png", "fake png")],
+    );
+    let pdf =
+        tex_pdf::render_display_list_pdf_with_assets(&capture.page_display_lists, |asset_ref| {
+            (asset_ref == "figures/plot.png").then(tiny_png_bytes)
+        });
+    let pdf_text = String::from_utf8_lossy(&pdf);
+
+    assert!(pdf_text.contains("/Subtype /Image"));
+    assert!(pdf_text.contains("/XObject << /Im1 "));
+    assert!(pdf_text.contains("/Im1 Do"));
+    assert!(!pdf_text.contains("[image: figures/plot.png]"));
+    assert!(pdf_text.contains("(Plot caption.) Tj"));
 }
 
 #[test]

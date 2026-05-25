@@ -50,8 +50,11 @@ The important reading is:
 Current Phase 3 status: the first table slice is implemented at the event/IR
 boundary. Common `tabular`, `tabular*`, `array`, and `longtable` bodies are
 normalized into row/cell `Table` IR and rendered as readable monospaced
-display-list text, including table-float captions. Figure asset byte embedding
-and external PDF/EPS/SVG conversion are still deferred.
+display-list text, including table-float captions. The first figure slice is
+also implemented at the renderer boundary: resolver-provided PNG/JPEG bytes can
+be decoded into PDF `/Image` XObjects by `tex-pdf`. External PDF/EPS/SVG
+conversion, natural-size layout, and project-wide asset plumbing are still
+deferred.
 
 ## Product Goal
 
@@ -344,6 +347,24 @@ Tasks:
 - preserve caption text even if image rendering fails;
 - expose missing/unsupported image diagnostics as non-fatal render warnings.
 
+Implemented first slice:
+
+- `GraphicRef` and `GraphicBlock` already preserve asset refs, formats, hashes,
+  source spans, and captions into `PageDisplayList::Image`;
+- `tex-pdf` can now embed resolver-provided PNG/JPEG assets as PDF image
+  XObjects;
+- missing or undecodable assets still render as bounded placeholders instead of
+  deleting figure space or captions.
+
+Remaining figure work:
+
+- project/compiler wiring that resolves display-list assets from real source
+  roots when writing debug PDFs;
+- natural image dimensions and option-aware sizing;
+- external PDF/EPS/SVG conversion or raster insertion;
+- missing/unsupported image diagnostics surfaced through render artifacts;
+- raster tests that fail on missing major figure regions.
+
 Done when:
 
 - figure-heavy papers no longer show major blank regions;
@@ -513,8 +534,10 @@ Scope:
 Status:
 
 - table IR and basic monospaced display-list rendering are started;
-- figure asset identity/caption propagation exists, but real image byte
-  embedding/raster insertion is still pending.
+- figure asset identity/caption propagation exists, and resolver-provided
+  PNG/JPEG bytes can be embedded by `tex-pdf`;
+- external PDF/EPS/SVG conversion and project-wide asset plumbing are still
+  pending.
 
 Exit criteria:
 

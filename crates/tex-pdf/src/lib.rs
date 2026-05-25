@@ -1,5 +1,7 @@
 use tex_layout::{DocumentLayout, LayoutOptions, PageLayout};
-use tex_render_model::{DrawOp, FontFamilyRequest, FontSeries, FontShape, PageDisplayList};
+use tex_render_model::{
+    DrawOp, FontFamilyRequest, FontSeries, FontShape, PageDisplayList, PositionedImage,
+};
 
 pub const PAGE_TEXT_LEFT_PT: f32 = 72.0;
 pub const PAGE_TEXT_TOP_PT: f32 = 72.0;
@@ -74,7 +76,14 @@ pub fn render_single_page_pdf(page: &PageLayout, options: &LayoutOptions) -> Vec
 }
 
 pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
-    let mut objects = Vec::new();
+    render_display_list_pdf_with_assets(pages, |_| None)
+}
+
+pub fn render_display_list_pdf_with_assets(
+    pages: &[PageDisplayList],
+    mut resolve_asset: impl FnMut(&str) -> Option<Vec<u8>>,
+) -> Vec<u8> {
+    let mut objects = Vec::<Vec<u8>>::new();
     let mut destination_entries = Vec::new();
     let content_object_id = |index: usize| 15 + index * 2;
     let page_object_id = |index: usize| 16 + index * 2;
@@ -111,20 +120,26 @@ pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
                 .join(" ")
         )
     };
-    objects.push(format!(
-        "1 0 obj << /Type /Catalog /Pages 2 0 R{} >> endobj\n",
-        names
-    ));
-    objects.push(format!(
-        "2 0 obj << /Type /Pages /Kids [{}] /Count {} >> endobj\n",
-        pages
-            .iter()
-            .enumerate()
-            .map(|(index, _)| format!("{} 0 R", page_object_id(index)))
-            .collect::<Vec<_>>()
-            .join(" "),
-        pages.len()
-    ));
+    objects.push(
+        format!(
+            "1 0 obj << /Type /Catalog /Pages 2 0 R{} >> endobj\n",
+            names
+        )
+        .into_bytes(),
+    );
+    objects.push(
+        format!(
+            "2 0 obj << /Type /Pages /Kids [{}] /Count {} >> endobj\n",
+            pages
+                .iter()
+                .enumerate()
+                .map(|(index, _)| format!("{} 0 R", page_object_id(index)))
+                .collect::<Vec<_>>()
+                .join(" "),
+            pages.len()
+        )
+        .into_bytes(),
+    );
     for (object_id, base_font) in [
         (3, "Times-Roman"),
         (4, "Times-Bold"),
@@ -141,16 +156,19 @@ pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
     ] {
         objects.push(format!(
             "{object_id} 0 obj << /Type /Font /Subtype /Type1 /BaseFont /{base_font} >> endobj\n"
-        ));
+        )
+        .into_bytes());
     }
 
-    let mut annotation_objects = Vec::new();
-    let mut next_annotation_object_id = 15 + pages.len() * 2;
+    let mut extra_objects = Vec::new();
+    let mut next_extra_object_id = 15 + pages.len() * 2;
     for (index, page) in pages.iter().enumerate() {
         let content_id = content_object_id(index);
         let page_id = page_object_id(index);
         let mut stream = String::new();
         let mut annotation_refs = Vec::new();
+        let mut image_resource_refs = Vec::new();
+        let mut next_page_image_index = 1usize;
         for op in &page.ops {
             match op {
                 DrawOp::Save => {
@@ -236,69 +254,80 @@ pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
                     ));
                 }
                 DrawOp::Image(image) => {
-                    stream.push_str(&format!(
-                        "q 0.92 g {} {} {} {} re f 0 G {} {} {} {} re S Q ",
-                        image.rect.x,
-                        page.height_pt - image.rect.y - image.rect.height,
-                        image.rect.width,
-                        image.rect.height,
-                        image.rect.x,
-                        page.height_pt - image.rect.y - image.rect.height,
-                        image.rect.width,
-                        image.rect.height
-                    ));
-                    stream.push_str("BT /F1 8 Tf ");
-                    stream.push_str(&format!(
-                        "1 0 0 1 {} {} Tm ",
-                        image.rect.x + 4.0,
-                        page.height_pt - image.rect.y - image.rect.height / 2.0
-                    ));
-                    stream.push('(');
-                    stream.push_str(&escape_pdf_text(&format!("[image: {}]", image.asset_ref)));
-                    stream.push_str(") Tj ET ");
+                    if let Some(decoded) =
+                        resolve_asset(&image.asset_ref).and_then(|bytes| decode_pdf_image(&bytes))
+                    {
+                        let object_id = next_extra_object_id;
+                        next_extra_object_id += 1;
+                        let resource_name = format!("Im{next_page_image_index}");
+                        next_page_image_index += 1;
+                        image_resource_refs.push(format!("/{resource_name} {object_id} 0 R"));
+                        extra_objects.push(build_image_xobject(object_id, &decoded));
+                        stream.push_str(&format!(
+                            "q {} 0 0 {} {} {} cm /{} Do Q ",
+                            image.rect.width,
+                            image.rect.height,
+                            image.rect.x,
+                            page.height_pt - image.rect.y - image.rect.height,
+                            resource_name
+                        ));
+                    } else {
+                        push_image_placeholder(&mut stream, page.height_pt, image);
+                    }
                 }
                 DrawOp::LinkAnnotation(link) => {
-                    let annotation_id = next_annotation_object_id;
-                    next_annotation_object_id += 1;
+                    let annotation_id = next_extra_object_id;
+                    next_extra_object_id += 1;
                     annotation_refs.push(format!("{annotation_id} 0 R"));
-                    annotation_objects.push(format!(
+                    extra_objects.push(format!(
                         "{annotation_id} 0 obj << /Type /Annot /Subtype /Link /Rect [{} {} {} {}] /Border [0 0 0] /A << /S /URI /URI ({}) >> >> endobj\n",
                         link.rect.x,
                         page.height_pt - link.rect.y - link.rect.height,
                         link.rect.x + link.rect.width,
                         page.height_pt - link.rect.y,
                         escape_pdf_text(&link.target)
-                    ));
+                    )
+                    .into_bytes());
                 }
                 _ => {}
             }
         }
-        objects.push(format!(
-            "{content_id} 0 obj << /Length {} >> stream\n{}\nendstream\nendobj\n",
-            stream.len(),
-            stream
-        ));
+        objects.push(
+            format!(
+                "{content_id} 0 obj << /Length {} >> stream\n{}\nendstream\nendobj\n",
+                stream.len(),
+                stream
+            )
+            .into_bytes(),
+        );
         let annotations = if annotation_refs.is_empty() {
             String::new()
         } else {
             format!(" /Annots [{}]", annotation_refs.join(" "))
         };
+        let xobjects = if image_resource_refs.is_empty() {
+            String::new()
+        } else {
+            format!(" /XObject << {} >>", image_resource_refs.join(" "))
+        };
         objects.push(format!(
-            "{page_id} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << {} >> >> /Contents {content_id} 0 R{} >> endobj\n",
+            "{page_id} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 {} {}] /Resources << /Font << {} >>{} >> /Contents {content_id} 0 R{} >> endobj\n",
             page.width_pt,
             page.height_pt,
             font_resources,
+            xobjects,
             annotations
-        ));
+        )
+        .into_bytes());
     }
-    objects.extend(annotation_objects);
+    objects.extend(extra_objects);
 
     let mut pdf = Vec::new();
     pdf.extend_from_slice(b"%PDF-1.4\n");
     let mut offsets = vec![0usize];
     for object in &objects {
         offsets.push(pdf.len());
-        pdf.extend_from_slice(object.as_bytes());
+        pdf.extend_from_slice(object);
     }
 
     let xref_offset = pdf.len();
@@ -317,6 +346,58 @@ pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
     );
 
     pdf
+}
+
+struct DecodedPdfImage {
+    width: u32,
+    height: u32,
+    rgb: Vec<u8>,
+}
+
+fn decode_pdf_image(bytes: &[u8]) -> Option<DecodedPdfImage> {
+    let image = image::load_from_memory(bytes).ok()?.to_rgb8();
+    let (width, height) = image.dimensions();
+    Some(DecodedPdfImage {
+        width,
+        height,
+        rgb: image.into_raw(),
+    })
+}
+
+fn build_image_xobject(object_id: usize, image: &DecodedPdfImage) -> Vec<u8> {
+    let mut object = format!(
+        "{object_id} 0 obj << /Type /XObject /Subtype /Image /Width {} /Height {} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length {} >> stream\n",
+        image.width,
+        image.height,
+        image.rgb.len()
+    )
+    .into_bytes();
+    object.extend_from_slice(&image.rgb);
+    object.extend_from_slice(b"\nendstream\nendobj\n");
+    object
+}
+
+fn push_image_placeholder(stream: &mut String, page_height_pt: f32, image: &PositionedImage) {
+    stream.push_str(&format!(
+        "q 0.92 g {} {} {} {} re f 0 G {} {} {} {} re S Q ",
+        image.rect.x,
+        page_height_pt - image.rect.y - image.rect.height,
+        image.rect.width,
+        image.rect.height,
+        image.rect.x,
+        page_height_pt - image.rect.y - image.rect.height,
+        image.rect.width,
+        image.rect.height
+    ));
+    stream.push_str("BT /F1 8 Tf ");
+    stream.push_str(&format!(
+        "1 0 0 1 {} {} Tm ",
+        image.rect.x + 4.0,
+        page_height_pt - image.rect.y - image.rect.height / 2.0
+    ));
+    stream.push('(');
+    stream.push_str(&escape_pdf_text(&format!("[image: {}]", image.asset_ref)));
+    stream.push_str(") Tj ET ");
 }
 
 pub fn render_display_list_svg(page: &PageDisplayList) -> String {
@@ -687,9 +768,27 @@ mod tests {
     };
 
     use super::{
-        render_display_list_pdf, render_display_list_svg, render_page_svg, render_pdf,
-        render_single_page_pdf,
+        render_display_list_pdf, render_display_list_pdf_with_assets, render_display_list_svg,
+        render_page_svg, render_pdf, render_single_page_pdf,
     };
+
+    fn tiny_png_bytes() -> Vec<u8> {
+        use image::ImageEncoder;
+
+        let mut bytes = Vec::new();
+        image::codecs::png::PngEncoder::new(&mut bytes)
+            .write_image(
+                &[
+                    255, 0, 0, 0, 255, 0, //
+                    0, 0, 255, 255, 255, 0,
+                ],
+                2,
+                2,
+                image::ExtendedColorType::Rgb8,
+            )
+            .expect("encode png");
+        bytes
+    }
 
     #[test]
     fn emits_valid_pdf_header_and_trailer() {
@@ -1195,6 +1294,74 @@ mod tests {
         assert!(svg.contains("data-source-related-roles=\"argument\""));
         assert!(svg.contains("data-source-related-spans=\"argument:file:main.tex:30:48\""));
         assert!(svg.contains("[image: figures/a(b)&amp;c.pdf]"));
+    }
+
+    #[test]
+    fn renders_resolved_png_assets_as_pdf_image_xobjects() {
+        let source = SourceProvenance::file("main.tex", 0, 10);
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/tiny.png".to_string(),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: Some("blake3:tiny".to_string()),
+                source,
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/tiny.png").then(tiny_png_bytes)
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/XObject << /Im1 17 0 R >>"));
+        assert!(pdf_text.contains("q 144 0 0 72 72 642 cm /Im1 Do Q"));
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(pdf_text.contains("/Width 2"));
+        assert!(pdf_text.contains("/Height 2"));
+        assert!(pdf_text.contains("/ColorSpace /DeviceRGB"));
+        assert!(pdf_text.contains("/BitsPerComponent 8"));
+        assert!(!pdf_text.contains("[image: figures/tiny.png]"));
+    }
+
+    #[test]
+    fn unresolved_or_undecodable_display_list_images_keep_pdf_placeholder() {
+        let source = SourceProvenance::file("main.tex", 0, 10);
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/bad.png".to_string(),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: Some("blake3:bad".to_string()),
+                source,
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/bad.png").then(|| b"not an image".to_vec())
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("[image: figures/bad.png]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
     #[test]
