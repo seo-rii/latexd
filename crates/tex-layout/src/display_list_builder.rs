@@ -438,6 +438,15 @@ pub fn build_page_display_lists(
             }
             IrBlock::Table(block) => {
                 let mut segments = Vec::new();
+                let mut column_widths = Vec::new();
+                for row in &block.rows {
+                    for (index, cell) in row.cells.iter().enumerate() {
+                        if index == column_widths.len() {
+                            column_widths.push(0usize);
+                        }
+                        column_widths[index] = column_widths[index].max(cell.text.chars().count());
+                    }
+                }
                 if let Some(caption) = &block.caption {
                     let source = block
                         .caption_source
@@ -457,13 +466,22 @@ pub fn build_page_display_lists(
                             link_target: None,
                         });
                     }
+                    let mut row_text = String::new();
+                    for (index, cell) in row.cells.iter().enumerate() {
+                        if index > 0 {
+                            row_text.push_str(" | ");
+                        }
+                        row_text.push_str(&cell.text);
+                        if index + 1 < row.cells.len() {
+                            for _ in
+                                0..column_widths[index].saturating_sub(cell.text.chars().count())
+                            {
+                                row_text.push(' ');
+                            }
+                        }
+                    }
                     segments.push(LogicalTextSegment {
-                        text: row
-                            .cells
-                            .iter()
-                            .map(|cell| cell.text.as_str())
-                            .collect::<Vec<_>>()
-                            .join(" | "),
+                        text: row_text,
                         source: block.source.clone(),
                         link_target: None,
                     });
@@ -1115,8 +1133,8 @@ mod tests {
         AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint,
         DisplayMathBlock, DocumentIr, DrawOp, GraphicAssetFormat, GraphicBlock, HeadingBlock,
         InlineNode, IrBlock, LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind,
-        ParagraphBlock, ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan, TextCluster,
-        TitleBlock,
+        ParagraphBlock, ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan, TableBlock,
+        TableCell, TableRow, TextCluster, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists};
@@ -1160,6 +1178,53 @@ mod tests {
         assert_eq!(text_runs[1].text, "Ada Lovelace");
         assert_eq!(text_runs[2].text, "Hello world");
         assert_eq!(display_lists[0].source_spans.len(), 1);
+    }
+
+    #[test]
+    fn table_display_list_text_aligns_columns_by_cell_width() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                rows: vec![
+                    TableRow {
+                        cells: vec![
+                            TableCell {
+                                text: "A".to_string(),
+                            },
+                            TableCell {
+                                text: "Longer".to_string(),
+                            },
+                        ],
+                    },
+                    TableRow {
+                        cells: vec![
+                            TableCell {
+                                text: "Alpha".to_string(),
+                            },
+                            TableCell {
+                                text: "B".to_string(),
+                            },
+                        ],
+                    },
+                ],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let lines = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(lines.contains(&"A     | Longer"), "{lines:?}");
+        assert!(lines.contains(&"Alpha | B"), "{lines:?}");
     }
 
     #[test]

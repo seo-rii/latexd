@@ -50,16 +50,18 @@ The important reading is:
 Current Phase 3 status: the first table slice is implemented at the event/IR
 boundary. Common `tabular`, `tabular*`, `array`, and `longtable` bodies are
 normalized into row/cell `Table` IR and rendered as readable monospaced
-display-list text, including table-float captions. The first figure slice is
-also implemented at the renderer boundary: resolver-provided PNG/JPEG bytes can
-be decoded into PDF `/Image` XObjects by `tex-pdf`, and project-root render-IR
-capture can now write debug PDFs with those embedded assets. Image display-list
-boxes also honor the common `\includegraphics` `width`, `height`/`totalheight`,
-and `scale` options for common units and text/page-relative dimensions. Missing
-graphic assets now produce render-event diagnostics when the capture has enough
-project or mounted-file context to know the asset is absent, while preserving the
-image placeholder. External PDF/EPS/SVG conversion, natural-size asset probing,
-trim/clip fidelity, and production preview wiring are still deferred.
+display-list text, including table-float captions and basic max-width column
+padding for uneven rows. The first figure slice is also implemented at the
+renderer boundary: resolver-provided PNG/JPEG bytes can be decoded into PDF
+`/Image` XObjects by `tex-pdf`, and project-root render-IR capture can now write
+debug PDFs with those embedded assets. Image display-list boxes also honor the
+common `\includegraphics` `width`, `height`/`totalheight`, and `scale` options
+for common units and text/page-relative dimensions. Missing graphic assets now
+produce render-event diagnostics when the capture has enough project or
+mounted-file context to know the asset is absent, while preserving the image
+placeholder. External PDF/EPS/SVG conversion, natural-size asset probing,
+trim/clip fidelity, table rule/spanning semantics, and production preview wiring
+are still deferred.
 
 ## Product Goal
 

@@ -11153,6 +11153,26 @@ fn tabular_capture_builds_table_ir() {
 }
 
 #[test]
+fn tabular_display_list_aligns_columns_by_cell_width() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{ll}A & Longer \\ Alpha & B\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(table_lines.contains(&"A     | Longer"), "{table_lines:?}");
+    assert!(table_lines.contains(&"Alpha | B"), "{table_lines:?}");
+}
+
+#[test]
 fn longtable_capture_builds_table_ir() {
     let capture = capture_internal_render_ir(
         "main.tex",
