@@ -163,6 +163,10 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\nicefrac}[2]{#1/#2}
 \providecommand{\subfloat}[2][]{#2}
 \providecommand{\subcaptionbox}[2]{#2}
+\providecommand{\diagbox}[3][]{#2/#3}
+\providecommand{\makecell}[2][]{#2}
+\providecommand{\thead}[2][]{#2}
+\providecommand{\multirowcell}[3][]{#3}
 \providecommand{\FloatBarrier}{}
 \providecommand{\balance}{}
 \providecommand{\flushend}{}
@@ -219,6 +223,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "comment.sty",
     "color.sty",
     "csquotes.sty",
+    "diagbox.sty",
     "dblfloatfix.sty",
     "enumitem.sty",
     "etoolbox.sty",
@@ -237,6 +242,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "lipsum.sty",
     "longtable.sty",
     "lscape.sty",
+    "makecell.sty",
     "marvosym.sty",
     "mathtools.sty",
     "microtype.sty",
@@ -255,6 +261,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "soul.sty",
     "stfloats.sty",
     "subcaption.sty",
+    "subeqnarray.sty",
     "subfig.sty",
     "subfigure.sty",
     "tabu.sty",
@@ -16450,6 +16457,97 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 continue;
             }
         }
+        if command == "diagbox" {
+            let mut argument_index = skip_ascii_whitespace(source, command_name_end);
+            loop {
+                argument_index = skip_ascii_whitespace(source, argument_index);
+                let Some((_, _, _, after_option)) =
+                    read_bracket_source_argument(source, argument_index)
+                else {
+                    break;
+                };
+                argument_index = after_option;
+            }
+            if let Some((first, _, _, after_first)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                let second_index = skip_ascii_whitespace(source, after_first);
+                if let Some((second, _, _, command_after)) =
+                    read_braced_source_argument(source, second_index)
+                {
+                    append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                    let first = normalize_latex_text_with_inline_placeholders(first);
+                    let second = normalize_latex_text_with_inline_placeholders(second);
+                    let visible_text = if first.is_empty() {
+                        second
+                    } else if second.is_empty() {
+                        first
+                    } else {
+                        format!("{first}/{second}")
+                    };
+                    append_text(&mut text, &visible_text);
+                    found_structured_inline = true;
+                    chunk_start = command_after;
+                    scan_index = command_after;
+                    continue;
+                }
+            }
+        }
+        if matches!(command, "makecell" | "thead") {
+            let mut argument_index = skip_ascii_whitespace(source, command_name_end);
+            loop {
+                argument_index = skip_ascii_whitespace(source, argument_index);
+                let Some((_, _, _, after_option)) =
+                    read_bracket_source_argument(source, argument_index)
+                else {
+                    break;
+                };
+                argument_index = after_option;
+            }
+            if let Some((visible_text, _, _, command_after)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                append_text(&mut text, &visible_text);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
+        if command == "multirowcell" {
+            let mut argument_index = skip_ascii_whitespace(source, command_name_end);
+            loop {
+                argument_index = skip_ascii_whitespace(source, argument_index);
+                let Some((_, _, _, after_option)) =
+                    read_bracket_source_argument(source, argument_index)
+                else {
+                    break;
+                };
+                argument_index = after_option;
+            }
+            if let Some((_, _, _, after_rows)) = read_braced_source_argument(source, argument_index)
+            {
+                let mut text_index = skip_ascii_whitespace(source, after_rows);
+                if let Some((_, _, _, after_option)) =
+                    read_bracket_source_argument(source, text_index)
+                {
+                    text_index = after_option;
+                }
+                if let Some((visible_text, _, _, command_after)) =
+                    read_braced_source_argument(source, text_index)
+                {
+                    append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                    let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                    append_text(&mut text, &visible_text);
+                    found_structured_inline = true;
+                    chunk_start = command_after;
+                    scan_index = command_after;
+                    continue;
+                }
+            }
+        }
         if command == "color" {
             let argument_index = skip_ascii_whitespace(source, command_name_end);
             if let Some((_, _, _, command_after)) =
@@ -26812,6 +26910,49 @@ Fallback text.
             "{m/s}",
         ] {
             assert!(!visible_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_loads_table_helper_package_shims() {
+        let source = r"\documentclass{article}\usepackage{subeqnarray}\usepackage{diagbox}\usepackage{makecell}\begin{document}\begin{tabular}{cc}\diagbox{Rows}{Cols} & \makecell{Cell \cite{key}} \\\thead{Head} & \multirowcell{2}{Body}\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for package in ["subeqnarray.sty", "diagbox.sty", "makecell.sty"] {
+            assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+                diagnostic.kind == VmDiagnosticKind::MissingFile
+                    && diagnostic.detail == format!("package {package}")
+            }));
+            assert!(outcome.loaded_modules.contains(&Utf8PathBuf::from(package)));
+        }
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && matches!(
+                    diagnostic.detail.as_str(),
+                    "diagbox" | "makecell" | "thead" | "multirowcell"
+                )
+        }));
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        for visible in ["Rows/Cols", "Cell [?]", "Head", "Body"] {
+            assert!(
+                visible_text.contains(visible),
+                "visible text missing {visible:?}: {visible_text:?}"
+            );
         }
     }
 
