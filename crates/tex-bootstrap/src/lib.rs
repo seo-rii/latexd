@@ -731,7 +731,7 @@ pub fn run_project_from_base_snapshot_with_mounts(
             module_checkpoints,
             source_lengths,
             body_source_start_utf8: body_start as u32,
-            layout_profile: layout_profile_from_source(&source),
+            layout_profile: layout_profile_from_project_source(world, mounted_files, &source),
         },
         preamble_checkpoint,
     ))
@@ -842,7 +842,7 @@ pub fn run_project_from_checkpoint_with_mounts(
         module_checkpoints,
         source_lengths,
         body_source_start_utf8: body_start as u32,
-        layout_profile: layout_profile_from_source(&source),
+        layout_profile: layout_profile_from_project_source(world, mounted_files, &source),
     })
 }
 
@@ -1169,7 +1169,7 @@ pub fn run_project_with_snapshot(
         module_checkpoints: outcome.module_checkpoints,
         source_lengths,
         body_source_start_utf8: 0,
-        layout_profile: layout_profile_from_source(&source),
+        layout_profile: layout_profile_from_project_source(world, &BTreeMap::new(), &source),
     })
 }
 
@@ -1264,6 +1264,31 @@ fn layout_profile_from_source(source: &str) -> ProjectLayoutProfile {
     ProjectLayoutProfile::Default
 }
 
+fn layout_profile_from_project_source(
+    world: &ProjectWorld,
+    mounted_files: &BTreeMap<Utf8PathBuf, String>,
+    source: &str,
+) -> ProjectLayoutProfile {
+    let profile = layout_profile_from_source(source);
+    if matches!(
+        profile,
+        ProjectLayoutProfile::ArticleSingleColumn | ProjectLayoutProfile::ArticleTwoColumn
+    ) && project_file_exists(world, mounted_files, "article.cls")
+    {
+        return ProjectLayoutProfile::Default;
+    }
+    profile
+}
+
+fn project_file_exists(
+    world: &ProjectWorld,
+    mounted_files: &BTreeMap<Utf8PathBuf, String>,
+    path: &str,
+) -> bool {
+    let path = Utf8PathBuf::from(path);
+    mounted_files.contains_key(&path) || world.root.join(path).exists()
+}
+
 fn read_toplevel_source(
     world: &ProjectWorld,
     mounted_files: &BTreeMap<Utf8PathBuf, String>,
@@ -1324,7 +1349,7 @@ mod tests {
     use tex_world::ProjectWorld;
 
     use super::{
-        ProjectLayoutProfile, build_project_pdf, capture_page_checkpoints,
+        LayoutOptions, ProjectLayoutProfile, build_project_pdf, capture_page_checkpoints,
         compile_mini_kernel_snapshot, layout_profile_from_source, run_project,
         run_project_from_checkpoint, run_project_with_snapshot,
     };
@@ -1506,6 +1531,32 @@ mod tests {
             ProjectLayoutProfile::ArticleSingleColumn
         );
         assert_eq!(build.layout.options.chars_per_line, 56);
+    }
+
+    #[test]
+    fn project_pdf_build_ignores_article_profile_for_local_article_class() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("article.cls"), "").expect("local class");
+        fs::write(
+            root.join("paper.tex"),
+            "\\documentclass[11pt]{article}\\begin{document}Body\\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let build = build_project_pdf(&world).expect("project pdf");
+
+        assert_eq!(build.run.layout_profile, ProjectLayoutProfile::Default);
+        assert_eq!(
+            build.layout.options.chars_per_line,
+            LayoutOptions::default().chars_per_line
+        );
     }
 
     #[test]
