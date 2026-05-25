@@ -2216,6 +2216,43 @@ fn project_root_render_ir_capture_embeds_png_assets_in_debug_pdf() {
 }
 
 #[test]
+fn project_root_missing_graphic_asset_emits_render_diagnostic() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
+    fs::write(
+        root.join("main.tex").as_std_path(),
+        r"\begin{document}\includegraphics{figures/missing.png}Visible.\end{document}",
+    )
+    .expect("write source");
+
+    let capture =
+        capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
+            .expect("capture project render ir");
+
+    assert!(capture.events.events.iter().any(|event| matches!(
+        &event.event,
+        RenderEvent::Diagnostic(diagnostic)
+            if diagnostic.message.contains("missing graphic asset")
+                && diagnostic.message.contains("figures/missing.png")
+    )));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::Image(image)
+                if image.asset_ref == "figures/missing.png" && image.asset_hash.is_none()
+        )
+    }));
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Visible."), "{extracted_text}");
+    assert!(
+        !extracted_text.contains("figures/missing"),
+        "{extracted_text}"
+    );
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+    assert!(pdf_text.contains("[image: figures/missing.png]"));
+}
+
+#[test]
 fn declared_graphic_extension_order_resolves_before_ir_and_display_list() {
     let capture = capture_internal_render_ir_with_mounted_files(
         "main.tex",

@@ -8438,13 +8438,8 @@ impl<'i> Vm<'i> {
             graphic_paths,
             graphic_extensions,
         );
-        self.emit_render_event(
-            RenderEvent::GraphicRef(GraphicRefEvent {
-                asset_format: GraphicAssetFormat::from_path(&resolved_path),
-                asset_hash: self.project_file_hash(Utf8Path::new(&resolved_path)),
-                path: resolved_path,
-                options,
-            }),
+        let asset_hash = self.project_file_hash(Utf8Path::new(&resolved_path));
+        let event_source =
             SourceProvenance::file(source_path.to_owned(), command_start as u32, after as u32)
                 .with_related(
                     SourceSpanRole::ArgumentContent,
@@ -8453,9 +8448,39 @@ impl<'i> Vm<'i> {
                         start_utf8: path_start as u32,
                         end_utf8: path_end as u32,
                     }),
-                ),
+                );
+        self.emit_render_event(
+            RenderEvent::GraphicRef(GraphicRefEvent {
+                asset_format: GraphicAssetFormat::from_path(&resolved_path),
+                asset_hash: asset_hash.clone(),
+                path: resolved_path.clone(),
+                options,
+            }),
+            event_source.clone(),
+        );
+        self.emit_missing_graphic_asset_diagnostic(
+            &resolved_path,
+            asset_hash.as_deref(),
+            event_source,
         );
         Some(after)
+    }
+
+    fn emit_missing_graphic_asset_diagnostic(
+        &mut self,
+        resolved_path: &str,
+        asset_hash: Option<&str>,
+        source: SourceProvenance,
+    ) {
+        if asset_hash.is_some() || (self.file_root.is_none() && self.mounted_files.is_empty()) {
+            return;
+        }
+        self.emit_render_event(
+            RenderEvent::Diagnostic(RenderDiagnosticEvent {
+                message: format!("missing graphic asset {resolved_path}"),
+            }),
+            source,
+        );
     }
 
     fn command_argument_provenance(
@@ -8593,14 +8618,22 @@ impl<'i> Vm<'i> {
                 graphic_paths,
                 graphic_extensions,
             );
+            let asset_hash = self.project_file_hash(Utf8Path::new(&resolved_path));
+            let event_source =
+                SourceProvenance::file(source_path.to_owned(), command_start as u32, after as u32);
             self.emit_render_event(
                 RenderEvent::GraphicRef(GraphicRefEvent {
                     asset_format: GraphicAssetFormat::from_path(&resolved_path),
-                    asset_hash: self.project_file_hash(Utf8Path::new(&resolved_path)),
-                    path: resolved_path,
+                    asset_hash: asset_hash.clone(),
+                    path: resolved_path.clone(),
                     options: Some(options),
                 }),
-                SourceProvenance::file(source_path.to_owned(), command_start as u32, after as u32),
+                event_source.clone(),
+            );
+            self.emit_missing_graphic_asset_diagnostic(
+                &resolved_path,
+                asset_hash.as_deref(),
+                event_source,
             );
         }
         Some(after)
@@ -8632,13 +8665,8 @@ impl<'i> Vm<'i> {
             graphic_paths,
             graphic_extensions,
         );
-        self.emit_render_event(
-            RenderEvent::GraphicRef(GraphicRefEvent {
-                asset_format: GraphicAssetFormat::from_path(&resolved_path),
-                asset_hash: self.project_file_hash(Utf8Path::new(&resolved_path)),
-                path: resolved_path,
-                options: None,
-            }),
+        let asset_hash = self.project_file_hash(Utf8Path::new(&resolved_path));
+        let event_source =
             SourceProvenance::file(source_path.to_owned(), command_start as u32, after as u32)
                 .with_related(
                     SourceSpanRole::ArgumentContent,
@@ -8647,7 +8675,20 @@ impl<'i> Vm<'i> {
                         start_utf8: path_start as u32,
                         end_utf8: path_end as u32,
                     }),
-                ),
+                );
+        self.emit_render_event(
+            RenderEvent::GraphicRef(GraphicRefEvent {
+                asset_format: GraphicAssetFormat::from_path(&resolved_path),
+                asset_hash: asset_hash.clone(),
+                path: resolved_path.clone(),
+                options: None,
+            }),
+            event_source.clone(),
+        );
+        self.emit_missing_graphic_asset_diagnostic(
+            &resolved_path,
+            asset_hash.as_deref(),
+            event_source,
         );
         Some(after)
     }
