@@ -27,7 +27,7 @@ pub use ir::{
     AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, DisplayMathBlock,
     DocumentIr, EnvironmentBlock, GraphicBlock, HeadingBlock, InlineNode, IrBlock,
     LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ParagraphBlock, RawFallbackIr,
-    ReferenceInline, TitleBlock,
+    ReferenceInline, TableBlock, TableCell, TableRow, TitleBlock,
 };
 pub use provenance::{
     ExpansionFrame, GeneratedBy, GeneratedSpan, MAX_EXPANSION_FRAMES_IN_EVENT, ProvenanceSpan,

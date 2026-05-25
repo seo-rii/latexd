@@ -10971,29 +10971,34 @@ fn linebreak_provenance_preserves_delimiter_and_optional_spacing_span() {
 }
 
 #[test]
-fn tabular_fallback_capture_uses_normalized_visible_text() {
+fn tabular_capture_builds_table_ir() {
     let capture =
         capture_internal_render_ir("main.tex", TABULAR_FALLBACK_SOURCE, &SemanticAux::default());
-    let fallback = capture
+    let table = capture
         .document_ir
         .blocks
         .iter()
         .find_map(|block| match block {
-            IrBlock::RawFallback(fallback)
-                if fallback.environment.as_deref() == Some("tabular") =>
-            {
-                Some(fallback)
-            }
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
             _ => None,
         })
-        .expect("tabular fallback");
+        .expect("tabular table");
 
-    assert_eq!(
-        fallback.normalized_visible_text.as_deref(),
-        Some("Alpha | Beta ; Gamma | Delta")
-    );
+    assert_eq!(table.rows.len(), 2);
+    assert_eq!(table.rows[0].cells[0].text, "Alpha");
+    assert_eq!(table.rows[0].cells[1].text, "Beta");
+    assert_eq!(table.rows[1].cells[0].text, "Gamma");
+    assert_eq!(table.rows[1].cells[1].text, "Delta");
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("tabular")
+        )
+    }));
     let extracted_text = capture.document_ir.extracted_text();
-    assert!(extracted_text.contains("Alpha | Beta ; Gamma | Delta"));
+    assert!(extracted_text.contains("Alpha | Beta"));
+    assert!(extracted_text.contains("Gamma | Delta"));
     assert!(!extracted_text.contains("&"));
     assert!(!extracted_text.contains("ll"));
     assert!(!extracted_text.contains("hline"));
@@ -11006,39 +11011,38 @@ fn tabular_fallback_capture_uses_normalized_visible_text() {
             _ => None,
         })
         .collect::<Vec<_>>()
-        .join("");
-    assert!(display_list_text.contains("Alpha | Beta ; Gamma | Delta"));
+        .join("\n");
+    assert!(display_list_text.contains("Alpha | Beta"));
+    assert!(display_list_text.contains("Gamma | Delta"));
     assert!(!display_list_text.contains("&"));
     assert!(!display_list_text.contains("hline"));
 }
 
 #[test]
-fn longtable_fallback_capture_uses_normalized_visible_text() {
+fn longtable_capture_builds_table_ir() {
     let capture = capture_internal_render_ir(
         "main.tex",
         LONGTABLE_FALLBACK_SOURCE,
         &SemanticAux::default(),
     );
-    let fallback = capture
+    let table = capture
         .document_ir
         .blocks
         .iter()
         .find_map(|block| match block {
-            IrBlock::RawFallback(fallback)
-                if fallback.environment.as_deref() == Some("longtable") =>
-            {
-                Some(fallback)
-            }
+            IrBlock::Table(table) if table.environment == "longtable" => Some(table),
             _ => None,
         })
-        .expect("longtable fallback");
+        .expect("longtable table");
 
-    assert_eq!(
-        fallback.normalized_visible_text.as_deref(),
-        Some("Alpha | Beta ; Gamma | Delta")
-    );
+    assert_eq!(table.rows.len(), 2);
+    assert_eq!(table.rows[0].cells[0].text, "Alpha");
+    assert_eq!(table.rows[0].cells[1].text, "Beta");
+    assert_eq!(table.rows[1].cells[0].text, "Gamma");
+    assert_eq!(table.rows[1].cells[1].text, "Delta");
     let extracted_text = capture.document_ir.extracted_text();
-    assert!(extracted_text.contains("Alpha | Beta ; Gamma | Delta"));
+    assert!(extracted_text.contains("Alpha | Beta"));
+    assert!(extracted_text.contains("Gamma | Delta"));
     assert!(!extracted_text.contains("&"));
     assert!(!extracted_text.contains("ll"));
     assert!(!extracted_text.contains("hline"));
@@ -11051,37 +11055,31 @@ fn longtable_fallback_capture_uses_normalized_visible_text() {
             _ => None,
         })
         .collect::<Vec<_>>()
-        .join("");
-    assert!(display_list_text.contains("Alpha | Beta ; Gamma | Delta"));
+        .join("\n");
+    assert!(display_list_text.contains("Alpha | Beta"));
+    assert!(display_list_text.contains("Gamma | Delta"));
     assert!(!display_list_text.contains("&"));
     assert!(!display_list_text.contains("hline"));
 }
 
 #[test]
-fn longtable_fallback_labels_survive_without_visible_key() {
+fn longtable_table_ir_labels_survive_without_visible_key() {
     let capture = capture_internal_render_ir(
         "main.tex",
         LONGTABLE_FALLBACK_LABEL_SOURCE,
         &SemanticAux::default(),
     );
-    let fallback = capture
+    let table = capture
         .document_ir
         .blocks
         .iter()
         .find_map(|block| match block {
-            IrBlock::RawFallback(fallback)
-                if fallback.environment.as_deref() == Some("longtable") =>
-            {
-                Some(fallback)
-            }
+            IrBlock::Table(table) if table.environment == "longtable" => Some(table),
             _ => None,
         })
-        .expect("longtable fallback");
+        .expect("longtable table");
 
-    let visible = fallback
-        .normalized_visible_text
-        .as_deref()
-        .expect("visible fallback text");
+    let visible = table.visible_text();
     assert!(visible.contains("Long table."));
     assert!(visible.contains("Alpha | Beta"));
     assert!(!visible.contains("tab:long"));
@@ -11109,11 +11107,65 @@ fn longtable_fallback_labels_survive_without_visible_key() {
             _ => None,
         })
         .collect::<Vec<_>>()
-        .join("");
+        .join("\n");
     assert!(display_list_text.contains("Long table."));
     assert!(display_list_text.contains("Alpha | Beta"));
     assert!(!display_list_text.contains("tab:long"));
     assert!(!display_list_text.contains("label"));
+}
+
+#[test]
+fn table_float_caption_and_tabular_body_build_table_ir() {
+    let capture =
+        capture_internal_render_ir("main.tex", TABLE_FLOAT_BODY_SOURCE, &SemanticAux::default());
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("table float table");
+
+    assert_eq!(table.caption.as_deref(), Some("Data table."));
+    assert_eq!(table.rows.len(), 2);
+    assert_eq!(table.rows[0].cells[0].text, "Alpha");
+    assert_eq!(table.rows[0].cells[1].text, "Beta");
+    assert_eq!(table.rows[1].cells[0].text, "Gamma");
+    assert_eq!(table.rows[1].cells[1].text, "Delta");
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("table")
+                    || fallback.environment.as_deref() == Some("tabular")
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Data table."));
+    assert!(extracted_text.contains("Alpha | Beta"));
+    assert!(extracted_text.contains("Gamma | Delta"));
+    assert!(!extracted_text.contains("&"));
+    assert!(!extracted_text.contains("ll"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("Data table."));
+    assert!(display_list_text.contains("Alpha | Beta"));
+    assert!(display_list_text.contains("Gamma | Delta"));
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+    assert!(pdf_text.contains("(Data table.) Tj"));
+    assert!(pdf_text.contains("(Alpha | Beta) Tj"));
+    assert!(pdf_text.contains("(Gamma | Delta) Tj"));
 }
 
 #[test]
@@ -14583,6 +14635,8 @@ const LINEBREAK_OPTIONAL_SOURCE: &str =
     r"\begin{document}First line\\[0.5em]Second line.\end{document}";
 
 const TABULAR_FALLBACK_SOURCE: &str = r"\begin{document}\begin{tabular}{ll}Alpha & Beta \\ Gamma & \textbf{Delta} \\\hline\end{tabular}\end{document}";
+
+const TABLE_FLOAT_BODY_SOURCE: &str = r"\def\caption#1{#1}\begin{document}\begin{table}\caption{Data table.}\begin{tabular}{ll}Alpha & Beta \\ Gamma & Delta\end{tabular}\end{table}\end{document}";
 
 const LIST_SOURCE: &str = r"\begin{document}\begin{itemize}\item First \cite{key}\item[Custom] Second\end{itemize}\begin{enumerate}\item One\item Two\end{enumerate}\begin{description}\item[Term] Meaning \cite{key}\item[Other] More\end{description}\end{document}";
 

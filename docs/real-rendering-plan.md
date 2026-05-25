@@ -47,6 +47,12 @@ The important reading is:
 - real rendering must be measured with structure and raster checks, not only
   unique token overlap.
 
+Current Phase 3 status: the first table slice is implemented at the event/IR
+boundary. Common `tabular`, `tabular*`, `array`, and `longtable` bodies are
+normalized into row/cell `Table` IR and rendered as readable monospaced
+display-list text, including table-float captions. Figure asset byte embedding
+and external PDF/EPS/SVG conversion are still deferred.
+
 ## Product Goal
 
 The product goal is a fast internal preview that is visually and semantically
@@ -373,8 +379,8 @@ papers.
 Tasks:
 
 - parse tabular rows and cells into `Table` IR;
-- support `&`, `\\`, `\hline`, `\cline`, `\toprule`, `\midrule`,
-  `\bottomrule`;
+- support `&`, `\\`, `\tabularnewline`, `\hline`, `\cline`, `\toprule`,
+  `\midrule`, `\bottomrule`, and related booktabs rule commands;
 - support basic `l`, `c`, `r`, and paragraph columns;
 - handle `\multicolumn` and `\multirow` as approximations;
 - render table caption and label;
@@ -385,6 +391,22 @@ Done when:
 - tables are readable;
 - table content is no longer flattened into broken inline text;
 - table captions and labels remain discoverable.
+
+Implemented first slice:
+
+- `tabular`, `tabular*`, `array`, and `longtable` emit bounded
+  table-fallback events instead of raw body text;
+- `DocumentIrBuilder` promotes those events into `Table` IR with rows, cells,
+  caption, and label-preserving source provenance;
+- the text-only display-list path renders table caption and rows with a
+  monospaced font request.
+
+Remaining table work:
+
+- column widths, alignment, spanning, and multirow approximations;
+- proper table borders/rules in `PageDisplayList`;
+- stronger booktabs/array-package compatibility on corpus fixtures;
+- raster-oriented table readability gates.
 
 ### G. Math Rendering
 
@@ -487,6 +509,12 @@ Scope:
 - real image resolution and embedding/raster insertion;
 - figure captions;
 - table IR and basic rendering.
+
+Status:
+
+- table IR and basic monospaced display-list rendering are started;
+- figure asset identity/caption propagation exists, but real image byte
+  embedding/raster insertion is still pending.
 
 Exit criteria:
 

@@ -3,7 +3,7 @@ use tex_render_model::{
     EnvironmentBlock, GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr,
     LinkInline, ListBlock, ListItemIr, ListKind, MetadataField, ParagraphBlock, ReferenceInline,
     RenderEvent, RenderEventEnvelope, RenderEventStream, SourceProvenance, SourceSpanRole,
-    TitleBlock,
+    TableBlock, TableCell, TableRow, TitleBlock,
 };
 
 pub fn build_document_ir(stream: &RenderEventStream, aux: &impl AuxView) -> DocumentIr {
@@ -22,6 +22,7 @@ pub struct DocumentIrBuilder<'a, A: AuxView> {
     list: Option<(ListKind, Vec<ListItemIr>, SourceProvenance)>,
     list_item: Option<(Vec<InlineNode>, SourceProvenance, Option<String>)>,
     float_stack: Vec<tex_render_model::BlockKind>,
+    pending_table_caption: Option<(String, SourceProvenance)>,
     title: Option<(String, SourceProvenance)>,
     authors: Vec<(String, SourceProvenance)>,
     date: Option<(String, SourceProvenance)>,
@@ -42,6 +43,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             list: None,
             list_item: None,
             float_stack: Vec::new(),
+            pending_table_caption: None,
             title: None,
             authors: Vec::new(),
             date: None,
@@ -187,6 +189,18 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             .rposition(|block| block == &event.block)
                         {
                             self.float_stack.remove(position);
+                        }
+                        if matches!(event.block, tex_render_model::BlockKind::Table)
+                            && let Some((caption, caption_source)) =
+                                self.pending_table_caption.take()
+                        {
+                            self.blocks.push(IrBlock::Table(TableBlock {
+                                environment: "table".to_string(),
+                                rows: Vec::new(),
+                                caption: Some(caption),
+                                caption_source: Some(caption_source.clone()),
+                                source: caption_source,
+                            }));
                         }
                     }
                 },
@@ -371,12 +385,65 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                 RenderEvent::ParagraphBreak(_) => {}
                 RenderEvent::RawFallback(event) => {
                     self.flush_paragraph();
-                    self.blocks.push(IrBlock::RawFallback(
-                        tex_render_model::RawFallbackIr::from_event(
-                            event,
-                            envelope.meta.source.clone(),
-                        ),
-                    ));
+                    if matches!(
+                        event.environment.as_deref(),
+                        Some("array" | "tabular" | "tabular*" | "longtable")
+                    ) {
+                        let visible = event
+                            .normalized_visible_text
+                            .clone()
+                            .unwrap_or_else(|| event.source_excerpt.clone());
+                        let mut rows = visible
+                            .split(';')
+                            .filter_map(|row| {
+                                let cells = row
+                                    .split(" | ")
+                                    .map(str::trim)
+                                    .filter(|cell| !cell.is_empty())
+                                    .map(|text| TableCell {
+                                        text: text.to_string(),
+                                    })
+                                    .collect::<Vec<_>>();
+                                (!cells.is_empty()).then_some(TableRow { cells })
+                            })
+                            .collect::<Vec<_>>();
+                        let (mut caption, mut caption_source) = self
+                            .pending_table_caption
+                            .take()
+                            .map_or((None, None), |(caption, source)| {
+                                (Some(caption), Some(source))
+                            });
+                        if caption.is_none()
+                            && event.environment.as_deref() == Some("longtable")
+                            && event.source_excerpt.contains(r"\caption")
+                            && rows.len() > 1
+                            && rows.first().is_some_and(|row| row.cells.len() == 1)
+                        {
+                            caption = rows
+                                .first()
+                                .and_then(|row| row.cells.first())
+                                .map(|cell| cell.text.clone());
+                            caption_source = Some(envelope.meta.source.clone());
+                            rows.remove(0);
+                        }
+                        self.blocks.push(IrBlock::Table(TableBlock {
+                            environment: event
+                                .environment
+                                .clone()
+                                .unwrap_or_else(|| "tabular".to_string()),
+                            rows,
+                            caption,
+                            caption_source,
+                            source: envelope.meta.source.clone(),
+                        }));
+                    } else {
+                        self.blocks.push(IrBlock::RawFallback(
+                            tex_render_model::RawFallbackIr::from_event(
+                                event,
+                                envelope.meta.source.clone(),
+                            ),
+                        ));
+                    }
                 }
                 RenderEvent::GraphicRef(event) => {
                     self.flush_paragraph();
@@ -398,6 +465,19 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     {
                         block.caption = Some(event.text.clone());
                         block.caption_source = Some(envelope.meta.source.clone());
+                    } else if matches!(
+                        self.float_stack.last(),
+                        Some(tex_render_model::BlockKind::Table)
+                    ) {
+                        if let Some(IrBlock::Table(block)) = self.blocks.last_mut()
+                            && block.caption.is_none()
+                        {
+                            block.caption = Some(event.text.clone());
+                            block.caption_source = Some(envelope.meta.source.clone());
+                        } else {
+                            self.pending_table_caption =
+                                Some((event.text.clone(), envelope.meta.source.clone()));
+                        }
                     } else {
                         self.flush_paragraph();
                         self.blocks.push(IrBlock::Paragraph(ParagraphBlock {
@@ -501,10 +581,10 @@ mod tests {
     use tex_render_model::{
         BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationLabel,
         CitationStyleHint, EndBlockEvent, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
-        InlineCitationEvent, InlineLinkEvent, InlineNode, InlineReferenceEvent, IrBlock,
-        LabelDefinitionEvent, LabelTargetView, MathSourceEvent, MetadataField, ParagraphBreakEvent,
-        ParagraphBreakReason, RawFallbackEvent, RenderEvent, RenderEventEnvelope,
-        RenderEventStream, SetDocumentMetadataEvent, SourceProvenance, TextEvent,
+        InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, IrBlock, LabelDefinitionEvent,
+        LabelTargetView, MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason,
+        RawFallbackEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
+        SetDocumentMetadataEvent, SourceProvenance, TextEvent,
     };
 
     use super::build_document_ir;
@@ -943,14 +1023,10 @@ mod tests {
 
         assert!(matches!(
             ir.blocks.as_slice(),
-            [IrBlock::Graphic(graphic), IrBlock::Paragraph(paragraph)]
+            [IrBlock::Graphic(graphic), IrBlock::Table(table)]
                 if graphic.caption.as_deref() == Some("Plot caption.")
-                    && paragraph.content.iter().any(|node| {
-                        matches!(
-                            node,
-                            InlineNode::Text { text, .. } if text == "Table caption."
-                        )
-                    })
+                    && table.caption.as_deref() == Some("Table caption.")
+                    && table.rows.is_empty()
         ));
         assert_eq!(ir.extracted_text(), "Plot caption.\nTable caption.");
     }

@@ -213,6 +213,7 @@ impl DocumentIr {
                         text.push_str(caption);
                     }
                 }
+                IrBlock::Table(block) => text.push_str(&block.visible_text()),
                 IrBlock::RawFallback(block) => {
                     if let Some(visible) = &block.normalized_visible_text {
                         text.push_str(visible);
@@ -238,6 +239,7 @@ pub enum IrBlock {
     DisplayMath(DisplayMathBlock),
     Bibliography(BibliographyBlock),
     Graphic(GraphicBlock),
+    Table(TableBlock),
     RawFallback(RawFallbackIr),
 }
 
@@ -337,6 +339,49 @@ pub struct GraphicBlock {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caption_source: Option<SourceProvenance>,
     pub source: SourceProvenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableBlock {
+    pub environment: String,
+    pub rows: Vec<TableRow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption_source: Option<SourceProvenance>,
+    pub source: SourceProvenance,
+}
+
+impl TableBlock {
+    pub fn visible_text(&self) -> String {
+        let mut text = String::new();
+        if let Some(caption) = &self.caption {
+            text.push_str(caption);
+        }
+        for row in &self.rows {
+            if !text.is_empty() {
+                text.push('\n');
+            }
+            text.push_str(
+                &row.cells
+                    .iter()
+                    .map(|cell| cell.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" | "),
+            );
+        }
+        text
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableRow {
+    pub cells: Vec<TableCell>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableCell {
+    pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

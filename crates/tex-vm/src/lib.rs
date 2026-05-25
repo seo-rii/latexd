@@ -2834,6 +2834,50 @@ impl<'i> Vm<'i> {
                                                     continue;
                                                 }
                                             }
+                                            "begin" => {
+                                                if let Some((
+                                                    table_environment,
+                                                    _,
+                                                    _,
+                                                    after_table_environment,
+                                                )) = read_braced_source_argument(
+                                                    source,
+                                                    body_command_index,
+                                                ) && matches!(
+                                                    table_environment.trim(),
+                                                    "array" | "tabular" | "tabular*" | "longtable"
+                                                ) && after_table_environment <= body_end
+                                                {
+                                                    let table_environment =
+                                                        table_environment.trim();
+                                                    let end_marker =
+                                                        format!("\\end{{{table_environment}}}");
+                                                    if let Some(relative_table_end) = source
+                                                        [after_table_environment..body_end]
+                                                        .find(&end_marker)
+                                                    {
+                                                        let table_body_end = after_table_environment
+                                                            + relative_table_end;
+                                                        let table_raw_end =
+                                                            table_body_end + end_marker.len();
+                                                        if let Some(after) = self
+                                                            .capture_table_fallback_event(
+                                                                source_path,
+                                                                source,
+                                                                body_command_start,
+                                                                table_raw_end,
+                                                                after_table_environment,
+                                                                &source[after_table_environment
+                                                                    ..table_body_end],
+                                                                table_environment,
+                                                            )
+                                                        {
+                                                            body_index = after;
+                                                            continue;
+                                                        }
+                                                    }
+                                                }
+                                            }
                                             "caption" => {
                                                 if let Some(after) = self.capture_caption_event(
                                                     source_path,
@@ -3040,6 +3084,22 @@ impl<'i> Vm<'i> {
                                     let body_end = index + relative_end;
                                     let raw_end = body_end + end_marker.len();
                                     let body_source = &source[body_start..body_end];
+                                    if matches!(
+                                        other,
+                                        "array" | "tabular" | "tabular*" | "longtable"
+                                    ) && let Some(after) = self.capture_table_fallback_event(
+                                        source_path,
+                                        source,
+                                        command_start,
+                                        raw_end,
+                                        body_start,
+                                        body_source,
+                                        other,
+                                    ) {
+                                        index = after;
+                                        text_start = index;
+                                        continue;
+                                    }
                                     let normalized_visible_text = if matches!(
                                         other,
                                         "verbatim" | "verbatim*"
@@ -8184,6 +8244,160 @@ impl<'i> Vm<'i> {
             }
             _ => None,
         }
+    }
+
+    fn capture_table_fallback_event(
+        &mut self,
+        source_path: &Utf8Path,
+        source: &str,
+        command_start: usize,
+        raw_end: usize,
+        body_start: usize,
+        body_source: &str,
+        environment: &str,
+    ) -> Option<usize> {
+        let mut table_body_start = skip_ascii_whitespace(body_source, 0);
+        if environment == "tabular*" {
+            if let Some((_, _, _, after)) =
+                read_braced_source_argument(body_source, table_body_start)
+            {
+                table_body_start = after;
+            }
+            table_body_start = skip_ascii_whitespace(body_source, table_body_start);
+        }
+        if let Some((_, _, _, after)) = read_bracket_source_argument(body_source, table_body_start)
+        {
+            table_body_start = after;
+        }
+        if let Some((_, _, _, after)) = read_braced_source_argument(body_source, table_body_start) {
+            table_body_start = after;
+        }
+        table_body_start = skip_ascii_whitespace(body_source, table_body_start);
+
+        let table_body = &body_source[table_body_start..];
+        let mut rewritten = String::new();
+        let mut table_index = 0usize;
+        while table_index < table_body.len() {
+            let byte = table_body.as_bytes()[table_index];
+            match byte {
+                b'&' => {
+                    rewritten.push_str(" | ");
+                    table_index += 1;
+                }
+                b'\\' => {
+                    if table_body.as_bytes().get(table_index + 1).copied() == Some(b'\\') {
+                        rewritten.push_str(" ; ");
+                        table_index += 2;
+                        if let Some((_, _, _, after)) =
+                            read_bracket_source_argument(table_body, table_index)
+                        {
+                            table_index = after;
+                        }
+                        continue;
+                    }
+                    let command_start_in_table = table_index + 1;
+                    let mut command_end = command_start_in_table;
+                    while command_end < table_body.len()
+                        && (table_body.as_bytes()[command_end].is_ascii_alphabetic()
+                            || table_body.as_bytes()[command_end] == b'@')
+                    {
+                        command_end += 1;
+                    }
+                    let command = &table_body[command_start_in_table..command_end];
+                    match command {
+                        "tabularnewline" => {
+                            rewritten.push_str(" ; ");
+                            table_index = command_end;
+                            if let Some((_, _, _, after)) =
+                                read_bracket_source_argument(table_body, table_index)
+                            {
+                                table_index = after;
+                            }
+                        }
+                        "hline" | "toprule" | "midrule" | "bottomrule" => {
+                            table_index = command_end;
+                        }
+                        "label" => {
+                            table_index = command_end;
+                            if let Some((key, key_start, key_end, after)) =
+                                read_braced_source_argument(table_body, table_index)
+                            {
+                                self.emit_render_event(
+                                    RenderEvent::LabelDefinition(LabelDefinitionEvent {
+                                        key: key.trim().to_string(),
+                                        command: command.to_string(),
+                                    }),
+                                    Self::label_definition_provenance(
+                                        source_path,
+                                        body_start + table_body_start + command_start_in_table - 1,
+                                        body_start + table_body_start + after,
+                                        body_start + table_body_start + key_start,
+                                        body_start + table_body_start + key_end,
+                                    ),
+                                );
+                                table_index = after;
+                            }
+                        }
+                        "cline" | "cmidrule" => {
+                            table_index = command_end;
+                            if let Some((_, _, _, after)) =
+                                read_bracket_source_argument(table_body, table_index)
+                            {
+                                table_index = after;
+                            }
+                            if let Some((_, _, _, after)) =
+                                read_braced_source_argument(table_body, table_index)
+                            {
+                                table_index = after;
+                            }
+                        }
+                        _ => {
+                            rewritten.push('\\');
+                            rewritten.push_str(command);
+                            table_index = command_end;
+                        }
+                    }
+                }
+                _ => {
+                    let ch = table_body[table_index..]
+                        .chars()
+                        .next()
+                        .expect("char at byte index");
+                    rewritten.push(ch);
+                    table_index += ch.len_utf8();
+                }
+            }
+        }
+
+        let normalized_visible_text = normalize_latex_text_with_inline_placeholders(&rewritten)
+            .trim_end_matches(';')
+            .trim_end()
+            .to_string();
+        let raw_fallback_source = &source[command_start..raw_end];
+        let mut source_excerpt_end = raw_fallback_source.len().min(2048);
+        while !raw_fallback_source.is_char_boundary(source_excerpt_end) {
+            source_excerpt_end -= 1;
+        }
+        let source_excerpt = raw_fallback_source[..source_excerpt_end].to_string();
+        let truncated = source_excerpt_end < raw_fallback_source.len();
+        let source_digest = blake3::hash(raw_fallback_source.as_bytes()).to_hex();
+        let source_hash = format!("blake3:{source_digest}");
+        let full_source_artifact = format!("fallbacks/{source_digest}.tex");
+        let fallback_event = self.emit_render_event(
+            RenderEvent::RawFallback(RawFallbackEvent {
+                source_excerpt,
+                expanded_text: None,
+                normalized_visible_text: Some(normalized_visible_text),
+                environment: Some(environment.to_string()),
+                reason: FallbackReason::UnsupportedEnvironment,
+                source_hash: Some(source_hash),
+                full_source_artifact: Some(full_source_artifact),
+                truncated,
+            }),
+            SourceProvenance::file(source_path.to_owned(), command_start as u32, raw_end as u32),
+        );
+        fallback_event.meta.mode_hint = ModeHint::Vertical;
+        Some(raw_end)
     }
 
     fn capture_includegraphics_event(

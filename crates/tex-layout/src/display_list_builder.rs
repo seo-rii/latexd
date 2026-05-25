@@ -434,6 +434,54 @@ pub fn build_page_display_lists(
                     }));
                 }
             }
+            IrBlock::Table(block) => {
+                let mut segments = Vec::new();
+                if let Some(caption) = &block.caption {
+                    let source = block
+                        .caption_source
+                        .clone()
+                        .unwrap_or_else(|| block.source.clone());
+                    segments.push(LogicalTextSegment {
+                        text: caption.clone(),
+                        source,
+                        link_target: None,
+                    });
+                }
+                for row in &block.rows {
+                    if !segments.is_empty() {
+                        segments.push(LogicalTextSegment {
+                            text: "\n".to_string(),
+                            source: block.source.clone(),
+                            link_target: None,
+                        });
+                    }
+                    segments.push(LogicalTextSegment {
+                        text: row
+                            .cells
+                            .iter()
+                            .map(|cell| cell.text.as_str())
+                            .collect::<Vec<_>>()
+                            .join(" | "),
+                        source: block.source.clone(),
+                        link_target: None,
+                    });
+                }
+                logical_items.push(LogicalItem::Text(LogicalTextRun {
+                    segments,
+                    source: block.source.clone(),
+                    font: FontRequest {
+                        family: FontFamilyRequest::Mono,
+                        series: FontSeries::Regular,
+                        shape: FontShape::Upright,
+                        size_pt: options.body_font_size_pt,
+                        role: FontRole::Mono,
+                    },
+                    size_pt: options.body_font_size_pt,
+                    gap_after_pt: options.block_gap_pt,
+                    first_line_indent_pt: 0.0,
+                    continuation_indent_pt: 0.0,
+                }));
+            }
             IrBlock::RawFallback(block) => {
                 logical_items.push(LogicalItem::Text(LogicalTextRun {
                     segments: vec![LogicalTextSegment {
