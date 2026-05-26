@@ -360,6 +360,8 @@ pub struct RawFallbackEvent {
     pub full_source_artifact: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub table_rules: Vec<TableRuleEvent>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub table_cell_spans: Vec<TableCellSpanEvent>,
     #[serde(default)]
     pub truncated: bool,
 }
@@ -383,6 +385,13 @@ pub enum TableRulePosition {
 pub struct TableRuleSpan {
     pub start_column: usize,
     pub end_column: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableCellSpanEvent {
+    pub row_index: usize,
+    pub column_index: usize,
+    pub column_span: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -500,6 +509,7 @@ mod tests {
                 source_hash: None,
                 full_source_artifact: None,
                 table_rules: Vec::new(),
+                table_cell_spans: Vec::new(),
                 truncated: false,
             }),
             SourceProvenance::file("main.tex", 0, 35),
@@ -701,6 +711,7 @@ mod tests {
                 source_hash: None,
                 full_source_artifact: None,
                 table_rules: Vec::new(),
+                table_cell_spans: Vec::new(),
                 truncated: false,
             }),
             SourceProvenance::file("main.tex", 420, 455),

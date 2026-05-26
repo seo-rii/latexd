@@ -14,7 +14,7 @@ use tex_render_model::{
     ListKind, MathSourceEvent, MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason,
     ProvenanceSpan, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
     SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
-    TableRuleEvent, TableRulePosition, TableRuleSpan, TextEvent,
+    TableCellSpanEvent, TableRuleEvent, TableRulePosition, TableRuleSpan, TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -3350,6 +3350,7 @@ impl<'i> Vm<'i> {
                                             source_hash: Some(source_hash),
                                             full_source_artifact: Some(full_source_artifact),
                                             table_rules: Vec::new(),
+                                            table_cell_spans: Vec::new(),
                                             truncated,
                                         }),
                                         SourceProvenance::file(
@@ -8278,7 +8279,9 @@ impl<'i> Vm<'i> {
         let table_body = &body_source[table_body_start..];
         let mut rewritten = String::new();
         let mut table_rules = Vec::new();
+        let mut table_cell_spans = Vec::new();
         let mut current_row_index = 0usize;
+        let mut current_column_index = 0usize;
         let mut row_has_visible_content = false;
         let mut table_index = 0usize;
         while table_index < table_body.len() {
@@ -8286,6 +8289,7 @@ impl<'i> Vm<'i> {
             match byte {
                 b'&' => {
                     rewritten.push_str(" | ");
+                    current_column_index += 1;
                     row_has_visible_content = true;
                     table_index += 1;
                 }
@@ -8296,6 +8300,7 @@ impl<'i> Vm<'i> {
                             current_row_index += 1;
                             row_has_visible_content = false;
                         }
+                        current_column_index = 0;
                         table_index += 2;
                         if let Some((_, _, _, after)) =
                             read_bracket_source_argument(table_body, table_index)
@@ -8320,6 +8325,7 @@ impl<'i> Vm<'i> {
                                 current_row_index += 1;
                                 row_has_visible_content = false;
                             }
+                            current_column_index = 0;
                             table_index = command_end;
                             if let Some((_, _, _, after)) =
                                 read_bracket_source_argument(table_body, table_index)
@@ -8341,6 +8347,41 @@ impl<'i> Vm<'i> {
                                 column_span: None,
                             });
                             table_index = command_end;
+                        }
+                        "multicolumn" => {
+                            let mut parsed = false;
+                            if let Some((span_text, _, _, after_span)) =
+                                read_braced_source_argument(table_body, command_end)
+                            {
+                                if let Some((_, _, _, after_alignment)) =
+                                    read_braced_source_argument(table_body, after_span)
+                                {
+                                    if let Some((content, _, _, after_content)) =
+                                        read_braced_source_argument(table_body, after_alignment)
+                                    {
+                                        let column_span =
+                                            span_text.trim().parse::<usize>().unwrap_or(1).max(1);
+                                        if column_span > 1 {
+                                            table_cell_spans.push(TableCellSpanEvent {
+                                                row_index: current_row_index,
+                                                column_index: current_column_index,
+                                                column_span,
+                                            });
+                                            current_column_index += column_span - 1;
+                                        }
+                                        rewritten.push_str(content);
+                                        row_has_visible_content = true;
+                                        table_index = after_content;
+                                        parsed = true;
+                                    }
+                                }
+                            }
+                            if !parsed {
+                                rewritten.push('\\');
+                                rewritten.push_str(command);
+                                row_has_visible_content = true;
+                                table_index = command_end;
+                            }
                         }
                         "label" => {
                             table_index = command_end;
@@ -8466,6 +8507,7 @@ impl<'i> Vm<'i> {
                 source_hash: Some(source_hash),
                 full_source_artifact: Some(full_source_artifact),
                 table_rules,
+                table_cell_spans,
                 truncated,
             }),
             SourceProvenance::file(source_path.to_owned(), command_start as u32, raw_end as u32),
@@ -17501,8 +17543,8 @@ mod tests {
     use tex_render_model::{
         BeginBlockEvent, BlockKind, CitationStyleHint, EndBlockEvent, EventProducer, GeneratedBy,
         GraphicAssetFormat, HeadingEvent, ListKind, MetadataField, ModeHint, RenderEvent,
-        SemanticConfidence, SourceSpanRole, SpaceKind, TableRuleEvent, TableRulePosition,
-        TableRuleSpan,
+        SemanticConfidence, SourceSpanRole, SpaceKind, TableCellSpanEvent, TableRuleEvent,
+        TableRulePosition, TableRuleSpan,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -21741,6 +21783,45 @@ Fallback text.
                 },
             ]
         );
+    }
+
+    #[test]
+    fn render_event_capture_records_multicolumn_table_spans() {
+        let source = r"\begin{document}\begin{tabular}{lll}\multicolumn{2}{c}{Wide} & Tail \\ A & B & C\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(
+            visible.normalized_visible_text.as_deref(),
+            Some("Wide | Tail ; A | B | C")
+        );
+        assert_eq!(
+            visible.table_cell_spans,
+            vec![TableCellSpanEvent {
+                row_index: 0,
+                column_index: 0,
+                column_span: 2,
+            }]
+        );
+        let visible_text = visible.normalized_visible_text.as_deref().unwrap_or("");
+        assert!(!visible_text.contains("multicolumn"));
+        assert!(!visible_text.contains("{2}"));
+        assert!(!visible_text.contains("{c}"));
     }
 
     #[test]

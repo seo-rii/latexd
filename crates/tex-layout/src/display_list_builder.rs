@@ -440,11 +440,33 @@ pub fn build_page_display_lists(
                 let mut segments = Vec::new();
                 let mut column_widths = Vec::new();
                 for row in &block.rows {
-                    for (index, cell) in row.cells.iter().enumerate() {
-                        if index == column_widths.len() {
+                    let mut column_index = 0usize;
+                    for cell in &row.cells {
+                        let column_span = cell.column_span.unwrap_or(1).max(1);
+                        while column_index + column_span > column_widths.len() {
                             column_widths.push(0usize);
                         }
-                        column_widths[index] = column_widths[index].max(cell.text.chars().count());
+                        if column_span == 1 {
+                            column_widths[column_index] =
+                                column_widths[column_index].max(cell.text.chars().count());
+                        }
+                        column_index += column_span;
+                    }
+                }
+                for row in &block.rows {
+                    let mut column_index = 0usize;
+                    for cell in &row.cells {
+                        let column_span = cell.column_span.unwrap_or(1).max(1);
+                        let end_column = (column_index + column_span).min(column_widths.len());
+                        let mut spanned_width = column_widths[column_index..end_column]
+                            .iter()
+                            .sum::<usize>();
+                        spanned_width += end_column.saturating_sub(column_index + 1) * 3;
+                        let text_width = cell.text.chars().count();
+                        if column_span > 1 && text_width > spanned_width && end_column > 0 {
+                            column_widths[end_column - 1] += text_width - spanned_width;
+                        }
+                        column_index += column_span;
                     }
                 }
                 let rule_width =
@@ -526,18 +548,24 @@ pub fn build_page_display_lists(
                         });
                     }
                     let mut row_text = String::new();
-                    for (index, cell) in row.cells.iter().enumerate() {
-                        if index > 0 {
+                    let mut column_index = 0usize;
+                    for (cell_index, cell) in row.cells.iter().enumerate() {
+                        if cell_index > 0 {
                             row_text.push_str(" | ");
                         }
+                        let column_span = cell.column_span.unwrap_or(1).max(1);
+                        let end_column = (column_index + column_span).min(column_widths.len());
+                        let mut spanned_width = column_widths[column_index..end_column]
+                            .iter()
+                            .sum::<usize>();
+                        spanned_width += end_column.saturating_sub(column_index + 1) * 3;
                         row_text.push_str(&cell.text);
-                        if index + 1 < row.cells.len() {
-                            for _ in
-                                0..column_widths[index].saturating_sub(cell.text.chars().count())
-                            {
+                        if cell_index + 1 < row.cells.len() {
+                            for _ in 0..spanned_width.saturating_sub(cell.text.chars().count()) {
                                 row_text.push(' ');
                             }
                         }
+                        column_index += column_span;
                     }
                     segments.push(LogicalTextSegment {
                         text: row_text,
@@ -1276,9 +1304,11 @@ mod tests {
                         cells: vec![
                             TableCell {
                                 text: "A".to_string(),
+                                column_span: None,
                             },
                             TableCell {
                                 text: "Longer".to_string(),
+                                column_span: None,
                             },
                         ],
                         rule_below: false,
@@ -1290,9 +1320,11 @@ mod tests {
                         cells: vec![
                             TableCell {
                                 text: "Alpha".to_string(),
+                                column_span: None,
                             },
                             TableCell {
                                 text: "B".to_string(),
+                                column_span: None,
                             },
                         ],
                         rule_below: false,
@@ -1331,9 +1363,11 @@ mod tests {
                         cells: vec![
                             TableCell {
                                 text: "Head".to_string(),
+                                column_span: None,
                             },
                             TableCell {
                                 text: "Value".to_string(),
+                                column_span: None,
                             },
                         ],
                         rule_below: true,
@@ -1345,9 +1379,11 @@ mod tests {
                         cells: vec![
                             TableCell {
                                 text: "A".to_string(),
+                                column_span: None,
                             },
                             TableCell {
                                 text: "B".to_string(),
+                                column_span: None,
                             },
                         ],
                         rule_below: true,
@@ -1391,12 +1427,15 @@ mod tests {
                         cells: vec![
                             TableCell {
                                 text: "Head".to_string(),
+                                column_span: None,
                             },
                             TableCell {
                                 text: "Value".to_string(),
+                                column_span: None,
                             },
                             TableCell {
                                 text: "Tail".to_string(),
+                                column_span: None,
                             },
                         ],
                         rule_below: false,
@@ -1411,12 +1450,15 @@ mod tests {
                         cells: vec![
                             TableCell {
                                 text: "A".to_string(),
+                                column_span: None,
                             },
                             TableCell {
                                 text: "B".to_string(),
+                                column_span: None,
                             },
                             TableCell {
                                 text: "C".to_string(),
+                                column_span: None,
                             },
                         ],
                         rule_below: false,
@@ -1441,6 +1483,69 @@ mod tests {
         assert!(lines.contains(&"Head | Value | Tail"), "{lines:?}");
         assert!(lines.contains(&".......------------"), "{lines:?}");
         assert!(lines.contains(&"A    | B     | C"), "{lines:?}");
+    }
+
+    #[test]
+    fn table_display_list_text_uses_multicolumn_spans() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                rows: vec![
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "Wide".to_string(),
+                                column_span: Some(2),
+                            },
+                            TableCell {
+                                text: "Tail".to_string(),
+                                column_span: None,
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    },
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "A".to_string(),
+                                column_span: None,
+                            },
+                            TableCell {
+                                text: "B".to_string(),
+                                column_span: None,
+                            },
+                            TableCell {
+                                text: "C".to_string(),
+                                column_span: None,
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    },
+                ],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let lines = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(lines.contains(&"Wide  | Tail"), "{lines:?}");
+        assert!(lines.contains(&"A | B | C"), "{lines:?}");
     }
 
     #[test]

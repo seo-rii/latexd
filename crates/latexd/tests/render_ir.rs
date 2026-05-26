@@ -11219,6 +11219,45 @@ fn tabular_partial_rules_survive_ir_and_display_list() {
 }
 
 #[test]
+fn tabular_multicolumn_survives_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{lll}\multicolumn{2}{c}{Wide} & Tail \\ A & B & C\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "Wide");
+    assert_eq!(table.rows[0].cells[0].column_span, Some(2));
+    assert_eq!(table.rows[0].cells[1].text, "Tail");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Wide | Tail"));
+    assert!(!extracted_text.contains("multicolumn"));
+    assert!(!extracted_text.contains("{2}"));
+    assert!(!extracted_text.contains("{c}"));
+
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(table_lines.contains(&"Wide  | Tail"), "{table_lines:?}");
+    assert!(table_lines.contains(&"A | B | C"), "{table_lines:?}");
+}
+
+#[test]
 fn longtable_capture_builds_table_ir() {
     let capture = capture_internal_render_ir(
         "main.tex",

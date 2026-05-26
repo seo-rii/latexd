@@ -402,6 +402,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                     .filter(|cell| !cell.is_empty())
                                     .map(|text| TableCell {
                                         text: text.to_string(),
+                                        column_span: None,
                                     })
                                     .collect::<Vec<_>>();
                                 (!cells.is_empty()).then_some(TableRow {
@@ -466,6 +467,16 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                             row.rule_below = true;
                                         }
                                     }
+                                }
+                            }
+                        }
+                        for cell_span in &event.table_cell_spans {
+                            if cell_span.column_span <= 1 {
+                                continue;
+                            }
+                            if let Some(row) = rows.get_mut(cell_span.row_index) {
+                                if let Some(cell) = row.cells.get_mut(cell_span.column_index) {
+                                    cell.column_span = Some(cell_span.column_span);
                                 }
                             }
                         }
@@ -944,6 +955,7 @@ mod tests {
                     source_hash: Some("blake3:raw-fallback".to_string()),
                     full_source_artifact: Some("fallbacks/raw-1.tex".to_string()),
                     table_rules: Vec::new(),
+                    table_cell_spans: Vec::new(),
                     truncated: true,
                 }),
                 SourceProvenance::file("main.tex", 0, 48),
