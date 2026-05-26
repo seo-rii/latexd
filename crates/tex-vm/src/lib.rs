@@ -14,7 +14,7 @@ use tex_render_model::{
     ListKind, MathSourceEvent, MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason,
     ProvenanceSpan, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
     SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
-    TextEvent,
+    TableRuleEvent, TableRulePosition, TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -3349,6 +3349,7 @@ impl<'i> Vm<'i> {
                                             reason: FallbackReason::UnsupportedEnvironment,
                                             source_hash: Some(source_hash),
                                             full_source_artifact: Some(full_source_artifact),
+                                            table_rules: Vec::new(),
                                             truncated,
                                         }),
                                         SourceProvenance::file(
@@ -8276,17 +8277,25 @@ impl<'i> Vm<'i> {
 
         let table_body = &body_source[table_body_start..];
         let mut rewritten = String::new();
+        let mut table_rules = Vec::new();
+        let mut current_row_index = 0usize;
+        let mut row_has_visible_content = false;
         let mut table_index = 0usize;
         while table_index < table_body.len() {
             let byte = table_body.as_bytes()[table_index];
             match byte {
                 b'&' => {
                     rewritten.push_str(" | ");
+                    row_has_visible_content = true;
                     table_index += 1;
                 }
                 b'\\' => {
                     if table_body.as_bytes().get(table_index + 1).copied() == Some(b'\\') {
                         rewritten.push_str(" ; ");
+                        if row_has_visible_content {
+                            current_row_index += 1;
+                            row_has_visible_content = false;
+                        }
                         table_index += 2;
                         if let Some((_, _, _, after)) =
                             read_bracket_source_argument(table_body, table_index)
@@ -8307,6 +8316,10 @@ impl<'i> Vm<'i> {
                     match command {
                         "tabularnewline" => {
                             rewritten.push_str(" ; ");
+                            if row_has_visible_content {
+                                current_row_index += 1;
+                                row_has_visible_content = false;
+                            }
                             table_index = command_end;
                             if let Some((_, _, _, after)) =
                                 read_bracket_source_argument(table_body, table_index)
@@ -8315,6 +8328,17 @@ impl<'i> Vm<'i> {
                             }
                         }
                         "hline" | "toprule" | "midrule" | "bottomrule" => {
+                            let (row_index, position) = if row_has_visible_content {
+                                (current_row_index, TableRulePosition::Below)
+                            } else if current_row_index == 0 {
+                                (0, TableRulePosition::Above)
+                            } else {
+                                (current_row_index - 1, TableRulePosition::Below)
+                            };
+                            table_rules.push(TableRuleEvent {
+                                row_index,
+                                position,
+                            });
                             table_index = command_end;
                         }
                         "label" => {
@@ -8354,6 +8378,9 @@ impl<'i> Vm<'i> {
                         _ => {
                             rewritten.push('\\');
                             rewritten.push_str(command);
+                            if !command.is_empty() {
+                                row_has_visible_content = true;
+                            }
                             table_index = command_end;
                         }
                     }
@@ -8364,6 +8391,9 @@ impl<'i> Vm<'i> {
                         .next()
                         .expect("char at byte index");
                     rewritten.push(ch);
+                    if !ch.is_whitespace() {
+                        row_has_visible_content = true;
+                    }
                     table_index += ch.len_utf8();
                 }
             }
@@ -8392,6 +8422,7 @@ impl<'i> Vm<'i> {
                 reason: FallbackReason::UnsupportedEnvironment,
                 source_hash: Some(source_hash),
                 full_source_artifact: Some(full_source_artifact),
+                table_rules,
                 truncated,
             }),
             SourceProvenance::file(source_path.to_owned(), command_start as u32, raw_end as u32),
@@ -17427,7 +17458,7 @@ mod tests {
     use tex_render_model::{
         BeginBlockEvent, BlockKind, CitationStyleHint, EndBlockEvent, EventProducer, GeneratedBy,
         GraphicAssetFormat, HeadingEvent, ListKind, MetadataField, ModeHint, RenderEvent,
-        SemanticConfidence, SourceSpanRole, SpaceKind,
+        SemanticConfidence, SourceSpanRole, SpaceKind, TableRuleEvent, TableRulePosition,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -21555,17 +21586,28 @@ Fallback text.
                 RenderEvent::RawFallback(fallback)
                     if fallback.environment.as_deref() == Some("tabular") =>
                 {
-                    fallback.normalized_visible_text.as_deref()
+                    Some(fallback)
                 }
                 _ => None,
             })
             .expect("tabular fallback visible text");
 
-        assert_eq!(visible, "Alpha | Beta ; Gamma | Delta");
-        assert!(!visible.contains("&"));
-        assert!(!visible.contains("ll"));
-        assert!(!visible.contains("hline"));
-        assert!(!visible.contains("textbf"));
+        assert_eq!(
+            visible.normalized_visible_text.as_deref(),
+            Some("Alpha | Beta ; Gamma | Delta")
+        );
+        assert_eq!(
+            visible.table_rules,
+            vec![TableRuleEvent {
+                row_index: 1,
+                position: TableRulePosition::Below,
+            }]
+        );
+        let visible_text = visible.normalized_visible_text.as_deref().unwrap_or("");
+        assert!(!visible_text.contains("&"));
+        assert!(!visible_text.contains("ll"));
+        assert!(!visible_text.contains("hline"));
+        assert!(!visible_text.contains("textbf"));
     }
 
     #[test]
@@ -21583,17 +21625,28 @@ Fallback text.
                 RenderEvent::RawFallback(fallback)
                     if fallback.environment.as_deref() == Some("longtable") =>
                 {
-                    fallback.normalized_visible_text.as_deref()
+                    Some(fallback)
                 }
                 _ => None,
             })
             .expect("longtable fallback visible text");
 
-        assert_eq!(visible, "Alpha | Beta ; Gamma | Delta");
-        assert!(!visible.contains("&"));
-        assert!(!visible.contains("ll"));
-        assert!(!visible.contains("hline"));
-        assert!(!visible.contains("textbf"));
+        assert_eq!(
+            visible.normalized_visible_text.as_deref(),
+            Some("Alpha | Beta ; Gamma | Delta")
+        );
+        assert_eq!(
+            visible.table_rules,
+            vec![TableRuleEvent {
+                row_index: 1,
+                position: TableRulePosition::Below,
+            }]
+        );
+        let visible_text = visible.normalized_visible_text.as_deref().unwrap_or("");
+        assert!(!visible_text.contains("&"));
+        assert!(!visible_text.contains("ll"));
+        assert!(!visible_text.contains("hline"));
+        assert!(!visible_text.contains("textbf"));
     }
 
     #[test]

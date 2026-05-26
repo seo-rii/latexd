@@ -447,6 +447,9 @@ pub fn build_page_display_lists(
                         column_widths[index] = column_widths[index].max(cell.text.chars().count());
                     }
                 }
+                let rule_width =
+                    column_widths.iter().sum::<usize>() + column_widths.len().saturating_sub(1) * 3;
+                let rule_text = "-".repeat(rule_width.max(3));
                 if let Some(caption) = &block.caption {
                     let source = block
                         .caption_source
@@ -459,6 +462,20 @@ pub fn build_page_display_lists(
                     });
                 }
                 for row in &block.rows {
+                    if row.rule_above {
+                        if !segments.is_empty() {
+                            segments.push(LogicalTextSegment {
+                                text: "\n".to_string(),
+                                source: block.source.clone(),
+                                link_target: None,
+                            });
+                        }
+                        segments.push(LogicalTextSegment {
+                            text: rule_text.clone(),
+                            source: block.source.clone(),
+                            link_target: None,
+                        });
+                    }
                     if !segments.is_empty() {
                         segments.push(LogicalTextSegment {
                             text: "\n".to_string(),
@@ -485,6 +502,18 @@ pub fn build_page_display_lists(
                         source: block.source.clone(),
                         link_target: None,
                     });
+                    if row.rule_below {
+                        segments.push(LogicalTextSegment {
+                            text: "\n".to_string(),
+                            source: block.source.clone(),
+                            link_target: None,
+                        });
+                        segments.push(LogicalTextSegment {
+                            text: rule_text.clone(),
+                            source: block.source.clone(),
+                            link_target: None,
+                        });
+                    }
                 }
                 logical_items.push(LogicalItem::Text(LogicalTextRun {
                     segments,
@@ -1188,6 +1217,7 @@ mod tests {
                 environment: "tabular".to_string(),
                 rows: vec![
                     TableRow {
+                        rule_above: false,
                         cells: vec![
                             TableCell {
                                 text: "A".to_string(),
@@ -1196,8 +1226,10 @@ mod tests {
                                 text: "Longer".to_string(),
                             },
                         ],
+                        rule_below: false,
                     },
                     TableRow {
+                        rule_above: false,
                         cells: vec![
                             TableCell {
                                 text: "Alpha".to_string(),
@@ -1206,6 +1238,7 @@ mod tests {
                                 text: "B".to_string(),
                             },
                         ],
+                        rule_below: false,
                     },
                 ],
                 caption: None,
@@ -1225,6 +1258,62 @@ mod tests {
 
         assert!(lines.contains(&"A     | Longer"), "{lines:?}");
         assert!(lines.contains(&"Alpha | B"), "{lines:?}");
+    }
+
+    #[test]
+    fn table_display_list_text_renders_horizontal_rules() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                rows: vec![
+                    TableRow {
+                        rule_above: true,
+                        cells: vec![
+                            TableCell {
+                                text: "Head".to_string(),
+                            },
+                            TableCell {
+                                text: "Value".to_string(),
+                            },
+                        ],
+                        rule_below: true,
+                    },
+                    TableRow {
+                        rule_above: false,
+                        cells: vec![
+                            TableCell {
+                                text: "A".to_string(),
+                            },
+                            TableCell {
+                                text: "B".to_string(),
+                            },
+                        ],
+                        rule_below: true,
+                    },
+                ],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let lines = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            lines.iter().filter(|line| **line == "------------").count(),
+            3,
+            "{lines:?}"
+        );
+        assert!(lines.contains(&"Head | Value"), "{lines:?}");
+        assert!(lines.contains(&"A    | B"), "{lines:?}");
     }
 
     #[test]

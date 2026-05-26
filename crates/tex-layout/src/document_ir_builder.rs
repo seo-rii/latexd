@@ -3,7 +3,7 @@ use tex_render_model::{
     EnvironmentBlock, GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr,
     LinkInline, ListBlock, ListItemIr, ListKind, MetadataField, ParagraphBlock, ReferenceInline,
     RenderEvent, RenderEventEnvelope, RenderEventStream, SourceProvenance, SourceSpanRole,
-    TableBlock, TableCell, TableRow, TitleBlock,
+    TableBlock, TableCell, TableRow, TableRulePosition, TitleBlock,
 };
 
 pub fn build_document_ir(stream: &RenderEventStream, aux: &impl AuxView) -> DocumentIr {
@@ -404,7 +404,11 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                         text: text.to_string(),
                                     })
                                     .collect::<Vec<_>>();
-                                (!cells.is_empty()).then_some(TableRow { cells })
+                                (!cells.is_empty()).then_some(TableRow {
+                                    rule_above: false,
+                                    cells,
+                                    rule_below: false,
+                                })
                             })
                             .collect::<Vec<_>>();
                         let (mut caption, mut caption_source) = self
@@ -425,6 +429,27 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                 .map(|cell| cell.text.clone());
                             caption_source = Some(envelope.meta.source.clone());
                             rows.remove(0);
+                        }
+                        for rule in &event.table_rules {
+                            if rows.is_empty() {
+                                break;
+                            }
+                            match rule.position {
+                                TableRulePosition::Above => {
+                                    if let Some(row) = rows.get_mut(rule.row_index) {
+                                        row.rule_above = true;
+                                    } else if let Some(row) = rows.last_mut() {
+                                        row.rule_below = true;
+                                    }
+                                }
+                                TableRulePosition::Below => {
+                                    if let Some(row) = rows.get_mut(rule.row_index) {
+                                        row.rule_below = true;
+                                    } else if let Some(row) = rows.last_mut() {
+                                        row.rule_below = true;
+                                    }
+                                }
+                            }
                         }
                         self.blocks.push(IrBlock::Table(TableBlock {
                             environment: event
@@ -900,6 +925,7 @@ mod tests {
                     reason: tex_render_model::FallbackReason::UnsupportedEnvironment,
                     source_hash: Some("blake3:raw-fallback".to_string()),
                     full_source_artifact: Some("fallbacks/raw-1.tex".to_string()),
+                    table_rules: Vec::new(),
                     truncated: true,
                 }),
                 SourceProvenance::file("main.tex", 0, 48),

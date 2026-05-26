@@ -11123,6 +11123,7 @@ fn tabular_capture_builds_table_ir() {
     assert_eq!(table.rows[0].cells[1].text, "Beta");
     assert_eq!(table.rows[1].cells[0].text, "Gamma");
     assert_eq!(table.rows[1].cells[1].text, "Delta");
+    assert!(table.rows[1].rule_below);
     assert!(!capture.document_ir.blocks.iter().any(|block| {
         matches!(
             block,
@@ -11148,6 +11149,7 @@ fn tabular_capture_builds_table_ir() {
         .join("\n");
     assert!(display_list_text.contains("Alpha | Beta"));
     assert!(display_list_text.contains("Gamma | Delta"));
+    assert!(display_list_text.contains("-------------"));
     assert!(!display_list_text.contains("&"));
     assert!(!display_list_text.contains("hline"));
 }

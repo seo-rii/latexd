@@ -358,8 +358,23 @@ pub struct RawFallbackEvent {
     pub source_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub full_source_artifact: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub table_rules: Vec<TableRuleEvent>,
     #[serde(default)]
     pub truncated: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableRuleEvent {
+    pub row_index: usize,
+    pub position: TableRulePosition,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TableRulePosition {
+    Above,
+    Below,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -476,6 +491,7 @@ mod tests {
                 reason: FallbackReason::UnsupportedEnvironment,
                 source_hash: None,
                 full_source_artifact: None,
+                table_rules: Vec::new(),
                 truncated: false,
             }),
             SourceProvenance::file("main.tex", 0, 35),
@@ -676,6 +692,7 @@ mod tests {
                 reason: FallbackReason::UnsupportedEnvironment,
                 source_hash: None,
                 full_source_artifact: None,
+                table_rules: Vec::new(),
                 truncated: false,
             }),
             SourceProvenance::file("main.tex", 420, 455),

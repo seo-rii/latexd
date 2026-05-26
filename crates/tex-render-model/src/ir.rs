@@ -376,7 +376,11 @@ impl TableBlock {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TableRow {
+    #[serde(default)]
+    pub rule_above: bool,
     pub cells: Vec<TableCell>,
+    #[serde(default)]
+    pub rule_below: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
