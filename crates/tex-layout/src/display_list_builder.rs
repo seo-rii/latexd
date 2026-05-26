@@ -73,6 +73,7 @@ struct LogicalImage {
     options: Option<String>,
     asset_format: Option<tex_render_model::GraphicAssetFormat>,
     asset_hash: Option<String>,
+    asset_dimensions: Option<tex_render_model::GraphicAssetDimensions>,
     caption: Option<String>,
     caption_source: Option<SourceProvenance>,
     source: SourceProvenance,
@@ -407,6 +408,7 @@ pub fn build_page_display_lists(
                     options: block.options.clone(),
                     asset_format: block.asset_format,
                     asset_hash: block.asset_hash.clone(),
+                    asset_dimensions: block.asset_dimensions,
                     caption: None,
                     caption_source: None,
                     source: block.source.clone(),
@@ -993,8 +995,23 @@ pub fn build_page_display_lists(
                 y += logical.gap_after_pt;
             }
             LogicalItem::Image(logical) => {
-                let default_image_width = content_width_pt;
-                let default_image_height = options.line_height_pt * 6.0;
+                let (default_image_width, default_image_height) =
+                    if let Some(dimensions) = logical.asset_dimensions {
+                        let natural_width = dimensions.width_px as f32;
+                        let natural_height = dimensions.height_px as f32;
+                        if natural_width.is_finite()
+                            && natural_height.is_finite()
+                            && natural_width > 0.0
+                            && natural_height > 0.0
+                        {
+                            let fit_scale = (content_width_pt / natural_width).min(1.0);
+                            (natural_width * fit_scale, natural_height * fit_scale)
+                        } else {
+                            (content_width_pt, options.line_height_pt * 6.0)
+                        }
+                    } else {
+                        (content_width_pt, options.line_height_pt * 6.0)
+                    };
                 let mut width_hint_pt = None;
                 let mut height_hint_pt = None;
                 let mut scale_hint = None;
@@ -1079,6 +1096,13 @@ pub fn build_page_display_lists(
                     pending.hash_input.push('\u{1f}');
                     pending.hash_input.push_str("asset-hash:");
                     pending.hash_input.push_str(asset_hash);
+                }
+                if let Some(dimensions) = logical.asset_dimensions {
+                    pending.hash_input.push('\u{1f}');
+                    pending.hash_input.push_str(&format!(
+                        "asset-dimensions:{}:{}",
+                        dimensions.width_px, dimensions.height_px
+                    ));
                 }
                 pending.hash_input.push('\u{1f}');
                 pending.hash_input.push_str(&format!(
@@ -1242,10 +1266,10 @@ fn approximate_text_clusters(text: &str) -> Option<Vec<TextCluster>> {
 mod tests {
     use tex_render_model::{
         AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint,
-        DisplayMathBlock, DocumentIr, DrawOp, GraphicAssetFormat, GraphicBlock, HeadingBlock,
-        InlineNode, IrBlock, LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind,
-        ParagraphBlock, ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan, TableBlock,
-        TableCell, TableRow, TableRuleSpan, TextCluster, TitleBlock,
+        DisplayMathBlock, DocumentIr, DrawOp, GraphicAssetDimensions, GraphicAssetFormat,
+        GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr, LinkInline, ListBlock,
+        ListItemIr, ListKind, ParagraphBlock, ProvenanceSpan, ReferenceInline, SourceProvenance,
+        SourceSpan, TableBlock, TableCell, TableRow, TableRuleSpan, TextCluster, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists};
@@ -1607,6 +1631,7 @@ mod tests {
                 options: None,
                 asset_format: None,
                 asset_hash: None,
+                asset_dimensions: None,
                 caption: None,
                 caption_source: None,
                 source,
@@ -2239,6 +2264,7 @@ mod tests {
                 options: Some("width=0.8\\linewidth".to_string()),
                 asset_format: None,
                 asset_hash: None,
+                asset_dimensions: None,
                 caption: Some("Plot caption.".to_string()),
                 caption_source: Some(SourceProvenance::file("main.tex", 25, 38).with_related(
                     tex_render_model::SourceSpanRole::EmitSite,
@@ -2289,6 +2315,7 @@ mod tests {
                 options: Some("width=5cm,height=2cm".to_string()),
                 asset_format: None,
                 asset_hash: None,
+                asset_dimensions: None,
                 caption: None,
                 caption_source: None,
                 source: source.clone(),
@@ -2301,6 +2328,7 @@ mod tests {
                 options: Some("width=6cm,height=2cm".to_string()),
                 asset_format: None,
                 asset_hash: None,
+                asset_dimensions: None,
                 caption: None,
                 caption_source: None,
                 source,
@@ -2333,6 +2361,7 @@ mod tests {
                 options: None,
                 asset_format: Some(GraphicAssetFormat::Pdf),
                 asset_hash: None,
+                asset_dimensions: None,
                 caption: None,
                 caption_source: None,
                 source: source.clone(),
@@ -2345,6 +2374,7 @@ mod tests {
                 options: None,
                 asset_format: Some(GraphicAssetFormat::Svg),
                 asset_hash: None,
+                asset_dimensions: None,
                 caption: None,
                 caption_source: None,
                 source,
@@ -2360,6 +2390,55 @@ mod tests {
     }
 
     #[test]
+    fn graphic_asset_dimensions_affect_default_image_rect_and_hash() {
+        let source = SourceProvenance::file("main.tex", 0, 24);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.png".to_string(),
+                options: None,
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: Some("blake3:asset".to_string()),
+                asset_dimensions: Some(GraphicAssetDimensions {
+                    width_px: 120,
+                    height_px: 60,
+                }),
+                caption: None,
+                caption_source: None,
+                source: source.clone(),
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let without_dimensions = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.png".to_string(),
+                options: None,
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: Some("blake3:asset".to_string()),
+                asset_dimensions: None,
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let image = display_lists[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::Image(image) if image.asset_ref == "figures/plot.png" => Some(image),
+                _ => None,
+            })
+            .expect("image op");
+
+        assert!((image.rect.width - 120.0).abs() < 0.01);
+        assert!((image.rect.height - 60.0).abs() < 0.01);
+        assert_ne!(
+            display_lists[0].content_hash,
+            without_dimensions[0].content_hash
+        );
+    }
+
+    #[test]
     fn wraps_graphic_caption_text_runs() {
         let source = SourceProvenance::file("main.tex", 0, 24);
         let display_lists = build_page_display_lists(
@@ -2368,6 +2447,7 @@ mod tests {
                 options: None,
                 asset_format: None,
                 asset_hash: None,
+                asset_dimensions: None,
                 caption: Some("abcdefghi".to_string()),
                 caption_source: Some(SourceProvenance::file("main.tex", 25, 34)),
                 source,

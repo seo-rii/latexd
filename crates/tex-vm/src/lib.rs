@@ -8554,7 +8554,11 @@ impl<'i> Vm<'i> {
             graphic_paths,
             graphic_extensions,
         );
-        let asset_hash = self.project_file_hash(Utf8Path::new(&resolved_path));
+        let resolved_asset_path = Utf8Path::new(&resolved_path);
+        let asset_format = GraphicAssetFormat::from_path(&resolved_path);
+        let asset_hash = self.project_file_hash(resolved_asset_path);
+        let asset_dimensions =
+            self.project_graphic_asset_dimensions(resolved_asset_path, asset_format);
         let event_source =
             SourceProvenance::file(source_path.to_owned(), command_start as u32, after as u32)
                 .with_related(
@@ -8567,8 +8571,9 @@ impl<'i> Vm<'i> {
                 );
         self.emit_render_event(
             RenderEvent::GraphicRef(GraphicRefEvent {
-                asset_format: GraphicAssetFormat::from_path(&resolved_path),
+                asset_format,
                 asset_hash: asset_hash.clone(),
+                asset_dimensions,
                 path: resolved_path.clone(),
                 options,
             }),
@@ -8734,13 +8739,18 @@ impl<'i> Vm<'i> {
                 graphic_paths,
                 graphic_extensions,
             );
-            let asset_hash = self.project_file_hash(Utf8Path::new(&resolved_path));
+            let resolved_asset_path = Utf8Path::new(&resolved_path);
+            let asset_format = GraphicAssetFormat::from_path(&resolved_path);
+            let asset_hash = self.project_file_hash(resolved_asset_path);
+            let asset_dimensions =
+                self.project_graphic_asset_dimensions(resolved_asset_path, asset_format);
             let event_source =
                 SourceProvenance::file(source_path.to_owned(), command_start as u32, after as u32);
             self.emit_render_event(
                 RenderEvent::GraphicRef(GraphicRefEvent {
-                    asset_format: GraphicAssetFormat::from_path(&resolved_path),
+                    asset_format,
                     asset_hash: asset_hash.clone(),
+                    asset_dimensions,
                     path: resolved_path.clone(),
                     options: Some(options),
                 }),
@@ -8781,7 +8791,11 @@ impl<'i> Vm<'i> {
             graphic_paths,
             graphic_extensions,
         );
-        let asset_hash = self.project_file_hash(Utf8Path::new(&resolved_path));
+        let resolved_asset_path = Utf8Path::new(&resolved_path);
+        let asset_format = GraphicAssetFormat::from_path(&resolved_path);
+        let asset_hash = self.project_file_hash(resolved_asset_path);
+        let asset_dimensions =
+            self.project_graphic_asset_dimensions(resolved_asset_path, asset_format);
         let event_source =
             SourceProvenance::file(source_path.to_owned(), command_start as u32, after as u32)
                 .with_related(
@@ -8794,8 +8808,9 @@ impl<'i> Vm<'i> {
                 );
         self.emit_render_event(
             RenderEvent::GraphicRef(GraphicRefEvent {
-                asset_format: GraphicAssetFormat::from_path(&resolved_path),
+                asset_format,
                 asset_hash: asset_hash.clone(),
+                asset_dimensions,
                 path: resolved_path.clone(),
                 options: None,
             }),
@@ -14780,15 +14795,95 @@ impl<'i> Vm<'i> {
     }
 
     fn project_file_hash(&self, path: &Utf8Path) -> Option<String> {
+        let bytes = self.project_file_bytes(path)?;
+        Some(format!("blake3:{}", blake3::hash(&bytes).to_hex()))
+    }
+
+    fn project_file_bytes(&self, path: &Utf8Path) -> Option<Vec<u8>> {
         if let Some(source) = self.mounted_files.get(path) {
-            return Some(format!(
-                "blake3:{}",
-                blake3::hash(source.as_bytes()).to_hex()
-            ));
+            return Some(source.as_bytes().to_vec());
         }
         let root = self.file_root.as_ref()?;
-        let bytes = fs::read(root.join(path).as_std_path()).ok()?;
-        Some(format!("blake3:{}", blake3::hash(&bytes).to_hex()))
+        fs::read(root.join(path).as_std_path()).ok()
+    }
+
+    fn project_graphic_asset_dimensions(
+        &self,
+        path: &Utf8Path,
+        format: Option<GraphicAssetFormat>,
+    ) -> Option<tex_render_model::GraphicAssetDimensions> {
+        let bytes = self.project_file_bytes(path)?;
+        match format {
+            Some(GraphicAssetFormat::Png) => {
+                if bytes.len() < 24 || &bytes[..8] != b"\x89PNG\r\n\x1a\n" {
+                    return None;
+                }
+                let width = u32::from_be_bytes(bytes[16..20].try_into().ok()?);
+                let height = u32::from_be_bytes(bytes[20..24].try_into().ok()?);
+                (width > 0 && height > 0).then_some(tex_render_model::GraphicAssetDimensions {
+                    width_px: width,
+                    height_px: height,
+                })
+            }
+            Some(GraphicAssetFormat::Jpeg) => {
+                if bytes.len() < 4 || bytes[0] != 0xff || bytes[1] != 0xd8 {
+                    return None;
+                }
+                let mut index = 2usize;
+                while index + 3 < bytes.len() {
+                    while index < bytes.len() && bytes[index] != 0xff {
+                        index += 1;
+                    }
+                    while index < bytes.len() && bytes[index] == 0xff {
+                        index += 1;
+                    }
+                    if index >= bytes.len() {
+                        break;
+                    }
+                    let marker = bytes[index];
+                    index += 1;
+                    if marker == 0xd9 || marker == 0xda {
+                        break;
+                    }
+                    if index + 1 >= bytes.len() {
+                        break;
+                    }
+                    let segment_len = u16::from_be_bytes([bytes[index], bytes[index + 1]]) as usize;
+                    if segment_len < 2 || index + segment_len > bytes.len() {
+                        break;
+                    }
+                    let is_sof_marker = matches!(
+                        marker,
+                        0xc0 | 0xc1
+                            | 0xc2
+                            | 0xc3
+                            | 0xc5
+                            | 0xc6
+                            | 0xc7
+                            | 0xc9
+                            | 0xca
+                            | 0xcb
+                            | 0xcd
+                            | 0xce
+                            | 0xcf
+                    );
+                    if is_sof_marker && segment_len >= 7 {
+                        let height =
+                            u16::from_be_bytes([bytes[index + 3], bytes[index + 4]]) as u32;
+                        let width = u16::from_be_bytes([bytes[index + 5], bytes[index + 6]]) as u32;
+                        return (width > 0 && height > 0).then_some(
+                            tex_render_model::GraphicAssetDimensions {
+                                width_px: width,
+                                height_px: height,
+                            },
+                        );
+                    }
+                    index += segment_len;
+                }
+                None
+            }
+            _ => None,
+        }
     }
 
     fn read_optional_bracket_text(&mut self, queue: &mut VecDeque<QueueItem>) -> Option<String> {
@@ -17542,9 +17637,9 @@ mod tests {
     use serde_json::json;
     use tex_render_model::{
         BeginBlockEvent, BlockKind, CitationStyleHint, EndBlockEvent, EventProducer, GeneratedBy,
-        GraphicAssetFormat, HeadingEvent, ListKind, MetadataField, ModeHint, RenderEvent,
-        SemanticConfidence, SourceSpanRole, SpaceKind, TableCellSpanEvent, TableRuleEvent,
-        TableRulePosition, TableRuleSpan,
+        GraphicAssetDimensions, GraphicAssetFormat, HeadingEvent, ListKind, MetadataField,
+        ModeHint, RenderEvent, SemanticConfidence, SourceSpanRole, SpaceKind, TableCellSpanEvent,
+        TableRuleEvent, TableRulePosition, TableRuleSpan,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -22236,6 +22331,75 @@ Fallback text.
                 if graphic.path == "figures/plot.pdf"
                     && graphic.asset_format == Some(GraphicAssetFormat::Pdf)
                     && graphic.asset_hash.as_deref() == Some(expected_hash.as_str())
+        )));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn render_event_capture_records_png_asset_dimensions() {
+        let source = r"\begin{document}\includegraphics{figures/plot}\end{document}";
+        let root = std::env::temp_dir().join(format!(
+            "latexd-tex-vm-graphic-asset-dimensions-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("figures")).expect("create figures dir");
+        let mut asset_bytes = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+        asset_bytes.extend_from_slice(&120u32.to_be_bytes());
+        asset_bytes.extend_from_slice(&60u32.to_be_bytes());
+        std::fs::write(root.join("figures/plot.png"), asset_bytes).expect("write asset");
+        let root = Utf8PathBuf::from_path_buf(root).expect("utf8 root");
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.set_file_root(root.clone());
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.png"
+                    && graphic.asset_format == Some(GraphicAssetFormat::Png)
+                    && graphic.asset_dimensions == Some(GraphicAssetDimensions {
+                        width_px: 120,
+                        height_px: 60,
+                    })
+        )));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn render_event_capture_records_jpeg_asset_dimensions() {
+        let source = r"\begin{document}\includegraphics{figures/photo.jpg}\end{document}";
+        let root = std::env::temp_dir().join(format!(
+            "latexd-tex-vm-jpeg-asset-dimensions-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("figures")).expect("create figures dir");
+        let mut asset_bytes = vec![
+            0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x3c, 0x00, 0x78, 0x03,
+        ];
+        asset_bytes.resize(21, 0);
+        std::fs::write(root.join("figures/photo.jpg"), asset_bytes).expect("write asset");
+        let root = Utf8PathBuf::from_path_buf(root).expect("utf8 root");
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.set_file_root(root.clone());
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/photo.jpg"
+                    && graphic.asset_format == Some(GraphicAssetFormat::Jpeg)
+                    && graphic.asset_dimensions == Some(GraphicAssetDimensions {
+                        width_px: 120,
+                        height_px: 60,
+                    })
         )));
         let _ = std::fs::remove_dir_all(root);
     }

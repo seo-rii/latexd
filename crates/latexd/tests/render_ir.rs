@@ -2216,6 +2216,54 @@ fn project_root_render_ir_capture_embeds_png_assets_in_debug_pdf() {
 }
 
 #[test]
+fn project_root_render_ir_capture_uses_png_natural_dimensions() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
+    fs::create_dir_all(root.join("figures").as_std_path()).expect("create figures dir");
+    fs::write(
+        root.join("main.tex").as_std_path(),
+        r"\begin{document}\includegraphics{figures/plot.png}\end{document}",
+    )
+    .expect("write source");
+    fs::write(
+        root.join("figures/plot.png").as_std_path(),
+        tiny_png_bytes(),
+    )
+    .expect("write image");
+
+    let capture =
+        capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
+            .expect("capture project render ir");
+    let graphic = capture
+        .events
+        .events
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::GraphicRef(graphic) if graphic.path == "figures/plot.png" => Some(graphic),
+            _ => None,
+        })
+        .expect("graphic event");
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.png" => Some(image),
+            _ => None,
+        })
+        .expect("image op");
+
+    assert_eq!(
+        graphic.asset_dimensions,
+        Some(tex_render_model::GraphicAssetDimensions {
+            width_px: 2,
+            height_px: 2,
+        })
+    );
+    assert!((image.rect.width - 2.0).abs() < 0.01);
+    assert!((image.rect.height - 2.0).abs() < 0.01);
+}
+
+#[test]
 fn project_root_missing_graphic_asset_emits_render_diagnostic() {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");

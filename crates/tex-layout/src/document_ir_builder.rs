@@ -506,6 +506,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         options: event.options.clone(),
                         asset_format: event.asset_format,
                         asset_hash: event.asset_hash.clone(),
+                        asset_dimensions: event.asset_dimensions,
                         caption: None,
                         caption_source: None,
                         source: envelope.meta.source.clone(),
@@ -634,11 +635,12 @@ mod tests {
 
     use tex_render_model::{
         BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationLabel,
-        CitationStyleHint, EndBlockEvent, FlushTitleBlockEvent, GraphicRefEvent, HeadingEvent,
-        InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, IrBlock, LabelDefinitionEvent,
-        LabelTargetView, MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason,
-        RawFallbackEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
-        SetDocumentMetadataEvent, SourceProvenance, TextEvent,
+        CitationStyleHint, EndBlockEvent, FlushTitleBlockEvent, GraphicAssetDimensions,
+        GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent,
+        IrBlock, LabelDefinitionEvent, LabelTargetView, MathSourceEvent, MetadataField,
+        ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RenderEvent,
+        RenderEventEnvelope, RenderEventStream, SetDocumentMetadataEvent, SourceProvenance,
+        TextEvent,
     };
 
     use super::build_document_ir;
@@ -991,6 +993,10 @@ mod tests {
                         options: Some("width=0.8\\linewidth".to_string()),
                         asset_format: None,
                         asset_hash: None,
+                        asset_dimensions: Some(GraphicAssetDimensions {
+                            width_px: 640,
+                            height_px: 320,
+                        }),
                     }),
                     SourceProvenance::file("main.tex", 0, 30),
                 ),
@@ -1010,6 +1016,7 @@ mod tests {
             [IrBlock::Graphic(block)]
                 if block.path == "figures/plot.pdf"
                     && block.options.as_deref() == Some("width=0.8\\linewidth")
+                    && block.asset_dimensions == Some(GraphicAssetDimensions { width_px: 640, height_px: 320 })
                     && block.caption.as_deref() == Some("Plot caption.")
                     && block.caption_source.is_some()
         ));
@@ -1035,6 +1042,7 @@ mod tests {
                         options: None,
                         asset_format: None,
                         asset_hash: None,
+                        asset_dimensions: None,
                     }),
                     SourceProvenance::file("main.tex", 15, 45),
                 ),

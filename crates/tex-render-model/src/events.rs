@@ -294,6 +294,14 @@ pub struct GraphicRefEvent {
     pub asset_format: Option<GraphicAssetFormat>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asset_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset_dimensions: Option<GraphicAssetDimensions>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GraphicAssetDimensions {
+    pub width_px: u32,
+    pub height_px: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -652,6 +660,7 @@ mod tests {
                 options: Some("width=5cm".to_string()),
                 asset_format: Some(GraphicAssetFormat::Pdf),
                 asset_hash: None,
+                asset_dimensions: None,
             }),
             SourceProvenance::file("main.tex", 230, 278),
         );
