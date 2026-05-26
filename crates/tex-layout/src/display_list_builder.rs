@@ -2,7 +2,7 @@ use tex_render_model::{
     BibliographyBlock, Destination, DocumentIr, DrawOp, FontFamilyRequest, FontRequest, FontRole,
     FontSeries, FontShape, InlineNode, IrBlock, LinkAnnotation, PageDisplayList, Point,
     PositionedImage, PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan,
-    TextCluster,
+    TableRuleSpan, TextCluster,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -450,6 +450,34 @@ pub fn build_page_display_lists(
                 let rule_width =
                     column_widths.iter().sum::<usize>() + column_widths.len().saturating_sub(1) * 3;
                 let rule_text = "-".repeat(rule_width.max(3));
+                let partial_rule_text = |span: &TableRuleSpan| {
+                    if column_widths.is_empty() {
+                        return rule_text.clone();
+                    }
+                    let start_column = span.start_column.min(column_widths.len().saturating_sub(1));
+                    let end_column = span.end_column.min(column_widths.len().saturating_sub(1));
+                    if end_column < start_column {
+                        return rule_text.clone();
+                    }
+                    let mut start_offset = 0usize;
+                    for width in &column_widths[..start_column] {
+                        start_offset += *width + 3;
+                    }
+                    let mut end_offset = start_offset;
+                    for column in start_column..=end_column {
+                        end_offset += column_widths[column];
+                        if column < end_column {
+                            end_offset += 3;
+                        }
+                    }
+                    // Leading spaces are trimmed by line wrapping, so use visible filler
+                    // for non-spanned columns in this readable table fallback.
+                    let mut chars = vec!['.'; rule_width.max(3)];
+                    for index in start_offset..end_offset.min(chars.len()) {
+                        chars[index] = '-';
+                    }
+                    chars.into_iter().collect::<String>()
+                };
                 if let Some(caption) = &block.caption {
                     let source = block
                         .caption_source
@@ -472,6 +500,20 @@ pub fn build_page_display_lists(
                         }
                         segments.push(LogicalTextSegment {
                             text: rule_text.clone(),
+                            source: block.source.clone(),
+                            link_target: None,
+                        });
+                    }
+                    for rule in &row.partial_rules_above {
+                        if !segments.is_empty() {
+                            segments.push(LogicalTextSegment {
+                                text: "\n".to_string(),
+                                source: block.source.clone(),
+                                link_target: None,
+                            });
+                        }
+                        segments.push(LogicalTextSegment {
+                            text: partial_rule_text(rule),
                             source: block.source.clone(),
                             link_target: None,
                         });
@@ -510,6 +552,18 @@ pub fn build_page_display_lists(
                         });
                         segments.push(LogicalTextSegment {
                             text: rule_text.clone(),
+                            source: block.source.clone(),
+                            link_target: None,
+                        });
+                    }
+                    for rule in &row.partial_rules_below {
+                        segments.push(LogicalTextSegment {
+                            text: "\n".to_string(),
+                            source: block.source.clone(),
+                            link_target: None,
+                        });
+                        segments.push(LogicalTextSegment {
+                            text: partial_rule_text(rule),
                             source: block.source.clone(),
                             link_target: None,
                         });
@@ -1163,7 +1217,7 @@ mod tests {
         DisplayMathBlock, DocumentIr, DrawOp, GraphicAssetFormat, GraphicBlock, HeadingBlock,
         InlineNode, IrBlock, LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind,
         ParagraphBlock, ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan, TableBlock,
-        TableCell, TableRow, TextCluster, TitleBlock,
+        TableCell, TableRow, TableRuleSpan, TextCluster, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists};
@@ -1218,6 +1272,7 @@ mod tests {
                 rows: vec![
                     TableRow {
                         rule_above: false,
+                        partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
                                 text: "A".to_string(),
@@ -1227,9 +1282,11 @@ mod tests {
                             },
                         ],
                         rule_below: false,
+                        partial_rules_below: Vec::new(),
                     },
                     TableRow {
                         rule_above: false,
+                        partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
                                 text: "Alpha".to_string(),
@@ -1239,6 +1296,7 @@ mod tests {
                             },
                         ],
                         rule_below: false,
+                        partial_rules_below: Vec::new(),
                     },
                 ],
                 caption: None,
@@ -1269,6 +1327,7 @@ mod tests {
                 rows: vec![
                     TableRow {
                         rule_above: true,
+                        partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
                                 text: "Head".to_string(),
@@ -1278,9 +1337,11 @@ mod tests {
                             },
                         ],
                         rule_below: true,
+                        partial_rules_below: Vec::new(),
                     },
                     TableRow {
                         rule_above: false,
+                        partial_rules_above: Vec::new(),
                         cells: vec![
                             TableCell {
                                 text: "A".to_string(),
@@ -1290,6 +1351,7 @@ mod tests {
                             },
                         ],
                         rule_below: true,
+                        partial_rules_below: Vec::new(),
                     },
                 ],
                 caption: None,
@@ -1314,6 +1376,71 @@ mod tests {
         );
         assert!(lines.contains(&"Head | Value"), "{lines:?}");
         assert!(lines.contains(&"A    | B"), "{lines:?}");
+    }
+
+    #[test]
+    fn table_display_list_text_renders_partial_horizontal_rules() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                rows: vec![
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "Head".to_string(),
+                            },
+                            TableCell {
+                                text: "Value".to_string(),
+                            },
+                            TableCell {
+                                text: "Tail".to_string(),
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: vec![TableRuleSpan {
+                            start_column: 1,
+                            end_column: 2,
+                        }],
+                    },
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "A".to_string(),
+                            },
+                            TableCell {
+                                text: "B".to_string(),
+                            },
+                            TableCell {
+                                text: "C".to_string(),
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    },
+                ],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let lines = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(lines.contains(&"Head | Value | Tail"), "{lines:?}");
+        assert!(lines.contains(&".......------------"), "{lines:?}");
+        assert!(lines.contains(&"A    | B     | C"), "{lines:?}");
     }
 
     #[test]

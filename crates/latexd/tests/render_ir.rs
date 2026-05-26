@@ -11,7 +11,7 @@ use tex_render_model::{
     MetadataField, ModeHint, RenderEvent, SemanticConfidence, SpaceKind, to_pretty_json,
     to_semantic_pretty_json,
 };
-use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole};
+use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole, TableRuleSpan};
 
 fn tiny_png_bytes() -> Vec<u8> {
     use image::ImageEncoder;
@@ -11172,6 +11172,50 @@ fn tabular_display_list_aligns_columns_by_cell_width() {
 
     assert!(table_lines.contains(&"A     | Longer"), "{table_lines:?}");
     assert!(table_lines.contains(&"Alpha | B"), "{table_lines:?}");
+}
+
+#[test]
+fn tabular_partial_rules_survive_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{lll}Head & Value & Tail \\\cline{2-3} A & B & C\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(
+        table.rows[0].partial_rules_below,
+        vec![TableRuleSpan {
+            start_column: 1,
+            end_column: 2,
+        }]
+    );
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        table_lines.contains(&"Head | Value | Tail"),
+        "{table_lines:?}"
+    );
+    assert!(
+        table_lines.contains(&".......------------"),
+        "{table_lines:?}"
+    );
+    assert!(table_lines.contains(&"A    | B     | C"), "{table_lines:?}");
 }
 
 #[test]

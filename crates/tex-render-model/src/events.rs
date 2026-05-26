@@ -368,6 +368,8 @@ pub struct RawFallbackEvent {
 pub struct TableRuleEvent {
     pub row_index: usize,
     pub position: TableRulePosition,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column_span: Option<TableRuleSpan>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -375,6 +377,12 @@ pub struct TableRuleEvent {
 pub enum TableRulePosition {
     Above,
     Below,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableRuleSpan {
+    pub start_column: usize,
+    pub end_column: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

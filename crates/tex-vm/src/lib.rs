@@ -14,7 +14,7 @@ use tex_render_model::{
     ListKind, MathSourceEvent, MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason,
     ProvenanceSpan, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
     SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
-    TableRuleEvent, TableRulePosition, TextEvent,
+    TableRuleEvent, TableRulePosition, TableRuleSpan, TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -8338,6 +8338,7 @@ impl<'i> Vm<'i> {
                             table_rules.push(TableRuleEvent {
                                 row_index,
                                 position,
+                                column_span: None,
                             });
                             table_index = command_end;
                         }
@@ -8369,9 +8370,51 @@ impl<'i> Vm<'i> {
                             {
                                 table_index = after;
                             }
-                            if let Some((_, _, _, after)) =
+                            if command == "cmidrule" {
+                                table_index = skip_ascii_whitespace(table_body, table_index);
+                                if table_body.as_bytes().get(table_index).copied() == Some(b'(') {
+                                    if let Some(close_relative) =
+                                        table_body[table_index + 1..].find(')')
+                                    {
+                                        table_index += close_relative + 2;
+                                    }
+                                }
+                            }
+                            if let Some((range, _, _, after)) =
                                 read_braced_source_argument(table_body, table_index)
                             {
+                                let trimmed_range = range.trim();
+                                let column_span = if let Some((start_text, end_text)) =
+                                    trimmed_range.split_once('-')
+                                {
+                                    let start_column = start_text.trim().parse::<usize>().ok();
+                                    let end_column = end_text.trim().parse::<usize>().ok();
+                                    match (start_column, end_column) {
+                                        (Some(start), Some(end)) if start > 0 && start <= end => {
+                                            Some(TableRuleSpan {
+                                                start_column: start - 1,
+                                                end_column: end - 1,
+                                            })
+                                        }
+                                        _ => None,
+                                    }
+                                } else {
+                                    None
+                                };
+                                if let Some(column_span) = column_span {
+                                    let (row_index, position) = if row_has_visible_content {
+                                        (current_row_index, TableRulePosition::Below)
+                                    } else if current_row_index == 0 {
+                                        (0, TableRulePosition::Above)
+                                    } else {
+                                        (current_row_index - 1, TableRulePosition::Below)
+                                    };
+                                    table_rules.push(TableRuleEvent {
+                                        row_index,
+                                        position,
+                                        column_span: Some(column_span),
+                                    });
+                                }
                                 table_index = after;
                             }
                         }
@@ -17459,6 +17502,7 @@ mod tests {
         BeginBlockEvent, BlockKind, CitationStyleHint, EndBlockEvent, EventProducer, GeneratedBy,
         GraphicAssetFormat, HeadingEvent, ListKind, MetadataField, ModeHint, RenderEvent,
         SemanticConfidence, SourceSpanRole, SpaceKind, TableRuleEvent, TableRulePosition,
+        TableRuleSpan,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -21601,6 +21645,7 @@ Fallback text.
             vec![TableRuleEvent {
                 row_index: 1,
                 position: TableRulePosition::Below,
+                column_span: None,
             }]
         );
         let visible_text = visible.normalized_visible_text.as_deref().unwrap_or("");
@@ -21640,6 +21685,7 @@ Fallback text.
             vec![TableRuleEvent {
                 row_index: 1,
                 position: TableRulePosition::Below,
+                column_span: None,
             }]
         );
         let visible_text = visible.normalized_visible_text.as_deref().unwrap_or("");
@@ -21647,6 +21693,54 @@ Fallback text.
         assert!(!visible_text.contains("ll"));
         assert!(!visible_text.contains("hline"));
         assert!(!visible_text.contains("textbf"));
+    }
+
+    #[test]
+    fn render_event_capture_records_partial_table_rules() {
+        let source = r"\begin{document}\begin{tabular}{lll}A & B & C \\\cline{2-3} D & E & F \\\cmidrule(lr){1-2}\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(
+            visible.normalized_visible_text.as_deref(),
+            Some("A | B | C ; D | E | F")
+        );
+        assert_eq!(
+            visible.table_rules,
+            vec![
+                TableRuleEvent {
+                    row_index: 0,
+                    position: TableRulePosition::Below,
+                    column_span: Some(TableRuleSpan {
+                        start_column: 1,
+                        end_column: 2,
+                    }),
+                },
+                TableRuleEvent {
+                    row_index: 1,
+                    position: TableRulePosition::Below,
+                    column_span: Some(TableRuleSpan {
+                        start_column: 0,
+                        end_column: 1,
+                    }),
+                },
+            ]
+        );
     }
 
     #[test]

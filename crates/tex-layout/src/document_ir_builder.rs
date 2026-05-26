@@ -406,8 +406,10 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                     .collect::<Vec<_>>();
                                 (!cells.is_empty()).then_some(TableRow {
                                     rule_above: false,
+                                    partial_rules_above: Vec::new(),
                                     cells,
                                     rule_below: false,
+                                    partial_rules_below: Vec::new(),
                                 })
                             })
                             .collect::<Vec<_>>();
@@ -437,16 +439,32 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             match rule.position {
                                 TableRulePosition::Above => {
                                     if let Some(row) = rows.get_mut(rule.row_index) {
-                                        row.rule_above = true;
+                                        if let Some(span) = rule.column_span {
+                                            row.partial_rules_above.push(span);
+                                        } else {
+                                            row.rule_above = true;
+                                        }
                                     } else if let Some(row) = rows.last_mut() {
-                                        row.rule_below = true;
+                                        if let Some(span) = rule.column_span {
+                                            row.partial_rules_below.push(span);
+                                        } else {
+                                            row.rule_below = true;
+                                        }
                                     }
                                 }
                                 TableRulePosition::Below => {
                                     if let Some(row) = rows.get_mut(rule.row_index) {
-                                        row.rule_below = true;
+                                        if let Some(span) = rule.column_span {
+                                            row.partial_rules_below.push(span);
+                                        } else {
+                                            row.rule_below = true;
+                                        }
                                     } else if let Some(row) = rows.last_mut() {
-                                        row.rule_below = true;
+                                        if let Some(span) = rule.column_span {
+                                            row.partial_rules_below.push(span);
+                                        } else {
+                                            row.rule_below = true;
+                                        }
                                     }
                                 }
                             }

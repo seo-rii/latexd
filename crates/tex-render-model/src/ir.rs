@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{CitationStyleHint, GraphicAssetFormat, ListKind, RawFallbackEvent, SourceProvenance};
+use crate::{
+    CitationStyleHint, GraphicAssetFormat, ListKind, RawFallbackEvent, SourceProvenance,
+    TableRuleSpan,
+};
 
 pub const DOCUMENT_IR_SCHEMA_VERSION: u32 = 1;
 
@@ -378,9 +381,13 @@ impl TableBlock {
 pub struct TableRow {
     #[serde(default)]
     pub rule_above: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub partial_rules_above: Vec<TableRuleSpan>,
     pub cells: Vec<TableCell>,
     #[serde(default)]
     pub rule_below: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub partial_rules_below: Vec<TableRuleSpan>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
