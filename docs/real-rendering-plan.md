@@ -65,12 +65,15 @@ debug PDFs with those embedded assets. Image display-list boxes also honor the
 common `\includegraphics` `width`, `height`/`totalheight`, and `scale` options
 for common units and text/page-relative dimensions, and resolver-backed PNG/JPEG
 headers now provide natural pixel dimensions for default aspect-preserving image
-boxes when no explicit size is given. Missing graphic assets now produce
+boxes when no explicit size is given. When both `width` and `height` are present,
+`keepaspectratio` now fits the natural/default image box inside the requested
+rectangle instead of stretching it. Missing graphic assets now produce
 render-event diagnostics when the capture has enough project or mounted-file
 context to know the asset is absent, while preserving the image placeholder.
 External PDF/EPS/SVG conversion, DPI-aware natural sizing, trim/clip fidelity,
-exact table rule trimming, vertical spanning, nested table constructs, TeX
-alignment policy, and production preview wiring are still deferred.
+rotation/viewport semantics, exact table rule trimming, vertical spanning,
+nested table constructs, TeX alignment policy, and production preview wiring are
+still deferred.
 
 ## Product Goal
 

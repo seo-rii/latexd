@@ -1015,8 +1015,14 @@ pub fn build_page_display_lists(
                 let mut width_hint_pt = None;
                 let mut height_hint_pt = None;
                 let mut scale_hint = None;
+                let mut keep_aspect_ratio = false;
                 if let Some(graphic_options) = &logical.options {
                     for part in graphic_options.split(',') {
+                        let part = part.trim();
+                        if part == "keepaspectratio" {
+                            keep_aspect_ratio = true;
+                            continue;
+                        }
                         let Some((key, value)) = part.split_once('=') else {
                             continue;
                         };
@@ -1033,11 +1039,22 @@ pub fn build_page_display_lists(
                                     .filter(|value| value.is_finite() && *value > 0.0);
                                 scale_hint = scale;
                             }
+                            "keepaspectratio" => {
+                                keep_aspect_ratio = !matches!(value.trim(), "false" | "0" | "off");
+                            }
                             _ => {}
                         }
                     }
                 }
                 let (image_width, image_height) = match (width_hint_pt, height_hint_pt) {
+                    (Some(width), Some(height)) if keep_aspect_ratio => {
+                        let scale =
+                            (width / default_image_width).min(height / default_image_height);
+                        (
+                            (default_image_width * scale).max(1.0),
+                            (default_image_height * scale).max(1.0),
+                        )
+                    }
                     (Some(width), Some(height)) => (width, height),
                     (Some(width), None) => (
                         width,
@@ -2436,6 +2453,38 @@ mod tests {
             display_lists[0].content_hash,
             without_dimensions[0].content_hash
         );
+    }
+
+    #[test]
+    fn graphic_keepaspectratio_fits_within_width_and_height() {
+        let source = SourceProvenance::file("main.tex", 0, 24);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.png".to_string(),
+                options: Some("width=100pt,height=100pt,keepaspectratio".to_string()),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: Some("blake3:asset".to_string()),
+                asset_dimensions: Some(GraphicAssetDimensions {
+                    width_px: 400,
+                    height_px: 200,
+                }),
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let image = display_lists[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::Image(image) if image.asset_ref == "figures/plot.png" => Some(image),
+                _ => None,
+            })
+            .expect("image op");
+
+        assert!((image.rect.width - 100.0).abs() < 0.01);
+        assert!((image.rect.height - 50.0).abs() < 0.01);
     }
 
     #[test]
