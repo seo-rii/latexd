@@ -2344,6 +2344,40 @@ fn graphic_crop_options_survive_project_root_render_ir_capture() {
 }
 
 #[test]
+fn graphic_trim_affects_project_root_default_image_rect() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
+    fs::create_dir_all(root.join("figures").as_std_path()).expect("create figures dir");
+    fs::write(
+        root.join("main.tex").as_std_path(),
+        r"\begin{document}\includegraphics[trim=1pt 0pt 0pt 0pt,clip]{figures/plot.png}\end{document}",
+    )
+    .expect("write source");
+    fs::write(
+        root.join("figures/plot.png").as_std_path(),
+        tiny_png_bytes(),
+    )
+    .expect("write image");
+
+    let capture =
+        capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
+            .expect("capture project render ir");
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.png" => Some(image),
+            _ => None,
+        })
+        .expect("image op");
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+
+    assert!((image.rect.width - 1.0).abs() < 0.01);
+    assert!((image.rect.height - 2.0).abs() < 0.01);
+    assert!(pdf_text.contains("q 72 718 1 2 re W n q 2 0 0 2 71 718 cm /Im1 Do Q Q"));
+}
+
+#[test]
 fn project_root_missing_graphic_asset_emits_render_diagnostic() {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");

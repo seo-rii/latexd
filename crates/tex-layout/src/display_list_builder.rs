@@ -1012,7 +1012,7 @@ pub fn build_page_display_lists(
                 y += logical.gap_after_pt;
             }
             LogicalItem::Image(logical) => {
-                let (default_image_width, default_image_height) =
+                let (natural_image_width, natural_image_height) =
                     if let Some(dimensions) = logical.asset_dimensions {
                         let natural_width = dimensions.width_px as f32;
                         let natural_height = dimensions.height_px as f32;
@@ -1021,8 +1021,7 @@ pub fn build_page_display_lists(
                             && natural_width > 0.0
                             && natural_height > 0.0
                         {
-                            let fit_scale = (content_width_pt / natural_width).min(1.0);
-                            (natural_width * fit_scale, natural_height * fit_scale)
+                            (natural_width, natural_height)
                         } else {
                             (content_width_pt, options.line_height_pt * 6.0)
                         }
@@ -1100,6 +1099,43 @@ pub fn build_page_display_lists(
                     viewport,
                     clip,
                 });
+                let (source_image_width, source_image_height) = if let Some(crop) = crop {
+                    let (mut source_left, mut source_bottom, mut source_right, mut source_top) =
+                        if let Some(viewport) = crop.viewport {
+                            (
+                                viewport.llx_pt,
+                                viewport.lly_pt,
+                                viewport.urx_pt,
+                                viewport.ury_pt,
+                            )
+                        } else {
+                            (0.0, 0.0, natural_image_width, natural_image_height)
+                        };
+                    if let Some(trim) = crop.trim {
+                        source_left += trim.left_pt;
+                        source_bottom += trim.bottom_pt;
+                        source_right -= trim.right_pt;
+                        source_top -= trim.top_pt;
+                    }
+                    let source_width = source_right - source_left;
+                    let source_height = source_top - source_bottom;
+                    if source_width.is_finite()
+                        && source_height.is_finite()
+                        && source_width > 0.0
+                        && source_height > 0.0
+                    {
+                        (source_width, source_height)
+                    } else {
+                        (natural_image_width, natural_image_height)
+                    }
+                } else {
+                    (natural_image_width, natural_image_height)
+                };
+                let fit_scale = (content_width_pt / source_image_width).min(1.0);
+                let (default_image_width, default_image_height) = (
+                    source_image_width * fit_scale,
+                    source_image_height * fit_scale,
+                );
                 let (image_width, image_height) = match (width_hint_pt, height_hint_pt) {
                     (Some(width), Some(height)) if keep_aspect_ratio => {
                         let scale =
@@ -2625,6 +2661,70 @@ mod tests {
                 clip: false,
             })
         );
+    }
+
+    #[test]
+    fn graphic_trim_affects_default_image_rect() {
+        let source = SourceProvenance::file("main.tex", 0, 24);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.png".to_string(),
+                options: Some("trim=50pt 0pt 50pt 0pt,clip".to_string()),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: None,
+                asset_dimensions: Some(GraphicAssetDimensions {
+                    width_px: 200,
+                    height_px: 100,
+                }),
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let image = display_lists[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::Image(image) if image.asset_ref == "figures/plot.png" => Some(image),
+                _ => None,
+            })
+            .expect("image op");
+
+        assert!((image.rect.width - 100.0).abs() < 0.01);
+        assert!((image.rect.height - 100.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn graphic_viewport_affects_default_image_rect() {
+        let source = SourceProvenance::file("main.tex", 0, 24);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.png".to_string(),
+                options: Some("viewport=10pt 20pt 60pt 45pt,clip".to_string()),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: None,
+                asset_dimensions: Some(GraphicAssetDimensions {
+                    width_px: 200,
+                    height_px: 100,
+                }),
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let image = display_lists[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::Image(image) if image.asset_ref == "figures/plot.png" => Some(image),
+                _ => None,
+            })
+            .expect("image op");
+
+        assert!((image.rect.width - 50.0).abs() < 0.01);
+        assert!((image.rect.height - 25.0).abs() < 0.01);
     }
 
     #[test]

@@ -69,8 +69,9 @@ boxes when no explicit size is given. When both `width` and `height` are present
 `keepaspectratio` now fits the natural/default image box inside the requested
 rectangle instead of stretching it. `trim`, `viewport`/`bb`, and `clip` options
 are now preserved as renderer-neutral `ImageCrop` metadata on display-list image
-ops and exposed in SVG debug artifacts as `data-image-crop-*` attributes, but the
-current PDF bitmap embedder is the only renderer that applies `clip=true` crop
+ops, exposed in SVG debug artifacts as `data-image-crop-*` attributes, and used
+to derive default image-box size when no explicit size is provided. The current
+PDF bitmap embedder is still the only renderer that applies `clip=true` crop
 metadata by clipping to the destination rect and offsetting/scaling the embedded
 XObject. Missing graphic assets now produce render-event diagnostics when the
 capture has enough project or mounted-file context to know the asset is absent,
