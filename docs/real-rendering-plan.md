@@ -70,14 +70,15 @@ boxes when no explicit size is given. When both `width` and `height` are present
 rectangle instead of stretching it. `trim`, `viewport`/`bb`, and `clip` options
 are now preserved as renderer-neutral `ImageCrop` metadata on display-list image
 ops and exposed in SVG debug artifacts as `data-image-crop-*` attributes, but the
-current PDF/debug renderers still treat them as metadata rather than performing
-actual crop/clipping. Missing graphic assets now produce render-event
-diagnostics when the capture has enough project or mounted-file context to know
-the asset is absent, while preserving the image placeholder. External
-PDF/EPS/SVG conversion, DPI-aware natural sizing, driver-accurate crop/clip
-rendering, rotation semantics, exact table rule trimming, vertical spanning,
-nested table constructs, TeX alignment policy, and production preview wiring are
-still deferred.
+current PDF bitmap embedder is the only renderer that applies `clip=true` crop
+metadata by clipping to the destination rect and offsetting/scaling the embedded
+XObject. Missing graphic assets now produce render-event diagnostics when the
+capture has enough project or mounted-file context to know the asset is absent,
+while preserving the image placeholder. External PDF/EPS/SVG conversion,
+DPI-aware natural sizing, driver-accurate crop/clip rendering for non-bitmap
+assets, rotation semantics, exact table rule trimming, vertical spanning, nested
+table constructs, TeX alignment policy, and production preview wiring are still
+deferred.
 
 ## Product Goal
 

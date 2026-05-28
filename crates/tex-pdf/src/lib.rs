@@ -263,14 +263,78 @@ pub fn render_display_list_pdf_with_assets(
                         next_page_image_index += 1;
                         image_resource_refs.push(format!("/{resource_name} {object_id} 0 R"));
                         extra_objects.push(build_image_xobject(object_id, &decoded));
-                        stream.push_str(&format!(
-                            "q {} 0 0 {} {} {} cm /{} Do Q ",
-                            image.rect.width,
-                            image.rect.height,
-                            image.rect.x,
-                            page.height_pt - image.rect.y - image.rect.height,
-                            resource_name
-                        ));
+                        let dest_x = image.rect.x;
+                        let dest_y = page.height_pt - image.rect.y - image.rect.height;
+                        let mut draw_x = dest_x;
+                        let mut draw_y = dest_y;
+                        let mut draw_width = image.rect.width;
+                        let mut draw_height = image.rect.height;
+                        let mut clip_to_dest = false;
+                        if let Some(crop) = image.crop.filter(|crop| crop.clip) {
+                            let natural_width = decoded.width as f32;
+                            let natural_height = decoded.height as f32;
+                            let (
+                                mut source_left,
+                                mut source_bottom,
+                                mut source_right,
+                                mut source_top,
+                            ) = if let Some(viewport) = crop.viewport {
+                                (
+                                    viewport.llx_pt,
+                                    viewport.lly_pt,
+                                    viewport.urx_pt,
+                                    viewport.ury_pt,
+                                )
+                            } else {
+                                (0.0, 0.0, natural_width, natural_height)
+                            };
+                            if let Some(trim) = crop.trim {
+                                source_left += trim.left_pt;
+                                source_bottom += trim.bottom_pt;
+                                source_right -= trim.right_pt;
+                                source_top -= trim.top_pt;
+                            }
+                            let source_width = source_right - source_left;
+                            let source_height = source_top - source_bottom;
+                            if source_width.is_finite()
+                                && source_height.is_finite()
+                                && source_width > 0.0
+                                && source_height > 0.0
+                            {
+                                let scale_x = image.rect.width / source_width;
+                                let scale_y = image.rect.height / source_height;
+                                if scale_x.is_finite()
+                                    && scale_y.is_finite()
+                                    && scale_x > 0.0
+                                    && scale_y > 0.0
+                                {
+                                    draw_x = dest_x - source_left * scale_x;
+                                    draw_y = dest_y - source_bottom * scale_y;
+                                    draw_width = natural_width * scale_x;
+                                    draw_height = natural_height * scale_y;
+                                    clip_to_dest = true;
+                                }
+                            }
+                        }
+                        if clip_to_dest {
+                            stream.push_str(&format!(
+                                "q {} {} {} {} re W n q {} 0 0 {} {} {} cm /{} Do Q Q ",
+                                dest_x,
+                                dest_y,
+                                image.rect.width,
+                                image.rect.height,
+                                draw_width,
+                                draw_height,
+                                draw_x,
+                                draw_y,
+                                resource_name
+                            ));
+                        } else {
+                            stream.push_str(&format!(
+                                "q {} 0 0 {} {} {} cm /{} Do Q ",
+                                draw_width, draw_height, draw_x, draw_y, resource_name
+                            ));
+                        }
                     } else {
                         push_image_placeholder(&mut stream, page.height_pt, image);
                     }
@@ -1369,6 +1433,48 @@ mod tests {
         assert!(pdf_text.contains("/Height 2"));
         assert!(pdf_text.contains("/ColorSpace /DeviceRGB"));
         assert!(pdf_text.contains("/BitsPerComponent 8"));
+        assert!(!pdf_text.contains("[image: figures/tiny.png]"));
+    }
+
+    #[test]
+    fn renders_clip_enabled_png_crop_with_pdf_clipping() {
+        let source = SourceProvenance::file("main.tex", 0, 10);
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 72.0,
+                    width: 100.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/tiny.png".to_string(),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: Some("blake3:tiny".to_string()),
+                crop: Some(ImageCrop {
+                    trim: Some(ImageTrim {
+                        left_pt: 1.0,
+                        bottom_pt: 0.0,
+                        right_pt: 0.0,
+                        top_pt: 0.0,
+                    }),
+                    viewport: None,
+                    clip: true,
+                }),
+                source,
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/tiny.png").then(tiny_png_bytes)
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q 72 620 100 100 re W n q 200 0 0 100 -28 620 cm /Im1 Do Q Q"));
+        assert!(pdf_text.contains("/Subtype /Image"));
         assert!(!pdf_text.contains("[image: figures/tiny.png]"));
     }
 
