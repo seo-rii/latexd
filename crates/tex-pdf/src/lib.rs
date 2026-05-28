@@ -615,11 +615,31 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                     .as_deref()
                     .map(|hash| format!(" data-image-asset-hash=\"{}\"", escape_xml_text(hash)))
                     .unwrap_or_default();
+                let crop_attrs = image
+                    .crop
+                    .map(|crop| {
+                        let mut attrs = format!(" data-image-crop-clip=\"{}\"", crop.clip);
+                        if let Some(trim) = crop.trim {
+                            attrs.push_str(&format!(
+                                " data-image-crop-trim=\"{},{},{},{}\"",
+                                trim.left_pt, trim.bottom_pt, trim.right_pt, trim.top_pt
+                            ));
+                        }
+                        if let Some(viewport) = crop.viewport {
+                            attrs.push_str(&format!(
+                                " data-image-crop-viewport=\"{},{},{},{}\"",
+                                viewport.llx_pt, viewport.lly_pt, viewport.urx_pt, viewport.ury_pt
+                            ));
+                        }
+                        attrs
+                    })
+                    .unwrap_or_default();
                 body.push_str(&format!(
-                    "<g data-image-asset-ref=\"{}\"{}{}{}><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
+                    "<g data-image-asset-ref=\"{}\"{}{}{}{}><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
                     escape_xml_text(&image.asset_ref),
                     asset_format_attr,
                     asset_hash_attr,
+                    crop_attrs,
                     source_attrs_for(&image.source),
                     image.rect.x,
                     image.rect.y,
@@ -762,9 +782,9 @@ mod tests {
     use tex_layout::{LayoutOptions, layout_text};
     use tex_render_model::{
         Destination, DrawOp, ExpansionFrame, FontFamilyRequest, FontRequest, FontRole, FontSeries,
-        FontShape, GraphicAssetFormat, LinkAnnotation, PageDisplayList, Point, PositionedImage,
-        PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan, SourceSpanRole,
-        TextCluster,
+        FontShape, GraphicAssetFormat, ImageCrop, ImageTrim, ImageViewport, LinkAnnotation,
+        PageDisplayList, Point, PositionedImage, PositionedTextRun, ProvenanceSpan, Rect,
+        SourceProvenance, SourceSpan, SourceSpanRole, TextCluster,
     };
 
     use super::{
@@ -1266,7 +1286,21 @@ mod tests {
                 asset_ref: "figures/a(b)&c.pdf".to_string(),
                 asset_format: Some(GraphicAssetFormat::Pdf),
                 asset_hash: Some("blake3:asset-hash".to_string()),
-                crop: None,
+                crop: Some(ImageCrop {
+                    trim: Some(ImageTrim {
+                        left_pt: 1.0,
+                        bottom_pt: 2.0,
+                        right_pt: 3.0,
+                        top_pt: 4.0,
+                    }),
+                    viewport: Some(ImageViewport {
+                        llx_pt: 0.0,
+                        lly_pt: 0.0,
+                        urx_pt: 144.0,
+                        ury_pt: 72.0,
+                    }),
+                    clip: true,
+                }),
                 source,
             })],
             source_spans: Vec::new(),
@@ -1284,6 +1318,9 @@ mod tests {
         assert!(svg.contains("data-image-asset-ref=\"figures/a(b)&amp;c.pdf\""));
         assert!(svg.contains("data-image-asset-format=\"pdf\""));
         assert!(svg.contains("data-image-asset-hash=\"blake3:asset-hash\""));
+        assert!(svg.contains("data-image-crop-clip=\"true\""));
+        assert!(svg.contains("data-image-crop-trim=\"1,2,3,4\""));
+        assert!(svg.contains("data-image-crop-viewport=\"0,0,144,72\""));
         assert!(
             svg.contains("<rect x=\"72\" y=\"78\" width=\"144\" height=\"72\" fill=\"#e5e7eb\"")
         );

@@ -69,8 +69,9 @@ boxes when no explicit size is given. When both `width` and `height` are present
 `keepaspectratio` now fits the natural/default image box inside the requested
 rectangle instead of stretching it. `trim`, `viewport`/`bb`, and `clip` options
 are now preserved as renderer-neutral `ImageCrop` metadata on display-list image
-ops, but the current PDF/debug renderers still treat them as metadata rather than
-performing actual crop/clipping. Missing graphic assets now produce render-event
+ops and exposed in SVG debug artifacts as `data-image-crop-*` attributes, but the
+current PDF/debug renderers still treat them as metadata rather than performing
+actual crop/clipping. Missing graphic assets now produce render-event
 diagnostics when the capture has enough project or mounted-file context to know
 the asset is absent, while preserving the image placeholder. External
 PDF/EPS/SVG conversion, DPI-aware natural sizing, driver-accurate crop/clip
