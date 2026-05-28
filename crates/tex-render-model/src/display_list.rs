@@ -79,7 +79,35 @@ pub struct PositionedImage {
     pub asset_format: Option<GraphicAssetFormat>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asset_hash: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub crop: Option<ImageCrop>,
     pub source: SourceProvenance,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ImageCrop {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trim: Option<ImageTrim>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub viewport: Option<ImageViewport>,
+    #[serde(default)]
+    pub clip: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ImageTrim {
+    pub left_pt: f32,
+    pub bottom_pt: f32,
+    pub right_pt: f32,
+    pub top_pt: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ImageViewport {
+    pub llx_pt: f32,
+    pub lly_pt: f32,
+    pub urx_pt: f32,
+    pub ury_pt: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

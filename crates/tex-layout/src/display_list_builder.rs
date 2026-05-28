@@ -1,8 +1,8 @@
 use tex_render_model::{
     BibliographyBlock, Destination, DocumentIr, DrawOp, FontFamilyRequest, FontRequest, FontRole,
-    FontSeries, FontShape, InlineNode, IrBlock, LinkAnnotation, PageDisplayList, Point,
-    PositionedImage, PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan,
-    TableRuleSpan, TextCluster,
+    FontSeries, FontShape, ImageCrop, ImageTrim, ImageViewport, InlineNode, IrBlock,
+    LinkAnnotation, PageDisplayList, Point, PositionedImage, PositionedTextRun, ProvenanceSpan,
+    Rect, SourceProvenance, SourceSpan, TableRuleSpan, TextCluster,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -683,7 +683,10 @@ pub fn build_page_display_lists(
     let content_width_pt = (options.page_width_pt - options.margin_left_pt * 2.0).max(1.0);
     let content_height_pt =
         (options.page_height_pt - options.margin_top_pt - options.margin_bottom_pt).max(1.0);
-    let parse_graphic_dimension_pt = |raw_value: &str| -> Option<f32> {
+    let parse_graphic_dimension_pt = |raw_value: &str, allow_zero: bool| -> Option<f32> {
+        let accepts_dimension = |dimension: f32| {
+            dimension.is_finite() && (dimension > 0.0 || (allow_zero && dimension >= 0.0))
+        };
         let normalized = raw_value
             .trim()
             .trim_matches(|ch| ch == '{' || ch == '}')
@@ -712,7 +715,7 @@ pub fn build_page_display_lists(
                     factor.parse::<f32>().ok()
                 }?;
                 let dimension = reference_pt * factor;
-                if dimension.is_finite() && dimension > 0.0 {
+                if accepts_dimension(dimension) {
                     return Some(dimension);
                 }
             }
@@ -731,14 +734,28 @@ pub fn build_page_display_lists(
         ] {
             if let Some(number) = normalized.strip_suffix(unit) {
                 let dimension = number.parse::<f32>().ok()? * multiplier;
-                if dimension.is_finite() && dimension > 0.0 {
+                if accepts_dimension(dimension) {
                     return Some(dimension);
                 }
             }
         }
 
         let dimension = normalized.parse::<f32>().ok()?;
-        (dimension.is_finite() && dimension > 0.0).then_some(dimension)
+        accepts_dimension(dimension).then_some(dimension)
+    };
+    let parse_graphic_quad_pt = |raw_value: &str| -> Option<[f32; 4]> {
+        let normalized = raw_value.trim().trim_matches(|ch| ch == '{' || ch == '}');
+        let parts = normalized.split_whitespace().collect::<Vec<_>>();
+        if parts.len() != 4 {
+            return None;
+        }
+
+        Some([
+            parse_graphic_dimension_pt(parts[0], true)?,
+            parse_graphic_dimension_pt(parts[1], true)?,
+            parse_graphic_dimension_pt(parts[2], true)?,
+            parse_graphic_dimension_pt(parts[3], true)?,
+        ])
     };
     let mut pending = new_pending_page();
     let mut page_index = 0usize;
@@ -1016,6 +1033,9 @@ pub fn build_page_display_lists(
                 let mut height_hint_pt = None;
                 let mut scale_hint = None;
                 let mut keep_aspect_ratio = false;
+                let mut trim = None;
+                let mut viewport = None;
+                let mut clip = false;
                 if let Some(graphic_options) = &logical.options {
                     for part in graphic_options.split(',') {
                         let part = part.trim();
@@ -1023,13 +1043,17 @@ pub fn build_page_display_lists(
                             keep_aspect_ratio = true;
                             continue;
                         }
+                        if part == "clip" {
+                            clip = true;
+                            continue;
+                        }
                         let Some((key, value)) = part.split_once('=') else {
                             continue;
                         };
                         match key.trim() {
-                            "width" => width_hint_pt = parse_graphic_dimension_pt(value),
+                            "width" => width_hint_pt = parse_graphic_dimension_pt(value, false),
                             "height" | "totalheight" => {
-                                height_hint_pt = parse_graphic_dimension_pt(value);
+                                height_hint_pt = parse_graphic_dimension_pt(value, false);
                             }
                             "scale" => {
                                 let scale = value
@@ -1042,10 +1066,40 @@ pub fn build_page_display_lists(
                             "keepaspectratio" => {
                                 keep_aspect_ratio = !matches!(value.trim(), "false" | "0" | "off");
                             }
+                            "trim" => {
+                                if let Some([left, bottom, right, top]) =
+                                    parse_graphic_quad_pt(value)
+                                {
+                                    trim = Some(ImageTrim {
+                                        left_pt: left,
+                                        bottom_pt: bottom,
+                                        right_pt: right,
+                                        top_pt: top,
+                                    });
+                                }
+                            }
+                            "viewport" | "bb" => {
+                                if let Some([llx, lly, urx, ury]) = parse_graphic_quad_pt(value) {
+                                    viewport = Some(ImageViewport {
+                                        llx_pt: llx,
+                                        lly_pt: lly,
+                                        urx_pt: urx,
+                                        ury_pt: ury,
+                                    });
+                                }
+                            }
+                            "clip" => {
+                                clip = !matches!(value.trim(), "false" | "0" | "off");
+                            }
                             _ => {}
                         }
                     }
                 }
+                let crop = (clip || trim.is_some() || viewport.is_some()).then_some(ImageCrop {
+                    trim,
+                    viewport,
+                    clip,
+                });
                 let (image_width, image_height) = match (width_hint_pt, height_hint_pt) {
                     (Some(width), Some(height)) if keep_aspect_ratio => {
                         let scale =
@@ -1121,6 +1175,10 @@ pub fn build_page_display_lists(
                         dimensions.width_px, dimensions.height_px
                     ));
                 }
+                if let Some(crop) = crop {
+                    pending.hash_input.push('\u{1f}');
+                    pending.hash_input.push_str(&format!("image-crop:{crop:?}"));
+                }
                 pending.hash_input.push('\u{1f}');
                 pending.hash_input.push_str(&format!(
                     "image-rect:{:.3}:{:.3}:{image_width:.3}:{image_height:.3}",
@@ -1137,6 +1195,7 @@ pub fn build_page_display_lists(
                     asset_ref: logical.path.clone(),
                     asset_format: logical.asset_format,
                     asset_hash: logical.asset_hash.clone(),
+                    crop,
                     source: logical.source.clone(),
                 }));
                 y += image_height;
@@ -1284,9 +1343,10 @@ mod tests {
     use tex_render_model::{
         AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint,
         DisplayMathBlock, DocumentIr, DrawOp, GraphicAssetDimensions, GraphicAssetFormat,
-        GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr, LinkInline, ListBlock,
-        ListItemIr, ListKind, ParagraphBlock, ProvenanceSpan, ReferenceInline, SourceProvenance,
-        SourceSpan, TableBlock, TableCell, TableRow, TableRuleSpan, TextCluster, TitleBlock,
+        GraphicBlock, HeadingBlock, ImageCrop, ImageTrim, ImageViewport, InlineNode, IrBlock,
+        LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind, ParagraphBlock,
+        ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan, TableBlock, TableCell,
+        TableRow, TableRuleSpan, TextCluster, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists};
@@ -2485,6 +2545,86 @@ mod tests {
 
         assert!((image.rect.width - 100.0).abs() < 0.01);
         assert!((image.rect.height - 50.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn graphic_trim_and_clip_options_are_preserved_on_image_ops() {
+        let source = SourceProvenance::file("main.tex", 0, 24);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.png".to_string(),
+                options: Some("trim=1pt 2pt 3pt 4pt,clip".to_string()),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: None,
+                asset_dimensions: None,
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let image = display_lists[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::Image(image) if image.asset_ref == "figures/plot.png" => Some(image),
+                _ => None,
+            })
+            .expect("image op");
+
+        assert_eq!(
+            image.crop,
+            Some(ImageCrop {
+                trim: Some(ImageTrim {
+                    left_pt: 1.0,
+                    bottom_pt: 2.0,
+                    right_pt: 3.0,
+                    top_pt: 4.0,
+                }),
+                viewport: None,
+                clip: true,
+            })
+        );
+    }
+
+    #[test]
+    fn graphic_viewport_option_is_preserved_on_image_ops() {
+        let source = SourceProvenance::file("main.tex", 0, 24);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.png".to_string(),
+                options: Some("viewport=0pt 0pt 120pt 60pt,clip=false".to_string()),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: None,
+                asset_dimensions: None,
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let image = display_lists[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::Image(image) if image.asset_ref == "figures/plot.png" => Some(image),
+                _ => None,
+            })
+            .expect("image op");
+
+        assert_eq!(
+            image.crop,
+            Some(ImageCrop {
+                trim: None,
+                viewport: Some(ImageViewport {
+                    llx_pt: 0.0,
+                    lly_pt: 0.0,
+                    urx_pt: 120.0,
+                    ury_pt: 60.0,
+                }),
+                clip: false,
+            })
+        );
     }
 
     #[test]

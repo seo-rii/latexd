@@ -67,11 +67,14 @@ for common units and text/page-relative dimensions, and resolver-backed PNG/JPEG
 headers now provide natural pixel dimensions for default aspect-preserving image
 boxes when no explicit size is given. When both `width` and `height` are present,
 `keepaspectratio` now fits the natural/default image box inside the requested
-rectangle instead of stretching it. Missing graphic assets now produce
-render-event diagnostics when the capture has enough project or mounted-file
-context to know the asset is absent, while preserving the image placeholder.
-External PDF/EPS/SVG conversion, DPI-aware natural sizing, trim/clip fidelity,
-rotation/viewport semantics, exact table rule trimming, vertical spanning,
+rectangle instead of stretching it. `trim`, `viewport`/`bb`, and `clip` options
+are now preserved as renderer-neutral `ImageCrop` metadata on display-list image
+ops, but the current PDF/debug renderers still treat them as metadata rather than
+performing actual crop/clipping. Missing graphic assets now produce render-event
+diagnostics when the capture has enough project or mounted-file context to know
+the asset is absent, while preserving the image placeholder. External
+PDF/EPS/SVG conversion, DPI-aware natural sizing, driver-accurate crop/clip
+rendering, rotation semantics, exact table rule trimming, vertical spanning,
 nested table constructs, TeX alignment policy, and production preview wiring are
 still deferred.
 
@@ -379,7 +382,8 @@ Implemented first slice:
 
 Remaining figure work:
 
-- natural image dimensions and option-aware sizing;
+- DPI-aware natural image dimensions and broader option-aware sizing;
+- actual trim/viewport/clip rendering in PDF/raster backends;
 - external PDF/EPS/SVG conversion or raster insertion;
 - missing/unsupported image diagnostics surfaced through render artifacts;
 - raster tests that fail on missing major figure regions.
