@@ -82,6 +82,9 @@ spanning, nested table constructs, TeX alignment policy, and production preview
 wiring are still deferred. Rotation intent is no longer dropped: `angle` /
 `origin` options and simple `\rotatebox` wrappers are preserved as
 renderer-neutral `ImageRotation` metadata and exposed in SVG debug artifacts.
+Common graphic layout wrappers also feed the same option path: `resizebox`
+contributes inherited width/height hints, `scalebox` contributes inherited scale,
+and `adjustbox` contributes its option list before display-list sizing.
 
 ## Product Goal
 
@@ -388,6 +391,7 @@ Implemented first slice:
 Remaining figure work:
 
 - DPI-aware natural image dimensions and broader option-aware sizing;
+- fuller wrapper sizing semantics for non-uniform scaling and nested boxes;
 - actual trim/viewport/clip rendering in PDF/raster backends;
 - actual rotated drawing in PDF/raster backends;
 - external PDF/EPS/SVG conversion or raster insertion;

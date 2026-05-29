@@ -2555,6 +2555,42 @@ fn graphic_layout_box_wrappers_preserve_images_without_argument_leakage() {
             )
         }));
     }
+    let image_rects = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::Image(image) => Some((
+                image.asset_ref.as_str(),
+                image.rect.width,
+                image.rect.height,
+            )),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        capture.page_display_lists[0].ops.iter().any(|op| {
+            matches!(
+                op,
+                DrawOp::Image(image)
+                    if image.asset_ref == "figures/plot.pdf"
+                        && (image.rect.width - 374.4).abs() < 0.01
+                        && (image.rect.height - 259.2).abs() < 0.01
+            )
+        }),
+        "{image_rects:?}"
+    );
+    assert!(
+        capture.page_display_lists[0].ops.iter().any(|op| {
+            matches!(
+                op,
+                DrawOp::Image(image)
+                    if image.asset_ref == "figures/other.eps"
+                        && (image.rect.width - 234.0).abs() < 0.01
+                        && (image.rect.height - 42.0).abs() < 0.01
+            )
+        }),
+        "{image_rects:?}"
+    );
     assert!(capture.page_display_lists[0].ops.iter().any(|op| {
         matches!(
             op,

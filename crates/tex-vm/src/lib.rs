@@ -8090,14 +8090,25 @@ impl<'i> Vm<'i> {
         }
         match command {
             "resizebox" => {
-                let (_, _, _, after_width) = read_braced_source_argument(source, argument_index)?;
+                let (width, _, _, after_width) =
+                    read_braced_source_argument(source, argument_index)?;
                 if after_width > limit {
                     return None;
                 }
                 let after_width = skip_ascii_whitespace(source, after_width);
-                let (_, _, _, after_height) = read_braced_source_argument(source, after_width)?;
+                let (height, _, _, after_height) =
+                    read_braced_source_argument(source, after_width)?;
                 if after_height > limit {
                     return None;
+                }
+                let mut inherited_options = Vec::new();
+                let width = width.trim().to_string();
+                if !matches!(width.trim(), "" | "!") {
+                    inherited_options.push(format!("width={width}"));
+                }
+                let height = height.trim().to_string();
+                if !matches!(height.trim(), "" | "!") {
+                    inherited_options.push(format!("height={height}"));
                 }
                 let body_index = skip_ascii_whitespace(source, after_height);
                 let (_, body_start, body_end, after_body) =
@@ -8105,6 +8116,7 @@ impl<'i> Vm<'i> {
                 if after_body > limit {
                     return None;
                 }
+                let inherited_options = inherited_options.join(",");
                 self.capture_graphics_in_source_range(
                     source_path,
                     source,
@@ -8112,21 +8124,31 @@ impl<'i> Vm<'i> {
                     body_end,
                     graphic_paths,
                     graphic_extensions,
-                    None,
+                    (!inherited_options.is_empty()).then_some(inherited_options.as_str()),
                 );
                 Some(after_body)
             }
             "scalebox" => {
-                let (_, _, _, after_scale) = read_braced_source_argument(source, argument_index)?;
+                let (scale, _, _, after_scale) =
+                    read_braced_source_argument(source, argument_index)?;
                 if after_scale > limit {
                     return None;
                 }
+                let mut inherited_options = Vec::new();
+                let scale = scale.trim().to_string();
+                if !scale.trim().is_empty() {
+                    inherited_options.push(format!("scale={scale}"));
+                }
                 let mut body_index = skip_ascii_whitespace(source, after_scale);
-                if let Some((_, _, _, after_option)) =
+                if let Some((vertical_scale, _, _, after_option)) =
                     read_bracket_source_argument(source, body_index)
                 {
                     if after_option > limit {
                         return None;
+                    }
+                    let vertical_scale = vertical_scale.trim().to_string();
+                    if !vertical_scale.trim().is_empty() {
+                        inherited_options.push(format!("yscale={vertical_scale}"));
                     }
                     body_index = skip_ascii_whitespace(source, after_option);
                 }
@@ -8135,6 +8157,7 @@ impl<'i> Vm<'i> {
                 if after_body > limit {
                     return None;
                 }
+                let inherited_options = inherited_options.join(",");
                 self.capture_graphics_in_source_range(
                     source_path,
                     source,
@@ -8142,7 +8165,7 @@ impl<'i> Vm<'i> {
                     body_end,
                     graphic_paths,
                     graphic_extensions,
-                    None,
+                    (!inherited_options.is_empty()).then_some(inherited_options.as_str()),
                 );
                 Some(after_body)
             }
@@ -8205,10 +8228,12 @@ impl<'i> Vm<'i> {
                 Some(after_body)
             }
             "adjustbox" => {
-                let (_, _, _, after_options) = read_braced_source_argument(source, argument_index)?;
+                let (options, _, _, after_options) =
+                    read_braced_source_argument(source, argument_index)?;
                 if after_options > limit {
                     return None;
                 }
+                let options = options.trim().to_string();
                 let body_index = skip_ascii_whitespace(source, after_options);
                 let (_, body_start, body_end, after_body) =
                     read_braced_source_argument(source, body_index)?;
@@ -8222,7 +8247,7 @@ impl<'i> Vm<'i> {
                     body_end,
                     graphic_paths,
                     graphic_extensions,
-                    None,
+                    (!options.trim().is_empty()).then_some(options.as_str()),
                 );
                 Some(after_body)
             }
@@ -22562,6 +22587,19 @@ Fallback text.
                 RenderEvent::GraphicRef(graphic) if graphic.path == path
             )));
         }
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.options.as_deref()
+                        == Some("width=5cm,width=0.8\\textwidth,height=0.4\\textheight")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/other.eps"
+                    && graphic.options.as_deref() == Some("scale=0.5")
+        )));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::GraphicRef(graphic)
