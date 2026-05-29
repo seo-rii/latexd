@@ -8,8 +8,8 @@ use latexd::compiler::{
 use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{
     BlockKind, CitationStyleHint, DrawOp, EventProducer, GeneratedBy, GraphicAssetFormat,
-    ImageCrop, ImageTrim, ImageViewport, ListKind, MetadataField, ModeHint, RenderEvent,
-    SemanticConfidence, SpaceKind, to_pretty_json, to_semantic_pretty_json,
+    ImageCrop, ImageRotation, ImageTrim, ImageViewport, ListKind, MetadataField, ModeHint,
+    RenderEvent, SemanticConfidence, SpaceKind, to_pretty_json, to_semantic_pretty_json,
 };
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole, TableRuleSpan};
 
@@ -2378,6 +2378,31 @@ fn graphic_trim_affects_project_root_default_image_rect() {
 }
 
 #[test]
+fn graphic_rotation_options_survive_render_ir_capture() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\includegraphics[width=5cm,angle=90,origin=c]{figures/plot.pdf}\end{document}",
+        &SemanticAux::default(),
+    );
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.pdf" => Some(image),
+            _ => None,
+        })
+        .expect("image op");
+
+    assert_eq!(
+        image.rotation,
+        Some(ImageRotation {
+            angle_degrees: 90.0,
+            origin: Some("c".to_string()),
+        })
+    );
+}
+
+#[test]
 fn project_root_missing_graphic_asset_emits_render_diagnostic() {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
@@ -2530,6 +2555,18 @@ fn graphic_layout_box_wrappers_preserve_images_without_argument_leakage() {
             )
         }));
     }
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::Image(image)
+                if image.asset_ref == "figures/third.eps"
+                    && image.rotation
+                        == Some(ImageRotation {
+                            angle_degrees: 90.0,
+                            origin: Some("c".to_string()),
+                        })
+        )
+    }));
 
     let extracted_text = capture.document_ir.extracted_text();
     let display_list_text = capture.page_display_lists[0]

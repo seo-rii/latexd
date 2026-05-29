@@ -81,6 +81,8 @@ pub struct PositionedImage {
     pub asset_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub crop: Option<ImageCrop>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<ImageRotation>,
     pub source: SourceProvenance,
 }
 
@@ -108,6 +110,13 @@ pub struct ImageViewport {
     pub lly_pt: f32,
     pub urx_pt: f32,
     pub ury_pt: f32,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ImageRotation {
+    pub angle_degrees: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

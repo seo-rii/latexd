@@ -698,12 +698,33 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                         attrs
                     })
                     .unwrap_or_default();
+                let rotation_attrs = image
+                    .rotation
+                    .as_ref()
+                    .map(|rotation| {
+                        let origin_attr = rotation
+                            .origin
+                            .as_deref()
+                            .map(|origin| {
+                                format!(
+                                    " data-image-rotation-origin=\"{}\"",
+                                    escape_xml_text(origin)
+                                )
+                            })
+                            .unwrap_or_default();
+                        format!(
+                            " data-image-rotation-angle=\"{}\"{}",
+                            rotation.angle_degrees, origin_attr
+                        )
+                    })
+                    .unwrap_or_default();
                 body.push_str(&format!(
-                    "<g data-image-asset-ref=\"{}\"{}{}{}{}><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
+                    "<g data-image-asset-ref=\"{}\"{}{}{}{}{}><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
                     escape_xml_text(&image.asset_ref),
                     asset_format_attr,
                     asset_hash_attr,
                     crop_attrs,
+                    rotation_attrs,
                     source_attrs_for(&image.source),
                     image.rect.x,
                     image.rect.y,
@@ -846,9 +867,9 @@ mod tests {
     use tex_layout::{LayoutOptions, layout_text};
     use tex_render_model::{
         Destination, DrawOp, ExpansionFrame, FontFamilyRequest, FontRequest, FontRole, FontSeries,
-        FontShape, GraphicAssetFormat, ImageCrop, ImageTrim, ImageViewport, LinkAnnotation,
-        PageDisplayList, Point, PositionedImage, PositionedTextRun, ProvenanceSpan, Rect,
-        SourceProvenance, SourceSpan, SourceSpanRole, TextCluster,
+        FontShape, GraphicAssetFormat, ImageCrop, ImageRotation, ImageTrim, ImageViewport,
+        LinkAnnotation, PageDisplayList, Point, PositionedImage, PositionedTextRun, ProvenanceSpan,
+        Rect, SourceProvenance, SourceSpan, SourceSpanRole, TextCluster,
     };
 
     use super::{
@@ -1365,6 +1386,10 @@ mod tests {
                     }),
                     clip: true,
                 }),
+                rotation: Some(ImageRotation {
+                    angle_degrees: 90.0,
+                    origin: Some("c".to_string()),
+                }),
                 source,
             })],
             source_spans: Vec::new(),
@@ -1385,6 +1410,8 @@ mod tests {
         assert!(svg.contains("data-image-crop-clip=\"true\""));
         assert!(svg.contains("data-image-crop-trim=\"1,2,3,4\""));
         assert!(svg.contains("data-image-crop-viewport=\"0,0,144,72\""));
+        assert!(svg.contains("data-image-rotation-angle=\"90\""));
+        assert!(svg.contains("data-image-rotation-origin=\"c\""));
         assert!(
             svg.contains("<rect x=\"72\" y=\"78\" width=\"144\" height=\"72\" fill=\"#e5e7eb\"")
         );
@@ -1416,6 +1443,7 @@ mod tests {
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: Some("blake3:tiny".to_string()),
                 crop: None,
+                rotation: None,
                 source,
             })],
             source_spans: Vec::new(),
@@ -1463,6 +1491,7 @@ mod tests {
                     viewport: None,
                     clip: true,
                 }),
+                rotation: None,
                 source,
             })],
             source_spans: Vec::new(),
@@ -1496,6 +1525,7 @@ mod tests {
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: Some("blake3:bad".to_string()),
                 crop: None,
+                rotation: None,
                 source,
             })],
             source_spans: Vec::new(),

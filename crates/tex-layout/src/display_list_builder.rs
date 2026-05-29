@@ -1,6 +1,6 @@
 use tex_render_model::{
     BibliographyBlock, Destination, DocumentIr, DrawOp, FontFamilyRequest, FontRequest, FontRole,
-    FontSeries, FontShape, ImageCrop, ImageTrim, ImageViewport, InlineNode, IrBlock,
+    FontSeries, FontShape, ImageCrop, ImageRotation, ImageTrim, ImageViewport, InlineNode, IrBlock,
     LinkAnnotation, PageDisplayList, Point, PositionedImage, PositionedTextRun, ProvenanceSpan,
     Rect, SourceProvenance, SourceSpan, TableRuleSpan, TextCluster,
 };
@@ -1035,6 +1035,8 @@ pub fn build_page_display_lists(
                 let mut trim = None;
                 let mut viewport = None;
                 let mut clip = false;
+                let mut rotation_angle_degrees = None;
+                let mut rotation_origin = None;
                 if let Some(graphic_options) = &logical.options {
                     for part in graphic_options.split(',') {
                         let part = part.trim();
@@ -1090,6 +1092,23 @@ pub fn build_page_display_lists(
                             "clip" => {
                                 clip = !matches!(value.trim(), "false" | "0" | "off");
                             }
+                            "angle" => {
+                                rotation_angle_degrees = value
+                                    .trim()
+                                    .trim_matches(|ch| ch == '{' || ch == '}')
+                                    .parse::<f32>()
+                                    .ok()
+                                    .filter(|angle| angle.is_finite());
+                            }
+                            "origin" => {
+                                let origin = value
+                                    .trim()
+                                    .trim_matches(|ch| ch == '{' || ch == '}')
+                                    .to_string();
+                                if !origin.is_empty() {
+                                    rotation_origin = Some(origin);
+                                }
+                            }
                             _ => {}
                         }
                     }
@@ -1098,6 +1117,10 @@ pub fn build_page_display_lists(
                     trim,
                     viewport,
                     clip,
+                });
+                let rotation = rotation_angle_degrees.map(|angle_degrees| ImageRotation {
+                    angle_degrees,
+                    origin: rotation_origin,
                 });
                 let (source_image_width, source_image_height) = if let Some(crop) = crop {
                     let (mut source_left, mut source_bottom, mut source_right, mut source_top) =
@@ -1215,6 +1238,12 @@ pub fn build_page_display_lists(
                     pending.hash_input.push('\u{1f}');
                     pending.hash_input.push_str(&format!("image-crop:{crop:?}"));
                 }
+                if let Some(rotation) = &rotation {
+                    pending.hash_input.push('\u{1f}');
+                    pending
+                        .hash_input
+                        .push_str(&format!("image-rotation:{rotation:?}"));
+                }
                 pending.hash_input.push('\u{1f}');
                 pending.hash_input.push_str(&format!(
                     "image-rect:{:.3}:{:.3}:{image_width:.3}:{image_height:.3}",
@@ -1232,6 +1261,7 @@ pub fn build_page_display_lists(
                     asset_format: logical.asset_format,
                     asset_hash: logical.asset_hash.clone(),
                     crop,
+                    rotation,
                     source: logical.source.clone(),
                 }));
                 y += image_height;
@@ -1379,8 +1409,8 @@ mod tests {
     use tex_render_model::{
         AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint,
         DisplayMathBlock, DocumentIr, DrawOp, GraphicAssetDimensions, GraphicAssetFormat,
-        GraphicBlock, HeadingBlock, ImageCrop, ImageTrim, ImageViewport, InlineNode, IrBlock,
-        LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind, ParagraphBlock,
+        GraphicBlock, HeadingBlock, ImageCrop, ImageRotation, ImageTrim, ImageViewport, InlineNode,
+        IrBlock, LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind, ParagraphBlock,
         ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan, TableBlock, TableCell,
         TableRow, TableRuleSpan, TextCluster, TitleBlock,
     };
@@ -2725,6 +2755,40 @@ mod tests {
 
         assert!((image.rect.width - 50.0).abs() < 0.01);
         assert!((image.rect.height - 25.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn graphic_angle_and_origin_options_are_preserved_on_image_ops() {
+        let source = SourceProvenance::file("main.tex", 0, 24);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.png".to_string(),
+                options: Some("width=100pt,angle=90,origin=c".to_string()),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: None,
+                asset_dimensions: None,
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let image = display_lists[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::Image(image) if image.asset_ref == "figures/plot.png" => Some(image),
+                _ => None,
+            })
+            .expect("image op");
+
+        assert_eq!(
+            image.rotation,
+            Some(ImageRotation {
+                angle_degrees: 90.0,
+                origin: Some("c".to_string()),
+            })
+        );
     }
 
     #[test]
