@@ -1,6 +1,6 @@
 use tex_layout::{DocumentLayout, LayoutOptions, PageLayout};
 use tex_render_model::{
-    DrawOp, FontFamilyRequest, FontSeries, FontShape, PageDisplayList, PositionedImage,
+    DrawOp, FontFamilyRequest, FontSeries, FontShape, PageDisplayList, Point, PositionedImage, Rect,
 };
 
 pub const PAGE_TEXT_LEFT_PT: f32 = 72.0;
@@ -316,6 +316,7 @@ pub fn render_display_list_pdf_with_assets(
                                 }
                             }
                         }
+                        let rotated = push_pdf_image_rotation(&mut stream, page.height_pt, image);
                         if clip_to_dest {
                             stream.push_str(&format!(
                                 "q {} {} {} {} re W n q {} 0 0 {} {} {} cm /{} Do Q Q ",
@@ -334,6 +335,9 @@ pub fn render_display_list_pdf_with_assets(
                                 "q {} 0 0 {} {} {} cm /{} Do Q ",
                                 draw_width, draw_height, draw_x, draw_y, resource_name
                             ));
+                        }
+                        if rotated {
+                            stream.push_str("Q ");
                         }
                     } else {
                         push_image_placeholder(&mut stream, page.height_pt, image);
@@ -441,7 +445,78 @@ fn build_image_xobject(object_id: usize, image: &DecodedPdfImage) -> Vec<u8> {
     object
 }
 
+fn image_rotation_pivot(rect: Rect, origin: Option<&str>, top_is_min_y: bool) -> Point {
+    let origin = origin.unwrap_or("lb");
+    let x = if origin.contains('l') {
+        rect.x
+    } else if origin.contains('r') {
+        rect.x + rect.width
+    } else {
+        rect.x + rect.width / 2.0
+    };
+    let y = if origin.contains('t') {
+        if top_is_min_y {
+            rect.y
+        } else {
+            rect.y + rect.height
+        }
+    } else if origin.contains('b') || origin.contains('B') {
+        if top_is_min_y {
+            rect.y + rect.height
+        } else {
+            rect.y
+        }
+    } else {
+        rect.y + rect.height / 2.0
+    };
+    Point { x, y }
+}
+
+fn image_pdf_rotation_matrix(image: &PositionedImage, page_height_pt: f32) -> Option<[f32; 6]> {
+    let rotation = image
+        .rotation
+        .as_ref()
+        .filter(|rotation| rotation.angle_degrees != 0.0)?;
+    let rect = Rect {
+        x: image.rect.x,
+        y: page_height_pt - image.rect.y - image.rect.height,
+        width: image.rect.width,
+        height: image.rect.height,
+    };
+    let pivot = image_rotation_pivot(rect, rotation.origin.as_deref(), false);
+    let radians = rotation.angle_degrees.to_radians();
+    let cosine = radians.cos();
+    let sine = radians.sin();
+    let cosine = if cosine.abs() < 0.000_001 {
+        0.0
+    } else {
+        cosine
+    };
+    let sine = if sine.abs() < 0.000_001 { 0.0 } else { sine };
+    Some([
+        cosine,
+        sine,
+        -sine,
+        cosine,
+        pivot.x - cosine * pivot.x + sine * pivot.y,
+        pivot.y - sine * pivot.x - cosine * pivot.y,
+    ])
+}
+
+fn push_pdf_image_rotation(
+    stream: &mut String,
+    page_height_pt: f32,
+    image: &PositionedImage,
+) -> bool {
+    let Some([a, b, c, d, e, f]) = image_pdf_rotation_matrix(image, page_height_pt) else {
+        return false;
+    };
+    stream.push_str(&format!("q {a} {b} {c} {d} {e} {f} cm "));
+    true
+}
+
 fn push_image_placeholder(stream: &mut String, page_height_pt: f32, image: &PositionedImage) {
+    let rotated = push_pdf_image_rotation(stream, page_height_pt, image);
     stream.push_str(&format!(
         "q 0.92 g {} {} {} {} re f 0 G {} {} {} {} re S Q ",
         image.rect.x,
@@ -462,6 +537,9 @@ fn push_image_placeholder(stream: &mut String, page_height_pt: f32, image: &Posi
     stream.push('(');
     stream.push_str(&escape_pdf_text(&format!("[image: {}]", image.asset_ref)));
     stream.push_str(") Tj ET ");
+    if rotated {
+        stream.push_str("Q ");
+    }
 }
 
 pub fn render_display_list_svg(page: &PageDisplayList) -> String {
@@ -718,13 +796,27 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                         )
                     })
                     .unwrap_or_default();
+                let transform_attr = image
+                    .rotation
+                    .as_ref()
+                    .filter(|rotation| rotation.angle_degrees != 0.0)
+                    .map(|rotation| {
+                        let pivot =
+                            image_rotation_pivot(image.rect, rotation.origin.as_deref(), true);
+                        format!(
+                            " transform=\"rotate({} {} {})\"",
+                            -rotation.angle_degrees, pivot.x, pivot.y
+                        )
+                    })
+                    .unwrap_or_default();
                 body.push_str(&format!(
-                    "<g data-image-asset-ref=\"{}\"{}{}{}{}{}><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
+                    "<g data-image-asset-ref=\"{}\"{}{}{}{}{}{}><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
                     escape_xml_text(&image.asset_ref),
                     asset_format_attr,
                     asset_hash_attr,
                     crop_attrs,
                     rotation_attrs,
+                    transform_attr,
                     source_attrs_for(&image.source),
                     image.rect.x,
                     image.rect.y,
@@ -1399,6 +1491,7 @@ mod tests {
         let pdf_text = String::from_utf8_lossy(&pdf);
         let svg = render_display_list_svg(&page);
 
+        assert!(pdf_text.contains("q 0 1 -1 0 822 534 cm q 0.92 g"));
         assert!(pdf_text.contains("q 0.92 g 72 642 144 72 re f 0 G 72 642 144 72 re S Q"));
         assert!(
             pdf_text
@@ -1412,6 +1505,7 @@ mod tests {
         assert!(svg.contains("data-image-crop-viewport=\"0,0,144,72\""));
         assert!(svg.contains("data-image-rotation-angle=\"90\""));
         assert!(svg.contains("data-image-rotation-origin=\"c\""));
+        assert!(svg.contains("transform=\"rotate(-90 144 114)\""));
         assert!(
             svg.contains("<rect x=\"72\" y=\"78\" width=\"144\" height=\"72\" fill=\"#e5e7eb\"")
         );
@@ -1461,6 +1555,43 @@ mod tests {
         assert!(pdf_text.contains("/Height 2"));
         assert!(pdf_text.contains("/ColorSpace /DeviceRGB"));
         assert!(pdf_text.contains("/BitsPerComponent 8"));
+        assert!(!pdf_text.contains("[image: figures/tiny.png]"));
+    }
+
+    #[test]
+    fn renders_rotated_png_assets_with_pdf_matrix() {
+        let source = SourceProvenance::file("main.tex", 0, 10);
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 72.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                asset_ref: "figures/tiny.png".to_string(),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: Some("blake3:tiny".to_string()),
+                crop: None,
+                rotation: Some(ImageRotation {
+                    angle_degrees: 90.0,
+                    origin: Some("c".to_string()),
+                }),
+                source,
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/tiny.png").then(tiny_png_bytes)
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q 0 1 -1 0 817 573 cm q 100 0 0 50 72 670 cm /Im1 Do Q Q"));
+        assert!(pdf_text.contains("/Subtype /Image"));
         assert!(!pdf_text.contains("[image: figures/tiny.png]"));
     }
 

@@ -77,11 +77,13 @@ XObject. Missing graphic assets now produce render-event diagnostics when the
 capture has enough project or mounted-file context to know the asset is absent,
 while preserving the image placeholder. External PDF/EPS/SVG conversion,
 DPI-aware natural sizing, driver-accurate crop/clip rendering for non-bitmap
-assets, actual rotated PDF/raster drawing, exact table rule trimming, vertical
+assets, TeX-exact rotated-box reflow, exact table rule trimming, vertical
 spanning, nested table constructs, TeX alignment policy, and production preview
 wiring are still deferred. Rotation intent is no longer dropped: `angle` /
 `origin` options and simple `\rotatebox` wrappers are preserved as
-renderer-neutral `ImageRotation` metadata and exposed in SVG debug artifacts.
+renderer-neutral `ImageRotation` metadata. The display-list PDF path applies
+that metadata to embedded bitmap XObjects and unresolved-image placeholders,
+and SVG debug artifacts apply the equivalent top-down transform.
 Common graphic layout wrappers also feed the same option path: `resizebox`
 contributes inherited width/height hints, `scalebox` contributes inherited scale,
 and `adjustbox` contributes its option list before display-list sizing.
@@ -392,8 +394,8 @@ Remaining figure work:
 
 - DPI-aware natural image dimensions and broader option-aware sizing;
 - fuller wrapper sizing semantics for non-uniform scaling and nested boxes;
-- actual trim/viewport/clip rendering in PDF/raster backends;
-- actual rotated drawing in PDF/raster backends;
+- trim/viewport/clip rendering parity for non-bitmap and raster backends;
+- TeX-exact rotated-box dimensions, page reflow, and non-debug raster parity;
 - external PDF/EPS/SVG conversion or raster insertion;
 - missing/unsupported image diagnostics surfaced through render artifacts;
 - raster tests that fail on missing major figure regions.
