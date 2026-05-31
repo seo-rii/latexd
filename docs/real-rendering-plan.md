@@ -60,7 +60,8 @@ outside the covered columns and matching partial rule rectangles. Simple
 `\multicolumn{n}{...}{text}` cells are also normalized to visible cell text plus
 `TableCell.column_span` metadata so the display-list fallback can occupy the
 combined monospaced column width. Simple `l` / `c` / `r` / paragraph-style table
-preamble columns now survive as `TableColumnSpec` metadata and drive coarse
+preamble columns now survive as `TableColumnSpec` metadata, bounded `*{n}{...}`
+repeated specs expand before IR construction, and those specs drive coarse
 left/center/right padding in the display-list text fallback. The first figure
 slice is also implemented at
 the renderer boundary: resolver-provided PNG/JPEG bytes can be decoded into PDF
@@ -89,10 +90,10 @@ while preserving the image placeholder, and those diagnostics now annotate
 `data-image-*` attributes. Existing-but-unsupported PDF/EPS/SVG assets also
 surface as unsupported-image placeholders until external conversion exists.
 External PDF/EPS/SVG conversion, driver-accurate crop/clip rendering for
-non-bitmap assets, TeX-exact rotated-box reflow, repeated/programmable table
-preamble specs, vertical table borders, exact table rule trimming, vertical
-spanning, nested table constructs, full TeX alignment policy, and production
-preview wiring are still deferred. Rotation intent is no longer dropped: `angle` /
+non-bitmap assets, TeX-exact rotated-box reflow, programmable table preamble
+hooks, vertical table borders, exact table rule trimming, vertical spanning,
+nested table constructs, full TeX alignment policy, and production preview
+wiring are still deferred. Rotation intent is no longer dropped: `angle` /
 `origin` options and simple `\rotatebox` wrappers are preserved as
 renderer-neutral `ImageRotation` metadata. The display-list PDF path applies
 that metadata to embedded bitmap XObjects and unresolved-image placeholders,
@@ -470,12 +471,14 @@ Implemented first slice:
   monospaced font request;
 - full and partial horizontal rules now also emit `PageDisplayList::Rule`
   rectangles for renderer-visible table separators.
-- simple `l` / `c` / `r` / paragraph-style table preamble columns now survive
-  into IR and drive coarse display-list text alignment.
+- simple `l` / `c` / `r` / paragraph-style table preamble columns and bounded
+  `*{n}{...}` repeated specs now survive into IR and drive coarse display-list
+  text alignment.
 
 Remaining table work:
 
-- exact column width policy, repeated column specs, and multirow approximations;
+- exact column width policy, programmable column hooks, and multirow
+  approximations;
 - vertical borders and exact rule trimming in `PageDisplayList`;
 - stronger booktabs/array-package compatibility on corpus fixtures;
 - raster-oriented table readability gates.
@@ -591,7 +594,8 @@ Status:
   display-list PDF artifact;
 - bitmap and simple SVG/PDF/EPS natural-size layout is available;
 - table horizontal rules now produce renderer-visible display-list rule ops;
-- simple table column alignment specs survive into display-list text;
+- simple and repeated table column alignment specs survive into display-list
+  text;
 - external PDF/EPS/SVG conversion and production preview wiring are still
   pending.
 

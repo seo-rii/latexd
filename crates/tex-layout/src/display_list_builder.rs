@@ -68,6 +68,7 @@ struct LogicalTextRun {
     gap_after_pt: f32,
     first_line_indent_pt: f32,
     continuation_indent_pt: f32,
+    preserve_leading_whitespace: bool,
 }
 
 struct LogicalImage {
@@ -223,6 +224,7 @@ pub fn build_page_display_lists(
                         gap_after_pt: options.block_gap_pt,
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: 0.0,
+                        preserve_leading_whitespace: false,
                     }));
                 }
                 for (index, author) in block.authors.iter().enumerate() {
@@ -244,6 +246,7 @@ pub fn build_page_display_lists(
                         gap_after_pt: 0.0,
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: 0.0,
+                        preserve_leading_whitespace: false,
                     }));
                 }
                 if let Some(date) = &block.date {
@@ -264,6 +267,7 @@ pub fn build_page_display_lists(
                         gap_after_pt: options.block_gap_pt,
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: 0.0,
+                        preserve_leading_whitespace: false,
                     }));
                 }
             }
@@ -276,6 +280,7 @@ pub fn build_page_display_lists(
                     gap_after_pt: options.block_gap_pt,
                     first_line_indent_pt: options.abstract_indent_pt,
                     continuation_indent_pt: options.abstract_indent_pt,
+                    preserve_leading_whitespace: false,
                 }));
             }
             IrBlock::Heading(block) => {
@@ -303,6 +308,7 @@ pub fn build_page_display_lists(
                     gap_after_pt: options.block_gap_pt,
                     first_line_indent_pt: 0.0,
                     continuation_indent_pt: 0.0,
+                    preserve_leading_whitespace: false,
                 }));
             }
             IrBlock::Paragraph(block) => {
@@ -314,6 +320,7 @@ pub fn build_page_display_lists(
                     gap_after_pt: options.block_gap_pt,
                     first_line_indent_pt: 0.0,
                     continuation_indent_pt: 0.0,
+                    preserve_leading_whitespace: false,
                 }));
             }
             IrBlock::Environment(block) => {
@@ -325,6 +332,7 @@ pub fn build_page_display_lists(
                     gap_after_pt: options.block_gap_pt,
                     first_line_indent_pt: 0.0,
                     continuation_indent_pt: 0.0,
+                    preserve_leading_whitespace: false,
                 }));
             }
             IrBlock::List(block) => {
@@ -348,6 +356,7 @@ pub fn build_page_display_lists(
                         },
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: options.list_continuation_indent_pt,
+                        preserve_leading_whitespace: false,
                     }));
                 }
                 if block.items.is_empty() {
@@ -359,6 +368,7 @@ pub fn build_page_display_lists(
                         gap_after_pt: options.block_gap_pt,
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: options.list_continuation_indent_pt,
+                        preserve_leading_whitespace: false,
                     }));
                 }
             }
@@ -379,6 +389,7 @@ pub fn build_page_display_lists(
                     gap_after_pt: options.block_gap_pt,
                     first_line_indent_pt: 0.0,
                     continuation_indent_pt: 0.0,
+                    preserve_leading_whitespace: false,
                 }));
             }
             IrBlock::Bibliography(block) => {
@@ -406,6 +417,7 @@ pub fn build_page_display_lists(
                         },
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: options.bibliography_continuation_indent_pt,
+                        preserve_leading_whitespace: false,
                     }));
                 }
                 if items.is_empty() {
@@ -417,6 +429,7 @@ pub fn build_page_display_lists(
                         gap_after_pt: options.block_gap_pt,
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: options.bibliography_continuation_indent_pt,
+                        preserve_leading_whitespace: false,
                     }));
                 }
             }
@@ -454,6 +467,7 @@ pub fn build_page_display_lists(
                         gap_after_pt: options.block_gap_pt,
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: 0.0,
+                        preserve_leading_whitespace: false,
                     }));
                 }
             }
@@ -667,6 +681,7 @@ pub fn build_page_display_lists(
                     gap_after_pt: options.block_gap_pt,
                     first_line_indent_pt: 0.0,
                     continuation_indent_pt: 0.0,
+                    preserve_leading_whitespace: true,
                 }));
             }
             IrBlock::RawFallback(block) => {
@@ -686,6 +701,7 @@ pub fn build_page_display_lists(
                     gap_after_pt: options.block_gap_pt,
                     first_line_indent_pt: 0.0,
                     continuation_indent_pt: 0.0,
+                    preserve_leading_whitespace: false,
                 }));
             }
         }
@@ -901,7 +917,7 @@ pub fn build_page_display_lists(
                      current_len: &mut usize,
                      wrapped_lines: &mut Vec<Vec<LogicalTextSegment>>| {
                         while !text.is_empty() {
-                            if *current_len == 0 {
+                            if *current_len == 0 && !logical.preserve_leading_whitespace {
                                 text = text.trim_start_matches(char::is_whitespace);
                                 if text.is_empty() {
                                     break;

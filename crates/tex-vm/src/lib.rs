@@ -8372,6 +8372,94 @@ impl<'i> Vm<'i> {
                             }
                         }
                     }
+                    '*' => {
+                        let count_index =
+                            skip_ascii_whitespace(column_spec, spec_index + ch.len_utf8());
+                        let mut parsed_repeat = false;
+                        if let Some((count_text, _, _, after_count)) =
+                            read_braced_source_argument(column_spec, count_index)
+                        {
+                            let repeated_index = skip_ascii_whitespace(column_spec, after_count);
+                            if let Some((repeated_spec, _, _, after_repeated)) =
+                                read_braced_source_argument(column_spec, repeated_index)
+                            {
+                                let repeat_count = count_text.trim().parse::<usize>().unwrap_or(0);
+                                for _ in 0..repeat_count.min(64) {
+                                    let mut repeated_spec_index = 0usize;
+                                    while repeated_spec_index < repeated_spec.len() {
+                                        let repeated_ch = repeated_spec[repeated_spec_index..]
+                                            .chars()
+                                            .next()
+                                            .expect("repeated column spec char");
+                                        match repeated_ch {
+                                            '|' => {
+                                                if let Some(column) = table_columns.last_mut() {
+                                                    column.rule_after = true;
+                                                }
+                                                pending_rule_before = true;
+                                                repeated_spec_index += repeated_ch.len_utf8();
+                                            }
+                                            'l' | 'c' | 'r' | 'p' | 'm' | 'b' => {
+                                                let alignment = match repeated_ch {
+                                                    'l' => TableColumnAlignment::Left,
+                                                    'c' => TableColumnAlignment::Center,
+                                                    'r' => TableColumnAlignment::Right,
+                                                    'p' | 'm' | 'b' => {
+                                                        TableColumnAlignment::Paragraph
+                                                    }
+                                                    _ => TableColumnAlignment::Unknown,
+                                                };
+                                                table_columns.push(TableColumnSpec {
+                                                    alignment,
+                                                    rule_before: pending_rule_before,
+                                                    rule_after: false,
+                                                });
+                                                pending_rule_before = false;
+                                                repeated_spec_index += repeated_ch.len_utf8();
+                                                if matches!(repeated_ch, 'p' | 'm' | 'b') {
+                                                    let argument_index = skip_ascii_whitespace(
+                                                        repeated_spec,
+                                                        repeated_spec_index,
+                                                    );
+                                                    if let Some((_, _, _, after_argument)) =
+                                                        read_braced_source_argument(
+                                                            repeated_spec,
+                                                            argument_index,
+                                                        )
+                                                    {
+                                                        repeated_spec_index = after_argument;
+                                                    }
+                                                }
+                                            }
+                                            '@' | '!' | '>' | '<' => {
+                                                repeated_spec_index += repeated_ch.len_utf8();
+                                                let argument_index = skip_ascii_whitespace(
+                                                    repeated_spec,
+                                                    repeated_spec_index,
+                                                );
+                                                if let Some((_, _, _, after_argument)) =
+                                                    read_braced_source_argument(
+                                                        repeated_spec,
+                                                        argument_index,
+                                                    )
+                                                {
+                                                    repeated_spec_index = after_argument;
+                                                }
+                                            }
+                                            _ => {
+                                                repeated_spec_index += repeated_ch.len_utf8();
+                                            }
+                                        }
+                                    }
+                                }
+                                spec_index = after_repeated;
+                                parsed_repeat = true;
+                            }
+                        }
+                        if !parsed_repeat {
+                            spec_index += ch.len_utf8();
+                        }
+                    }
                     '@' | '!' | '>' | '<' => {
                         spec_index += ch.len_utf8();
                         let argument_index = skip_ascii_whitespace(column_spec, spec_index);
@@ -22294,6 +22382,44 @@ Fallback text.
                     rule_after: true,
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn render_event_capture_expands_repeated_table_column_specs() {
+        let source =
+            r"\begin{document}\begin{tabular}{|*{3}{c|}}A & B & C\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible.table_columns.len(), 3);
+        assert!(
+            visible
+                .table_columns
+                .iter()
+                .all(|column| column.alignment == TableColumnAlignment::Center)
+        );
+        assert!(visible.table_columns.iter().all(|column| column.rule_after));
+        assert!(
+            visible
+                .table_columns
+                .iter()
+                .all(|column| column.rule_before)
         );
     }
 

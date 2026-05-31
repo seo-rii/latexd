@@ -11578,6 +11578,43 @@ fn tabular_column_specs_survive_ir_and_align_display_list_text() {
 }
 
 #[test]
+fn tabular_repeated_column_specs_expand_before_display_list_alignment() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{*{3}{r}}1 & 22 & 333 \\ 4444 & 5 & 6\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.columns.len(), 3);
+    assert!(
+        table
+            .columns
+            .iter()
+            .all(|column| column.alignment == TableColumnAlignment::Right)
+    );
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(table_lines.contains(&"   1 | 22 | 333"), "{table_lines:?}");
+    assert!(table_lines.contains(&"4444 |  5 |   6"), "{table_lines:?}");
+}
+
+#[test]
 fn tabular_partial_rules_survive_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
