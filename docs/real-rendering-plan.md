@@ -510,7 +510,9 @@ Implemented first slice:
   `\morecmidrules`, and `\specialrule` are suppressed from visible table text
   while preserving renderer-visible rule metadata where appropriate.
 - common `hhline` rule commands are suppressed from visible table text and
-  treated as coarse full-width table rules; exact pattern semantics are deferred.
+  treated as coarse full-width table rules, with simple `~` blank-column
+  patterns preserved as partial rule spans; exact pattern semantics are
+  deferred.
 - common `colortbl` table color commands such as `\rowcolor`, `\cellcolor`,
   `\columncolor`, and `\arrayrulecolor` are suppressed from visible table text;
   color styling is not rendered yet.

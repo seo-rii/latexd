@@ -9013,16 +9013,110 @@ impl<'i> Vm<'i> {
                             } else {
                                 (current_row_index - 1, TableRulePosition::Below)
                             };
-                            table_rules.push(TableRuleEvent {
-                                row_index,
-                                position,
-                                column_span: None,
-                            });
                             table_index = command_end;
                             table_index = skip_ascii_whitespace(table_body, table_index);
-                            if let Some((_, _, _, after)) =
+                            if let Some((pattern, _, _, after)) =
                                 read_braced_source_argument(table_body, table_index)
                             {
+                                let mut expanded_pattern = String::new();
+                                let mut pattern_index = 0usize;
+                                while pattern_index < pattern.len() {
+                                    let ch = pattern[pattern_index..]
+                                        .chars()
+                                        .next()
+                                        .expect("hhline pattern char");
+                                    if ch == '*' {
+                                        let count_index = skip_ascii_whitespace(
+                                            pattern,
+                                            pattern_index + ch.len_utf8(),
+                                        );
+                                        if let Some((count_text, _, _, after_count)) =
+                                            read_braced_source_argument(pattern, count_index)
+                                        {
+                                            let body_index =
+                                                skip_ascii_whitespace(pattern, after_count);
+                                            if let Some((repeat_text, _, _, after_repeat)) =
+                                                read_braced_source_argument(pattern, body_index)
+                                            {
+                                                let repeat_count =
+                                                    count_text.trim().parse::<usize>().unwrap_or(0);
+                                                for _ in 0..repeat_count.min(64) {
+                                                    expanded_pattern.push_str(repeat_text);
+                                                }
+                                                pattern_index = after_repeat;
+                                                continue;
+                                            }
+                                        }
+                                    } else if ch == '>' {
+                                        let argument_index = skip_ascii_whitespace(
+                                            pattern,
+                                            pattern_index + ch.len_utf8(),
+                                        );
+                                        if let Some((_, _, _, after_argument)) =
+                                            read_braced_source_argument(pattern, argument_index)
+                                        {
+                                            pattern_index = after_argument;
+                                            continue;
+                                        }
+                                    }
+                                    expanded_pattern.push(ch);
+                                    pattern_index += ch.len_utf8();
+                                }
+
+                                let mut spans = Vec::new();
+                                let mut column_index = 0usize;
+                                let mut span_start = None;
+                                for ch in expanded_pattern.chars() {
+                                    match ch {
+                                        '-' | '=' | '#' => {
+                                            if span_start.is_none() {
+                                                span_start = Some(column_index);
+                                            }
+                                            column_index += 1;
+                                        }
+                                        '~' => {
+                                            if let Some(start_column) = span_start.take()
+                                                && column_index > start_column
+                                            {
+                                                spans.push(TableRuleSpan {
+                                                    start_column,
+                                                    end_column: column_index - 1,
+                                                });
+                                            }
+                                            column_index += 1;
+                                        }
+                                        '|' | ':' => {}
+                                        _ => {}
+                                    }
+                                }
+                                if let Some(start_column) = span_start.take()
+                                    && column_index > start_column
+                                {
+                                    spans.push(TableRuleSpan {
+                                        start_column,
+                                        end_column: column_index - 1,
+                                    });
+                                }
+
+                                if spans.len() == 1
+                                    && table_columns.len() > 0
+                                    && spans[0].start_column == 0
+                                    && spans[0].end_column + 1 >= table_columns.len()
+                                {
+                                    table_rules.push(TableRuleEvent {
+                                        row_index,
+                                        position,
+                                        column_span: None,
+                                    });
+                                } else {
+                                    for span in spans {
+                                        table_rules.push(TableRuleEvent {
+                                            row_index,
+                                            position,
+                                            column_span: Some(span),
+                                        });
+                                    }
+                                }
                                 table_index = after;
                             }
                         }
@@ -23110,6 +23204,57 @@ Fallback text.
         assert!(!visible_text.contains("hhline"));
         assert!(!visible_text.contains("|=|=|"));
         assert!(visible.table_rules.len() >= 1, "{:?}", visible.table_rules);
+    }
+
+    #[test]
+    fn render_event_capture_preserves_partial_hhline_patterns() {
+        let source = r"\documentclass{article}\usepackage{hhline}\begin{document}\begin{tabular}{lll}A & B & C \\\hhline{=~=} D & E & F\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        let visible_text = visible
+            .normalized_visible_text
+            .as_deref()
+            .expect("visible table text");
+
+        assert_eq!(visible_text, "A | B | C ; D | E | F");
+        assert!(!visible_text.contains("hhline"));
+        assert!(!visible_text.contains("=~="));
+        assert_eq!(
+            visible.table_rules,
+            vec![
+                TableRuleEvent {
+                    row_index: 0,
+                    position: TableRulePosition::Below,
+                    column_span: Some(TableRuleSpan {
+                        start_column: 0,
+                        end_column: 0,
+                    }),
+                },
+                TableRuleEvent {
+                    row_index: 0,
+                    position: TableRulePosition::Below,
+                    column_span: Some(TableRuleSpan {
+                        start_column: 2,
+                        end_column: 2,
+                    }),
+                },
+            ]
+        );
     }
 
     #[test]
