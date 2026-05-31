@@ -2615,6 +2615,16 @@ fn graphic_trim_affects_project_root_default_image_rect() {
     assert!((image.rect.width - 1.0).abs() < 0.01);
     assert!((image.rect.height - 2.0).abs() < 0.01);
     assert!(pdf_text.contains("q 72 718 1 2 re W n q 2 0 0 2 71 718 cm /Im1 Do Q Q"));
+
+    let output_dir = root.join("render-artifacts");
+    let paths = capture
+        .write_debug_artifacts(&output_dir)
+        .expect("write debug artifacts");
+    let display_list_svg =
+        fs::read_to_string(&paths.display_list_svgs[0]).expect("read display-list svg");
+    assert!(display_list_svg.contains("clip-path=\"url(#image-clip-0)\""));
+    assert!(display_list_svg.contains("data-image-crop-rendered=\"true\""));
+    assert!(display_list_svg.contains("<image x=\"71\" y=\"72\" width=\"2\" height=\"2\""));
 }
 
 #[test]

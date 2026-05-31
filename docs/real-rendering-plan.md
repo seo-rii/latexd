@@ -94,10 +94,10 @@ renderer-neutral `ImageCrop` metadata on display-list image
 ops, exposed in SVG debug artifacts as `data-image-crop-*` attributes, and used
 to derive default image-box size when no explicit size is provided; individual
 `bbllx` / `bblly` / `bburx` / `bbury` keys are normalized to the same viewport
-metadata. The current
-PDF bitmap embedder is still the only renderer that applies `clip=true` crop
-metadata by clipping to the destination rect and offsetting/scaling the embedded
-XObject. Local `draft` graphic options, package-level
+metadata. The PDF bitmap embedder and display-list SVG debug renderer now apply
+`clip=true` crop metadata by clipping to the destination rect and
+offsetting/scaling embedded bitmap assets. Local `draft` graphic options,
+package-level
 `\usepackage[draft]{graphicx}` options, and class-level
 `\documentclass[draft]{...}` global options forwarded through `graphicx` now
 force renderer-visible placeholders even when the asset exists; preamble
@@ -432,7 +432,8 @@ Implemented first slice:
 - project-root render-IR capture now resolves real source-root image files into
   the display-list PDF artifact path;
 - project-root display-list SVG debug artifacts can embed resolver-provided SVG
-  and PNG/JPEG bitmap assets as data-URI `<image>` elements;
+  and PNG/JPEG bitmap assets as data-URI `<image>` elements, with clip-enabled
+  bitmap crop metadata reflected in the debug SVG;
 - missing or undecodable assets still render as bounded placeholders instead of
   deleting figure space or captions.
 
@@ -441,7 +442,7 @@ Remaining figure work:
 - broader option-aware sizing and driver-exact bounding-box behavior;
 - fuller wrapper sizing semantics for nested boxes and TeX-exact wrapper
   reflow;
-- trim/viewport/clip rendering parity for non-bitmap and raster backends;
+- trim/viewport/clip rendering parity for non-bitmap assets and raster backends;
 - TeX-exact rotated-box dimensions, page reflow, and non-debug raster parity;
 - external PDF/EPS conversion and production SVG/PDF vector embedding or raster
   insertion;
@@ -675,7 +676,7 @@ Status:
 - project-root render-IR debug capture can feed real image files into the
   display-list PDF artifact;
 - project-root display-list SVG debug artifacts can embed resolver-backed SVG
-  and PNG/JPEG bitmap assets;
+  and PNG/JPEG bitmap assets, including clip-enabled bitmap crop visualization;
 - `\includegraphics` option control sequences such as `\textwidth` /
   `\linewidth` survive event capture into display-list sizing;
 - `\paperwidth`, `\pagewidth`, `\hsize`, and `\vsize` are accepted as graphic

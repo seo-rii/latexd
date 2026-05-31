@@ -1,7 +1,7 @@
 use tex_layout::{DocumentLayout, LayoutOptions, PageLayout};
 use tex_render_model::{
-    DrawOp, FontFamilyRequest, FontSeries, FontShape, GraphicAssetFormat, PageDisplayList, Point,
-    PositionedImage, Rect,
+    DrawOp, FontFamilyRequest, FontSeries, FontShape, GraphicAssetFormat, ImageCrop,
+    PageDisplayList, Point, PositionedImage, Rect,
 };
 
 pub const PAGE_TEXT_LEFT_PT: f32 = 72.0;
@@ -273,76 +273,41 @@ pub fn render_display_list_pdf_with_assets(
                             extra_objects.push(build_image_xobject(object_id, &decoded));
                             let dest_x = image.rect.x;
                             let dest_y = page.height_pt - image.rect.y - image.rect.height;
-                            let mut draw_x = dest_x;
-                            let mut draw_y = dest_y;
-                            let mut draw_width = image.rect.width;
-                            let mut draw_height = image.rect.height;
-                            let mut clip_to_dest = false;
-                            if let Some(crop) = image.crop.filter(|crop| crop.clip) {
-                                let natural_width = decoded.width as f32;
-                                let natural_height = decoded.height as f32;
-                                let (
-                                    mut source_left,
-                                    mut source_bottom,
-                                    mut source_right,
-                                    mut source_top,
-                                ) = if let Some(viewport) = crop.viewport {
-                                    (
-                                        viewport.llx_pt,
-                                        viewport.lly_pt,
-                                        viewport.urx_pt,
-                                        viewport.ury_pt,
-                                    )
-                                } else {
-                                    (0.0, 0.0, natural_width, natural_height)
-                                };
-                                if let Some(trim) = crop.trim {
-                                    source_left += trim.left_pt;
-                                    source_bottom += trim.bottom_pt;
-                                    source_right -= trim.right_pt;
-                                    source_top -= trim.top_pt;
-                                }
-                                let source_width = source_right - source_left;
-                                let source_height = source_top - source_bottom;
-                                if source_width.is_finite()
-                                    && source_height.is_finite()
-                                    && source_width > 0.0
-                                    && source_height > 0.0
-                                {
-                                    let scale_x = image.rect.width / source_width;
-                                    let scale_y = image.rect.height / source_height;
-                                    if scale_x.is_finite()
-                                        && scale_y.is_finite()
-                                        && scale_x > 0.0
-                                        && scale_y > 0.0
-                                    {
-                                        draw_x = dest_x - source_left * scale_x;
-                                        draw_y = dest_y - source_bottom * scale_y;
-                                        draw_width = natural_width * scale_x;
-                                        draw_height = natural_height * scale_y;
-                                        clip_to_dest = true;
-                                    }
-                                }
-                            }
+                            let draw = image_draw_placement(
+                                Rect {
+                                    x: dest_x,
+                                    y: dest_y,
+                                    width: image.rect.width,
+                                    height: image.rect.height,
+                                },
+                                image.crop,
+                                decoded.width as f32,
+                                decoded.height as f32,
+                                false,
+                            );
                             let rotated =
                                 push_pdf_image_rotation(&mut stream, page.height_pt, image);
-                            if clip_to_dest {
+                            if draw.clip_to_dest {
                                 stream.push_str(&format!(
                                     "q {} {} {} {} re W n q {} 0 0 {} {} {} cm /{} Do Q Q ",
                                     dest_x,
                                     dest_y,
                                     image.rect.width,
                                     image.rect.height,
-                                    draw_width,
-                                    draw_height,
-                                    draw_x,
-                                    draw_y,
+                                    draw.rect.width,
+                                    draw.rect.height,
+                                    draw.rect.x,
+                                    draw.rect.y,
                                     resource_name
                                 ));
                             } else {
                                 stream.push_str(&format!(
                                     "q {} 0 0 {} {} {} cm /{} Do Q ",
-                                    draw_width, draw_height, draw_x, draw_y, resource_name
+                                    draw.rect.width,
+                                    draw.rect.height,
+                                    draw.rect.x,
+                                    draw.rect.y,
+                                    resource_name
                                 ));
                             }
                             if rotated {
@@ -442,6 +407,69 @@ struct DecodedPdfImage {
     width: u32,
     height: u32,
     rgb: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ImageDrawPlacement {
+    rect: Rect,
+    clip_to_dest: bool,
+}
+
+fn image_draw_placement(
+    dest: Rect,
+    crop: Option<ImageCrop>,
+    natural_width: f32,
+    natural_height: f32,
+    top_is_min_y: bool,
+) -> ImageDrawPlacement {
+    let mut placement = ImageDrawPlacement {
+        rect: dest,
+        clip_to_dest: false,
+    };
+    let Some(crop) = crop.filter(|crop| crop.clip) else {
+        return placement;
+    };
+    let (mut source_left, mut source_bottom, mut source_right, mut source_top) =
+        if let Some(viewport) = crop.viewport {
+            (
+                viewport.llx_pt,
+                viewport.lly_pt,
+                viewport.urx_pt,
+                viewport.ury_pt,
+            )
+        } else {
+            (0.0, 0.0, natural_width, natural_height)
+        };
+    if let Some(trim) = crop.trim {
+        source_left += trim.left_pt;
+        source_bottom += trim.bottom_pt;
+        source_right -= trim.right_pt;
+        source_top -= trim.top_pt;
+    }
+    let source_width = source_right - source_left;
+    let source_height = source_top - source_bottom;
+    if !source_width.is_finite()
+        || !source_height.is_finite()
+        || source_width <= 0.0
+        || source_height <= 0.0
+    {
+        return placement;
+    }
+    let scale_x = dest.width / source_width;
+    let scale_y = dest.height / source_height;
+    if !scale_x.is_finite() || !scale_y.is_finite() || scale_x <= 0.0 || scale_y <= 0.0 {
+        return placement;
+    }
+    placement.rect.x = dest.x - source_left * scale_x;
+    placement.rect.y = if top_is_min_y {
+        dest.y - (natural_height - source_top) * scale_y
+    } else {
+        dest.y - source_bottom * scale_y
+    };
+    placement.rect.width = natural_width * scale_x;
+    placement.rect.height = natural_height * scale_y;
+    placement.clip_to_dest = true;
+    placement
 }
 
 fn decode_pdf_image(bytes: &[u8]) -> Option<DecodedPdfImage> {
@@ -913,9 +941,9 @@ pub fn render_display_list_svg_with_assets(
                     })
                     .unwrap_or_default();
                 let placeholder_status = ImagePlaceholderStatus::from_image(image);
-                let embedded_image_href = if placeholder_status == ImagePlaceholderStatus::Generic {
+                let embedded_image = if placeholder_status == ImagePlaceholderStatus::Generic {
                     resolve_asset(&image.asset_ref).and_then(|bytes| {
-                        let media_type = match image.asset_format {
+                        let (media_type, natural_size) = match image.asset_format {
                             Some(GraphicAssetFormat::Svg) => {
                                 let is_svg = std::str::from_utf8(&bytes)
                                     .ok()
@@ -923,10 +951,20 @@ pub fn render_display_list_svg_with_assets(
                                 if !is_svg {
                                     return None;
                                 }
-                                "image/svg+xml;charset=utf-8"
+                                ("image/svg+xml;charset=utf-8", None)
                             }
-                            Some(GraphicAssetFormat::Png) => "image/png",
-                            Some(GraphicAssetFormat::Jpeg) => "image/jpeg",
+                            Some(GraphicAssetFormat::Png) => (
+                                "image/png",
+                                image::load_from_memory(&bytes)
+                                    .ok()
+                                    .map(|image| (image.width() as f32, image.height() as f32)),
+                            ),
+                            Some(GraphicAssetFormat::Jpeg) => (
+                                "image/jpeg",
+                                image::load_from_memory(&bytes)
+                                    .ok()
+                                    .map(|image| (image.width() as f32, image.height() as f32)),
+                            ),
                             _ => return None,
                         };
                         let mut data_uri = format!("data:{media_type},");
@@ -944,14 +982,48 @@ pub fn render_display_list_svg_with_assets(
                                 }
                             }
                         }
-                        Some(data_uri)
+                        Some((data_uri, natural_size))
                     })
                 } else {
                     None
                 };
-                if let Some(href) = embedded_image_href {
+                if let Some((href, natural_size)) = embedded_image {
+                    let draw = natural_size
+                        .map(|(natural_width, natural_height)| {
+                            image_draw_placement(
+                                image.rect,
+                                image.crop,
+                                natural_width,
+                                natural_height,
+                                true,
+                            )
+                        })
+                        .unwrap_or(ImageDrawPlacement {
+                            rect: image.rect,
+                            clip_to_dest: false,
+                        });
+                    let (clip_prefix, clip_attrs) = if draw.clip_to_dest {
+                        let clip_id = format!("image-clip-{clip_index}");
+                        clip_index += 1;
+                        (
+                            format!(
+                                "<defs><clipPath id=\"{}\"><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\"/></clipPath></defs>",
+                                clip_id,
+                                image.rect.x,
+                                image.rect.y,
+                                image.rect.width,
+                                image.rect.height
+                            ),
+                            format!(
+                                " clip-path=\"url(#{clip_id})\" data-image-crop-rendered=\"true\""
+                            ),
+                        )
+                    } else {
+                        (String::new(), String::new())
+                    };
                     body.push_str(&format!(
-                        "<g data-image-asset-ref=\"{}\"{}{}{}{}{} data-image-embedded=\"true\"{}{}><image x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" href=\"{}\" preserveAspectRatio=\"none\"/></g>",
+                        "{}<g data-image-asset-ref=\"{}\"{}{}{}{}{} data-image-embedded=\"true\"{}{}{}><image x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" href=\"{}\" preserveAspectRatio=\"none\"/></g>",
+                        clip_prefix,
                         escape_xml_text(&image.asset_ref),
                         asset_format_attr,
                         asset_hash_attr,
@@ -959,11 +1031,12 @@ pub fn render_display_list_svg_with_assets(
                         rotation_attrs,
                         scale_attrs,
                         transform_attr,
+                        clip_attrs,
                         source_attrs_for(&image.source),
-                        image.rect.x,
-                        image.rect.y,
-                        image.rect.width,
-                        image.rect.height,
+                        draw.rect.x,
+                        draw.rect.y,
+                        draw.rect.width,
+                        draw.rect.height,
                         escape_xml_text(&href)
                     ));
                     continue;
@@ -1777,6 +1850,52 @@ mod tests {
         assert!(svg.contains("href=\"data:image/png,%89PNG"));
         assert!(!svg.contains("[image: figures/tiny.png]"));
         assert!(!svg.contains("data-image-placeholder-kind="));
+    }
+
+    #[test]
+    fn renders_clip_enabled_png_crop_with_svg_clipping() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 72.0,
+                    width: 100.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/tiny.png".to_string(),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: Some("blake3:tiny".to_string()),
+                crop: Some(ImageCrop {
+                    trim: Some(ImageTrim {
+                        left_pt: 1.0,
+                        bottom_pt: 0.0,
+                        right_pt: 0.0,
+                        top_pt: 0.0,
+                    }),
+                    viewport: None,
+                    clip: true,
+                }),
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            (asset_ref == "figures/tiny.png").then(tiny_png_bytes)
+        });
+
+        assert!(svg.contains("<clipPath id=\"image-clip-0\"><rect x=\"72\" y=\"72\" width=\"100\" height=\"100\"/></clipPath>"));
+        assert!(svg.contains("clip-path=\"url(#image-clip-0)\""));
+        assert!(svg.contains("data-image-crop-rendered=\"true\""));
+        assert!(svg.contains("<image x=\"-28\" y=\"72\" width=\"200\" height=\"100\""));
+        assert!(svg.contains("href=\"data:image/png,%89PNG"));
+        assert!(!svg.contains("[image: figures/tiny.png]"));
     }
 
     #[test]
