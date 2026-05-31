@@ -496,6 +496,8 @@ Implemented first slice:
   `\toprule` / `\midrule` / `\bottomrule`, `\addlinespace`,
   `\morecmidrules`, and `\specialrule` are suppressed from visible table text
   while preserving renderer-visible rule metadata where appropriate.
+- common `hhline` rule commands are suppressed from visible table text and
+  treated as coarse full-width table rules; exact pattern semantics are deferred.
 - common `colortbl` table color commands such as `\rowcolor`, `\cellcolor`,
   `\columncolor`, and `\arrayrulecolor` are suppressed from visible table text;
   color styling is not rendered yet.
@@ -636,6 +638,8 @@ Status:
   display-list rule ops, including repeated `||` approximations;
 - common `booktabs` spacing/rule-control commands are normalized without
   leaking command names or rule dimensions into table text;
+- common `hhline` rule commands are normalized without leaking command names or
+  pattern strings into table text;
 - common `colortbl` table color commands are normalized without leaking command
   names or color arguments into table text;
 - simple multirow row counts survive into `TableCell.row_span` metadata;

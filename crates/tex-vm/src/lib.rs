@@ -174,6 +174,7 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\thead}[2][]{#2}
 \providecommand{\multirow}[4][]{#4}
 \providecommand{\multirowcell}[3][]{#3}
+\providecommand{\hhline}[1]{}
 \providecommand{\FloatBarrier}{}
 \providecommand{\balance}{}
 \providecommand{\flushend}{}
@@ -243,6 +244,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "framed.sty",
     "fullpage.sty",
     "graphicx.sty",
+    "hhline.sty",
     "hyperref.sty",
     "inputenc.sty",
     "keyval.sty",
@@ -3317,6 +3319,21 @@ impl<'i> Vm<'i> {
                                                         }
                                                         "morecmidrules" => {
                                                             table_index = command_end;
+                                                        }
+                                                        "hhline" => {
+                                                            table_index = command_end;
+                                                            table_index = skip_ascii_whitespace(
+                                                                table_body,
+                                                                table_index,
+                                                            );
+                                                            if let Some((_, _, _, after)) =
+                                                                read_braced_source_argument(
+                                                                    table_body,
+                                                                    table_index,
+                                                                )
+                                                            {
+                                                                table_index = after;
+                                                            }
                                                         }
                                                         "specialrule" => {
                                                             table_index = command_end;
@@ -8962,6 +8979,27 @@ impl<'i> Vm<'i> {
                         }
                         "morecmidrules" => {
                             table_index = command_end;
+                        }
+                        "hhline" => {
+                            let (row_index, position) = if row_has_visible_content {
+                                (current_row_index, TableRulePosition::Below)
+                            } else if current_row_index == 0 {
+                                (0, TableRulePosition::Above)
+                            } else {
+                                (current_row_index - 1, TableRulePosition::Below)
+                            };
+                            table_rules.push(TableRuleEvent {
+                                row_index,
+                                position,
+                                column_span: None,
+                            });
+                            table_index = command_end;
+                            table_index = skip_ascii_whitespace(table_body, table_index);
+                            if let Some((_, _, _, after)) =
+                                read_braced_source_argument(table_body, table_index)
+                            {
+                                table_index = after;
+                            }
                         }
                         "specialrule" => {
                             let (row_index, position) = if row_has_visible_content {
@@ -22950,6 +22988,47 @@ Fallback text.
             "{:?}",
             visible.table_rules
         );
+    }
+
+    #[test]
+    fn render_event_capture_omits_hhline_rule_commands() {
+        let source = r"\documentclass{article}\usepackage{hhline}\begin{document}\begin{tabular}{|l|r|}A & 1 \\\hhline{|=|=|} B & 22\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package hhline.sty"
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("hhline.sty"))
+        );
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        let visible_text = visible
+            .normalized_visible_text
+            .as_deref()
+            .expect("visible table text");
+
+        assert_eq!(visible_text, "A | 1 ; B | 22");
+        assert!(!visible_text.contains("hhline"));
+        assert!(!visible_text.contains("|=|=|"));
+        assert!(visible.table_rules.len() >= 1, "{:?}", visible.table_rules);
     }
 
     #[test]
