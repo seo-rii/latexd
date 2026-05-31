@@ -11651,7 +11651,7 @@ fn tabular_fixed_width_column_specs_survive_ir_and_align_display_list_text() {
 fn tabular_numeric_column_specs_survive_ir_and_align_display_list_text() {
     let capture = capture_internal_render_ir(
         "main.tex",
-        r"\begin{document}\begin{tabular}{S[table-format=2.1]D{.}{.}{-1}}1.2 & 3.4 \\ 22.0 & 5\end{tabular}\end{document}",
+        r"\documentclass{article}\usepackage{dcolumn}\begin{document}\begin{tabular}{S[table-format=2.1]D{.}{.}{-1}}1.2 & 3.4 \\ 22.0 & 5\end{tabular}\end{document}",
         &SemanticAux::default(),
     );
     let table = capture
@@ -11670,6 +11670,13 @@ fn tabular_numeric_column_specs_survive_ir_and_align_display_list_text() {
             .columns
             .iter()
             .all(|column| column.alignment == TableColumnAlignment::Right)
+    );
+    assert!(
+        !capture.events.events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Diagnostic(diagnostic) if diagnostic.message.contains("dcolumn.sty")
+        )),
+        "dcolumn shim should be recognized without a missing-package diagnostic"
     );
     let table_lines = capture.page_display_lists[0]
         .ops

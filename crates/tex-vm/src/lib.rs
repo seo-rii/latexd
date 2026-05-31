@@ -227,6 +227,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "color.sty",
     "csquotes.sty",
     "diagbox.sty",
+    "dcolumn.sty",
     "dblfloatfix.sty",
     "enumitem.sty",
     "etoolbox.sty",
