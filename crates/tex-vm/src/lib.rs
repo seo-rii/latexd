@@ -4079,6 +4079,32 @@ impl<'i> Vm<'i> {
                         }
                     }
                 }
+                "setkeys" => {
+                    let family_index = skip_ascii_whitespace(source, index);
+                    if let Some((family, _, _, after_family)) =
+                        read_braced_source_argument(source, family_index)
+                    {
+                        let options_index = skip_ascii_whitespace(source, after_family);
+                        if let Some((options, _, _, after_options)) =
+                            read_braced_source_argument(source, options_index)
+                        {
+                            if family
+                                .split(',')
+                                .map(str::trim)
+                                .any(|family| family == "Gin")
+                            {
+                                let options = options.trim();
+                                if !options.is_empty() {
+                                    scan_state.graphic_default_options = merge_graphic_options(
+                                        scan_state.graphic_default_options.clone(),
+                                        Some(options),
+                                    );
+                                }
+                            }
+                            index = after_options;
+                        }
+                    }
+                }
                 "documentclass" | "LoadClass" | "LoadClassWithOptions" => {
                     let mut class_index = skip_ascii_whitespace(source, index);
                     let mut class_graphic_options = Vec::new();
@@ -24443,6 +24469,40 @@ Fallback text.
             RenderEvent::GraphicRef(graphic)
                 if graphic.path == "figures/plot.pdf"
                     && graphic.options.as_deref() == Some("final,draft,width=5cm")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_threads_gin_setkeys_graphic_options() {
+        let source = r"\documentclass{article}\usepackage{graphicx}\setkeys{Gin}{draft,width=5cm}\begin{document}\includegraphics{figures/plot.pdf}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.options.as_deref() == Some("draft,width=5cm")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_prefers_local_final_over_gin_draft() {
+        let source = r"\documentclass{article}\usepackage{graphicx}\setkeys{Gin}{draft}\begin{document}\includegraphics[final,width=5cm]{figures/plot.pdf}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.options.as_deref() == Some("draft,final,width=5cm")
         )));
     }
 
