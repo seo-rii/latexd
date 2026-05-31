@@ -8335,7 +8335,7 @@ impl<'i> Vm<'i> {
             read_braced_source_argument(body_source, table_body_start)
         {
             let mut spec_index = 0usize;
-            let mut pending_rule_before = false;
+            let mut pending_rule_before_count = 0u8;
             while spec_index < column_spec.len() {
                 let ch = column_spec[spec_index..]
                     .chars()
@@ -8345,8 +8345,9 @@ impl<'i> Vm<'i> {
                     '|' => {
                         if let Some(column) = table_columns.last_mut() {
                             column.rule_after = true;
+                            column.rule_after_count = column.rule_after_count.saturating_add(1);
                         }
-                        pending_rule_before = true;
+                        pending_rule_before_count = pending_rule_before_count.saturating_add(1);
                         spec_index += ch.len_utf8();
                     }
                     'l' | 'c' | 'r' | 'p' | 'm' | 'b' => {
@@ -8359,10 +8360,12 @@ impl<'i> Vm<'i> {
                         };
                         table_columns.push(TableColumnSpec {
                             alignment,
-                            rule_before: pending_rule_before,
+                            rule_before: pending_rule_before_count > 0,
+                            rule_before_count: pending_rule_before_count,
                             rule_after: false,
+                            rule_after_count: 0,
                         });
-                        pending_rule_before = false;
+                        pending_rule_before_count = 0;
                         spec_index += ch.len_utf8();
                         if matches!(ch, 'p' | 'm' | 'b') {
                             let argument_index = skip_ascii_whitespace(column_spec, spec_index);
@@ -8396,8 +8399,11 @@ impl<'i> Vm<'i> {
                                             '|' => {
                                                 if let Some(column) = table_columns.last_mut() {
                                                     column.rule_after = true;
+                                                    column.rule_after_count =
+                                                        column.rule_after_count.saturating_add(1);
                                                 }
-                                                pending_rule_before = true;
+                                                pending_rule_before_count =
+                                                    pending_rule_before_count.saturating_add(1);
                                                 repeated_spec_index += repeated_ch.len_utf8();
                                             }
                                             'l' | 'c' | 'r' | 'p' | 'm' | 'b' => {
@@ -8412,10 +8418,12 @@ impl<'i> Vm<'i> {
                                                 };
                                                 table_columns.push(TableColumnSpec {
                                                     alignment,
-                                                    rule_before: pending_rule_before,
+                                                    rule_before: pending_rule_before_count > 0,
+                                                    rule_before_count: pending_rule_before_count,
                                                     rule_after: false,
+                                                    rule_after_count: 0,
                                                 });
-                                                pending_rule_before = false;
+                                                pending_rule_before_count = 0;
                                                 repeated_spec_index += repeated_ch.len_utf8();
                                                 if matches!(repeated_ch, 'p' | 'm' | 'b') {
                                                     let argument_index = skip_ascii_whitespace(
@@ -8475,8 +8483,11 @@ impl<'i> Vm<'i> {
                     }
                 }
             }
-            if pending_rule_before && let Some(column) = table_columns.last_mut() {
+            if pending_rule_before_count > 0
+                && let Some(column) = table_columns.last_mut()
+            {
                 column.rule_after = true;
+                column.rule_after_count = column.rule_after_count.max(pending_rule_before_count);
             }
             table_body_start = after;
         }
@@ -22404,22 +22415,30 @@ Fallback text.
                 TableColumnSpec {
                     alignment: TableColumnAlignment::Left,
                     rule_before: true,
+                    rule_before_count: 1,
                     rule_after: true,
+                    rule_after_count: 1,
                 },
                 TableColumnSpec {
                     alignment: TableColumnAlignment::Center,
                     rule_before: true,
+                    rule_before_count: 1,
                     rule_after: true,
+                    rule_after_count: 1,
                 },
                 TableColumnSpec {
                     alignment: TableColumnAlignment::Right,
                     rule_before: true,
+                    rule_before_count: 1,
                     rule_after: true,
+                    rule_after_count: 1,
                 },
                 TableColumnSpec {
                     alignment: TableColumnAlignment::Paragraph,
                     rule_before: true,
+                    rule_before_count: 1,
                     rule_after: true,
+                    rule_after_count: 1,
                 },
             ]
         );
@@ -22461,6 +22480,34 @@ Fallback text.
                 .iter()
                 .all(|column| column.rule_before)
         );
+    }
+
+    #[test]
+    fn render_event_capture_records_repeated_vertical_table_rule_counts() {
+        let source = r"\begin{document}\begin{tabular}{||l||r||}A & B\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible.table_columns.len(), 2);
+        assert_eq!(visible.table_columns[0].rule_before_count, 2);
+        assert_eq!(visible.table_columns[0].rule_after_count, 2);
+        assert_eq!(visible.table_columns[1].rule_before_count, 2);
+        assert_eq!(visible.table_columns[1].rule_after_count, 2);
     }
 
     #[test]

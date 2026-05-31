@@ -430,8 +430,12 @@ pub struct TableColumnSpec {
     pub alignment: TableColumnAlignment,
     #[serde(default)]
     pub rule_before: bool,
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub rule_before_count: u8,
     #[serde(default)]
     pub rule_after: bool,
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub rule_after_count: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -442,6 +446,10 @@ pub enum TableColumnAlignment {
     Right,
     Paragraph,
     Unknown,
+}
+
+fn is_zero_u8(value: &u8) -> bool {
+    *value == 0
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -64,8 +64,9 @@ preamble columns now survive as `TableColumnSpec` metadata, bounded `*{n}{...}`
 repeated specs expand before IR construction, and those specs drive coarse
 left/center/right padding in the display-list text fallback. Simple column
 border markers also emit coarse vertical `PageDisplayList::Rule` rectangles at
-the monospaced fallback boundary positions. `multirow` commands now preserve
-their visible cell text, but multirow geometry is still not
+the monospaced fallback boundary positions, including repeated `||` rule-count
+approximations. `multirow` commands now preserve their visible cell text, but
+multirow geometry is still not
 modeled. The first figure slice is also implemented at
 the renderer boundary: resolver-provided PNG/JPEG bytes can be decoded into PDF
 `/Image` XObjects by `tex-pdf`, and project-root render-IR capture can now write
@@ -94,9 +95,9 @@ while preserving the image placeholder, and those diagnostics now annotate
 surface as unsupported-image placeholders until external conversion exists.
 External PDF/EPS/SVG conversion, driver-accurate crop/clip rendering for
 non-bitmap assets, TeX-exact rotated-box reflow, programmable table preamble
-hooks, exact vertical border trimming/double rules, exact table rule trimming,
-actual multirow geometry, nested table constructs, full TeX alignment policy,
-and production preview wiring are still deferred. Rotation intent is no longer dropped: `angle` /
+hooks, exact vertical border trimming, exact table rule trimming, actual
+multirow geometry, nested table constructs, full TeX alignment policy, and
+production preview wiring are still deferred. Rotation intent is no longer dropped: `angle` /
 `origin` options and simple `\rotatebox` wrappers are preserved as
 renderer-neutral `ImageRotation` metadata. The display-list PDF path applies
 that metadata to embedded bitmap XObjects and unresolved-image placeholders,
@@ -478,15 +479,15 @@ Implemented first slice:
   `*{n}{...}` repeated specs now survive into IR and drive coarse display-list
   text alignment.
 - simple vertical border markers now emit coarse `PageDisplayList::Rule`
-  rectangles at the readable table fallback's column boundaries.
+  rectangles at the readable table fallback's column boundaries, including
+  repeated `||` rule-count approximations.
 - `multirow` commands now preserve visible cell text in the table fallback.
 
 Remaining table work:
 
 - exact column width policy, programmable column hooks, and multirow
   geometry approximations;
-- exact vertical border trimming/double rules and exact rule trimming in
-  `PageDisplayList`;
+- exact vertical border trimming and exact rule trimming in `PageDisplayList`;
 - stronger booktabs/array-package compatibility on corpus fixtures;
 - raster-oriented table readability gates.
 
@@ -604,7 +605,7 @@ Status:
 - simple and repeated table column alignment specs survive into display-list
   text;
 - simple vertical table border markers now produce renderer-visible
-  display-list rule ops;
+  display-list rule ops, including repeated `||` approximations;
 - external PDF/EPS/SVG conversion and production preview wiring are still
   pending.
 

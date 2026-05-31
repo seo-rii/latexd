@@ -58,7 +58,7 @@ struct LogicalTextSegment {
     source: SourceProvenance,
     link_target: Option<String>,
     table_rule: bool,
-    table_vertical_rule_offsets: Vec<usize>,
+    table_vertical_rule_offsets: Vec<(usize, u8)>,
 }
 
 struct LogicalTextRun {
@@ -553,6 +553,36 @@ pub fn build_page_display_lists(
                     }
                     chars.into_iter().collect::<String>()
                 };
+                let column_rule_before_count = |column_index: usize| -> u8 {
+                    block
+                        .columns
+                        .get(column_index)
+                        .map(|column| {
+                            if column.rule_before_count > 0 {
+                                column.rule_before_count
+                            } else if column.rule_before {
+                                1
+                            } else {
+                                0
+                            }
+                        })
+                        .unwrap_or(0)
+                };
+                let column_rule_after_count = |column_index: usize| -> u8 {
+                    block
+                        .columns
+                        .get(column_index)
+                        .map(|column| {
+                            if column.rule_after_count > 0 {
+                                column.rule_after_count
+                            } else if column.rule_after {
+                                1
+                            } else {
+                                0
+                            }
+                        })
+                        .unwrap_or(0)
+                };
                 if let Some(caption) = &block.caption {
                     let source = block
                         .caption_source
@@ -615,28 +645,19 @@ pub fn build_page_display_lists(
                     let mut row_text = String::new();
                     let mut row_vertical_rule_offsets = Vec::new();
                     let mut column_index = 0usize;
-                    if block
-                        .columns
-                        .first()
-                        .is_some_and(|column| column.rule_before)
-                    {
-                        row_vertical_rule_offsets.push(0);
+                    let left_rule_count = column_rule_before_count(0);
+                    if left_rule_count > 0 {
+                        row_vertical_rule_offsets.push((0, left_rule_count));
                     }
                     for (cell_index, cell) in row.cells.iter().enumerate() {
                         if cell_index > 0 {
                             let separator_start = row_text.chars().count();
                             row_text.push_str(" | ");
                             let previous_column_index = column_index.saturating_sub(1);
-                            if block
-                                .columns
-                                .get(previous_column_index)
-                                .is_some_and(|column| column.rule_after)
-                                || block
-                                    .columns
-                                    .get(column_index)
-                                    .is_some_and(|column| column.rule_before)
-                            {
-                                row_vertical_rule_offsets.push(separator_start + 1);
+                            let rule_count = column_rule_after_count(previous_column_index)
+                                .max(column_rule_before_count(column_index));
+                            if rule_count > 0 {
+                                row_vertical_rule_offsets.push((separator_start + 1, rule_count));
                             }
                         }
                         let column_span = cell.column_span.unwrap_or(1).max(1);
@@ -677,21 +698,29 @@ pub fn build_page_display_lists(
                         }
                         column_index += column_span;
                     }
-                    if block
-                        .columns
-                        .get(column_index.saturating_sub(1))
-                        .is_some_and(|column| column.rule_after)
-                    {
-                        row_vertical_rule_offsets.push(row_text.chars().count());
+                    let right_rule_count = column_rule_after_count(column_index.saturating_sub(1));
+                    if right_rule_count > 0 {
+                        row_vertical_rule_offsets
+                            .push((row_text.chars().count(), right_rule_count));
                     }
-                    row_vertical_rule_offsets.sort_unstable();
-                    row_vertical_rule_offsets.dedup();
+                    row_vertical_rule_offsets.sort_unstable_by_key(|(offset, _)| *offset);
+                    let mut deduped_vertical_rule_offsets: Vec<(usize, u8)> = Vec::new();
+                    for (offset, count) in row_vertical_rule_offsets {
+                        if let Some((last_offset, last_count)) =
+                            deduped_vertical_rule_offsets.last_mut()
+                            && *last_offset == offset
+                        {
+                            *last_count = (*last_count).max(count);
+                        } else {
+                            deduped_vertical_rule_offsets.push((offset, count));
+                        }
+                    }
                     segments.push(LogicalTextSegment {
                         text: row_text,
                         source: block.source.clone(),
                         link_target: None,
                         table_rule: false,
-                        table_vertical_rule_offsets: row_vertical_rule_offsets,
+                        table_vertical_rule_offsets: deduped_vertical_rule_offsets,
                     });
                     if row.rule_below {
                         segments.push(LogicalTextSegment {
@@ -973,7 +1002,7 @@ pub fn build_page_display_lists(
                      source: &SourceProvenance,
                      link_target: Option<&str>,
                      table_rule: bool,
-                     table_vertical_rule_offsets: &[usize],
+                     table_vertical_rule_offsets: &[(usize, u8)],
                      current_line: &mut Vec<LogicalTextSegment>,
                      current_len: &mut usize,
                      wrapped_lines: &mut Vec<Vec<LogicalTextSegment>>| {
@@ -1006,12 +1035,12 @@ pub fn build_page_display_lists(
                                 let is_final_chunk = split_byte == text.len();
                                 let table_vertical_rule_offsets = table_vertical_rule_offsets
                                     .iter()
-                                    .filter_map(|offset| {
+                                    .filter_map(|(offset, count)| {
                                         if *offset >= chunk_start_chars
                                             && (*offset < chunk_end_chars
                                                 || (is_final_chunk && *offset == chunk_end_chars))
                                         {
-                                            Some(*offset - chunk_start_chars)
+                                            Some((*offset - chunk_start_chars, *count))
                                         } else {
                                             None
                                         }
@@ -1045,11 +1074,11 @@ pub fn build_page_display_lists(
                             let table_vertical_rule_offsets = segment
                                 .table_vertical_rule_offsets
                                 .iter()
-                                .filter_map(|offset| {
+                                .filter_map(|(offset, count)| {
                                     if *offset >= remaining_start_chars
                                         && *offset <= remaining_start_chars + before_newline_chars
                                     {
-                                        Some(*offset - remaining_start_chars)
+                                        Some((*offset - remaining_start_chars, *count))
                                     } else {
                                         None
                                     }
@@ -1073,9 +1102,9 @@ pub fn build_page_display_lists(
                             let table_vertical_rule_offsets = segment
                                 .table_vertical_rule_offsets
                                 .iter()
-                                .filter_map(|offset| {
+                                .filter_map(|(offset, count)| {
                                     if *offset >= remaining_start_chars {
-                                        Some(*offset - remaining_start_chars)
+                                        Some((*offset - remaining_start_chars, *count))
                                     } else {
                                         None
                                     }
@@ -1208,7 +1237,7 @@ pub fn build_page_display_lists(
                                 }
                             }
                         }
-                        for offset in &segment.table_vertical_rule_offsets {
+                        for (offset, count) in &segment.table_vertical_rule_offsets {
                             let prefix_byte = if *offset >= segment.text.chars().count() {
                                 segment.text.len()
                             } else {
@@ -1224,12 +1253,20 @@ pub fn build_page_display_lists(
                                 &logical.font,
                                 logical.size_pt,
                             );
-                            table_vertical_rule_rects.push(Rect {
-                                x: x + prefix_advance,
-                                y: (y - logical.size_pt).max(0.0),
-                                width: 0.8,
-                                height: options.line_height_pt,
-                            });
+                            let rule_count = (*count).clamp(1, 4);
+                            let rule_spacing = 1.2;
+                            let first_shift =
+                                -((rule_count.saturating_sub(1) as f32) * rule_spacing) / 2.0;
+                            for rule_index in 0..rule_count {
+                                table_vertical_rule_rects.push(Rect {
+                                    x: x + prefix_advance
+                                        + first_shift
+                                        + rule_index as f32 * rule_spacing,
+                                    y: (y - logical.size_pt).max(0.0),
+                                    width: 0.8,
+                                    height: options.line_height_pt,
+                                });
+                            }
                         }
                         pending.hash_input.push('\u{1f}');
                         pending.hash_input.push_str(&format!(
@@ -1854,17 +1891,23 @@ mod tests {
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Left,
                         rule_before: false,
+                        rule_before_count: 0,
                         rule_after: false,
+                        rule_after_count: 0,
                     },
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Center,
                         rule_before: false,
+                        rule_before_count: 0,
                         rule_after: false,
+                        rule_after_count: 0,
                     },
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Right,
                         rule_before: false,
+                        rule_before_count: 0,
                         rule_after: false,
+                        rule_after_count: 0,
                     },
                 ],
                 rows: vec![
@@ -1938,12 +1981,16 @@ mod tests {
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Left,
                         rule_before: true,
+                        rule_before_count: 1,
                         rule_after: true,
+                        rule_after_count: 1,
                     },
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Right,
                         rule_before: false,
+                        rule_before_count: 0,
                         rule_after: true,
+                        rule_after_count: 1,
                     },
                 ],
                 rows: vec![
@@ -2006,6 +2053,71 @@ mod tests {
         assert_eq!(vertical_rules.len(), 6, "{vertical_rules:?}");
         assert!(lines.contains(&"A |  1"), "{lines:?}");
         assert!(lines.contains(&"B | 22"), "{lines:?}");
+    }
+
+    #[test]
+    fn table_display_list_emits_repeated_vertical_rule_ops_from_column_specs() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                columns: vec![
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Left,
+                        rule_before: true,
+                        rule_before_count: 2,
+                        rule_after: true,
+                        rule_after_count: 2,
+                    },
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Right,
+                        rule_before: true,
+                        rule_before_count: 2,
+                        rule_after: true,
+                        rule_after_count: 2,
+                    },
+                ],
+                rows: vec![TableRow {
+                    rule_above: false,
+                    partial_rules_above: Vec::new(),
+                    cells: vec![
+                        TableCell {
+                            text: "A".to_string(),
+                            column_span: None,
+                        },
+                        TableCell {
+                            text: "1".to_string(),
+                            column_span: None,
+                        },
+                    ],
+                    rule_below: false,
+                    partial_rules_below: Vec::new(),
+                }],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let vertical_rules = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Rule(rect) if rect.height > rect.width => Some(rect),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let lines = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(vertical_rules.len(), 6, "{vertical_rules:?}");
+        assert!(lines.contains(&"A | 1"), "{lines:?}");
     }
 
     #[test]
