@@ -3,8 +3,12 @@ use std::{fs, io::Write};
 use anyhow::{Context, Result, anyhow, bail};
 use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use latexd::{EditorBridgeConfig, ServeArgs, TileRendererConfig, serve};
+use latexd::{
+    EditorBridgeConfig, ServeArgs, TileRendererConfig,
+    compiler::capture_internal_render_ir_from_project_root, serve,
+};
 use std::sync::Arc;
+use tex_aux::SemanticAux;
 use tex_render_gs::{GsApiRuntime, GsApiRuntimePool};
 
 #[derive(Debug, Parser)]
@@ -17,6 +21,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Command {
     Serve(ServeCli),
+    RenderIr(RenderIrCli),
     MockCompiler(MockCompilerCli),
 }
 
@@ -42,6 +47,16 @@ struct ServeCli {
     editor_bin: Option<String>,
     #[arg(long = "editor-arg")]
     editor_args: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct RenderIrCli {
+    #[arg(long, default_value = ".")]
+    root: String,
+    #[arg(long)]
+    input: String,
+    #[arg(long)]
+    output_dir: String,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -119,6 +134,26 @@ async fn main() -> Result<()> {
                 }),
             })
             .await
+        }
+        Command::RenderIr(command) => {
+            let root = Utf8PathBuf::from(command.root);
+            let output_dir = Utf8PathBuf::from(command.output_dir);
+            let capture = capture_internal_render_ir_from_project_root(
+                &root,
+                &command.input,
+                &SemanticAux::default(),
+            )?;
+            let paths = capture.write_debug_artifacts(&output_dir)?;
+
+            println!("wrote render IR artifacts to {output_dir}");
+            println!("events: {}", paths.events);
+            println!("document IR: {}", paths.document_ir);
+            println!("display-list JSON: {}", paths.page_display_list);
+            println!("display-list PDF: {}", paths.display_list_pdf);
+            for svg in paths.display_list_svgs {
+                println!("display-list SVG: {svg}");
+            }
+            Ok(())
         }
         Command::MockCompiler(command) => {
             let input = fs::read_to_string(&command.input)
@@ -250,5 +285,31 @@ async fn main() -> Result<()> {
 
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_render_ir_command() {
+        let cli = Cli::parse_from([
+            "latexd",
+            "render-ir",
+            "--root",
+            "/tmp/project",
+            "--input",
+            "main.tex",
+            "--output-dir",
+            "/tmp/out",
+        ]);
+
+        let Command::RenderIr(command) = cli.command else {
+            panic!("expected render-ir command");
+        };
+        assert_eq!(command.root, "/tmp/project");
+        assert_eq!(command.input, "main.tex");
+        assert_eq!(command.output_dir, "/tmp/out");
     }
 }

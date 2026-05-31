@@ -679,6 +679,9 @@ Status:
   display-list PDF artifact;
 - project-root display-list SVG debug artifacts can embed resolver-backed SVG
   and PNG/JPEG bitmap assets, including clip-enabled bitmap crop visualization;
+- `latexd render-ir --root ... --input ... --output-dir ...` exposes the
+  event/IR/display-list artifact pipeline without replacing the serve preview
+  path;
 - `\includegraphics` option control sequences such as `\textwidth` /
   `\linewidth` survive event capture into display-list sizing;
 - `\paperwidth`, `\pagewidth`, `\hsize`, and `\vsize` are accepted as graphic
@@ -707,8 +710,8 @@ Status:
 - common `colortbl` table color commands are normalized without leaking command
   names or color arguments into table text;
 - simple multirow row counts survive into `TableCell.row_span` metadata;
-- external PDF/EPS conversion, production SVG/PDF vector embedding, and
-  production preview wiring are still pending.
+- external PDF/EPS conversion, production SVG/PDF vector embedding, and full
+  serve-preview replacement are still pending.
 
 Exit criteria:
 
