@@ -3241,6 +3241,51 @@ impl<'i> Vm<'i> {
                                                         "hline" | "toprule" | "midrule"
                                                         | "bottomrule" => {
                                                             table_index = command_end;
+                                                            if matches!(
+                                                                command,
+                                                                "toprule"
+                                                                    | "midrule"
+                                                                    | "bottomrule"
+                                                            ) && let Some((_, _, _, after)) =
+                                                                read_bracket_source_argument(
+                                                                    table_body,
+                                                                    table_index,
+                                                                )
+                                                            {
+                                                                table_index = after;
+                                                            }
+                                                        }
+                                                        "addlinespace" => {
+                                                            table_index = command_end;
+                                                            if let Some((_, _, _, after)) =
+                                                                read_bracket_source_argument(
+                                                                    table_body,
+                                                                    table_index,
+                                                                )
+                                                            {
+                                                                table_index = after;
+                                                            }
+                                                        }
+                                                        "morecmidrules" => {
+                                                            table_index = command_end;
+                                                        }
+                                                        "specialrule" => {
+                                                            table_index = command_end;
+                                                            for _ in 0..3 {
+                                                                table_index = skip_ascii_whitespace(
+                                                                    table_body,
+                                                                    table_index,
+                                                                );
+                                                                let Some((_, _, _, after)) =
+                                                                    read_braced_source_argument(
+                                                                        table_body,
+                                                                        table_index,
+                                                                    )
+                                                                else {
+                                                                    break;
+                                                                };
+                                                                table_index = after;
+                                                            }
                                                         }
                                                         "label" => {
                                                             table_index = command_end;
@@ -3292,6 +3337,27 @@ impl<'i> Vm<'i> {
                                                                 )
                                                             {
                                                                 table_index = after;
+                                                            }
+                                                            if command == "cmidrule" {
+                                                                table_index = skip_ascii_whitespace(
+                                                                    table_body,
+                                                                    table_index,
+                                                                );
+                                                                if table_body
+                                                                    .as_bytes()
+                                                                    .get(table_index)
+                                                                    .copied()
+                                                                    == Some(b'(')
+                                                                {
+                                                                    if let Some(close_relative) =
+                                                                        table_body
+                                                                            [table_index + 1..]
+                                                                            .find(')')
+                                                                    {
+                                                                        table_index +=
+                                                                            close_relative + 2;
+                                                                    }
+                                                                }
                                                             }
                                                             if let Some((_, _, _, after)) =
                                                                 read_braced_source_argument(
@@ -8747,6 +8813,47 @@ impl<'i> Vm<'i> {
                                 column_span: None,
                             });
                             table_index = command_end;
+                            if matches!(command, "toprule" | "midrule" | "bottomrule")
+                                && let Some((_, _, _, after)) =
+                                    read_bracket_source_argument(table_body, table_index)
+                            {
+                                table_index = after;
+                            }
+                        }
+                        "addlinespace" => {
+                            table_index = command_end;
+                            if let Some((_, _, _, after)) =
+                                read_bracket_source_argument(table_body, table_index)
+                            {
+                                table_index = after;
+                            }
+                        }
+                        "morecmidrules" => {
+                            table_index = command_end;
+                        }
+                        "specialrule" => {
+                            let (row_index, position) = if row_has_visible_content {
+                                (current_row_index, TableRulePosition::Below)
+                            } else if current_row_index == 0 {
+                                (0, TableRulePosition::Above)
+                            } else {
+                                (current_row_index - 1, TableRulePosition::Below)
+                            };
+                            table_rules.push(TableRuleEvent {
+                                row_index,
+                                position,
+                                column_span: None,
+                            });
+                            table_index = command_end;
+                            for _ in 0..3 {
+                                table_index = skip_ascii_whitespace(table_body, table_index);
+                                let Some((_, _, _, after)) =
+                                    read_braced_source_argument(table_body, table_index)
+                                else {
+                                    break;
+                                };
+                                table_index = after;
+                            }
                         }
                         "multicolumn" => {
                             let mut parsed = false;
@@ -22643,6 +22750,50 @@ Fallback text.
                     }),
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn render_event_capture_omits_booktabs_spacing_commands() {
+        let source = r"\documentclass{article}\usepackage{booktabs}\begin{document}\begin{tabular}{lr}\toprule[.08em] A & B \\ \addlinespace[2pt]\midrule[.03em] C & D \\\morecmidrules\cmidrule(lr){1-2}\specialrule{.05em}{.2em}{.2em} E & F \\ \bottomrule[.08em]\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        let visible_text = visible
+            .normalized_visible_text
+            .as_deref()
+            .expect("visible table text");
+
+        assert_eq!(visible_text, "A | B ; C | D ; E | F");
+        assert!(!visible_text.contains("toprule"));
+        assert!(!visible_text.contains("addlinespace"));
+        assert!(!visible_text.contains("midrule"));
+        assert!(!visible_text.contains("morecmidrules"));
+        assert!(!visible_text.contains("specialrule"));
+        assert!(!visible_text.contains(".08em"));
+        assert!(visible.table_rules.len() >= 5, "{:?}", visible.table_rules);
+        assert!(
+            visible.table_rules.iter().any(|rule| rule.column_span
+                == Some(TableRuleSpan {
+                    start_column: 0,
+                    end_column: 1,
+                })),
+            "{:?}",
+            visible.table_rules
         );
     }
 

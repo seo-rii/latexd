@@ -487,6 +487,10 @@ Implemented first slice:
 - simple vertical border markers now emit coarse `PageDisplayList::Rule`
   rectangles at the readable table fallback's column boundaries, including
   repeated `||` rule-count approximations.
+- common `booktabs` spacing and rule-control commands such as optional-width
+  `\toprule` / `\midrule` / `\bottomrule`, `\addlinespace`,
+  `\morecmidrules`, and `\specialrule` are suppressed from visible table text
+  while preserving renderer-visible rule metadata where appropriate.
 - `multirow` / `multirowcell` commands now preserve visible cell text and simple
   `row_span` metadata in the table fallback.
 
@@ -618,6 +622,8 @@ Status:
   text;
 - simple vertical table border markers now produce renderer-visible
   display-list rule ops, including repeated `||` approximations;
+- common `booktabs` spacing/rule-control commands are normalized without
+  leaking command names or rule dimensions into table text;
 - simple multirow row counts survive into `TableCell.row_span` metadata;
 - external PDF/EPS/SVG conversion and production preview wiring are still
   pending.

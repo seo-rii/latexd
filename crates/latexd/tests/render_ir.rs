@@ -11868,6 +11868,63 @@ fn tabular_partial_rules_survive_ir_and_display_list() {
 }
 
 #[test]
+fn booktabs_spacing_commands_do_not_leak_into_table_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{booktabs}\begin{document}\begin{tabular}{lr}\toprule[.08em] A & B \\ \addlinespace[2pt]\midrule[.03em] C & D \\\morecmidrules\cmidrule(lr){1-2}\specialrule{.05em}{.2em}{.2em} E & F \\ \bottomrule[.08em]\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows.len(), 3);
+    assert_eq!(table.rows[0].cells[0].text, "A");
+    assert_eq!(table.rows[1].cells[0].text, "C");
+    assert_eq!(table.rows[2].cells[0].text, "E");
+    assert!(table.rows[0].rule_above);
+    assert!(table.rows[0].rule_below);
+    assert!(table.rows[1].rule_below);
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("A | B"));
+    assert!(extracted_text.contains("C | D"));
+    assert!(extracted_text.contains("E | F"));
+    assert!(!extracted_text.contains("toprule"));
+    assert!(!extracted_text.contains("addlinespace"));
+    assert!(!extracted_text.contains("morecmidrules"));
+    assert!(!extracted_text.contains("specialrule"));
+    assert!(!extracted_text.contains(".08em"));
+
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let rule_ops = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::Rule(rect) => Some(rect),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(table_lines.contains(&"A | B"), "{table_lines:?}");
+    assert!(table_lines.contains(&"C | D"), "{table_lines:?}");
+    assert!(table_lines.contains(&"E | F"), "{table_lines:?}");
+    assert!(rule_ops.len() >= 5, "{rule_ops:?}");
+}
+
+#[test]
 fn tabular_multicolumn_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
