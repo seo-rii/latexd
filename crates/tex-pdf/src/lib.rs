@@ -941,6 +941,7 @@ pub fn render_display_list_svg_with_assets(
                     })
                     .unwrap_or_default();
                 let placeholder_status = ImagePlaceholderStatus::from_image(image);
+                let mut embedded_decode_failure = false;
                 let embedded_image = if placeholder_status == ImagePlaceholderStatus::Generic {
                     resolve_asset(&image.asset_ref).and_then(|bytes| {
                         let (media_type, natural_size) = match image.asset_format {
@@ -953,18 +954,26 @@ pub fn render_display_list_svg_with_assets(
                                 }
                                 ("image/svg+xml;charset=utf-8", None)
                             }
-                            Some(GraphicAssetFormat::Png) => (
-                                "image/png",
-                                image::load_from_memory(&bytes)
-                                    .ok()
-                                    .map(|image| (image.width() as f32, image.height() as f32)),
-                            ),
-                            Some(GraphicAssetFormat::Jpeg) => (
-                                "image/jpeg",
-                                image::load_from_memory(&bytes)
-                                    .ok()
-                                    .map(|image| (image.width() as f32, image.height() as f32)),
-                            ),
+                            Some(GraphicAssetFormat::Png) => {
+                                let Some(image) = image::load_from_memory(&bytes).ok() else {
+                                    embedded_decode_failure = true;
+                                    return None;
+                                };
+                                (
+                                    "image/png",
+                                    Some((image.width() as f32, image.height() as f32)),
+                                )
+                            }
+                            Some(GraphicAssetFormat::Jpeg) => {
+                                let Some(image) = image::load_from_memory(&bytes).ok() else {
+                                    embedded_decode_failure = true;
+                                    return None;
+                                };
+                                (
+                                    "image/jpeg",
+                                    Some((image.width() as f32, image.height() as f32)),
+                                )
+                            }
                             _ => return None,
                         };
                         let mut data_uri = format!("data:{media_type},");
@@ -1041,6 +1050,11 @@ pub fn render_display_list_svg_with_assets(
                     ));
                     continue;
                 }
+                let placeholder_status = if embedded_decode_failure {
+                    ImagePlaceholderStatus::from_decode_failure(image)
+                } else {
+                    placeholder_status
+                };
                 let placeholder_attrs = if placeholder_status == ImagePlaceholderStatus::Generic {
                     String::new()
                 } else {
@@ -2110,13 +2124,19 @@ mod tests {
             source_spans: Vec::new(),
             content_hash: "hash".to_string(),
         };
-        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+        let pdf = render_display_list_pdf_with_assets(&[page.clone()], |asset_ref| {
             (asset_ref == "figures/bad.png").then(|| b"not an image".to_vec())
         });
         let pdf_text = String::from_utf8_lossy(&pdf);
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            (asset_ref == "figures/bad.png").then(|| b"not an image".to_vec())
+        });
 
         assert!(pdf_text.contains("[undecodable image: figures/bad.png]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
+        assert!(svg.contains("data-image-placeholder-kind=\"undecodable\""));
+        assert!(svg.contains("[undecodable image: figures/bad.png]"));
+        assert!(!svg.contains("data-image-embedded=\"true\""));
     }
 
     #[test]

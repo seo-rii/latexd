@@ -436,8 +436,9 @@ Implemented first slice:
   bitmap crop metadata reflected in the debug SVG;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
   display-list PDF and debug SVG artifacts;
-- missing or undecodable assets still render as bounded placeholders instead of
-  deleting figure space or captions.
+- missing or undecodable assets still render as bounded placeholders in both
+  display-list PDF and debug SVG artifacts instead of deleting figure space or
+  captions.
 
 Remaining figure work:
 
