@@ -8403,7 +8403,7 @@ impl<'i> Vm<'i> {
                     body_end,
                     graphic_paths,
                     graphic_extensions,
-                    None,
+                    Some("xscale=-1"),
                 );
                 Some(after_body)
             }
@@ -24178,17 +24178,23 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_graphics_inside_layout_box_wrappers() {
-        let source = r"\begin{document}\resizebox{0.8\textwidth}{0.4\textheight}{\includegraphics[width=5cm]{figures/plot}}\scalebox{0.5}{\epsfbox{figures/other}}\rotatebox[origin=c]{90}{\psfig{figure=figures/third.eps,width=2cm}}\end{document}";
+        let source = r"\begin{document}\resizebox{0.8\textwidth}{0.4\textheight}{\includegraphics[width=5cm]{figures/plot}}\scalebox{0.5}[2]{\epsfbox{figures/other}}\rotatebox[origin=c]{90}{\psfig{figure=figures/third.eps,width=2cm}}\reflectbox{\includegraphics{figures/reflected}}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
         vm.mount_file("figures/plot.pdf", "%PDF fake");
         vm.mount_file("figures/other.eps", "fake eps");
         vm.mount_file("figures/third.eps", "fake eps");
+        vm.mount_file("figures/reflected.pdf", "%PDF fake");
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
 
-        for path in ["figures/plot.pdf", "figures/other.eps", "figures/third.eps"] {
+        for path in [
+            "figures/plot.pdf",
+            "figures/other.eps",
+            "figures/third.eps",
+            "figures/reflected.pdf",
+        ] {
             assert!(outcome.render_events.iter().any(|event| matches!(
                 &event.event,
                 RenderEvent::GraphicRef(graphic) if graphic.path == path
@@ -24205,7 +24211,7 @@ Fallback text.
             &event.event,
             RenderEvent::GraphicRef(graphic)
                 if graphic.path == "figures/other.eps"
-                    && graphic.options.as_deref() == Some("scale=0.5")
+                    && graphic.options.as_deref() == Some("scale=0.5,yscale=2")
         )));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
@@ -24214,10 +24220,16 @@ Fallback text.
                     && graphic.options.as_deref()
                         == Some("figure=figures/third.eps,width=2cm,origin=c,angle=90")
         )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/reflected.pdf"
+                    && graphic.options.as_deref() == Some("xscale=-1")
+        )));
         assert!(!outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Text(text)
-                if ["0.8", "0.4", "0.5", "origin", "90", "textwidth", "textheight"]
+                if ["0.8", "0.4", "0.5", "origin", "90", "textwidth", "textheight", "reflectbox"]
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));

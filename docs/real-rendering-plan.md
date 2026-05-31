@@ -107,8 +107,10 @@ renderer-neutral `ImageRotation` metadata. The display-list PDF path applies
 that metadata to embedded bitmap XObjects and unresolved-image placeholders,
 and SVG debug artifacts apply the equivalent top-down transform.
 Common graphic layout wrappers also feed the same option path: `resizebox`
-contributes inherited width/height hints, `scalebox` contributes inherited scale,
-and `adjustbox` contributes its option list before display-list sizing.
+contributes inherited width/height hints, `scalebox` contributes horizontal
+scale plus optional vertical scale, `adjustbox` `xscale`/`yscale` affects
+display-list image-box sizing, and `reflectbox` preserves reflection intent as
+`xscale=-1` for later renderer work.
 
 ## Product Goal
 
@@ -417,7 +419,8 @@ Implemented first slice:
 Remaining figure work:
 
 - broader option-aware sizing and driver-exact bounding-box behavior;
-- fuller wrapper sizing semantics for non-uniform scaling and nested boxes;
+- fuller wrapper sizing semantics for nested boxes and TeX-exact wrapper
+  reflow;
 - trim/viewport/clip rendering parity for non-bitmap and raster backends;
 - TeX-exact rotated-box dimensions, page reflow, and non-debug raster parity;
 - external PDF/EPS conversion and production SVG/PDF vector embedding or raster
@@ -639,6 +642,7 @@ Status:
 - project-root display-list SVG debug artifacts can embed resolver-backed SVG
   assets;
 - bitmap and simple SVG/PDF/EPS natural-size layout is available;
+- non-uniform graphic scale hints affect display-list image-box sizing;
 - table horizontal rules now produce renderer-visible display-list rule ops;
 - simple and repeated table column alignment specs survive into display-list
   text;

@@ -1388,6 +1388,8 @@ pub fn build_page_display_lists(
                 let mut width_hint_pt = None;
                 let mut height_hint_pt = None;
                 let mut scale_hint = None;
+                let mut x_scale_hint = None;
+                let mut y_scale_hint = None;
                 let mut keep_aspect_ratio = false;
                 let mut trim = None;
                 let mut viewport = None;
@@ -1418,8 +1420,22 @@ pub fn build_page_display_lists(
                                     .trim()
                                     .parse::<f32>()
                                     .ok()
-                                    .filter(|value| value.is_finite() && *value > 0.0);
+                                    .filter(|value| value.is_finite() && *value != 0.0);
                                 scale_hint = scale;
+                            }
+                            "xscale" => {
+                                x_scale_hint = value
+                                    .trim()
+                                    .parse::<f32>()
+                                    .ok()
+                                    .filter(|value| value.is_finite() && *value != 0.0);
+                            }
+                            "yscale" => {
+                                y_scale_hint = value
+                                    .trim()
+                                    .parse::<f32>()
+                                    .ok()
+                                    .filter(|value| value.is_finite() && *value != 0.0);
                             }
                             "keepaspectratio" => {
                                 keep_aspect_ratio = !matches!(value.trim(), "false" | "0" | "off");
@@ -1536,7 +1552,12 @@ pub fn build_page_display_lists(
                     ),
                     (None, None) => {
                         let scale = scale_hint.unwrap_or(1.0);
-                        (default_image_width * scale, default_image_height * scale)
+                        let x_scale = x_scale_hint.unwrap_or(scale).abs();
+                        let y_scale = y_scale_hint.unwrap_or(scale).abs();
+                        (
+                            default_image_width * x_scale,
+                            default_image_height * y_scale,
+                        )
                     }
                 };
                 let required_height = image_height
@@ -3149,6 +3170,64 @@ mod tests {
         assert_ne!(
             display_lists[0].content_hash,
             different_width[0].content_hash
+        );
+    }
+
+    #[test]
+    fn graphic_nonuniform_scale_options_affect_image_rect_and_hash() {
+        let source = SourceProvenance::file("main.tex", 0, 24);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.png".to_string(),
+                options: Some("scale=0.5,yscale=2".to_string()),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: Some("blake3:asset".to_string()),
+                asset_dimensions: Some(GraphicAssetDimensions {
+                    width_px: 120,
+                    height_px: 60,
+                    density: None,
+                    natural_width_pt_milli: None,
+                    natural_height_pt_milli: None,
+                }),
+                caption: None,
+                caption_source: None,
+                source: source.clone(),
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let different_y_scale = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.png".to_string(),
+                options: Some("scale=0.5,yscale=1".to_string()),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: Some("blake3:asset".to_string()),
+                asset_dimensions: Some(GraphicAssetDimensions {
+                    width_px: 120,
+                    height_px: 60,
+                    density: None,
+                    natural_width_pt_milli: None,
+                    natural_height_pt_milli: None,
+                }),
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let image = display_lists[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::Image(image) if image.asset_ref == "figures/plot.png" => Some(image),
+                _ => None,
+            })
+            .expect("image op");
+
+        assert!((image.rect.width - 60.0).abs() < 0.01);
+        assert!((image.rect.height - 120.0).abs() < 0.01);
+        assert_ne!(
+            display_lists[0].content_hash,
+            different_y_scale[0].content_hash
         );
     }
 

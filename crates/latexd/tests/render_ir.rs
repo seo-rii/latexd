@@ -2763,7 +2763,7 @@ fn graphic_layout_box_wrappers_preserve_images_without_argument_leakage() {
                 DrawOp::Image(image)
                     if image.asset_ref == "figures/other.eps"
                         && (image.rect.width - 234.0).abs() < 0.01
-                        && (image.rect.height - 42.0).abs() < 0.01
+                        && (image.rect.height - 168.0).abs() < 0.01
             )
         }),
         "{image_rects:?}"
@@ -15619,7 +15619,7 @@ const LEGACY_EPSFIG_SOURCE: &str = r"\begin{document}\begin{figure}\epsfig{file=
 
 const LEGACY_EPSF_FILE_SOURCE: &str = r"\begin{document}\begin{figure}\epsfbox{figures/plot}\caption{Plot caption.}\end{figure}\end{document}";
 
-const GRAPHIC_LAYOUT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\resizebox{0.8\textwidth}{0.4\textheight}{\includegraphics[width=5cm]{figures/plot}}\scalebox{0.5}{\epsfbox{figures/other}}\rotatebox[origin=c]{90}{\psfig{figure=figures/third.eps,width=2cm}}\end{document}";
+const GRAPHIC_LAYOUT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\resizebox{0.8\textwidth}{0.4\textheight}{\includegraphics[width=5cm]{figures/plot}}\scalebox{0.5}[2]{\epsfbox{figures/other}}\rotatebox[origin=c]{90}{\psfig{figure=figures/third.eps,width=2cm}}\end{document}";
 
 const GRAPHIC_ALIGNMENT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\adjustbox{width=\textwidth,center}{\includegraphics{figures/plot}}\centerline{\includegraphics{figures/other}}\makebox[\textwidth][c]{\epsfbox{figures/third}}\end{document}";
 
