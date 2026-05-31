@@ -11615,6 +11615,38 @@ fn tabular_repeated_column_specs_expand_before_display_list_alignment() {
 }
 
 #[test]
+fn tabular_multirow_visible_text_survives_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{multirow}\begin{document}\begin{tabular}{ll}\multirow{2}{*}{Span} & A \\ B & C\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "Span");
+    assert!(!capture.document_ir.extracted_text().contains("multirow"));
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(table_lines.contains(&"Span | A"), "{table_lines:?}");
+    assert!(table_lines.contains(&"B    | C"), "{table_lines:?}");
+}
+
+#[test]
 fn tabular_partial_rules_survive_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",

@@ -168,6 +168,7 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\diagbox}[3][]{#2/#3}
 \providecommand{\makecell}[2][]{#2}
 \providecommand{\thead}[2][]{#2}
+\providecommand{\multirow}[4][]{#4}
 \providecommand{\multirowcell}[3][]{#3}
 \providecommand{\FloatBarrier}{}
 \providecommand{\balance}{}
@@ -17431,6 +17432,45 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 }
             }
         }
+        if command == "multirow" {
+            let mut argument_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, after_option)) =
+                read_bracket_source_argument(source, argument_index)
+            {
+                argument_index = after_option;
+            }
+            if let Some((_, _, _, after_rows)) = read_braced_source_argument(source, argument_index)
+            {
+                let mut width_index = skip_ascii_whitespace(source, after_rows);
+                if let Some((_, _, _, after_option)) =
+                    read_bracket_source_argument(source, width_index)
+                {
+                    width_index = after_option;
+                }
+                if let Some((_, _, _, after_width)) =
+                    read_braced_source_argument(source, width_index)
+                {
+                    let mut text_index = skip_ascii_whitespace(source, after_width);
+                    if let Some((_, _, _, after_option)) =
+                        read_bracket_source_argument(source, text_index)
+                    {
+                        text_index = after_option;
+                    }
+                    if let Some((visible_text, _, _, command_after)) =
+                        read_braced_source_argument(source, text_index)
+                    {
+                        append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                        let visible_text =
+                            normalize_latex_text_with_inline_placeholders(visible_text);
+                        append_text(&mut text, &visible_text);
+                        found_structured_inline = true;
+                        chunk_start = command_after;
+                        scan_index = command_after;
+                        continue;
+                    }
+                }
+            }
+        }
         if command == "color" {
             let argument_index = skip_ascii_whitespace(source, command_name_end);
             if let Some((_, _, _, command_after)) =
@@ -28233,14 +28273,19 @@ Fallback text.
 
     #[test]
     fn render_event_capture_loads_table_helper_package_shims() {
-        let source = r"\documentclass{article}\usepackage{subeqnarray}\usepackage{diagbox}\usepackage{makecell}\begin{document}\begin{tabular}{cc}\diagbox{Rows}{Cols} & \makecell{Cell \cite{key}} \\\thead{Head} & \multirowcell{2}{Body}\end{tabular}\end{document}";
+        let source = r"\documentclass{article}\usepackage{subeqnarray}\usepackage{diagbox}\usepackage{makecell}\usepackage{multirow}\begin{document}\begin{tabular}{ccc}\diagbox{Rows}{Cols} & \makecell{Cell \cite{key}} & \multirow{2}{*}{Span} \\\thead{Head} & \multirowcell{2}{Body} & Tail\end{tabular}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
 
-        for package in ["subeqnarray.sty", "diagbox.sty", "makecell.sty"] {
+        for package in [
+            "subeqnarray.sty",
+            "diagbox.sty",
+            "makecell.sty",
+            "multirow.sty",
+        ] {
             assert!(!outcome.diagnostics.iter().any(|diagnostic| {
                 diagnostic.kind == VmDiagnosticKind::MissingFile
                     && diagnostic.detail == format!("package {package}")
@@ -28251,7 +28296,7 @@ Fallback text.
             diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
                 && matches!(
                     diagnostic.detail.as_str(),
-                    "diagbox" | "makecell" | "thead" | "multirowcell"
+                    "diagbox" | "makecell" | "thead" | "multirow" | "multirowcell"
                 )
         }));
         let visible_text = outcome
@@ -28266,7 +28311,7 @@ Fallback text.
                 _ => None,
             })
             .expect("tabular fallback visible text");
-        for visible in ["Rows/Cols", "Cell [?]", "Head", "Body"] {
+        for visible in ["Rows/Cols", "Cell [?]", "Span", "Head", "Body", "Tail"] {
             assert!(
                 visible_text.contains(visible),
                 "visible text missing {visible:?}: {visible_text:?}"
