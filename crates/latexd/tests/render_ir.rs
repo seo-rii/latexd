@@ -11874,6 +11874,45 @@ fn longtable_capture_builds_table_ir() {
 }
 
 #[test]
+fn tabularx_capture_builds_table_ir() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabularx}{\textwidth}{lX}Alpha & Beta \\ Gamma & Delta\end{tabularx}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabularx" => Some(table),
+            _ => None,
+        })
+        .expect("tabularx table");
+
+    assert_eq!(table.columns.len(), 2);
+    assert_eq!(table.columns[0].alignment, TableColumnAlignment::Left);
+    assert_eq!(table.columns[1].alignment, TableColumnAlignment::Paragraph);
+    assert_eq!(table.rows.len(), 2);
+    assert_eq!(table.rows[0].cells[0].text, "Alpha");
+    assert_eq!(table.rows[0].cells[1].text, "Beta");
+    assert_eq!(table.rows[1].cells[0].text, "Gamma");
+    assert_eq!(table.rows[1].cells[1].text, "Delta");
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(display_list_text.contains("Alpha | Beta"));
+    assert!(display_list_text.contains("Gamma | Delta"));
+}
+
+#[test]
 fn longtable_table_ir_labels_survive_without_visible_key() {
     let capture = capture_internal_render_ir(
         "main.tex",

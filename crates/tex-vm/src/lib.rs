@@ -2851,7 +2851,11 @@ impl<'i> Vm<'i> {
                                                     body_command_index,
                                                 ) && matches!(
                                                     table_environment.trim(),
-                                                    "array" | "tabular" | "tabular*" | "longtable"
+                                                    "array"
+                                                        | "tabular"
+                                                        | "tabular*"
+                                                        | "tabularx"
+                                                        | "longtable"
                                                 ) && after_table_environment <= body_end
                                                 {
                                                     let table_environment =
@@ -3094,7 +3098,7 @@ impl<'i> Vm<'i> {
                                     let body_source = &source[body_start..body_end];
                                     if matches!(
                                         other,
-                                        "array" | "tabular" | "tabular*" | "longtable"
+                                        "array" | "tabular" | "tabular*" | "tabularx" | "longtable"
                                     ) && let Some(after) = self.capture_table_fallback_event(
                                         source_path,
                                         source,
@@ -3146,11 +3150,11 @@ impl<'i> Vm<'i> {
                                         body_source[code_body_start..].to_string()
                                     } else if matches!(
                                         other,
-                                        "array" | "tabular" | "tabular*" | "longtable"
+                                        "array" | "tabular" | "tabular*" | "tabularx" | "longtable"
                                     ) {
                                         let mut table_body_start =
                                             skip_ascii_whitespace(body_source, 0);
-                                        if other == "tabular*" {
+                                        if matches!(other, "tabular*" | "tabularx") {
                                             if let Some((_, _, _, after)) =
                                                 read_braced_source_argument(
                                                     body_source,
@@ -8318,7 +8322,7 @@ impl<'i> Vm<'i> {
         environment: &str,
     ) -> Option<usize> {
         let mut table_body_start = skip_ascii_whitespace(body_source, 0);
-        if environment == "tabular*" {
+        if matches!(environment, "tabular*" | "tabularx") {
             if let Some((_, _, _, after)) =
                 read_braced_source_argument(body_source, table_body_start)
             {
@@ -8350,12 +8354,12 @@ impl<'i> Vm<'i> {
                         pending_rule_before_count = pending_rule_before_count.saturating_add(1);
                         spec_index += ch.len_utf8();
                     }
-                    'l' | 'c' | 'r' | 'p' | 'm' | 'b' => {
+                    'l' | 'c' | 'r' | 'p' | 'm' | 'b' | 'X' => {
                         let alignment = match ch {
                             'l' => TableColumnAlignment::Left,
                             'c' => TableColumnAlignment::Center,
                             'r' => TableColumnAlignment::Right,
-                            'p' | 'm' | 'b' => TableColumnAlignment::Paragraph,
+                            'p' | 'm' | 'b' | 'X' => TableColumnAlignment::Paragraph,
                             _ => TableColumnAlignment::Unknown,
                         };
                         table_columns.push(TableColumnSpec {
@@ -8406,12 +8410,12 @@ impl<'i> Vm<'i> {
                                                     pending_rule_before_count.saturating_add(1);
                                                 repeated_spec_index += repeated_ch.len_utf8();
                                             }
-                                            'l' | 'c' | 'r' | 'p' | 'm' | 'b' => {
+                                            'l' | 'c' | 'r' | 'p' | 'm' | 'b' | 'X' => {
                                                 let alignment = match repeated_ch {
                                                     'l' => TableColumnAlignment::Left,
                                                     'c' => TableColumnAlignment::Center,
                                                     'r' => TableColumnAlignment::Right,
-                                                    'p' | 'm' | 'b' => {
+                                                    'p' | 'm' | 'b' | 'X' => {
                                                         TableColumnAlignment::Paragraph
                                                     }
                                                     _ => TableColumnAlignment::Unknown,
@@ -22692,6 +22696,42 @@ Fallback text.
                 RenderEvent::LabelDefinition(label) if label.key == "tab:long"
             )
         }));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_tabularx_fallback_text() {
+        let source = r"\begin{document}\begin{tabularx}{\textwidth}{lX}Alpha & Beta \\ Gamma & Delta\end{tabularx}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabularx") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabularx fallback visible text");
+
+        assert_eq!(
+            visible.normalized_visible_text.as_deref(),
+            Some("Alpha | Beta ; Gamma | Delta")
+        );
+        assert_eq!(visible.table_columns.len(), 2);
+        assert_eq!(
+            visible.table_columns[0].alignment,
+            TableColumnAlignment::Left
+        );
+        assert_eq!(
+            visible.table_columns[1].alignment,
+            TableColumnAlignment::Paragraph
+        );
     }
 
     #[test]

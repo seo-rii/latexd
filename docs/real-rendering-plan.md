@@ -48,8 +48,8 @@ The important reading is:
   unique token overlap.
 
 Current Phase 3 status: the first table slice is implemented at the event/IR
-boundary. Common `tabular`, `tabular*`, `array`, and `longtable` bodies are
-normalized into row/cell `Table` IR and rendered as readable monospaced
+boundary. Common `tabular`, `tabular*`, `tabularx`, `array`, and `longtable`
+bodies are normalized into row/cell `Table` IR and rendered as readable monospaced
 display-list text, including table-float captions and basic max-width column
 padding for uneven rows. Horizontal table rules from `\hline` and common
 booktabs commands are preserved as row rule flags and now emit renderer-visible
@@ -468,7 +468,7 @@ Done when:
 
 Implemented first slice:
 
-- `tabular`, `tabular*`, `array`, and `longtable` emit bounded
+- `tabular`, `tabular*`, `tabularx`, `array`, and `longtable` emit bounded
   table-fallback events instead of raw body text;
 - `DocumentIrBuilder` promotes those events into `Table` IR with rows, cells,
   caption, and label-preserving source provenance;
@@ -479,6 +479,8 @@ Implemented first slice:
 - simple `l` / `c` / `r` / paragraph-style table preamble columns and bounded
   `*{n}{...}` repeated specs now survive into IR and drive coarse display-list
   text alignment.
+- `tabularx` `X` columns are treated as paragraph-style columns in the fallback
+  model.
 - simple vertical border markers now emit coarse `PageDisplayList::Rule`
   rectangles at the readable table fallback's column boundaries, including
   repeated `||` rule-count approximations.
@@ -598,6 +600,8 @@ Scope:
 Status:
 
 - table IR and basic monospaced display-list rendering are started;
+- `tabularx` environments are promoted through the same table IR/display-list
+  fallback path, with `X` columns mapped to paragraph-style columns;
 - figure asset identity/caption propagation exists, and resolver-provided
   PNG/JPEG bytes can be embedded by `tex-pdf`;
 - project-root render-IR debug capture can feed real image files into the
