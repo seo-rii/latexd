@@ -206,6 +206,7 @@ const COMMON_PACKAGE_SHIM: &str = r"
 ";
 
 const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
+    "adjustbox.sty",
     "CJK.sty",
     "CJKutf8.sty",
     "aliascnt.sty",
@@ -1171,6 +1172,7 @@ impl<'i> Vm<'i> {
                 "multicols*",
                 "paracol",
                 "paracol*",
+                "adjustbox",
                 "threeparttable",
                 "measuredfigure",
                 "tablenotes",
@@ -2540,6 +2542,13 @@ impl<'i> Vm<'i> {
                                     let argument_index = skip_ascii_whitespace(source, index);
                                     if let Some((_, _, _, after_options)) =
                                         read_bracket_source_argument(source, argument_index)
+                                    {
+                                        index = after_options;
+                                    }
+                                } else if other == "adjustbox" {
+                                    let argument_index = skip_ascii_whitespace(source, index);
+                                    if let Some((_, _, _, after_options)) =
+                                        read_braced_source_argument(source, argument_index)
                                     {
                                         index = after_options;
                                     }
@@ -29748,6 +29757,46 @@ Fallback text.
                 &event.event,
                 RenderEvent::Text(text)
                     if ["resizebox", "textwidth"].iter().any(|hidden| text.text.contains(hidden))
+            )
+        }));
+    }
+
+    #[test]
+    fn render_event_capture_preserves_adjustbox_environment_tabular() {
+        let source = r"\documentclass{article}\usepackage{adjustbox}\begin{document}\begin{adjustbox}{width=\textwidth,center}\begin{tabular}{ll}A & B \\ C & D\end{tabular}\end{adjustbox}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible_text, "A | B ; C | D");
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("adjustbox.sty"))
+        );
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package adjustbox.sty"
+        }));
+        assert!(!outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::Text(text)
+                    if ["width", "textwidth", "center"].iter().any(|hidden| text.text.contains(hidden))
             )
         }));
     }

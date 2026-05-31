@@ -12072,6 +12072,41 @@ fn resizebox_wrapped_tabular_survives_ir_and_display_list() {
 }
 
 #[test]
+fn adjustbox_environment_tabular_survives_ir_without_option_leakage() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{adjustbox}\begin{document}\begin{adjustbox}{width=\textwidth,center}\begin{tabular}{ll}A & B \\ C & D\end{tabular}\end{adjustbox}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows.len(), 2);
+    assert_eq!(table.rows[0].cells[0].text, "A");
+    assert_eq!(table.rows[1].cells[1].text, "D");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("A | B"));
+    assert!(extracted_text.contains("C | D"));
+    for hidden in ["adjustbox", "textwidth", "center"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+    assert!(
+        !capture.events.events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Diagnostic(diagnostic) if diagnostic.message.contains("adjustbox.sty")
+        )),
+        "adjustbox shim should be recognized without a missing-package diagnostic"
+    );
+}
+
+#[test]
 fn tabular_partial_rules_survive_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
