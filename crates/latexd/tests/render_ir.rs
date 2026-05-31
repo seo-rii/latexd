@@ -8,7 +8,7 @@ use latexd::compiler::{
 use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{
     BlockKind, CitationStyleHint, DrawOp, EventProducer, GeneratedBy, GraphicAssetDensity,
-    GraphicAssetDensityUnit, GraphicAssetFormat, ImageCrop, ImageRotation, ImageTrim,
+    GraphicAssetDensityUnit, GraphicAssetFormat, ImageCrop, ImageRotation, ImageScale, ImageTrim,
     ImageViewport, ListKind, MetadataField, ModeHint, RenderEvent, SemanticConfidence, SpaceKind,
     TableColumnAlignment, to_pretty_json, to_semantic_pretty_json,
 };
@@ -2764,6 +2764,7 @@ fn graphic_layout_box_wrappers_preserve_images_without_argument_leakage() {
                     if image.asset_ref == "figures/other.eps"
                         && (image.rect.width - 234.0).abs() < 0.01
                         && (image.rect.height - 168.0).abs() < 0.01
+                        && image.scale == Some(ImageScale { x: 0.5, y: 2.0 })
             )
         }),
         "{image_rects:?}"

@@ -82,6 +82,8 @@ pub struct PositionedImage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub crop: Option<ImageCrop>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<ImageScale>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rotation: Option<ImageRotation>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic: Option<String>,
@@ -112,6 +114,12 @@ pub struct ImageViewport {
     pub lly_pt: f32,
     pub urx_pt: f32,
     pub ury_pt: f32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct ImageScale {
+    pub x: f32,
+    pub y: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

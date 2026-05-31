@@ -1,9 +1,9 @@
 use tex_render_model::{
     BibliographyBlock, Destination, DocumentIr, DrawOp, FontFamilyRequest, FontRequest, FontRole,
-    FontSeries, FontShape, GraphicAssetDensityUnit, ImageCrop, ImageRotation, ImageTrim,
-    ImageViewport, InlineNode, IrBlock, LinkAnnotation, PageDisplayList, Point, PositionedImage,
-    PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan, TableColumnAlignment,
-    TableRuleSpan, TextCluster,
+    FontSeries, FontShape, GraphicAssetDensityUnit, ImageCrop, ImageRotation, ImageScale,
+    ImageTrim, ImageViewport, InlineNode, IrBlock, LinkAnnotation, PageDisplayList, Point,
+    PositionedImage, PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan,
+    TableColumnAlignment, TableRuleSpan, TextCluster,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1495,6 +1495,15 @@ pub fn build_page_display_lists(
                     angle_degrees,
                     origin: rotation_origin,
                 });
+                let scale =
+                    (scale_hint.is_some() || x_scale_hint.is_some() || y_scale_hint.is_some())
+                        .then(|| {
+                            let base_scale = scale_hint.unwrap_or(1.0);
+                            ImageScale {
+                                x: x_scale_hint.unwrap_or(base_scale),
+                                y: y_scale_hint.unwrap_or(base_scale),
+                            }
+                        });
                 let (source_image_width, source_image_height) = if let Some(crop) = crop {
                     let (mut source_left, mut source_bottom, mut source_right, mut source_top) =
                         if let Some(viewport) = crop.viewport {
@@ -1551,9 +1560,9 @@ pub fn build_page_display_lists(
                         height,
                     ),
                     (None, None) => {
-                        let scale = scale_hint.unwrap_or(1.0);
-                        let x_scale = x_scale_hint.unwrap_or(scale).abs();
-                        let y_scale = y_scale_hint.unwrap_or(scale).abs();
+                        let scale = scale.unwrap_or(ImageScale { x: 1.0, y: 1.0 });
+                        let x_scale = scale.x.abs();
+                        let y_scale = scale.y.abs();
                         (
                             default_image_width * x_scale,
                             default_image_height * y_scale,
@@ -1626,6 +1635,12 @@ pub fn build_page_display_lists(
                         .hash_input
                         .push_str(&format!("image-rotation:{rotation:?}"));
                 }
+                if let Some(scale) = &scale {
+                    pending.hash_input.push('\u{1f}');
+                    pending
+                        .hash_input
+                        .push_str(&format!("image-scale:{scale:?}"));
+                }
                 pending.hash_input.push('\u{1f}');
                 pending.hash_input.push_str(&format!(
                     "image-rect:{:.3}:{:.3}:{image_width:.3}:{image_height:.3}",
@@ -1643,6 +1658,7 @@ pub fn build_page_display_lists(
                     asset_format: logical.asset_format,
                     asset_hash: logical.asset_hash.clone(),
                     crop,
+                    scale,
                     rotation,
                     diagnostic: None,
                     source: logical.source.clone(),
@@ -1793,10 +1809,10 @@ mod tests {
         AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint,
         DisplayMathBlock, DocumentIr, DrawOp, GraphicAssetDensity, GraphicAssetDensityUnit,
         GraphicAssetDimensions, GraphicAssetFormat, GraphicBlock, HeadingBlock, ImageCrop,
-        ImageRotation, ImageTrim, ImageViewport, InlineNode, IrBlock, LabelDefinitionIr,
-        LinkInline, ListBlock, ListItemIr, ListKind, ParagraphBlock, ProvenanceSpan,
-        ReferenceInline, SourceProvenance, SourceSpan, TableBlock, TableCell, TableColumnAlignment,
-        TableColumnSpec, TableRow, TableRuleSpan, TextCluster, TitleBlock,
+        ImageRotation, ImageScale, ImageTrim, ImageViewport, InlineNode, IrBlock,
+        LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind, ParagraphBlock,
+        ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan, TableBlock, TableCell,
+        TableColumnAlignment, TableColumnSpec, TableRow, TableRuleSpan, TextCluster, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists};
@@ -3225,6 +3241,7 @@ mod tests {
 
         assert!((image.rect.width - 60.0).abs() < 0.01);
         assert!((image.rect.height - 120.0).abs() < 0.01);
+        assert_eq!(image.scale, Some(ImageScale { x: 0.5, y: 2.0 }));
         assert_ne!(
             display_lists[0].content_hash,
             different_y_scale[0].content_hash

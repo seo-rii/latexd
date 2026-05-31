@@ -10,8 +10,9 @@ pub use aux_view::{
 };
 pub use display_list::{
     Destination, DrawOp, FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape,
-    ImageCrop, ImageRotation, ImageTrim, ImageViewport, LinkAnnotation, PageDisplayList, PageId,
-    Point, PositionedGlyph, PositionedImage, PositionedTextRun, Rect, TextCluster,
+    ImageCrop, ImageRotation, ImageScale, ImageTrim, ImageViewport, LinkAnnotation,
+    PageDisplayList, PageId, Point, PositionedGlyph, PositionedImage, PositionedTextRun, Rect,
+    TextCluster,
 };
 pub use events::{
     BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, EndBlockEvent, EventId,

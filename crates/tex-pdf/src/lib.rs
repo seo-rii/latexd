@@ -878,6 +878,15 @@ pub fn render_display_list_svg_with_assets(
                         )
                     })
                     .unwrap_or_default();
+                let scale_attrs = image
+                    .scale
+                    .map(|scale| {
+                        format!(
+                            " data-image-scale-x=\"{}\" data-image-scale-y=\"{}\"",
+                            scale.x, scale.y
+                        )
+                    })
+                    .unwrap_or_default();
                 let transform_attr = image
                     .rotation
                     .as_ref()
@@ -921,12 +930,13 @@ pub fn render_display_list_svg_with_assets(
                 };
                 if let Some(href) = embedded_svg_href {
                     body.push_str(&format!(
-                        "<g data-image-asset-ref=\"{}\"{}{}{}{} data-image-embedded=\"true\"{}{}><image x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" href=\"{}\" preserveAspectRatio=\"none\"/></g>",
+                        "<g data-image-asset-ref=\"{}\"{}{}{}{}{} data-image-embedded=\"true\"{}{}><image x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" href=\"{}\" preserveAspectRatio=\"none\"/></g>",
                         escape_xml_text(&image.asset_ref),
                         asset_format_attr,
                         asset_hash_attr,
                         crop_attrs,
                         rotation_attrs,
+                        scale_attrs,
                         transform_attr,
                         source_attrs_for(&image.source),
                         image.rect.x,
@@ -956,12 +966,13 @@ pub fn render_display_list_svg_with_assets(
                 };
                 let placeholder_text = image_placeholder_text(image, placeholder_status);
                 body.push_str(&format!(
-                    "<g data-image-asset-ref=\"{}\"{}{}{}{}{}{}{}><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
+                    "<g data-image-asset-ref=\"{}\"{}{}{}{}{}{}{}{}><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
                     escape_xml_text(&image.asset_ref),
                     asset_format_attr,
                     asset_hash_attr,
                     crop_attrs,
                     rotation_attrs,
+                    scale_attrs,
                     placeholder_attrs,
                     transform_attr,
                     source_attrs_for(&image.source),
@@ -1106,9 +1117,9 @@ mod tests {
     use tex_layout::{LayoutOptions, layout_text};
     use tex_render_model::{
         Destination, DrawOp, ExpansionFrame, FontFamilyRequest, FontRequest, FontRole, FontSeries,
-        FontShape, GraphicAssetFormat, ImageCrop, ImageRotation, ImageTrim, ImageViewport,
-        LinkAnnotation, PageDisplayList, Point, PositionedImage, PositionedTextRun, ProvenanceSpan,
-        Rect, SourceProvenance, SourceSpan, SourceSpanRole, TextCluster,
+        FontShape, GraphicAssetFormat, ImageCrop, ImageRotation, ImageScale, ImageTrim,
+        ImageViewport, LinkAnnotation, PageDisplayList, Point, PositionedImage, PositionedTextRun,
+        ProvenanceSpan, Rect, SourceProvenance, SourceSpan, SourceSpanRole, TextCluster,
     };
 
     use super::{
@@ -1625,6 +1636,7 @@ mod tests {
                     }),
                     clip: true,
                 }),
+                scale: Some(ImageScale { x: -1.0, y: 2.0 }),
                 rotation: Some(ImageRotation {
                     angle_degrees: 90.0,
                     origin: Some("c".to_string()),
@@ -1653,6 +1665,8 @@ mod tests {
         assert!(svg.contains("data-image-crop-viewport=\"0,0,144,72\""));
         assert!(svg.contains("data-image-rotation-angle=\"90\""));
         assert!(svg.contains("data-image-rotation-origin=\"c\""));
+        assert!(svg.contains("data-image-scale-x=\"-1\""));
+        assert!(svg.contains("data-image-scale-y=\"2\""));
         assert!(svg.contains("transform=\"rotate(-90 144 114)\""));
         assert!(
             svg.contains("<rect x=\"72\" y=\"78\" width=\"144\" height=\"72\" fill=\"#e5e7eb\"")
@@ -1684,6 +1698,7 @@ mod tests {
                 asset_format: Some(GraphicAssetFormat::Svg),
                 asset_hash: Some("blake3:vector".to_string()),
                 crop: None,
+                scale: None,
                 rotation: None,
                 diagnostic: None,
                 source: SourceProvenance::file("main.tex", 0, 10),
@@ -1724,6 +1739,7 @@ mod tests {
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: Some("blake3:tiny".to_string()),
                 crop: None,
+                scale: None,
                 rotation: None,
                 diagnostic: None,
                 source,
@@ -1764,6 +1780,7 @@ mod tests {
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: Some("blake3:tiny".to_string()),
                 crop: None,
+                scale: None,
                 rotation: Some(ImageRotation {
                     angle_degrees: 90.0,
                     origin: Some("c".to_string()),
@@ -1811,6 +1828,7 @@ mod tests {
                     viewport: None,
                     clip: true,
                 }),
+                scale: None,
                 rotation: None,
                 diagnostic: None,
                 source,
@@ -1846,6 +1864,7 @@ mod tests {
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: Some("blake3:bad".to_string()),
                 crop: None,
+                scale: None,
                 rotation: None,
                 diagnostic: None,
                 source,
@@ -1880,6 +1899,7 @@ mod tests {
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: None,
                 crop: None,
+                scale: None,
                 rotation: None,
                 diagnostic: Some("missing graphic asset figures/missing.png".to_string()),
                 source,

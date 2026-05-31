@@ -110,7 +110,9 @@ Common graphic layout wrappers also feed the same option path: `resizebox`
 contributes inherited width/height hints, `scalebox` contributes horizontal
 scale plus optional vertical scale, `adjustbox` `xscale`/`yscale` affects
 display-list image-box sizing, and `reflectbox` preserves reflection intent as
-`xscale=-1` for later renderer work.
+`xscale=-1` for later renderer work. `PageDisplayList::Image` now carries
+optional `ImageScale` metadata, and SVG debug artifacts expose that metadata as
+`data-image-scale-x` / `data-image-scale-y`.
 
 ## Product Goal
 
@@ -643,6 +645,8 @@ Status:
   assets;
 - bitmap and simple SVG/PDF/EPS natural-size layout is available;
 - non-uniform graphic scale hints affect display-list image-box sizing;
+- optional `ImageScale` metadata reaches `PageDisplayList::Image` and SVG
+  debug artifacts;
 - table horizontal rules now produce renderer-visible display-list rule ops;
 - simple and repeated table column alignment specs survive into display-list
   text;
