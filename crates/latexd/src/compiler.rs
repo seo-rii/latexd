@@ -29,7 +29,7 @@ use tex_checkpoint::{
 use tex_pdf::{
     PAGE_FONT_SIZE_PT, PAGE_LINE_HEIGHT_PT, PAGE_TEXT_LEFT_PT, PAGE_TEXT_TOP_PT,
     render_display_list_pdf, render_display_list_pdf_with_assets, render_display_list_svg,
-    render_page_svg, render_single_page_pdf,
+    render_display_list_svg_with_assets, render_page_svg, render_single_page_pdf,
 };
 use tex_render_model::{
     AuxView, DocumentIr, DrawOp, GraphicAssetFormat, PageDisplayList, ProvenanceSpan, RenderEvent,
@@ -83,6 +83,7 @@ pub struct InternalRenderIrCapture {
     pub page_display_lists: Vec<PageDisplayList>,
     pub display_list_pdf: Vec<u8>,
     pub source_files: BTreeMap<Utf8PathBuf, String>,
+    pub asset_root: Option<Utf8PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -153,7 +154,14 @@ impl InternalRenderIrCapture {
         )
         .with_context(|| format!("failed to write {}", paths.page_display_list))?;
         for (page, path) in self.page_display_lists.iter().zip(&paths.display_list_svgs) {
-            fs::write(path.as_std_path(), render_display_list_svg(page))
+            let svg = if let Some(root) = &self.asset_root {
+                render_display_list_svg_with_assets(page, |asset_ref| {
+                    read_display_list_asset(root, asset_ref)
+                })
+            } else {
+                render_display_list_svg(page)
+            };
+            fs::write(path.as_std_path(), svg)
                 .with_context(|| format!("failed to write {path}"))?;
         }
         fs::write(paths.display_list_pdf.as_std_path(), &self.display_list_pdf)
@@ -278,6 +286,7 @@ fn capture_internal_render_ir_with_options(
         page_display_lists,
         display_list_pdf,
         source_files,
+        asset_root: file_root.map(Utf8Path::to_path_buf),
     }
 }
 
@@ -310,9 +319,7 @@ fn annotate_display_list_image_diagnostics(
                 && image.asset_hash.is_some()
                 && matches!(
                     image.asset_format,
-                    Some(
-                        GraphicAssetFormat::Pdf | GraphicAssetFormat::Eps | GraphicAssetFormat::Svg
-                    )
+                    Some(GraphicAssetFormat::Pdf | GraphicAssetFormat::Eps)
                 )
             {
                 let format = image

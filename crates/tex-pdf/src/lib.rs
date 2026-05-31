@@ -618,6 +618,13 @@ fn push_image_placeholder(
 }
 
 pub fn render_display_list_svg(page: &PageDisplayList) -> String {
+    render_display_list_svg_with_assets(page, |_| None)
+}
+
+pub fn render_display_list_svg_with_assets(
+    page: &PageDisplayList,
+    mut resolve_asset: impl FnMut(&str) -> Option<Vec<u8>>,
+) -> String {
     let mut body = String::new();
     let mut clip_index = 0usize;
     let mut svg_group_stack = Vec::new();
@@ -884,6 +891,52 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                         )
                     })
                     .unwrap_or_default();
+                let embedded_svg_href = if image.asset_format == Some(GraphicAssetFormat::Svg) {
+                    resolve_asset(&image.asset_ref).and_then(|bytes| {
+                        let is_svg = std::str::from_utf8(&bytes)
+                            .ok()
+                            .is_some_and(|text| text.contains("<svg"));
+                        if !is_svg {
+                            return None;
+                        }
+                        let mut data_uri = String::from("data:image/svg+xml;charset=utf-8,");
+                        for byte in bytes {
+                            match byte {
+                                b'A'..=b'Z'
+                                | b'a'..=b'z'
+                                | b'0'..=b'9'
+                                | b'-'
+                                | b'_'
+                                | b'.'
+                                | b'~' => data_uri.push(byte as char),
+                                _ => {
+                                    data_uri.push_str(&format!("%{byte:02X}"));
+                                }
+                            }
+                        }
+                        Some(data_uri)
+                    })
+                } else {
+                    None
+                };
+                if let Some(href) = embedded_svg_href {
+                    body.push_str(&format!(
+                        "<g data-image-asset-ref=\"{}\"{}{}{}{} data-image-embedded=\"true\"{}{}><image x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" href=\"{}\" preserveAspectRatio=\"none\"/></g>",
+                        escape_xml_text(&image.asset_ref),
+                        asset_format_attr,
+                        asset_hash_attr,
+                        crop_attrs,
+                        rotation_attrs,
+                        transform_attr,
+                        source_attrs_for(&image.source),
+                        image.rect.x,
+                        image.rect.y,
+                        image.rect.width,
+                        image.rect.height,
+                        escape_xml_text(&href)
+                    ));
+                    continue;
+                }
                 let placeholder_status = ImagePlaceholderStatus::from_image(image);
                 let placeholder_attrs = if placeholder_status == ImagePlaceholderStatus::Generic {
                     String::new()
@@ -1060,7 +1113,7 @@ mod tests {
 
     use super::{
         render_display_list_pdf, render_display_list_pdf_with_assets, render_display_list_svg,
-        render_page_svg, render_pdf, render_single_page_pdf,
+        render_display_list_svg_with_assets, render_page_svg, render_pdf, render_single_page_pdf,
     };
 
     fn tiny_png_bytes() -> Vec<u8> {
@@ -1612,6 +1665,45 @@ mod tests {
         assert!(svg.contains("data-source-related-roles=\"argument\""));
         assert!(svg.contains("data-source-related-spans=\"argument:file:main.tex:30:48\""));
         assert!(svg.contains("[image: figures/a(b)&amp;c.pdf]"));
+    }
+
+    #[test]
+    fn renders_resolved_svg_assets_as_svg_image_elements() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/vector.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                asset_hash: Some("blake3:vector".to_string()),
+                crop: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            (asset_ref == "figures/vector.svg").then(|| {
+                br#"<svg width="20" height="10"><rect width="20" height="10"/></svg>"#.to_vec()
+            })
+        });
+
+        assert!(svg.contains("data-image-asset-ref=\"figures/vector.svg\""));
+        assert!(svg.contains("data-image-asset-format=\"svg\""));
+        assert!(svg.contains("data-image-embedded=\"true\""));
+        assert!(svg.contains("<image x=\"72\" y=\"78\" width=\"144\" height=\"72\""));
+        assert!(svg.contains("href=\"data:image/svg+xml;charset=utf-8,%3Csvg"));
+        assert!(!svg.contains("[image: figures/vector.svg]"));
+        assert!(!svg.contains("data-image-placeholder-kind="));
     }
 
     #[test]

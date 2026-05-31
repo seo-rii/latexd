@@ -94,11 +94,14 @@ while preserving the image placeholder, and those diagnostics now annotate
 `PageDisplayList::Image`, debug PDF placeholder text, and SVG debug
 `data-image-*` attributes. Existing-but-unsupported PDF/EPS/SVG assets also
 surface as unsupported-image placeholders until external conversion exists.
-External PDF/EPS/SVG conversion, driver-accurate crop/clip rendering for
-non-bitmap assets, TeX-exact rotated-box reflow, programmable table preamble
-hooks, exact vertical border trimming, exact table rule trimming, actual
-multirow geometry, nested table constructs, full TeX alignment policy, and
-production preview wiring are still deferred. Rotation intent is no longer dropped: `angle` /
+Resolver-backed SVG assets are now embedded as data-URI `<image>` elements in
+project-root display-list SVG debug artifacts, but production PDF/SVG vector
+embedding and external conversion are still deferred. External PDF/EPS
+conversion, driver-accurate crop/clip rendering for non-bitmap assets,
+TeX-exact rotated-box reflow, programmable table preamble hooks, exact vertical
+border trimming, exact table rule trimming, actual multirow geometry, nested
+table constructs, full TeX alignment policy, and production preview wiring are
+still deferred. Rotation intent is no longer dropped: `angle` /
 `origin` options and simple `\rotatebox` wrappers are preserved as
 renderer-neutral `ImageRotation` metadata. The display-list PDF path applies
 that metadata to embedded bitmap XObjects and unresolved-image placeholders,
@@ -406,6 +409,8 @@ Implemented first slice:
   XObjects;
 - project-root render-IR capture now resolves real source-root image files into
   the display-list PDF artifact path;
+- project-root display-list SVG debug artifacts can embed resolver-provided SVG
+  assets as data-URI `<image>` elements;
 - missing or undecodable assets still render as bounded placeholders instead of
   deleting figure space or captions.
 
@@ -415,7 +420,8 @@ Remaining figure work:
 - fuller wrapper sizing semantics for non-uniform scaling and nested boxes;
 - trim/viewport/clip rendering parity for non-bitmap and raster backends;
 - TeX-exact rotated-box dimensions, page reflow, and non-debug raster parity;
-- external PDF/EPS/SVG conversion or raster insertion;
+- external PDF/EPS conversion and production SVG/PDF vector embedding or raster
+  insertion;
 - raster tests that fail on missing major figure regions.
 
 Done when:
@@ -630,6 +636,8 @@ Status:
   PNG/JPEG bytes can be embedded by `tex-pdf`;
 - project-root render-IR debug capture can feed real image files into the
   display-list PDF artifact;
+- project-root display-list SVG debug artifacts can embed resolver-backed SVG
+  assets;
 - bitmap and simple SVG/PDF/EPS natural-size layout is available;
 - table horizontal rules now produce renderer-visible display-list rule ops;
 - simple and repeated table column alignment specs survive into display-list
@@ -643,8 +651,8 @@ Status:
 - common `colortbl` table color commands are normalized without leaking command
   names or color arguments into table text;
 - simple multirow row counts survive into `TableCell.row_span` metadata;
-- external PDF/EPS/SVG conversion and production preview wiring are still
-  pending.
+- external PDF/EPS conversion, production SVG/PDF vector embedding, and
+  production preview wiring are still pending.
 
 Exit criteria:
 
