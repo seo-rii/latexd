@@ -32,6 +32,24 @@ fn tiny_png_bytes() -> Vec<u8> {
     bytes
 }
 
+fn tiny_jpeg_bytes() -> Vec<u8> {
+    use image::ImageEncoder;
+
+    let mut bytes = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new(&mut bytes)
+        .write_image(
+            &[
+                255, 0, 0, 0, 255, 0, //
+                0, 0, 255, 255, 255, 0,
+            ],
+            2,
+            2,
+            image::ExtendedColorType::Rgb8,
+        )
+        .expect("encode jpeg");
+    bytes
+}
+
 #[test]
 fn compact_render_ir_capture_matches_goldens() {
     let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
@@ -2447,6 +2465,52 @@ fn project_root_render_ir_capture_uses_jpeg_density_for_natural_dimensions() {
     );
     assert!((image.rect.width - 60.0).abs() < 0.01);
     assert!((image.rect.height - 30.0).abs() < 0.01);
+}
+
+#[test]
+fn project_root_render_ir_capture_embeds_jpeg_assets_in_debug_artifacts() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
+    fs::create_dir_all(root.join("figures").as_std_path()).expect("create figures dir");
+    fs::write(
+        root.join("main.tex").as_std_path(),
+        r"\begin{document}\includegraphics{figures/photo.jpg}\end{document}",
+    )
+    .expect("write source");
+    fs::write(
+        root.join("figures/photo.jpg").as_std_path(),
+        tiny_jpeg_bytes(),
+    )
+    .expect("write image");
+
+    let capture =
+        capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
+            .expect("capture project render ir");
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/photo.jpg" => Some(image),
+            _ => None,
+        })
+        .expect("image op");
+
+    assert_eq!(image.asset_format, Some(GraphicAssetFormat::Jpeg));
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+    assert!(pdf_text.contains("/Subtype /Image"));
+    assert!(!pdf_text.contains("[image: figures/photo.jpg]"));
+
+    let output_dir = root.join("render-artifacts");
+    let paths = capture
+        .write_debug_artifacts(&output_dir)
+        .expect("write debug artifacts");
+    let display_list_svg =
+        fs::read_to_string(&paths.display_list_svgs[0]).expect("read display-list svg");
+    assert!(display_list_svg.contains("data-image-asset-ref=\"figures/photo.jpg\""));
+    assert!(display_list_svg.contains("data-image-asset-format=\"jpeg\""));
+    assert!(display_list_svg.contains("data-image-embedded=\"true\""));
+    assert!(display_list_svg.contains("href=\"data:image/jpeg,%FF%D8"));
+    assert!(!display_list_svg.contains("[image: figures/photo.jpg]"));
 }
 
 #[test]

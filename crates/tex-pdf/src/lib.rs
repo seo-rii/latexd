@@ -1238,6 +1238,24 @@ mod tests {
         bytes
     }
 
+    fn tiny_jpeg_bytes() -> Vec<u8> {
+        use image::ImageEncoder;
+
+        let mut bytes = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut bytes)
+            .write_image(
+                &[
+                    255, 0, 0, 0, 255, 0, //
+                    0, 0, 255, 255, 255, 0,
+                ],
+                2,
+                2,
+                image::ExtendedColorType::Rgb8,
+            )
+            .expect("encode jpeg");
+        bytes
+    }
+
     #[test]
     fn emits_valid_pdf_header_and_trailer() {
         let layout = layout_text("hello pdf", LayoutOptions::default());
@@ -1937,6 +1955,49 @@ mod tests {
         assert!(pdf_text.contains("/ColorSpace /DeviceRGB"));
         assert!(pdf_text.contains("/BitsPerComponent 8"));
         assert!(!pdf_text.contains("[image: figures/tiny.png]"));
+    }
+
+    #[test]
+    fn renders_resolved_jpeg_assets_as_pdf_and_svg_images() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/photo.jpg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Jpeg),
+                asset_hash: Some("blake3:photo".to_string()),
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page.clone()], |asset_ref| {
+            (asset_ref == "figures/photo.jpg").then(tiny_jpeg_bytes)
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            (asset_ref == "figures/photo.jpg").then(tiny_jpeg_bytes)
+        });
+
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(pdf_text.contains("/Width 2"));
+        assert!(pdf_text.contains("/Height 2"));
+        assert!(!pdf_text.contains("[image: figures/photo.jpg]"));
+        assert!(svg.contains("data-image-asset-format=\"jpeg\""));
+        assert!(svg.contains("data-image-embedded=\"true\""));
+        assert!(svg.contains("href=\"data:image/jpeg,%FF%D8"));
+        assert!(!svg.contains("[image: figures/photo.jpg]"));
     }
 
     #[test]

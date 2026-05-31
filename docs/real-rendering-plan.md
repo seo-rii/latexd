@@ -434,6 +434,8 @@ Implemented first slice:
 - project-root display-list SVG debug artifacts can embed resolver-provided SVG
   and PNG/JPEG bitmap assets as data-URI `<image>` elements, with clip-enabled
   bitmap crop metadata reflected in the debug SVG;
+- default regression coverage exercises both PNG and JPEG bitmap embedding in
+  display-list PDF and debug SVG artifacts;
 - missing or undecodable assets still render as bounded placeholders instead of
   deleting figure space or captions.
 
