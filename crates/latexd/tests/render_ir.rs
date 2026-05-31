@@ -2282,6 +2282,13 @@ fn project_root_render_ir_capture_embeds_png_assets_in_debug_pdf() {
     let artifact_pdf_text = String::from_utf8_lossy(&artifact_pdf);
     assert!(artifact_pdf_text.contains("/Subtype /Image"));
     assert!(!artifact_pdf_text.contains("[image: figures/plot.png]"));
+    let display_list_svg =
+        fs::read_to_string(&paths.display_list_svgs[0]).expect("read display-list svg");
+    assert!(display_list_svg.contains("data-image-asset-ref=\"figures/plot.png\""));
+    assert!(display_list_svg.contains("data-image-asset-format=\"png\""));
+    assert!(display_list_svg.contains("data-image-embedded=\"true\""));
+    assert!(display_list_svg.contains("href=\"data:image/png,%89PNG"));
+    assert!(!display_list_svg.contains("[image: figures/plot.png]"));
 }
 
 #[test]

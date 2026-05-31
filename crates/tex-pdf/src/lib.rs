@@ -913,17 +913,23 @@ pub fn render_display_list_svg_with_assets(
                     })
                     .unwrap_or_default();
                 let placeholder_status = ImagePlaceholderStatus::from_image(image);
-                let embedded_svg_href = if placeholder_status == ImagePlaceholderStatus::Generic
-                    && image.asset_format == Some(GraphicAssetFormat::Svg)
-                {
+                let embedded_image_href = if placeholder_status == ImagePlaceholderStatus::Generic {
                     resolve_asset(&image.asset_ref).and_then(|bytes| {
-                        let is_svg = std::str::from_utf8(&bytes)
-                            .ok()
-                            .is_some_and(|text| text.contains("<svg"));
-                        if !is_svg {
-                            return None;
-                        }
-                        let mut data_uri = String::from("data:image/svg+xml;charset=utf-8,");
+                        let media_type = match image.asset_format {
+                            Some(GraphicAssetFormat::Svg) => {
+                                let is_svg = std::str::from_utf8(&bytes)
+                                    .ok()
+                                    .is_some_and(|text| text.contains("<svg"));
+                                if !is_svg {
+                                    return None;
+                                }
+                                "image/svg+xml;charset=utf-8"
+                            }
+                            Some(GraphicAssetFormat::Png) => "image/png",
+                            Some(GraphicAssetFormat::Jpeg) => "image/jpeg",
+                            _ => return None,
+                        };
+                        let mut data_uri = format!("data:{media_type},");
                         for byte in bytes {
                             match byte {
                                 b'A'..=b'Z'
@@ -943,7 +949,7 @@ pub fn render_display_list_svg_with_assets(
                 } else {
                     None
                 };
-                if let Some(href) = embedded_svg_href {
+                if let Some(href) = embedded_image_href {
                     body.push_str(&format!(
                         "<g data-image-asset-ref=\"{}\"{}{}{}{}{} data-image-embedded=\"true\"{}{}><image x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" href=\"{}\" preserveAspectRatio=\"none\"/></g>",
                         escape_xml_text(&image.asset_ref),
@@ -1732,6 +1738,44 @@ mod tests {
         assert!(svg.contains("<image x=\"72\" y=\"78\" width=\"144\" height=\"72\""));
         assert!(svg.contains("href=\"data:image/svg+xml;charset=utf-8,%3Csvg"));
         assert!(!svg.contains("[image: figures/vector.svg]"));
+        assert!(!svg.contains("data-image-placeholder-kind="));
+    }
+
+    #[test]
+    fn renders_resolved_bitmap_assets_as_svg_image_elements() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/tiny.png".to_string(),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: Some("blake3:tiny".to_string()),
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            (asset_ref == "figures/tiny.png").then(tiny_png_bytes)
+        });
+
+        assert!(svg.contains("data-image-asset-ref=\"figures/tiny.png\""));
+        assert!(svg.contains("data-image-asset-format=\"png\""));
+        assert!(svg.contains("data-image-embedded=\"true\""));
+        assert!(svg.contains("<image x=\"72\" y=\"78\" width=\"144\" height=\"72\""));
+        assert!(svg.contains("href=\"data:image/png,%89PNG"));
+        assert!(!svg.contains("[image: figures/tiny.png]"));
         assert!(!svg.contains("data-image-placeholder-kind="));
     }
 

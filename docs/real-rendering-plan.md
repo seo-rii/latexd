@@ -110,10 +110,10 @@ the image placeholder, and those diagnostics now
 annotate `PageDisplayList::Image`, debug PDF placeholder text, and SVG debug
 `data-image-*` attributes. Existing-but-unsupported PDF/EPS/SVG assets also
 surface as unsupported-image placeholders until external conversion exists.
-Resolver-backed SVG assets are now embedded as data-URI `<image>` elements in
-project-root display-list SVG debug artifacts, but production PDF/SVG vector
-embedding and external conversion are still deferred. External PDF/EPS
-conversion, driver-accurate crop/clip rendering for non-bitmap assets,
+Resolver-backed SVG and PNG/JPEG bitmap assets are now embedded as data-URI
+`<image>` elements in project-root display-list SVG debug artifacts, but
+production PDF/SVG vector embedding and external conversion are still deferred.
+External PDF/EPS conversion, driver-accurate crop/clip rendering for non-bitmap assets,
 TeX-exact rotated-box reflow, programmable table preamble hooks, exact vertical
 border trimming, exact table rule trimming, actual multirow geometry, nested
 table constructs, full TeX alignment policy, and production preview wiring are
@@ -432,7 +432,7 @@ Implemented first slice:
 - project-root render-IR capture now resolves real source-root image files into
   the display-list PDF artifact path;
 - project-root display-list SVG debug artifacts can embed resolver-provided SVG
-  assets as data-URI `<image>` elements;
+  and PNG/JPEG bitmap assets as data-URI `<image>` elements;
 - missing or undecodable assets still render as bounded placeholders instead of
   deleting figure space or captions.
 
@@ -675,7 +675,7 @@ Status:
 - project-root render-IR debug capture can feed real image files into the
   display-list PDF artifact;
 - project-root display-list SVG debug artifacts can embed resolver-backed SVG
-  assets;
+  and PNG/JPEG bitmap assets;
 - `\includegraphics` option control sequences such as `\textwidth` /
   `\linewidth` survive event capture into display-list sizing;
 - `\paperwidth`, `\pagewidth`, `\hsize`, and `\vsize` are accepted as graphic
