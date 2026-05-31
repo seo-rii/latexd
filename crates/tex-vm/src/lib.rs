@@ -156,6 +156,10 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\urlstyle}[1]{}
 \providecommand{\textcolor}[2]{#2}
 \providecommand{\color}[1]{}
+\providecommand{\cellcolor}[2][]{}
+\providecommand{\rowcolor}[2][]{}
+\providecommand{\columncolor}[2][]{}
+\providecommand{\arrayrulecolor}[1]{}
 \providecommand{\affil}[2][]{#2}
 \providecommand{\thanks}[1]{#1}
 \providecommand{\todo}[1]{}
@@ -223,6 +227,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "caption.sty",
     "cite.sty",
     "cleveref.sty",
+    "colortbl.sty",
     "comment.sty",
     "color.sty",
     "csquotes.sty",
@@ -3284,6 +3289,45 @@ impl<'i> Vm<'i> {
                                                                 else {
                                                                     break;
                                                                 };
+                                                                table_index = after;
+                                                            }
+                                                        }
+                                                        "cellcolor" | "rowcolor"
+                                                        | "columncolor" => {
+                                                            table_index = command_end;
+                                                            if let Some((_, _, _, after)) =
+                                                                read_bracket_source_argument(
+                                                                    table_body,
+                                                                    table_index,
+                                                                )
+                                                            {
+                                                                table_index = after;
+                                                            }
+                                                            table_index = skip_ascii_whitespace(
+                                                                table_body,
+                                                                table_index,
+                                                            );
+                                                            if let Some((_, _, _, after)) =
+                                                                read_braced_source_argument(
+                                                                    table_body,
+                                                                    table_index,
+                                                                )
+                                                            {
+                                                                table_index = after;
+                                                            }
+                                                        }
+                                                        "arrayrulecolor" => {
+                                                            table_index = command_end;
+                                                            table_index = skip_ascii_whitespace(
+                                                                table_body,
+                                                                table_index,
+                                                            );
+                                                            if let Some((_, _, _, after)) =
+                                                                read_braced_source_argument(
+                                                                    table_body,
+                                                                    table_index,
+                                                                )
+                                                            {
                                                                 table_index = after;
                                                             }
                                                         }
@@ -8852,6 +8896,29 @@ impl<'i> Vm<'i> {
                                 else {
                                     break;
                                 };
+                                table_index = after;
+                            }
+                        }
+                        "cellcolor" | "rowcolor" | "columncolor" => {
+                            table_index = command_end;
+                            if let Some((_, _, _, after)) =
+                                read_bracket_source_argument(table_body, table_index)
+                            {
+                                table_index = after;
+                            }
+                            table_index = skip_ascii_whitespace(table_body, table_index);
+                            if let Some((_, _, _, after)) =
+                                read_braced_source_argument(table_body, table_index)
+                            {
+                                table_index = after;
+                            }
+                        }
+                        "arrayrulecolor" => {
+                            table_index = command_end;
+                            table_index = skip_ascii_whitespace(table_body, table_index);
+                            if let Some((_, _, _, after)) =
+                                read_braced_source_argument(table_body, table_index)
+                            {
                                 table_index = after;
                             }
                         }
@@ -22795,6 +22862,50 @@ Fallback text.
             "{:?}",
             visible.table_rules
         );
+    }
+
+    #[test]
+    fn render_event_capture_omits_table_color_commands() {
+        let source = r"\documentclass{article}\usepackage{colortbl}\begin{document}\begin{tabular}{|l|r|}\rowcolor{gray!20} A & \cellcolor[gray]{0.9}1 \\ \arrayrulecolor{red}\hline B & 22\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package colortbl.sty"
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("colortbl.sty"))
+        );
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        let visible_text = visible
+            .normalized_visible_text
+            .as_deref()
+            .expect("visible table text");
+
+        assert_eq!(visible_text, "A | 1 ; B | 22");
+        assert!(!visible_text.contains("rowcolor"));
+        assert!(!visible_text.contains("cellcolor"));
+        assert!(!visible_text.contains("arrayrulecolor"));
+        assert!(!visible_text.contains("gray"));
+        assert!(!visible_text.contains("red"));
+        assert!(visible.table_rules.len() >= 1, "{:?}", visible.table_rules);
     }
 
     #[test]

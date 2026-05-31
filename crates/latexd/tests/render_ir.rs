@@ -11964,6 +11964,57 @@ fn booktabs_spacing_commands_do_not_leak_into_table_text() {
 }
 
 #[test]
+fn table_color_commands_do_not_leak_into_table_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{colortbl}\begin{document}\begin{tabular}{|l|r|}\rowcolor{gray!20} A & \cellcolor[gray]{0.9}1 \\ \arrayrulecolor{red}\hline B & 22\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows.len(), 2);
+    assert_eq!(table.rows[0].cells[0].text, "A");
+    assert_eq!(table.rows[0].cells[1].text, "1");
+    assert_eq!(table.rows[1].cells[0].text, "B");
+    assert!(table.rows[0].rule_below);
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("A | 1"));
+    assert!(extracted_text.contains("B | 22"));
+    assert!(!extracted_text.contains("rowcolor"));
+    assert!(!extracted_text.contains("cellcolor"));
+    assert!(!extracted_text.contains("arrayrulecolor"));
+    assert!(!extracted_text.contains("gray"));
+    assert!(!extracted_text.contains("red"));
+    assert!(
+        !capture.events.events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Diagnostic(diagnostic) if diagnostic.message.contains("colortbl.sty")
+        )),
+        "colortbl shim should be recognized without a missing-package diagnostic"
+    );
+
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(table_lines.contains(&"A |  1"), "{table_lines:?}");
+    assert!(table_lines.contains(&"B | 22"), "{table_lines:?}");
+}
+
+#[test]
 fn tabular_multicolumn_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
