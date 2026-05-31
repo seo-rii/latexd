@@ -746,6 +746,7 @@ struct RenderEventScanState {
     graphic_paths: Vec<Utf8PathBuf>,
     graphic_extensions: Vec<String>,
     graphic_global_options: Option<String>,
+    graphic_pending_package_options: HashMap<String, String>,
     graphic_default_options: Option<String>,
     section_macros: HashMap<String, RenderSectionMacro>,
     citation_macros: HashMap<String, RenderCitationMacro>,
@@ -3968,16 +3969,23 @@ impl<'i> Vm<'i> {
                             .map(str::trim)
                             .filter(|package| !package.is_empty())
                         {
-                            if matches!(package_name, "graphicx" | "graphics" | "epsfig")
-                                && let Some(options) = merge_graphic_options(
+                            if matches!(package_name, "graphicx" | "graphics" | "epsfig") {
+                                let explicit_options = merge_graphic_options(
                                     scan_state.graphic_global_options.clone(),
                                     package_options.as_deref(),
-                                )
-                            {
-                                scan_state.graphic_default_options = merge_graphic_options(
-                                    scan_state.graphic_default_options.clone(),
-                                    Some(&options),
                                 );
+                                let pending_options = scan_state
+                                    .graphic_pending_package_options
+                                    .get(package_name)
+                                    .map(String::as_str);
+                                if let Some(options) =
+                                    merge_graphic_options(explicit_options, pending_options)
+                                {
+                                    scan_state.graphic_default_options = merge_graphic_options(
+                                        scan_state.graphic_default_options.clone(),
+                                        Some(&options),
+                                    );
+                                }
                             }
                             let mut package_path =
                                 normalize_relative_path(Utf8Path::new(package_name))
@@ -4037,6 +4045,38 @@ impl<'i> Vm<'i> {
                             }
                         }
                         index = after_packages;
+                    }
+                }
+                "PassOptionsToPackage" => {
+                    let options_index = skip_ascii_whitespace(source, index);
+                    if let Some((options, _, _, after_options)) =
+                        read_braced_source_argument(source, options_index)
+                    {
+                        let targets_index = skip_ascii_whitespace(source, after_options);
+                        if let Some((targets, _, _, after_targets)) =
+                            read_braced_source_argument(source, targets_index)
+                        {
+                            let options = options.trim();
+                            if !options.is_empty() {
+                                for target in targets.split(',').map(str::trim).filter(|target| {
+                                    matches!(*target, "graphicx" | "graphics" | "epsfig")
+                                }) {
+                                    let merged_options = merge_graphic_options(
+                                        scan_state
+                                            .graphic_pending_package_options
+                                            .get(target)
+                                            .cloned(),
+                                        Some(options),
+                                    );
+                                    if let Some(merged_options) = merged_options {
+                                        scan_state
+                                            .graphic_pending_package_options
+                                            .insert(target.to_string(), merged_options);
+                                    }
+                                }
+                            }
+                            index = after_targets;
+                        }
                     }
                 }
                 "documentclass" | "LoadClass" | "LoadClassWithOptions" => {
@@ -24369,6 +24409,40 @@ Fallback text.
             RenderEvent::GraphicRef(graphic)
                 if graphic.path == "figures/plot.pdf"
                     && graphic.options.as_deref() == Some("draft,final,width=5cm")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_threads_pass_options_to_graphic_package() {
+        let source = r"\documentclass{article}\PassOptionsToPackage{draft}{graphicx}\usepackage{graphicx}\begin{document}\includegraphics[width=5cm]{figures/plot.pdf}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.options.as_deref() == Some("draft,width=5cm")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_prefers_passed_graphic_options_over_explicit_package_options() {
+        let source = r"\documentclass{article}\PassOptionsToPackage{draft}{graphicx}\usepackage[final]{graphicx}\begin{document}\includegraphics[width=5cm]{figures/plot.pdf}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.options.as_deref() == Some("final,draft,width=5cm")
         )));
     }
 
