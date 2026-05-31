@@ -745,6 +745,7 @@ struct RenderEventScanState {
     include_only: Option<HashSet<Utf8PathBuf>>,
     graphic_paths: Vec<Utf8PathBuf>,
     graphic_extensions: Vec<String>,
+    graphic_default_options: Option<String>,
     section_macros: HashMap<String, RenderSectionMacro>,
     citation_macros: HashMap<String, RenderCitationMacro>,
     reference_macros: HashMap<String, RenderReferenceMacro>,
@@ -2798,6 +2799,9 @@ impl<'i> Vm<'i> {
                                                         body_end,
                                                         &scan_state.graphic_paths,
                                                         &scan_state.graphic_extensions,
+                                                        scan_state
+                                                            .graphic_default_options
+                                                            .as_deref(),
                                                         None,
                                                     )
                                                 {
@@ -2815,6 +2819,9 @@ impl<'i> Vm<'i> {
                                                         body_end,
                                                         &scan_state.graphic_paths,
                                                         &scan_state.graphic_extensions,
+                                                        scan_state
+                                                            .graphic_default_options
+                                                            .as_deref(),
                                                         None,
                                                     )
                                                 {
@@ -2832,6 +2839,9 @@ impl<'i> Vm<'i> {
                                                         body_end,
                                                         &scan_state.graphic_paths,
                                                         &scan_state.graphic_extensions,
+                                                        scan_state
+                                                            .graphic_default_options
+                                                            .as_deref(),
                                                         None,
                                                     )
                                                 {
@@ -2851,6 +2861,9 @@ impl<'i> Vm<'i> {
                                                         body_end,
                                                         &scan_state.graphic_paths,
                                                         &scan_state.graphic_extensions,
+                                                        scan_state
+                                                            .graphic_default_options
+                                                            .as_deref(),
                                                         None,
                                                     )
                                                 {
@@ -2972,6 +2985,9 @@ impl<'i> Vm<'i> {
                                                         subfloat_body_end,
                                                         &scan_state.graphic_paths,
                                                         &scan_state.graphic_extensions,
+                                                        scan_state
+                                                            .graphic_default_options
+                                                            .as_deref(),
                                                         None,
                                                     );
                                                     if let Some((
@@ -3046,6 +3062,9 @@ impl<'i> Vm<'i> {
                                                             subcaption_body_end,
                                                             &scan_state.graphic_paths,
                                                             &scan_state.graphic_extensions,
+                                                            scan_state
+                                                                .graphic_default_options
+                                                                .as_deref(),
                                                             None,
                                                         );
                                                         self.emit_render_event(
@@ -3929,10 +3948,15 @@ impl<'i> Vm<'i> {
                 }
                 "usepackage" | "RequirePackage" | "RequirePackageWithOptions" => {
                     let mut package_index = skip_ascii_whitespace(source, index);
+                    let mut package_options = None;
                     if command != "RequirePackageWithOptions"
-                        && let Some((_, _, _, after_options)) =
+                        && let Some((options, _, _, after_options)) =
                             read_bracket_source_argument(source, package_index)
                     {
+                        let options = options.trim();
+                        if !options.is_empty() {
+                            package_options = Some(options.to_string());
+                        }
                         package_index = skip_ascii_whitespace(source, after_options);
                     }
                     if let Some((package_text, _, _, after_packages)) =
@@ -3943,6 +3967,14 @@ impl<'i> Vm<'i> {
                             .map(str::trim)
                             .filter(|package| !package.is_empty())
                         {
+                            if matches!(package_name, "graphicx" | "graphics" | "epsfig")
+                                && let Some(options) = package_options.as_deref()
+                            {
+                                scan_state.graphic_default_options = merge_graphic_options(
+                                    scan_state.graphic_default_options.clone(),
+                                    Some(options),
+                                );
+                            }
                             let mut package_path =
                                 normalize_relative_path(Utf8Path::new(package_name))
                                     .ok()
@@ -7327,6 +7359,7 @@ impl<'i> Vm<'i> {
                         source.len(),
                         &scan_state.graphic_paths,
                         &scan_state.graphic_extensions,
+                        scan_state.graphic_default_options.as_deref(),
                         None,
                     ) {
                         index = after;
@@ -7341,6 +7374,7 @@ impl<'i> Vm<'i> {
                         source.len(),
                         &scan_state.graphic_paths,
                         &scan_state.graphic_extensions,
+                        scan_state.graphic_default_options.as_deref(),
                         None,
                     ) {
                         index = after;
@@ -7355,6 +7389,7 @@ impl<'i> Vm<'i> {
                         source.len(),
                         &scan_state.graphic_paths,
                         &scan_state.graphic_extensions,
+                        scan_state.graphic_default_options.as_deref(),
                         None,
                     ) {
                         index = after;
@@ -7372,6 +7407,7 @@ impl<'i> Vm<'i> {
                         source.len(),
                         &scan_state.graphic_paths,
                         &scan_state.graphic_extensions,
+                        scan_state.graphic_default_options.as_deref(),
                         None,
                     ) {
                         index = after;
@@ -8185,6 +8221,7 @@ impl<'i> Vm<'i> {
         range_end: usize,
         graphic_paths: &[Utf8PathBuf],
         graphic_extensions: &[String],
+        default_options: Option<&str>,
         inherited_options: Option<&str>,
     ) {
         let mut range_index = range_start;
@@ -8222,6 +8259,7 @@ impl<'i> Vm<'i> {
                     range_end,
                     graphic_paths,
                     graphic_extensions,
+                    default_options,
                     inherited_options,
                 ),
                 "epsfig" | "psfig" => self.capture_legacy_graphic_event(
@@ -8232,6 +8270,7 @@ impl<'i> Vm<'i> {
                     range_end,
                     graphic_paths,
                     graphic_extensions,
+                    default_options,
                     inherited_options,
                 ),
                 "epsfbox" | "epsffile" => self.capture_legacy_graphic_file_event(
@@ -8242,6 +8281,7 @@ impl<'i> Vm<'i> {
                     range_end,
                     graphic_paths,
                     graphic_extensions,
+                    default_options,
                     inherited_options,
                 ),
                 "resizebox" | "scalebox" | "rotatebox" | "reflectbox" | "adjustbox"
@@ -8254,6 +8294,7 @@ impl<'i> Vm<'i> {
                         range_end,
                         graphic_paths,
                         graphic_extensions,
+                        default_options,
                         inherited_options,
                     ),
                 _ => None,
@@ -8271,6 +8312,7 @@ impl<'i> Vm<'i> {
         limit: usize,
         graphic_paths: &[Utf8PathBuf],
         graphic_extensions: &[String],
+        default_options: Option<&str>,
         outer_options: Option<&str>,
     ) -> Option<usize> {
         let mut argument_index = skip_ascii_whitespace(source, argument_index);
@@ -8290,6 +8332,7 @@ impl<'i> Vm<'i> {
                     body_end,
                     graphic_paths,
                     graphic_extensions,
+                    default_options,
                     inherited_options,
                 );
                 let mut body_index = body_start;
@@ -9555,6 +9598,7 @@ impl<'i> Vm<'i> {
         limit: usize,
         graphic_paths: &[Utf8PathBuf],
         graphic_extensions: &[String],
+        default_options: Option<&str>,
         inherited_options: Option<&str>,
     ) -> Option<usize> {
         let mut argument_index = skip_ascii_whitespace(source, argument_index);
@@ -9600,7 +9644,10 @@ impl<'i> Vm<'i> {
                         end_utf8: path_end as u32,
                     }),
                 );
-        let options = merge_graphic_options(options, inherited_options);
+        let options = merge_graphic_default_options(
+            default_options,
+            merge_graphic_options(options, inherited_options),
+        );
         self.emit_render_event(
             RenderEvent::GraphicRef(GraphicRefEvent {
                 asset_format,
@@ -9744,6 +9791,7 @@ impl<'i> Vm<'i> {
         limit: usize,
         graphic_paths: &[Utf8PathBuf],
         graphic_extensions: &[String],
+        default_options: Option<&str>,
         inherited_options: Option<&str>,
     ) -> Option<usize> {
         let argument_index = skip_ascii_whitespace(source, argument_index);
@@ -9779,7 +9827,10 @@ impl<'i> Vm<'i> {
                 self.project_graphic_asset_dimensions(resolved_asset_path, asset_format);
             let event_source =
                 SourceProvenance::file(source_path.to_owned(), command_start as u32, after as u32);
-            let options = merge_graphic_options(Some(options), inherited_options);
+            let options = merge_graphic_default_options(
+                default_options,
+                merge_graphic_options(Some(options), inherited_options),
+            );
             self.emit_render_event(
                 RenderEvent::GraphicRef(GraphicRefEvent {
                     asset_format,
@@ -9808,6 +9859,7 @@ impl<'i> Vm<'i> {
         limit: usize,
         graphic_paths: &[Utf8PathBuf],
         graphic_extensions: &[String],
+        default_options: Option<&str>,
         inherited_options: Option<&str>,
     ) -> Option<usize> {
         let argument_index = skip_ascii_whitespace(source, argument_index);
@@ -9841,7 +9893,10 @@ impl<'i> Vm<'i> {
                         end_utf8: path_end as u32,
                     }),
                 );
-        let options = merge_graphic_options(None, inherited_options);
+        let options = merge_graphic_default_options(
+            default_options,
+            merge_graphic_options(None, inherited_options),
+        );
         self.emit_render_event(
             RenderEvent::GraphicRef(GraphicRefEvent {
                 asset_format,
@@ -17724,6 +17779,25 @@ fn merge_graphic_options(
     }
 }
 
+fn merge_graphic_default_options(
+    default_options: Option<&str>,
+    options: Option<String>,
+) -> Option<String> {
+    match (
+        default_options
+            .map(str::trim)
+            .filter(|options| !options.is_empty()),
+        options,
+    ) {
+        (Some(default_options), Some(options)) if !options.trim().is_empty() => {
+            Some(format!("{default_options},{options}"))
+        }
+        (Some(default_options), _) => Some(default_options.to_string()),
+        (_, Some(options)) if !options.trim().is_empty() => Some(options),
+        _ => None,
+    }
+}
+
 fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
     let mut text = String::new();
     let mut chunk_start = 0;
@@ -24208,6 +24282,40 @@ Fallback text.
                 if graphic.path == "figures/plot.pdf"
                     && graphic.options.as_deref()
                         == Some(r"width=0.5\linewidth,height=0.25\textheight")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_threads_graphic_package_options() {
+        let source = r"\documentclass{article}\usepackage[draft]{graphicx}\begin{document}\includegraphics[width=5cm]{figures/plot.pdf}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.options.as_deref() == Some("draft,width=5cm")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_preserves_local_graphic_final_over_package_draft() {
+        let source = r"\documentclass{article}\usepackage[draft]{graphicx}\begin{document}\includegraphics[final,width=5cm]{figures/plot.pdf}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.options.as_deref() == Some("draft,final,width=5cm")
         )));
     }
 
