@@ -388,7 +388,15 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     self.flush_paragraph();
                     if matches!(
                         event.environment.as_deref(),
-                        Some("array" | "tabular" | "tabular*" | "tabularx" | "longtable")
+                        Some(
+                            "array"
+                                | "tabular"
+                                | "tabular*"
+                                | "tabularx"
+                                | "longtable"
+                                | "tabu"
+                                | "longtabu",
+                        )
                     ) {
                         let visible = event
                             .normalized_visible_text

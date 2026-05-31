@@ -2862,6 +2862,8 @@ impl<'i> Vm<'i> {
                                                         | "tabular*"
                                                         | "tabularx"
                                                         | "longtable"
+                                                        | "tabu"
+                                                        | "longtabu"
                                                 ) && after_table_environment <= body_end
                                                 {
                                                     let table_environment =
@@ -3104,7 +3106,13 @@ impl<'i> Vm<'i> {
                                     let body_source = &source[body_start..body_end];
                                     if matches!(
                                         other,
-                                        "array" | "tabular" | "tabular*" | "tabularx" | "longtable"
+                                        "array"
+                                            | "tabular"
+                                            | "tabular*"
+                                            | "tabularx"
+                                            | "longtable"
+                                            | "tabu"
+                                            | "longtabu"
                                     ) && let Some(after) = self.capture_table_fallback_event(
                                         source_path,
                                         source,
@@ -3156,7 +3164,13 @@ impl<'i> Vm<'i> {
                                         body_source[code_body_start..].to_string()
                                     } else if matches!(
                                         other,
-                                        "array" | "tabular" | "tabular*" | "tabularx" | "longtable"
+                                        "array"
+                                            | "tabular"
+                                            | "tabular*"
+                                            | "tabularx"
+                                            | "longtable"
+                                            | "tabu"
+                                            | "longtabu"
                                     ) {
                                         let mut table_body_start =
                                             skip_ascii_whitespace(body_source, 0);
@@ -3173,6 +3187,36 @@ impl<'i> Vm<'i> {
                                                 body_source,
                                                 table_body_start,
                                             );
+                                        }
+                                        if matches!(other, "tabu" | "longtabu") {
+                                            let keyword_index = table_body_start;
+                                            let keyword = ["to", "spread"].iter().find(|keyword| {
+                                                body_source[keyword_index..].starts_with(*keyword)
+                                                    && body_source[keyword_index + keyword.len()..]
+                                                        .chars()
+                                                        .next()
+                                                        .is_none_or(|ch| !ch.is_ascii_alphabetic())
+                                            });
+                                            if let Some(keyword) = keyword {
+                                                let mut dimension_index = skip_ascii_whitespace(
+                                                    body_source,
+                                                    keyword_index + keyword.len(),
+                                                );
+                                                while dimension_index < body_source.len()
+                                                    && body_source.as_bytes()[dimension_index]
+                                                        != b'{'
+                                                {
+                                                    let ch = body_source[dimension_index..]
+                                                        .chars()
+                                                        .next()
+                                                        .expect("tabu dimension char");
+                                                    dimension_index += ch.len_utf8();
+                                                }
+                                                table_body_start = skip_ascii_whitespace(
+                                                    body_source,
+                                                    dimension_index,
+                                                );
+                                            }
                                         }
                                         if let Some((_, _, _, after)) = read_bracket_source_argument(
                                             body_source,
@@ -8441,6 +8485,30 @@ impl<'i> Vm<'i> {
             }
             table_body_start = skip_ascii_whitespace(body_source, table_body_start);
         }
+        if matches!(environment, "tabu" | "longtabu") {
+            let keyword_index = table_body_start;
+            let keyword = ["to", "spread"].iter().find(|keyword| {
+                body_source[keyword_index..].starts_with(*keyword)
+                    && body_source[keyword_index + keyword.len()..]
+                        .chars()
+                        .next()
+                        .is_none_or(|ch| !ch.is_ascii_alphabetic())
+            });
+            if let Some(keyword) = keyword {
+                let mut dimension_index =
+                    skip_ascii_whitespace(body_source, keyword_index + keyword.len());
+                while dimension_index < body_source.len()
+                    && body_source.as_bytes()[dimension_index] != b'{'
+                {
+                    let ch = body_source[dimension_index..]
+                        .chars()
+                        .next()
+                        .expect("tabu dimension char");
+                    dimension_index += ch.len_utf8();
+                }
+                table_body_start = skip_ascii_whitespace(body_source, dimension_index);
+            }
+        }
         if let Some((_, _, _, after)) = read_bracket_source_argument(body_source, table_body_start)
         {
             table_body_start = after;
@@ -8561,6 +8629,13 @@ impl<'i> Vm<'i> {
                                 read_braced_source_argument(column_spec, argument_index)
                             {
                                 spec_index = after_argument;
+                            }
+                        } else if ch == 'X' {
+                            let option_index = skip_ascii_whitespace(column_spec, spec_index);
+                            if let Some((_, _, _, after_option)) =
+                                read_bracket_source_argument(column_spec, option_index)
+                            {
+                                spec_index = after_option;
                             }
                         }
                     }
@@ -8730,6 +8805,19 @@ impl<'i> Vm<'i> {
                                                         )
                                                     {
                                                         repeated_spec_index = after_argument;
+                                                    }
+                                                } else if repeated_ch == 'X' {
+                                                    let option_index = skip_ascii_whitespace(
+                                                        repeated_spec,
+                                                        repeated_spec_index,
+                                                    );
+                                                    if let Some((_, _, _, after_option)) =
+                                                        read_bracket_source_argument(
+                                                            repeated_spec,
+                                                            option_index,
+                                                        )
+                                                    {
+                                                        repeated_spec_index = after_option;
                                                     }
                                                 }
                                             }
@@ -23276,6 +23364,53 @@ Fallback text.
             visible.table_columns[1].alignment,
             TableColumnAlignment::Paragraph
         );
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_tabu_fallback_text() {
+        let cases = [
+            (
+                r"\documentclass{article}\usepackage{tabu}\begin{document}\begin{tabu}{X[l]r}Alpha & 1 \\ Beta & 22\end{tabu}\end{document}",
+                "tabu",
+                "Alpha | 1 ; Beta | 22",
+            ),
+            (
+                r"\documentclass{article}\usepackage{tabu}\begin{document}\begin{longtabu} to \linewidth {Xr}Alpha & 1 \\ Beta & 22\end{longtabu}\end{document}",
+                "longtabu",
+                "Alpha | 1 ; Beta | 22",
+            ),
+        ];
+
+        for (source, environment, expected) in cases {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.set_entry_source_path("main.tex");
+            vm.enable_render_event_capture();
+            let outcome = vm.run_plain(source);
+            let visible = outcome
+                .render_events
+                .iter()
+                .find_map(|event| match &event.event {
+                    RenderEvent::RawFallback(fallback)
+                        if fallback.environment.as_deref() == Some(environment) =>
+                    {
+                        Some(fallback)
+                    }
+                    _ => None,
+                })
+                .expect("tabu fallback visible text");
+
+            assert_eq!(visible.normalized_visible_text.as_deref(), Some(expected));
+            assert_eq!(visible.table_columns.len(), 2);
+            assert_eq!(
+                visible.table_columns[0].alignment,
+                TableColumnAlignment::Paragraph
+            );
+            assert_eq!(
+                visible.table_columns[1].alignment,
+                TableColumnAlignment::Right
+            );
+        }
     }
 
     #[test]

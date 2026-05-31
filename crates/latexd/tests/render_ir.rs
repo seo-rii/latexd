@@ -12137,6 +12137,58 @@ fn tabularx_capture_builds_table_ir() {
 }
 
 #[test]
+fn tabu_capture_builds_table_ir() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{tabu}\begin{document}\begin{tabu}{X[l]r}Alpha & 1 \\ Beta & 22\end{tabu}\begin{longtabu} to \linewidth {Xr}Long & 3 \\ Tail & 44\end{longtabu}\end{document}",
+        &SemanticAux::default(),
+    );
+    let tabu = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabu" => Some(table),
+            _ => None,
+        })
+        .expect("tabu table");
+    let longtabu = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "longtabu" => Some(table),
+            _ => None,
+        })
+        .expect("longtabu table");
+
+    assert_eq!(tabu.columns.len(), 2);
+    assert_eq!(tabu.columns[0].alignment, TableColumnAlignment::Paragraph);
+    assert_eq!(tabu.columns[1].alignment, TableColumnAlignment::Right);
+    assert_eq!(tabu.rows[0].cells[0].text, "Alpha");
+    assert_eq!(longtabu.columns.len(), 2);
+    assert_eq!(
+        longtabu.columns[0].alignment,
+        TableColumnAlignment::Paragraph
+    );
+    assert_eq!(longtabu.columns[1].alignment, TableColumnAlignment::Right);
+    assert_eq!(longtabu.rows[0].cells[0].text, "Long");
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(table_lines.contains(&"Alpha |  1"), "{table_lines:?}");
+    assert!(table_lines.contains(&"Beta  | 22"), "{table_lines:?}");
+    assert!(table_lines.contains(&"Long |  3"), "{table_lines:?}");
+    assert!(table_lines.contains(&"Tail | 44"), "{table_lines:?}");
+}
+
+#[test]
 fn longtable_table_ir_labels_survive_without_visible_key() {
     let capture = capture_internal_render_ir(
         "main.tex",
