@@ -97,12 +97,14 @@ to derive default image-box size when no explicit size is provided; individual
 metadata. The current
 PDF bitmap embedder is still the only renderer that applies `clip=true` crop
 metadata by clipping to the destination rect and offsetting/scaling the embedded
-XObject. Local `draft` graphic options and package-level
-`\usepackage[draft]{graphicx}` options now force renderer-visible placeholders
-even when the asset exists, preserving the image box without embedding the
-bitmap/vector asset. Missing graphic assets now produce render-event diagnostics
-when the capture has enough project or mounted-file context to know the asset is
-absent, while preserving the image placeholder, and those diagnostics now
+XObject. Local `draft` graphic options, package-level
+`\usepackage[draft]{graphicx}` options, and class-level
+`\documentclass[draft]{...}` global options forwarded through `graphicx` now
+force renderer-visible placeholders even when the asset exists, preserving the
+image box without embedding the bitmap/vector asset. Missing graphic assets now
+produce render-event diagnostics when the capture has enough project or
+mounted-file context to know the asset is absent, while preserving the image
+placeholder, and those diagnostics now
 annotate `PageDisplayList::Image`, debug PDF placeholder text, and SVG debug
 `data-image-*` attributes. Existing-but-unsupported PDF/EPS/SVG assets also
 surface as unsupported-image placeholders until external conversion exists.
@@ -681,8 +683,8 @@ Status:
   image-box sizing;
 - individual `bbllx` / `bblly` / `bburx` / `bbury` options are normalized to
   viewport metadata for default image-box sizing;
-- local and package-level `draft` graphic options force placeholders instead of
-  embedding resolver-backed assets;
+- local, package-level, and class-level `draft` graphic options force
+  placeholders instead of embedding resolver-backed assets;
 - non-uniform graphic scale hints affect display-list image-box sizing;
 - optional `ImageScale` metadata reaches `PageDisplayList::Image` and SVG
   debug artifacts;

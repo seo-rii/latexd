@@ -2807,6 +2807,56 @@ fn graphicx_package_draft_respects_local_final_image_embedding() {
 }
 
 #[test]
+fn graphicx_class_draft_option_surfaces_image_placeholder() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
+    fs::create_dir_all(root.join("figures").as_std_path()).expect("create figures dir");
+    fs::write(
+        root.join("main.tex").as_std_path(),
+        r"\documentclass[draft]{article}\usepackage{graphicx}\begin{document}\includegraphics[width=10pt,height=5pt]{figures/plot.png}\end{document}",
+    )
+    .expect("write source");
+    fs::write(
+        root.join("figures/plot.png").as_std_path(),
+        tiny_png_bytes(),
+    )
+    .expect("write image");
+
+    let capture =
+        capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
+            .expect("capture project render ir");
+    let graphic = capture
+        .events
+        .events
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::GraphicRef(graphic) if graphic.path == "figures/plot.png" => Some(graphic),
+            _ => None,
+        })
+        .expect("graphic event");
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.png" => Some(image),
+            _ => None,
+        })
+        .expect("image op");
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+
+    assert_eq!(
+        graphic.options.as_deref(),
+        Some("draft,width=10pt,height=5pt")
+    );
+    assert_eq!(
+        image.diagnostic.as_deref(),
+        Some("draft graphic asset figures/plot.png")
+    );
+    assert!(!pdf_text.contains("/Subtype /Image"));
+    assert!(pdf_text.contains("[draft image: figures/plot.png]"));
+}
+
+#[test]
 fn graphic_draft_pdf_asset_is_not_reported_as_unsupported() {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");

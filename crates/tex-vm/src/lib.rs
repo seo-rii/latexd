@@ -745,6 +745,7 @@ struct RenderEventScanState {
     include_only: Option<HashSet<Utf8PathBuf>>,
     graphic_paths: Vec<Utf8PathBuf>,
     graphic_extensions: Vec<String>,
+    graphic_global_options: Option<String>,
     graphic_default_options: Option<String>,
     section_macros: HashMap<String, RenderSectionMacro>,
     citation_macros: HashMap<String, RenderCitationMacro>,
@@ -3968,11 +3969,14 @@ impl<'i> Vm<'i> {
                             .filter(|package| !package.is_empty())
                         {
                             if matches!(package_name, "graphicx" | "graphics" | "epsfig")
-                                && let Some(options) = package_options.as_deref()
+                                && let Some(options) = merge_graphic_options(
+                                    scan_state.graphic_global_options.clone(),
+                                    package_options.as_deref(),
+                                )
                             {
                                 scan_state.graphic_default_options = merge_graphic_options(
                                     scan_state.graphic_default_options.clone(),
-                                    Some(options),
+                                    Some(&options),
                                 );
                             }
                             let mut package_path =
@@ -4037,10 +4041,25 @@ impl<'i> Vm<'i> {
                 }
                 "documentclass" | "LoadClass" | "LoadClassWithOptions" => {
                     let mut class_index = skip_ascii_whitespace(source, index);
+                    let mut class_graphic_options = Vec::new();
                     if command != "LoadClassWithOptions"
-                        && let Some((_, _, _, after_options)) =
+                        && let Some((options, _, _, after_options)) =
                             read_bracket_source_argument(source, class_index)
                     {
+                        for option in options.split(',').map(str::trim) {
+                            if matches!(option, "draft" | "final")
+                                && !class_graphic_options.contains(&option)
+                            {
+                                class_graphic_options.push(option);
+                            }
+                        }
+                        if !class_graphic_options.is_empty() {
+                            let options = class_graphic_options.join(",");
+                            scan_state.graphic_global_options = merge_graphic_options(
+                                scan_state.graphic_global_options.clone(),
+                                Some(&options),
+                            );
+                        }
                         class_index = skip_ascii_whitespace(source, after_options);
                     }
                     if let Some((class_name, _, _, after_class)) =
@@ -24305,6 +24324,40 @@ Fallback text.
     #[test]
     fn render_event_capture_preserves_local_graphic_final_over_package_draft() {
         let source = r"\documentclass{article}\usepackage[draft]{graphicx}\begin{document}\includegraphics[final,width=5cm]{figures/plot.pdf}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.options.as_deref() == Some("draft,final,width=5cm")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_threads_graphic_class_options() {
+        let source = r"\documentclass[draft]{article}\usepackage{graphicx}\begin{document}\includegraphics[width=5cm]{figures/plot.pdf}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.options.as_deref() == Some("draft,width=5cm")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_prefers_explicit_package_final_over_class_draft() {
+        let source = r"\documentclass[draft]{article}\usepackage[final]{graphicx}\begin{document}\includegraphics[width=5cm]{figures/plot.pdf}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
