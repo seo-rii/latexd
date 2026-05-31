@@ -8272,6 +8272,62 @@ impl<'i> Vm<'i> {
             argument_index += 1;
             argument_index = skip_ascii_whitespace(source, argument_index);
         }
+        let capture_wrapper_body =
+            |vm: &mut Self, body_start: usize, body_end: usize, inherited_options: Option<&str>| {
+                vm.capture_graphics_in_source_range(
+                    source_path,
+                    source,
+                    body_start,
+                    body_end,
+                    graphic_paths,
+                    graphic_extensions,
+                    inherited_options,
+                );
+                let mut body_index = body_start;
+                while body_index < body_end {
+                    let Some(relative_begin) = source[body_index..body_end].find("\\begin") else {
+                        break;
+                    };
+                    let begin_start = body_index + relative_begin;
+                    let environment_index = begin_start + "\\begin".len();
+                    if let Some((environment, _, _, after_environment)) =
+                        read_braced_source_argument(source, environment_index)
+                        && matches!(
+                            environment.trim(),
+                            "array"
+                                | "tabular"
+                                | "tabular*"
+                                | "tabularx"
+                                | "longtable"
+                                | "tabu"
+                                | "longtabu"
+                        )
+                        && after_environment <= body_end
+                    {
+                        let environment = environment.trim();
+                        let end_marker = format!("\\end{{{environment}}}");
+                        if let Some(relative_table_end) =
+                            source[after_environment..body_end].find(&end_marker)
+                        {
+                            let table_body_end = after_environment + relative_table_end;
+                            let table_raw_end = table_body_end + end_marker.len();
+                            if let Some(after) = vm.capture_table_fallback_event(
+                                source_path,
+                                source,
+                                begin_start,
+                                table_raw_end,
+                                after_environment,
+                                &source[after_environment..table_body_end],
+                                environment,
+                            ) {
+                                body_index = after;
+                                continue;
+                            }
+                        }
+                    }
+                    body_index = environment_index;
+                }
+            };
         match command {
             "resizebox" => {
                 let (width, _, _, after_width) =
@@ -8304,15 +8360,7 @@ impl<'i> Vm<'i> {
                     (!inherited_options.is_empty()).then_some(inherited_options.join(",")),
                     outer_options,
                 );
-                self.capture_graphics_in_source_range(
-                    source_path,
-                    source,
-                    body_start,
-                    body_end,
-                    graphic_paths,
-                    graphic_extensions,
-                    inherited_options.as_deref(),
-                );
+                capture_wrapper_body(self, body_start, body_end, inherited_options.as_deref());
                 Some(after_body)
             }
             "scalebox" => {
@@ -8348,15 +8396,7 @@ impl<'i> Vm<'i> {
                     (!inherited_options.is_empty()).then_some(inherited_options.join(",")),
                     outer_options,
                 );
-                self.capture_graphics_in_source_range(
-                    source_path,
-                    source,
-                    body_start,
-                    body_end,
-                    graphic_paths,
-                    graphic_extensions,
-                    inherited_options.as_deref(),
-                );
+                capture_wrapper_body(self, body_start, body_end, inherited_options.as_deref());
                 Some(after_body)
             }
             "rotatebox" => {
@@ -8392,15 +8432,7 @@ impl<'i> Vm<'i> {
                     (!inherited_options.is_empty()).then_some(inherited_options.join(",")),
                     outer_options,
                 );
-                self.capture_graphics_in_source_range(
-                    source_path,
-                    source,
-                    body_start,
-                    body_end,
-                    graphic_paths,
-                    graphic_extensions,
-                    inherited_options.as_deref(),
-                );
+                capture_wrapper_body(self, body_start, body_end, inherited_options.as_deref());
                 Some(after_body)
             }
             "reflectbox" => {
@@ -8409,13 +8441,10 @@ impl<'i> Vm<'i> {
                 if after_body > limit {
                     return None;
                 }
-                self.capture_graphics_in_source_range(
-                    source_path,
-                    source,
+                capture_wrapper_body(
+                    self,
                     body_start,
                     body_end,
-                    graphic_paths,
-                    graphic_extensions,
                     merge_graphic_options(Some("xscale=-1".to_string()), outer_options).as_deref(),
                 );
                 Some(after_body)
@@ -8433,13 +8462,10 @@ impl<'i> Vm<'i> {
                 if after_body > limit {
                     return None;
                 }
-                self.capture_graphics_in_source_range(
-                    source_path,
-                    source,
+                capture_wrapper_body(
+                    self,
                     body_start,
                     body_end,
-                    graphic_paths,
-                    graphic_extensions,
                     merge_graphic_options(
                         (!options.trim().is_empty()).then_some(options),
                         outer_options,
@@ -8454,15 +8480,7 @@ impl<'i> Vm<'i> {
                 if after_body > limit {
                     return None;
                 }
-                self.capture_graphics_in_source_range(
-                    source_path,
-                    source,
-                    body_start,
-                    body_end,
-                    graphic_paths,
-                    graphic_extensions,
-                    outer_options,
-                );
+                capture_wrapper_body(self, body_start, body_end, outer_options);
                 Some(after_body)
             }
             "makebox" | "framebox" => {
@@ -8485,15 +8503,7 @@ impl<'i> Vm<'i> {
                 if after_body > limit {
                     return None;
                 }
-                self.capture_graphics_in_source_range(
-                    source_path,
-                    source,
-                    body_start,
-                    body_end,
-                    graphic_paths,
-                    graphic_extensions,
-                    None,
-                );
+                capture_wrapper_body(self, body_start, body_end, None);
                 Some(after_body)
             }
             _ => None,
@@ -29709,6 +29719,37 @@ Fallback text.
         for hidden in ["makecell", "shortstack", "\\\\"] {
             assert!(!visible_text.contains(hidden), "{visible_text:?}");
         }
+    }
+
+    #[test]
+    fn render_event_capture_preserves_resizebox_wrapped_tabular() {
+        let source = r"\begin{document}\resizebox{\textwidth}{!}{\begin{tabular}{ll}A & B \\ C & D\end{tabular}}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible_text, "A | B ; C | D");
+        assert!(!outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::Text(text)
+                    if ["resizebox", "textwidth"].iter().any(|hidden| text.text.contains(hidden))
+            )
+        }));
     }
 
     #[test]

@@ -527,6 +527,8 @@ Implemented first slice:
   the current cell and rendered as spaces in the readable fallback.
 - `makecell` rule helpers `\Xhline{...}` and `\Xcline{...}{...}` are
   normalized to full/partial table rule metadata without leaking rule widths.
+- table environments inside box wrappers such as `\resizebox{...}{...}{...}`
+  are still captured as table IR instead of being swallowed by wrapper handling.
 
 Remaining table work:
 

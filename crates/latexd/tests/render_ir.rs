@@ -12028,6 +12028,50 @@ fn tabular_cell_linebreak_helpers_stay_inside_cells() {
 }
 
 #[test]
+fn resizebox_wrapped_tabular_survives_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\resizebox{\textwidth}{!}{\begin{tabular}{ll}A & B \\ C & D\end{tabular}}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows.len(), 2);
+    assert_eq!(table.rows[0].cells[0].text, "A");
+    assert_eq!(table.rows[1].cells[1].text, "D");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("A | B"));
+    assert!(extracted_text.contains("C | D"));
+    assert!(!extracted_text.contains("resizebox"));
+    assert!(!extracted_text.contains("textwidth"));
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        display_list_text.contains(&"A | B"),
+        "{display_list_text:?}"
+    );
+    assert!(
+        display_list_text.contains(&"C | D"),
+        "{display_list_text:?}"
+    );
+}
+
+#[test]
 fn tabular_partial_rules_survive_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
