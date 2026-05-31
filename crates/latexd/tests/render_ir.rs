@@ -11998,6 +11998,36 @@ fn tabular_starred_makecell_helpers_do_not_leak_commands() {
 }
 
 #[test]
+fn tabular_cell_linebreak_helpers_stay_inside_cells() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{makecell}\begin{document}\begin{tabular}{ll}\makecell{Top\\Bottom} & \shortstack{Left\\Right} \\ Tail & End\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows.len(), 2);
+    assert_eq!(table.rows[0].cells[0].text, "Top Bottom");
+    assert_eq!(table.rows[0].cells[1].text, "Left Right");
+    assert_eq!(table.rows[1].cells[0].text, "Tail");
+    assert_eq!(table.rows[1].cells[1].text, "End");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Top Bottom | Left Right"));
+    assert!(extracted_text.contains("Tail | End"));
+    for hidden in ["makecell", "shortstack", r"\\"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+}
+
+#[test]
 fn tabular_partial_rules_survive_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",

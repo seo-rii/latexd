@@ -9167,6 +9167,75 @@ impl<'i> Vm<'i> {
                                 table_index = after;
                             }
                         }
+                        "makecell" | "thead" | "shortstack" => {
+                            let mut parsed = false;
+                            let mut argument_index = skip_ascii_whitespace(table_body, command_end);
+                            if matches!(command, "makecell" | "thead")
+                                && table_body.as_bytes().get(argument_index).copied() == Some(b'*')
+                            {
+                                argument_index += 1;
+                            }
+                            loop {
+                                argument_index = skip_ascii_whitespace(table_body, argument_index);
+                                let Some((_, _, _, after_option)) =
+                                    read_bracket_source_argument(table_body, argument_index)
+                                else {
+                                    break;
+                                };
+                                argument_index = after_option;
+                            }
+                            if let Some((content, _, _, after_content)) =
+                                read_braced_source_argument(table_body, argument_index)
+                            {
+                                let mut cell_content = String::new();
+                                let mut content_index = 0usize;
+                                while content_index < content.len() {
+                                    if content.as_bytes().get(content_index).copied() == Some(b'\\')
+                                    {
+                                        if content.as_bytes().get(content_index + 1).copied()
+                                            == Some(b'\\')
+                                        {
+                                            cell_content.push(' ');
+                                            content_index += 2;
+                                            if let Some((_, _, _, after_option)) =
+                                                read_bracket_source_argument(content, content_index)
+                                            {
+                                                content_index = after_option;
+                                            }
+                                            continue;
+                                        }
+                                        if content[content_index + 1..]
+                                            .starts_with("tabularnewline")
+                                        {
+                                            cell_content.push(' ');
+                                            content_index += "\\tabularnewline".len();
+                                            if let Some((_, _, _, after_option)) =
+                                                read_bracket_source_argument(content, content_index)
+                                            {
+                                                content_index = after_option;
+                                            }
+                                            continue;
+                                        }
+                                    }
+                                    let ch = content[content_index..]
+                                        .chars()
+                                        .next()
+                                        .expect("table cell content char");
+                                    cell_content.push(ch);
+                                    content_index += ch.len_utf8();
+                                }
+                                rewritten.push_str(&cell_content);
+                                row_has_visible_content = true;
+                                table_index = after_content;
+                                parsed = true;
+                            }
+                            if !parsed {
+                                rewritten.push('\\');
+                                rewritten.push_str(command);
+                                row_has_visible_content = true;
+                                table_index = command_end;
+                            }
+                        }
                         "multicolumn" => {
                             let mut parsed = false;
                             if let Some((span_text, _, _, after_span)) =
@@ -18112,9 +18181,11 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 }
             }
         }
-        if matches!(command, "makecell" | "thead") {
+        if matches!(command, "makecell" | "thead" | "shortstack") {
             let mut argument_index = skip_ascii_whitespace(source, command_name_end);
-            if source.as_bytes().get(argument_index).copied() == Some(b'*') {
+            if matches!(command, "makecell" | "thead")
+                && source.as_bytes().get(argument_index).copied() == Some(b'*')
+            {
                 argument_index += 1;
             }
             loop {
@@ -18130,7 +18201,39 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 read_braced_source_argument(source, argument_index)
             {
                 append_normalized_text(&mut text, &source[chunk_start..command_start]);
-                let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                let mut visible_source = String::new();
+                let mut visible_index = 0usize;
+                while visible_index < visible_text.len() {
+                    if visible_text.as_bytes().get(visible_index).copied() == Some(b'\\') {
+                        if visible_text.as_bytes().get(visible_index + 1).copied() == Some(b'\\') {
+                            visible_source.push(' ');
+                            visible_index += 2;
+                            if let Some((_, _, _, after_option)) =
+                                read_bracket_source_argument(visible_text, visible_index)
+                            {
+                                visible_index = after_option;
+                            }
+                            continue;
+                        }
+                        if visible_text[visible_index + 1..].starts_with("tabularnewline") {
+                            visible_source.push(' ');
+                            visible_index += "\\tabularnewline".len();
+                            if let Some((_, _, _, after_option)) =
+                                read_bracket_source_argument(visible_text, visible_index)
+                            {
+                                visible_index = after_option;
+                            }
+                            continue;
+                        }
+                    }
+                    let ch = visible_text[visible_index..]
+                        .chars()
+                        .next()
+                        .expect("cell helper content char");
+                    visible_source.push(ch);
+                    visible_index += ch.len_utf8();
+                }
+                let visible_text = normalize_latex_text_with_inline_placeholders(&visible_source);
                 append_text(&mut text, &visible_text);
                 found_structured_inline = true;
                 chunk_start = command_after;
@@ -29579,6 +29682,33 @@ Fallback text.
         }
         assert!(!visible_text.contains("makecell"));
         assert!(!visible_text.contains("thead"));
+    }
+
+    #[test]
+    fn render_event_capture_keeps_cell_linebreak_helpers_in_one_table_row() {
+        let source = r"\documentclass{article}\usepackage{makecell}\begin{document}\begin{tabular}{ll}\makecell{Top\\Bottom} & \shortstack{Left\\Right} \\ Tail & End\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible_text, "Top Bottom | Left Right ; Tail | End");
+        for hidden in ["makecell", "shortstack", "\\\\"] {
+            assert!(!visible_text.contains(hidden), "{visible_text:?}");
+        }
     }
 
     #[test]
