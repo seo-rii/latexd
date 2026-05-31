@@ -482,6 +482,9 @@ Implemented first slice:
 - `tabularx` `X` columns and array-package `w{align}{width}` /
   `W{align}{width}` columns are treated as paragraph/aligned fixed-width
   fallback columns without applying exact TeX widths.
+- array-package hook and intercolumn modifiers `>{...}`, `<{...}`, `@{...}`,
+  and `!{...}` are skipped as non-column material so the following real columns
+  still drive fallback alignment.
 - common numeric `siunitx` `S[...]` and `dcolumn` `D{...}{...}{...}` columns
   are treated as right-aligned fallback columns without decimal alignment.
 - simple vertical border markers now emit coarse `PageDisplayList::Rule`
@@ -610,6 +613,8 @@ Status:
 - `tabularx` environments are promoted through the same table IR/display-list
   fallback path, with `X` columns mapped to paragraph-style columns;
 - array-package `w` / `W` fixed-width columns preserve coarse alignment intent;
+- array-package hook/intercolumn modifiers are ignored as non-column material
+  while preserving the following real columns;
 - `siunitx` `S` and `dcolumn` `D` numeric columns preserve coarse right-aligned
   intent;
 - figure asset identity/caption propagation exists, and resolver-provided

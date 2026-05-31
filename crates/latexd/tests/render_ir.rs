@@ -11648,6 +11648,45 @@ fn tabular_fixed_width_column_specs_survive_ir_and_align_display_list_text() {
 }
 
 #[test]
+fn tabular_array_column_hooks_do_not_hide_real_columns() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{>{\raggedright\arraybackslash}p{2cm}@{\quad}!{\vrule}<{\hfill}r}Alpha & 1 \\ Beta & 22\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.columns.len(), 2);
+    assert_eq!(table.columns[0].alignment, TableColumnAlignment::Paragraph);
+    assert_eq!(table.columns[1].alignment, TableColumnAlignment::Right);
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Alpha | 1"));
+    assert!(extracted_text.contains("Beta | 22"));
+    assert!(!extracted_text.contains("raggedright"));
+    assert!(!extracted_text.contains("arraybackslash"));
+
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(table_lines.contains(&"Alpha |  1"), "{table_lines:?}");
+    assert!(table_lines.contains(&"Beta  | 22"), "{table_lines:?}");
+}
+
+#[test]
 fn tabular_numeric_column_specs_survive_ir_and_align_display_list_text() {
     let capture = capture_internal_render_ir(
         "main.tex",

@@ -22963,6 +22963,42 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_skips_array_column_hook_modifiers() {
+        let source = r"\begin{document}\begin{tabular}{>{\raggedright\arraybackslash}p{2cm}@{\quad}!{\vrule}<{\hfill}r}Alpha & 1 \\ Beta & 22\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible.table_columns.len(), 2);
+        assert_eq!(
+            visible.table_columns[0].alignment,
+            TableColumnAlignment::Paragraph
+        );
+        assert_eq!(
+            visible.table_columns[1].alignment,
+            TableColumnAlignment::Right
+        );
+        assert_eq!(
+            visible.normalized_visible_text.as_deref(),
+            Some("Alpha | 1 ; Beta | 22")
+        );
+    }
+
+    #[test]
     fn render_event_capture_records_numeric_table_column_specs() {
         let source = r"\begin{document}\begin{tabular}{S[table-format=1.2]D{.}{.}{-1}}1.2 & 3.4\end{tabular}\end{document}";
         let mut interner = ControlSequenceInterner::new();
