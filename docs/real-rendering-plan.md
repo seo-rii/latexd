@@ -519,6 +519,8 @@ Implemented first slice:
 - continuation rows below a simple multirow cell now insert a blank placeholder
   column when the spanned column is omitted, so following cells are placed under
   the next table column in the readable fallback.
+- starred `makecell` helpers such as `\makecell*{...}` and `\thead*{...}` are
+  normalized to visible cell text without leaking helper command names.
 
 Remaining table work:
 

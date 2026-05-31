@@ -11973,6 +11973,31 @@ fn tabular_multirow_display_list_offsets_omitted_spanned_cells() {
 }
 
 #[test]
+fn tabular_starred_makecell_helpers_do_not_leak_commands() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{makecell}\begin{document}\begin{tabular}{ll}\makecell*{Cell \cite{key}} & \thead*{Head}\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "Cell [?]");
+    assert_eq!(table.rows[0].cells[1].text, "Head");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(!extracted_text.contains("makecell"));
+    assert!(!extracted_text.contains("thead"));
+    assert!(!extracted_text.contains("key"));
+}
+
+#[test]
 fn tabular_partial_rules_survive_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",

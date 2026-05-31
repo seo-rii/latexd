@@ -18004,6 +18004,9 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
         }
         if matches!(command, "makecell" | "thead") {
             let mut argument_index = skip_ascii_whitespace(source, command_name_end);
+            if source.as_bytes().get(argument_index).copied() == Some(b'*') {
+                argument_index += 1;
+            }
             loop {
                 argument_index = skip_ascii_whitespace(source, argument_index);
                 let Some((_, _, _, after_option)) =
@@ -29324,7 +29327,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_loads_table_helper_package_shims() {
-        let source = r"\documentclass{article}\usepackage{subeqnarray}\usepackage{diagbox}\usepackage{makecell}\usepackage{multirow}\begin{document}\begin{tabular}{ccc}\diagbox{Rows}{Cols} & \makecell{Cell \cite{key}} & \multirow{2}{*}{Span} \\\thead{Head} & \multirowcell{2}{Body} & Tail\end{tabular}\end{document}";
+        let source = r"\documentclass{article}\usepackage{subeqnarray}\usepackage{diagbox}\usepackage{makecell}\usepackage{multirow}\begin{document}\begin{tabular}{ccc}\diagbox{Rows}{Cols} & \makecell*{Cell \cite{key}} & \multirow{2}{*}{Span} \\\thead*{Head} & \multirowcell{2}{Body} & Tail\end{tabular}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -29368,6 +29371,8 @@ Fallback text.
                 "visible text missing {visible:?}: {visible_text:?}"
             );
         }
+        assert!(!visible_text.contains("makecell"));
+        assert!(!visible_text.contains("thead"));
     }
 
     #[test]
