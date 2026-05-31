@@ -1836,6 +1836,39 @@ fn graphic_render_ir_capture_applies_includegraphics_width_hint() {
 }
 
 #[test]
+fn graphic_macro_dimension_options_survive_to_display_list_sizing() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\includegraphics[width=0.5\textwidth,height=0.25\textheight]{figures/plot.pdf}\end{document}",
+        &SemanticAux::default(),
+    );
+    let graphic = capture
+        .events
+        .events
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::GraphicRef(graphic) if graphic.path == "figures/plot.pdf" => Some(graphic),
+            _ => None,
+        })
+        .expect("graphic event");
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.pdf" => Some(image),
+            _ => None,
+        })
+        .expect("image op");
+
+    assert_eq!(
+        graphic.options.as_deref(),
+        Some(r"width=0.5\textwidth,height=0.25\textheight")
+    );
+    assert!((image.rect.width - 234.0).abs() < 0.01);
+    assert!((image.rect.height - 162.0).abs() < 0.01);
+}
+
+#[test]
 fn graphic_provenance_preserves_invocation_and_path_argument_spans() {
     let capture = capture_internal_render_ir("main.tex", GRAPHIC_SOURCE, &SemanticAux::default());
     let graphic_event = capture

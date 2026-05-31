@@ -73,12 +73,15 @@ the renderer boundary: resolver-provided PNG/JPEG bytes can be decoded into PDF
 `/Image` XObjects by `tex-pdf`, and project-root render-IR capture can now write
 debug PDFs with those embedded assets. Image display-list boxes also honor the
 common `\includegraphics` `width`, `height`/`totalheight`, and `scale` options
-for common units and text/page-relative dimensions. Resolver-backed PNG/JPEG
-headers now provide natural pixel dimensions plus optional density metadata, and
-resolver-backed SVG/PDF/EPS headers now provide natural point dimensions for
-default aspect-preserving image boxes when no explicit size is given. PNG `pHYs`
-and JPEG JFIF density fields are converted to TeX points before layout uses the
-natural box; SVG `width`/`height` or `viewBox`, PDF `/MediaBox`, and EPS
+for common units and text/page-relative dimensions; option control sequences
+such as `\textwidth` / `\linewidth` are preserved from the VM event through
+display-list sizing instead of being normalized away as visible text.
+Resolver-backed PNG/JPEG headers now provide natural pixel dimensions plus
+optional density metadata, and resolver-backed SVG/PDF/EPS headers now provide
+natural point dimensions for default aspect-preserving image boxes when no
+explicit size is given. PNG `pHYs` and JPEG JFIF density fields are converted to
+TeX points before layout uses the natural box; SVG `width`/`height` or
+`viewBox`, PDF `/MediaBox`, and EPS
 `%%BoundingBox`/`%%HiResBoundingBox` provide point-sized vector/document boxes.
 Explicit `natwidth` / `natheight` graphic options can also override the
 natural box when asset headers are unavailable or intentionally approximate.
@@ -664,6 +667,8 @@ Status:
   display-list PDF artifact;
 - project-root display-list SVG debug artifacts can embed resolver-backed SVG
   assets;
+- `\includegraphics` option control sequences such as `\textwidth` /
+  `\linewidth` survive event capture into display-list sizing;
 - bitmap and simple SVG/PDF/EPS natural-size layout is available;
 - explicit `natwidth` / `natheight` graphic options can drive default
   image-box sizing;

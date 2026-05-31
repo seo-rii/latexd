@@ -9567,7 +9567,7 @@ impl<'i> Vm<'i> {
             if after > limit {
                 return None;
             }
-            options = Some(normalize_latex_text(value));
+            options = Some(value.trim().to_string());
             argument_index = after;
         }
         let Some((path, path_start, path_end, after)) =
@@ -9754,7 +9754,7 @@ impl<'i> Vm<'i> {
         if after > limit {
             return None;
         }
-        let options = normalize_latex_text(options);
+        let options = options.trim().to_string();
         let path = options.split(',').find_map(|part| {
             let (key, value) = part.split_once('=')?;
             match key.trim() {
@@ -24190,6 +24190,24 @@ Fallback text.
             RenderEvent::GraphicRef(graphic)
                 if graphic.path == "figures/plot.pdf"
                     && graphic.options.as_deref() == Some("width=5cm")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_preserves_graphic_option_control_sequences() {
+        let source = r"\begin{document}\includegraphics[width=0.5\linewidth,height=0.25\textheight]{figures/plot.pdf}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.options.as_deref()
+                        == Some(r"width=0.5\linewidth,height=0.25\textheight")
         )));
     }
 
