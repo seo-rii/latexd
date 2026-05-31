@@ -72,7 +72,16 @@ fn set_path(tool_dir: &Utf8Path, include_original_path: bool) -> PathOverrideGua
 }
 
 fn write_executable_script(path: &Utf8Path, body: &str) {
-    fs::write(path.as_std_path(), body).expect("write executable script");
+    use std::io::Write as _;
+
+    let temp_path = path.with_extension("tmp");
+    {
+        let mut file = fs::File::create(temp_path.as_std_path()).expect("write executable script");
+        file.write_all(body.as_bytes())
+            .expect("write executable script body");
+        file.sync_all().expect("sync executable script");
+    }
+    fs::rename(temp_path.as_std_path(), path.as_std_path()).expect("install executable script");
     fs::set_permissions(path.as_std_path(), fs::Permissions::from_mode(0o755))
         .expect("chmod executable script");
 }
