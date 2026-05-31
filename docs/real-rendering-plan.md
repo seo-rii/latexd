@@ -80,6 +80,8 @@ default aspect-preserving image boxes when no explicit size is given. PNG `pHYs`
 and JPEG JFIF density fields are converted to TeX points before layout uses the
 natural box; SVG `width`/`height` or `viewBox`, PDF `/MediaBox`, and EPS
 `%%BoundingBox`/`%%HiResBoundingBox` provide point-sized vector/document boxes.
+Explicit `natwidth` / `natheight` graphic options can also override the
+natural box when asset headers are unavailable or intentionally approximate.
 When both `width` and `height` are present, `keepaspectratio` now fits the
 natural/default image box inside the requested rectangle instead of stretching
 it. `trim`, `viewport`/`bb`, and `clip` options are now preserved as
@@ -661,6 +663,8 @@ Status:
 - project-root display-list SVG debug artifacts can embed resolver-backed SVG
   assets;
 - bitmap and simple SVG/PDF/EPS natural-size layout is available;
+- explicit `natwidth` / `natheight` graphic options can drive default
+  image-box sizing;
 - non-uniform graphic scale hints affect display-list image-box sizing;
 - optional `ImageScale` metadata reaches `PageDisplayList::Image` and SVG
   debug artifacts;

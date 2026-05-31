@@ -1386,7 +1386,7 @@ pub fn build_page_display_lists(
                 y += logical.gap_after_pt;
             }
             LogicalItem::Image(logical) => {
-                let (natural_image_width, natural_image_height) = if let Some(dimensions) =
+                let (mut natural_image_width, mut natural_image_height) = if let Some(dimensions) =
                     logical.asset_dimensions
                 {
                     let (mut natural_width, mut natural_height) =
@@ -1450,6 +1450,8 @@ pub fn build_page_display_lists(
                 let mut scale_hint = None;
                 let mut x_scale_hint = None;
                 let mut y_scale_hint = None;
+                let mut natural_width_hint_pt = None;
+                let mut natural_height_hint_pt = None;
                 let mut keep_aspect_ratio = false;
                 let mut trim = None;
                 let mut viewport = None;
@@ -1474,6 +1476,12 @@ pub fn build_page_display_lists(
                             "width" => width_hint_pt = parse_graphic_dimension_pt(value, false),
                             "height" | "totalheight" => {
                                 height_hint_pt = parse_graphic_dimension_pt(value, false);
+                            }
+                            "natwidth" => {
+                                natural_width_hint_pt = parse_graphic_dimension_pt(value, false);
+                            }
+                            "natheight" => {
+                                natural_height_hint_pt = parse_graphic_dimension_pt(value, false);
                             }
                             "scale" => {
                                 let scale = value
@@ -1545,6 +1553,27 @@ pub fn build_page_display_lists(
                             _ => {}
                         }
                     }
+                }
+                match (natural_width_hint_pt, natural_height_hint_pt) {
+                    (Some(width), Some(height)) => {
+                        natural_image_width = width;
+                        natural_image_height = height;
+                    }
+                    (Some(width), None) => {
+                        let ratio = width / natural_image_width;
+                        if ratio.is_finite() && ratio > 0.0 {
+                            natural_image_width = width;
+                            natural_image_height = (natural_image_height * ratio).max(1.0);
+                        }
+                    }
+                    (None, Some(height)) => {
+                        let ratio = height / natural_image_height;
+                        if ratio.is_finite() && ratio > 0.0 {
+                            natural_image_width = (natural_image_width * ratio).max(1.0);
+                            natural_image_height = height;
+                        }
+                    }
+                    (None, None) => {}
                 }
                 let crop = (clip || trim.is_some() || viewport.is_some()).then_some(ImageCrop {
                     trim,

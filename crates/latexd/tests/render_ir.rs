@@ -2422,6 +2422,27 @@ fn graphic_keepaspectratio_survives_project_root_render_ir_capture() {
 }
 
 #[test]
+fn graphic_natwidth_natheight_options_drive_default_image_rect() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\includegraphics[natwidth=144pt,natheight=72pt]{figures/plot.pdf}\end{document}",
+        &SemanticAux::default(),
+    );
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.pdf" => Some(image),
+            _ => None,
+        })
+        .expect("image op");
+
+    assert_eq!(image.asset_format, Some(GraphicAssetFormat::Pdf));
+    assert!((image.rect.width - 144.0).abs() < 0.01);
+    assert!((image.rect.height - 72.0).abs() < 0.01);
+}
+
+#[test]
 fn graphic_crop_options_survive_project_root_render_ir_capture() {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
