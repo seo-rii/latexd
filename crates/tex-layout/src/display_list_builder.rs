@@ -58,6 +58,7 @@ struct LogicalTextSegment {
     source: SourceProvenance,
     link_target: Option<String>,
     table_rule: bool,
+    table_vertical_rule_offsets: Vec<usize>,
 }
 
 struct LogicalTextRun {
@@ -130,6 +131,7 @@ pub fn build_page_display_lists(
                         source: source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_vertical_rule_offsets: Vec::new(),
                     });
                 }
                 InlineNode::Space { source } => {
@@ -138,6 +140,7 @@ pub fn build_page_display_lists(
                         source: source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_vertical_rule_offsets: Vec::new(),
                     });
                 }
                 InlineNode::LineBreak { source } => {
@@ -146,6 +149,7 @@ pub fn build_page_display_lists(
                         source: source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_vertical_rule_offsets: Vec::new(),
                     });
                 }
                 InlineNode::Citation(citation) => {
@@ -154,6 +158,7 @@ pub fn build_page_display_lists(
                         source: citation.source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_vertical_rule_offsets: Vec::new(),
                     });
                 }
                 InlineNode::Reference(reference) => {
@@ -162,6 +167,7 @@ pub fn build_page_display_lists(
                         source: reference.source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_vertical_rule_offsets: Vec::new(),
                     });
                 }
                 InlineNode::Link(link) => {
@@ -170,6 +176,7 @@ pub fn build_page_display_lists(
                         source: link.source.clone(),
                         link_target: Some(link.target.clone()),
                         table_rule: false,
+                        table_vertical_rule_offsets: Vec::new(),
                     });
                 }
                 InlineNode::InlineMath {
@@ -184,6 +191,7 @@ pub fn build_page_display_lists(
                         source: source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_vertical_rule_offsets: Vec::new(),
                     });
                 }
                 InlineNode::RawFallback(fallback) => {
@@ -195,6 +203,7 @@ pub fn build_page_display_lists(
                         source: fallback.source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_vertical_rule_offsets: Vec::new(),
                     });
                 }
             }
@@ -217,6 +226,7 @@ pub fn build_page_display_lists(
                             source: source.clone(),
                             link_target: None,
                             table_rule: false,
+                            table_vertical_rule_offsets: Vec::new(),
                         }],
                         source,
                         font: title_font.clone(),
@@ -239,6 +249,7 @@ pub fn build_page_display_lists(
                             source: source.clone(),
                             link_target: None,
                             table_rule: false,
+                            table_vertical_rule_offsets: Vec::new(),
                         }],
                         source,
                         font: body_font.clone(),
@@ -260,6 +271,7 @@ pub fn build_page_display_lists(
                             source: source.clone(),
                             link_target: None,
                             table_rule: false,
+                            table_vertical_rule_offsets: Vec::new(),
                         }],
                         source,
                         font: body_font.clone(),
@@ -291,12 +303,14 @@ pub fn build_page_display_lists(
                         source: block.source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_vertical_rule_offsets: Vec::new(),
                     });
                     segments.push(LogicalTextSegment {
                         text: " ".to_string(),
                         source: block.source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_vertical_rule_offsets: Vec::new(),
                     });
                 }
                 segments.extend(inline_segments(&block.content));
@@ -342,6 +356,7 @@ pub fn build_page_display_lists(
                         source: item.source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_vertical_rule_offsets: Vec::new(),
                     }];
                     segments.extend(inline_segments(&item.content));
                     logical_items.push(LogicalItem::Text(LogicalTextRun {
@@ -382,6 +397,7 @@ pub fn build_page_display_lists(
                         source: block.source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_vertical_rule_offsets: Vec::new(),
                     }],
                     source: block.source.clone(),
                     font: math_font.clone(),
@@ -406,6 +422,7 @@ pub fn build_page_display_lists(
                             source: item.source.clone(),
                             link_target: None,
                             table_rule: false,
+                            table_vertical_rule_offsets: Vec::new(),
                         }],
                         source: item.source.clone(),
                         font: body_font.clone(),
@@ -460,6 +477,7 @@ pub fn build_page_display_lists(
                             source: source.clone(),
                             link_target: None,
                             table_rule: false,
+                            table_vertical_rule_offsets: Vec::new(),
                         }],
                         source,
                         font: body_font.clone(),
@@ -545,6 +563,7 @@ pub fn build_page_display_lists(
                         source,
                         link_target: None,
                         table_rule: false,
+                        table_vertical_rule_offsets: Vec::new(),
                     });
                 }
                 for row in &block.rows {
@@ -555,6 +574,7 @@ pub fn build_page_display_lists(
                                 source: block.source.clone(),
                                 link_target: None,
                                 table_rule: false,
+                                table_vertical_rule_offsets: Vec::new(),
                             });
                         }
                         segments.push(LogicalTextSegment {
@@ -562,6 +582,7 @@ pub fn build_page_display_lists(
                             source: block.source.clone(),
                             link_target: None,
                             table_rule: true,
+                            table_vertical_rule_offsets: Vec::new(),
                         });
                     }
                     for rule in &row.partial_rules_above {
@@ -571,6 +592,7 @@ pub fn build_page_display_lists(
                                 source: block.source.clone(),
                                 link_target: None,
                                 table_rule: false,
+                                table_vertical_rule_offsets: Vec::new(),
                             });
                         }
                         segments.push(LogicalTextSegment {
@@ -578,6 +600,7 @@ pub fn build_page_display_lists(
                             source: block.source.clone(),
                             link_target: None,
                             table_rule: true,
+                            table_vertical_rule_offsets: Vec::new(),
                         });
                     }
                     if !segments.is_empty() {
@@ -586,13 +609,35 @@ pub fn build_page_display_lists(
                             source: block.source.clone(),
                             link_target: None,
                             table_rule: false,
+                            table_vertical_rule_offsets: Vec::new(),
                         });
                     }
                     let mut row_text = String::new();
+                    let mut row_vertical_rule_offsets = Vec::new();
                     let mut column_index = 0usize;
+                    if block
+                        .columns
+                        .first()
+                        .is_some_and(|column| column.rule_before)
+                    {
+                        row_vertical_rule_offsets.push(0);
+                    }
                     for (cell_index, cell) in row.cells.iter().enumerate() {
                         if cell_index > 0 {
+                            let separator_start = row_text.chars().count();
                             row_text.push_str(" | ");
+                            let previous_column_index = column_index.saturating_sub(1);
+                            if block
+                                .columns
+                                .get(previous_column_index)
+                                .is_some_and(|column| column.rule_after)
+                                || block
+                                    .columns
+                                    .get(column_index)
+                                    .is_some_and(|column| column.rule_before)
+                            {
+                                row_vertical_rule_offsets.push(separator_start + 1);
+                            }
                         }
                         let column_span = cell.column_span.unwrap_or(1).max(1);
                         let end_column = (column_index + column_span).min(column_widths.len());
@@ -632,11 +677,21 @@ pub fn build_page_display_lists(
                         }
                         column_index += column_span;
                     }
+                    if block
+                        .columns
+                        .get(column_index.saturating_sub(1))
+                        .is_some_and(|column| column.rule_after)
+                    {
+                        row_vertical_rule_offsets.push(row_text.chars().count());
+                    }
+                    row_vertical_rule_offsets.sort_unstable();
+                    row_vertical_rule_offsets.dedup();
                     segments.push(LogicalTextSegment {
                         text: row_text,
                         source: block.source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_vertical_rule_offsets: row_vertical_rule_offsets,
                     });
                     if row.rule_below {
                         segments.push(LogicalTextSegment {
@@ -644,12 +699,14 @@ pub fn build_page_display_lists(
                             source: block.source.clone(),
                             link_target: None,
                             table_rule: false,
+                            table_vertical_rule_offsets: Vec::new(),
                         });
                         segments.push(LogicalTextSegment {
                             text: rule_text.clone(),
                             source: block.source.clone(),
                             link_target: None,
                             table_rule: true,
+                            table_vertical_rule_offsets: Vec::new(),
                         });
                     }
                     for rule in &row.partial_rules_below {
@@ -658,12 +715,14 @@ pub fn build_page_display_lists(
                             source: block.source.clone(),
                             link_target: None,
                             table_rule: false,
+                            table_vertical_rule_offsets: Vec::new(),
                         });
                         segments.push(LogicalTextSegment {
                             text: partial_rule_text(rule),
                             source: block.source.clone(),
                             link_target: None,
                             table_rule: true,
+                            table_vertical_rule_offsets: Vec::new(),
                         });
                     }
                 }
@@ -694,6 +753,7 @@ pub fn build_page_display_lists(
                         source: block.source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_vertical_rule_offsets: Vec::new(),
                     }],
                     source: block.source.clone(),
                     font: body_font.clone(),
@@ -913,12 +973,17 @@ pub fn build_page_display_lists(
                      source: &SourceProvenance,
                      link_target: Option<&str>,
                      table_rule: bool,
+                     table_vertical_rule_offsets: &[usize],
                      current_line: &mut Vec<LogicalTextSegment>,
                      current_len: &mut usize,
                      wrapped_lines: &mut Vec<Vec<LogicalTextSegment>>| {
+                        let mut consumed_chars = 0usize;
                         while !text.is_empty() {
                             if *current_len == 0 && !logical.preserve_leading_whitespace {
-                                text = text.trim_start_matches(char::is_whitespace);
+                                let trimmed = text.trim_start_matches(char::is_whitespace);
+                                consumed_chars +=
+                                    text[..text.len() - trimmed.len()].chars().count();
+                                text = trimmed;
                                 if text.is_empty() {
                                     break;
                                 }
@@ -936,14 +1001,32 @@ pub fn build_page_display_lists(
                             };
                             let chunk = &text[..split_byte];
                             if !chunk.is_empty() {
+                                let chunk_start_chars = consumed_chars;
+                                let chunk_end_chars = chunk_start_chars + take_chars;
+                                let is_final_chunk = split_byte == text.len();
+                                let table_vertical_rule_offsets = table_vertical_rule_offsets
+                                    .iter()
+                                    .filter_map(|offset| {
+                                        if *offset >= chunk_start_chars
+                                            && (*offset < chunk_end_chars
+                                                || (is_final_chunk && *offset == chunk_end_chars))
+                                        {
+                                            Some(*offset - chunk_start_chars)
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                    .collect::<Vec<_>>();
                                 current_line.push(LogicalTextSegment {
                                     text: chunk.to_string(),
                                     source: source.clone(),
                                     link_target: link_target.map(ToOwned::to_owned),
                                     table_rule,
+                                    table_vertical_rule_offsets,
                                 });
                                 *current_len += take_chars;
                             }
+                            consumed_chars += take_chars;
                             text = &text[split_byte..];
                             if *current_len >= max_chars_per_line {
                                 wrapped_lines.push(std::mem::take(current_line));
@@ -954,14 +1037,30 @@ pub fn build_page_display_lists(
 
                 for segment in &logical.segments {
                     let mut remaining = segment.text.as_str();
+                    let mut remaining_start_chars = 0usize;
                     while !remaining.is_empty() {
                         if let Some(newline_index) = remaining.find('\n') {
                             let before_newline = &remaining[..newline_index];
+                            let before_newline_chars = before_newline.chars().count();
+                            let table_vertical_rule_offsets = segment
+                                .table_vertical_rule_offsets
+                                .iter()
+                                .filter_map(|offset| {
+                                    if *offset >= remaining_start_chars
+                                        && *offset <= remaining_start_chars + before_newline_chars
+                                    {
+                                        Some(*offset - remaining_start_chars)
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<_>>();
                             push_segment_text(
                                 before_newline,
                                 &segment.source,
                                 segment.link_target.as_deref(),
                                 segment.table_rule,
+                                &table_vertical_rule_offsets,
                                 &mut current_line,
                                 &mut current_len,
                                 &mut wrapped_lines,
@@ -969,12 +1068,25 @@ pub fn build_page_display_lists(
                             wrapped_lines.push(std::mem::take(&mut current_line));
                             current_len = 0;
                             remaining = &remaining[newline_index + 1..];
+                            remaining_start_chars += before_newline_chars + 1;
                         } else {
+                            let table_vertical_rule_offsets = segment
+                                .table_vertical_rule_offsets
+                                .iter()
+                                .filter_map(|offset| {
+                                    if *offset >= remaining_start_chars {
+                                        Some(*offset - remaining_start_chars)
+                                    } else {
+                                        None
+                                    }
+                                })
+                                .collect::<Vec<_>>();
                             push_segment_text(
                                 remaining,
                                 &segment.source,
                                 segment.link_target.as_deref(),
                                 segment.table_rule,
+                                &table_vertical_rule_offsets,
                                 &mut current_line,
                                 &mut current_len,
                                 &mut wrapped_lines,
@@ -1046,6 +1158,7 @@ pub fn build_page_display_lists(
                         let advance =
                             text_advance_pt(&segment.text, &logical.font, logical.size_pt);
                         let mut table_rule_rects = Vec::new();
+                        let mut table_vertical_rule_rects = Vec::new();
                         if segment.table_rule {
                             let mut rule_start_byte = None;
                             for (byte_index, ch) in segment.text.char_indices() {
@@ -1095,6 +1208,29 @@ pub fn build_page_display_lists(
                                 }
                             }
                         }
+                        for offset in &segment.table_vertical_rule_offsets {
+                            let prefix_byte = if *offset >= segment.text.chars().count() {
+                                segment.text.len()
+                            } else {
+                                segment
+                                    .text
+                                    .char_indices()
+                                    .nth(*offset)
+                                    .map(|(index, _)| index)
+                                    .unwrap_or(segment.text.len())
+                            };
+                            let prefix_advance = text_advance_pt(
+                                &segment.text[..prefix_byte],
+                                &logical.font,
+                                logical.size_pt,
+                            );
+                            table_vertical_rule_rects.push(Rect {
+                                x: x + prefix_advance,
+                                y: (y - logical.size_pt).max(0.0),
+                                width: 0.8,
+                                height: options.line_height_pt,
+                            });
+                        }
                         pending.hash_input.push('\u{1f}');
                         pending.hash_input.push_str(&format!(
                             "text_segment:{x:.3}:{advance:.3}:{}",
@@ -1134,6 +1270,14 @@ pub fn build_page_display_lists(
                             pending.hash_input.push('\u{1f}');
                             pending.hash_input.push_str(&format!(
                                 "table_rule:{:.3}:{:.3}:{:.3}:{:.3}",
+                                rect.x, rect.y, rect.width, rect.height
+                            ));
+                            pending.ops.push(DrawOp::Rule(rect));
+                        }
+                        for rect in table_vertical_rule_rects {
+                            pending.hash_input.push('\u{1f}');
+                            pending.hash_input.push_str(&format!(
+                                "table_vertical_rule:{:.3}:{:.3}:{:.3}:{:.3}",
                                 rect.x, rect.y, rect.width, rect.height
                             ));
                             pending.ops.push(DrawOp::Rule(rect));
@@ -1782,6 +1926,86 @@ mod tests {
 
         assert!(lines.contains(&"A    |  B   | Long"), "{lines:?}");
         assert!(lines.contains(&"Left | Wide |    9"), "{lines:?}");
+    }
+
+    #[test]
+    fn table_display_list_emits_vertical_rule_ops_from_column_specs() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                columns: vec![
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Left,
+                        rule_before: true,
+                        rule_after: true,
+                    },
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Right,
+                        rule_before: false,
+                        rule_after: true,
+                    },
+                ],
+                rows: vec![
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "A".to_string(),
+                                column_span: None,
+                            },
+                            TableCell {
+                                text: "1".to_string(),
+                                column_span: None,
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    },
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "B".to_string(),
+                                column_span: None,
+                            },
+                            TableCell {
+                                text: "22".to_string(),
+                                column_span: None,
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    },
+                ],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let vertical_rules = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Rule(rect) if rect.height > rect.width => Some(rect),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let lines = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(vertical_rules.len(), 6, "{vertical_rules:?}");
+        assert!(lines.contains(&"A |  1"), "{lines:?}");
+        assert!(lines.contains(&"B | 22"), "{lines:?}");
     }
 
     #[test]
