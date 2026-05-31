@@ -12112,6 +12112,50 @@ fn booktabs_spacing_commands_do_not_leak_into_table_text() {
 }
 
 #[test]
+fn makecell_xrule_commands_do_not_leak_into_table_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{makecell}\begin{document}\begin{tabular}{lll}\Xhline{1pt} A & B & C \\\Xcline{2-3}{0.5pt} D & E & F\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows.len(), 2);
+    assert!(table.rows[0].rule_above);
+    assert_eq!(
+        table.rows[0].partial_rules_below,
+        vec![TableRuleSpan {
+            start_column: 1,
+            end_column: 2,
+        }]
+    );
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("A | B | C"));
+    assert!(extracted_text.contains("D | E | F"));
+    for hidden in ["Xhline", "Xcline", "1pt", "0.5pt"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+    let rule_ops = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::Rule(rect) => Some(rect),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(rule_ops.len() >= 2, "{rule_ops:?}");
+}
+
+#[test]
 fn hhline_rule_does_not_leak_into_table_text() {
     let capture = capture_internal_render_ir(
         "main.tex",

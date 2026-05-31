@@ -8965,7 +8965,7 @@ impl<'i> Vm<'i> {
                                 table_index = after;
                             }
                         }
-                        "hline" | "toprule" | "midrule" | "bottomrule" => {
+                        "hline" | "toprule" | "midrule" | "bottomrule" | "Xhline" => {
                             let (row_index, position) = if row_has_visible_content {
                                 (current_row_index, TableRulePosition::Below)
                             } else if current_row_index == 0 {
@@ -8984,6 +8984,14 @@ impl<'i> Vm<'i> {
                                     read_bracket_source_argument(table_body, table_index)
                             {
                                 table_index = after;
+                            }
+                            if command == "Xhline" {
+                                table_index = skip_ascii_whitespace(table_body, table_index);
+                                if let Some((_, _, _, after)) =
+                                    read_braced_source_argument(table_body, table_index)
+                                {
+                                    table_index = after;
+                                }
                             }
                         }
                         "addlinespace" => {
@@ -9235,7 +9243,7 @@ impl<'i> Vm<'i> {
                                 table_index = after;
                             }
                         }
-                        "cline" | "cmidrule" => {
+                        "cline" | "cmidrule" | "Xcline" => {
                             table_index = command_end;
                             if let Some((_, _, _, after)) =
                                 read_bracket_source_argument(table_body, table_index)
@@ -9288,6 +9296,14 @@ impl<'i> Vm<'i> {
                                     });
                                 }
                                 table_index = after;
+                                if command == "Xcline" {
+                                    table_index = skip_ascii_whitespace(table_body, table_index);
+                                    if let Some((_, _, _, after_width)) =
+                                        read_braced_source_argument(table_body, table_index)
+                                    {
+                                        table_index = after_width;
+                                    }
+                                }
                             }
                         }
                         _ => {
@@ -23008,6 +23024,51 @@ Fallback text.
             "{:?}",
             visible.table_rules
         );
+    }
+
+    #[test]
+    fn render_event_capture_omits_makecell_xrule_commands() {
+        let source = r"\documentclass{article}\usepackage{makecell}\begin{document}\begin{tabular}{lll}\Xhline{1pt} A & B & C \\\Xcline{2-3}{0.5pt} D & E & F\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        let visible_text = visible
+            .normalized_visible_text
+            .as_deref()
+            .expect("visible table text");
+
+        assert_eq!(visible_text, "A | B | C ; D | E | F");
+        for hidden in ["Xhline", "Xcline", "1pt", "0.5pt"] {
+            assert!(!visible_text.contains(hidden), "{visible_text:?}");
+        }
+        assert!(visible.table_rules.iter().any(|rule| {
+            rule.row_index == 0
+                && rule.position == TableRulePosition::Above
+                && rule.column_span.is_none()
+        }));
+        assert!(visible.table_rules.iter().any(|rule| {
+            rule.row_index == 0
+                && rule.position == TableRulePosition::Below
+                && rule.column_span
+                    == Some(TableRuleSpan {
+                        start_column: 1,
+                        end_column: 2,
+                    })
+        }));
     }
 
     #[test]

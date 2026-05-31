@@ -521,6 +521,8 @@ Implemented first slice:
   the next table column in the readable fallback.
 - starred `makecell` helpers such as `\makecell*{...}` and `\thead*{...}` are
   normalized to visible cell text without leaking helper command names.
+- `makecell` rule helpers `\Xhline{...}` and `\Xcline{...}{...}` are
+  normalized to full/partial table rule metadata without leaking rule widths.
 
 Remaining table work:
 
