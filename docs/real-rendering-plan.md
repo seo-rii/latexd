@@ -87,7 +87,9 @@ natural/default image box inside the requested rectangle instead of stretching
 it. `trim`, `viewport`/`bb`, and `clip` options are now preserved as
 renderer-neutral `ImageCrop` metadata on display-list image
 ops, exposed in SVG debug artifacts as `data-image-crop-*` attributes, and used
-to derive default image-box size when no explicit size is provided. The current
+to derive default image-box size when no explicit size is provided; individual
+`bbllx` / `bblly` / `bburx` / `bbury` keys are normalized to the same viewport
+metadata. The current
 PDF bitmap embedder is still the only renderer that applies `clip=true` crop
 metadata by clipping to the destination rect and offsetting/scaling the embedded
 XObject. Missing graphic assets now produce render-event diagnostics when the
@@ -665,6 +667,8 @@ Status:
 - bitmap and simple SVG/PDF/EPS natural-size layout is available;
 - explicit `natwidth` / `natheight` graphic options can drive default
   image-box sizing;
+- individual `bbllx` / `bblly` / `bburx` / `bbury` options are normalized to
+  viewport metadata for default image-box sizing;
 - non-uniform graphic scale hints affect display-list image-box sizing;
 - optional `ImageScale` metadata reaches `PageDisplayList::Image` and SVG
   debug artifacts;

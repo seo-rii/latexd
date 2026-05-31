@@ -2491,6 +2491,39 @@ fn graphic_crop_options_survive_project_root_render_ir_capture() {
 }
 
 #[test]
+fn graphic_individual_bounding_box_options_drive_default_image_rect() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\includegraphics[bbllx=10pt,bblly=20pt,bburx=110pt,bbury=70pt]{figures/plot.pdf}\end{document}",
+        &SemanticAux::default(),
+    );
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.pdf" => Some(image),
+            _ => None,
+        })
+        .expect("image op");
+
+    assert_eq!(
+        image.crop,
+        Some(ImageCrop {
+            trim: None,
+            viewport: Some(ImageViewport {
+                llx_pt: 10.0,
+                lly_pt: 20.0,
+                urx_pt: 110.0,
+                ury_pt: 70.0,
+            }),
+            clip: false,
+        })
+    );
+    assert!((image.rect.width - 100.0).abs() < 0.01);
+    assert!((image.rect.height - 50.0).abs() < 0.01);
+}
+
+#[test]
 fn graphic_trim_affects_project_root_default_image_rect() {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");

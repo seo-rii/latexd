@@ -1455,6 +1455,10 @@ pub fn build_page_display_lists(
                 let mut keep_aspect_ratio = false;
                 let mut trim = None;
                 let mut viewport = None;
+                let mut bb_llx_pt = None;
+                let mut bb_lly_pt = None;
+                let mut bb_urx_pt = None;
+                let mut bb_ury_pt = None;
                 let mut clip = false;
                 let mut rotation_angle_degrees = None;
                 let mut rotation_origin = None;
@@ -1530,6 +1534,18 @@ pub fn build_page_display_lists(
                                     });
                                 }
                             }
+                            "bbllx" => {
+                                bb_llx_pt = parse_graphic_dimension_pt(value, true);
+                            }
+                            "bblly" => {
+                                bb_lly_pt = parse_graphic_dimension_pt(value, true);
+                            }
+                            "bburx" => {
+                                bb_urx_pt = parse_graphic_dimension_pt(value, true);
+                            }
+                            "bbury" => {
+                                bb_ury_pt = parse_graphic_dimension_pt(value, true);
+                            }
                             "clip" => {
                                 clip = !matches!(value.trim(), "false" | "0" | "off");
                             }
@@ -1553,6 +1569,19 @@ pub fn build_page_display_lists(
                             _ => {}
                         }
                     }
+                }
+                if viewport.is_none()
+                    && let (Some(llx), Some(lly), Some(urx), Some(ury)) =
+                        (bb_llx_pt, bb_lly_pt, bb_urx_pt, bb_ury_pt)
+                    && urx > llx
+                    && ury > lly
+                {
+                    viewport = Some(ImageViewport {
+                        llx_pt: llx,
+                        lly_pt: lly,
+                        urx_pt: urx,
+                        ury_pt: ury,
+                    });
                 }
                 match (natural_width_hint_pt, natural_height_hint_pt) {
                     (Some(width), Some(height)) => {
