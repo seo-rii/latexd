@@ -11718,6 +11718,7 @@ fn tabular_multirow_visible_text_survives_ir_and_display_list() {
         .expect("tabular table");
 
     assert_eq!(table.rows[0].cells[0].text, "Span");
+    assert_eq!(table.rows[0].cells[0].row_span, Some(2));
     assert!(!capture.document_ir.extracted_text().contains("multirow"));
     let table_lines = capture.page_display_lists[0]
         .ops

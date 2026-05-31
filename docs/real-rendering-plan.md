@@ -66,7 +66,8 @@ left/center/right padding in the display-list text fallback. Simple column
 border markers also emit coarse vertical `PageDisplayList::Rule` rectangles at
 the monospaced fallback boundary positions, including repeated `||` rule-count
 approximations. `multirow` commands now preserve their visible cell text, but
-multirow geometry is still not
+simple `\multirow` / `\multirowcell` row counts also survive as
+`TableCell.row_span` metadata. Multirow geometry is still not
 modeled. The first figure slice is also implemented at
 the renderer boundary: resolver-provided PNG/JPEG bytes can be decoded into PDF
 `/Image` XObjects by `tex-pdf`, and project-root render-IR capture can now write
@@ -481,12 +482,13 @@ Implemented first slice:
 - simple vertical border markers now emit coarse `PageDisplayList::Rule`
   rectangles at the readable table fallback's column boundaries, including
   repeated `||` rule-count approximations.
-- `multirow` commands now preserve visible cell text in the table fallback.
+- `multirow` / `multirowcell` commands now preserve visible cell text and simple
+  `row_span` metadata in the table fallback.
 
 Remaining table work:
 
 - exact column width policy, programmable column hooks, and multirow
-  geometry approximations;
+  geometry rendering approximations;
 - exact vertical border trimming and exact rule trimming in `PageDisplayList`;
 - stronger booktabs/array-package compatibility on corpus fixtures;
 - raster-oriented table readability gates.
@@ -606,6 +608,7 @@ Status:
   text;
 - simple vertical table border markers now produce renderer-visible
   display-list rule ops, including repeated `||` approximations;
+- simple multirow row counts survive into `TableCell.row_span` metadata;
 - external PDF/EPS/SVG conversion and production preview wiring are still
   pending.
 

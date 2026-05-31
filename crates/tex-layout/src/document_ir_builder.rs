@@ -404,6 +404,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                     .map(|text| TableCell {
                                         text: text.to_string(),
                                         column_span: None,
+                                        row_span: None,
                                     })
                                     .collect::<Vec<_>>();
                                 (!cells.is_empty()).then_some(TableRow {
@@ -472,12 +473,16 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             }
                         }
                         for cell_span in &event.table_cell_spans {
-                            if cell_span.column_span <= 1 {
-                                continue;
-                            }
                             if let Some(row) = rows.get_mut(cell_span.row_index) {
                                 if let Some(cell) = row.cells.get_mut(cell_span.column_index) {
-                                    cell.column_span = Some(cell_span.column_span);
+                                    if cell_span.column_span > 1 {
+                                        cell.column_span = Some(cell_span.column_span);
+                                    }
+                                    if let Some(row_span) = cell_span.row_span
+                                        && row_span > 1
+                                    {
+                                        cell.row_span = Some(row_span);
+                                    }
                                 }
                             }
                         }

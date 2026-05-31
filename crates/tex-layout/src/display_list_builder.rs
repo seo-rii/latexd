@@ -1836,10 +1836,12 @@ mod tests {
                             TableCell {
                                 text: "A".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                             TableCell {
                                 text: "Longer".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                         ],
                         rule_below: false,
@@ -1852,10 +1854,12 @@ mod tests {
                             TableCell {
                                 text: "Alpha".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                             TableCell {
                                 text: "B".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                         ],
                         rule_below: false,
@@ -1918,14 +1922,17 @@ mod tests {
                             TableCell {
                                 text: "A".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                             TableCell {
                                 text: "B".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                             TableCell {
                                 text: "Long".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                         ],
                         rule_below: false,
@@ -1938,14 +1945,17 @@ mod tests {
                             TableCell {
                                 text: "Left".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                             TableCell {
                                 text: "Wide".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                             TableCell {
                                 text: "9".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                         ],
                         rule_below: false,
@@ -2001,10 +2011,12 @@ mod tests {
                             TableCell {
                                 text: "A".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                             TableCell {
                                 text: "1".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                         ],
                         rule_below: false,
@@ -2017,10 +2029,12 @@ mod tests {
                             TableCell {
                                 text: "B".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                             TableCell {
                                 text: "22".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                         ],
                         rule_below: false,
@@ -2084,10 +2098,12 @@ mod tests {
                         TableCell {
                             text: "A".to_string(),
                             column_span: None,
+                            row_span: None,
                         },
                         TableCell {
                             text: "1".to_string(),
                             column_span: None,
+                            row_span: None,
                         },
                     ],
                     rule_below: false,
@@ -2135,10 +2151,12 @@ mod tests {
                             TableCell {
                                 text: "Head".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                             TableCell {
                                 text: "Value".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                         ],
                         rule_below: true,
@@ -2151,10 +2169,12 @@ mod tests {
                             TableCell {
                                 text: "A".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                             TableCell {
                                 text: "B".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                         ],
                         rule_below: true,
@@ -2210,14 +2230,17 @@ mod tests {
                             TableCell {
                                 text: "Head".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                             TableCell {
                                 text: "Value".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                             TableCell {
                                 text: "Tail".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                         ],
                         rule_below: false,
@@ -2233,14 +2256,17 @@ mod tests {
                             TableCell {
                                 text: "A".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                             TableCell {
                                 text: "B".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                             TableCell {
                                 text: "C".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                         ],
                         rule_below: false,
@@ -2292,10 +2318,12 @@ mod tests {
                             TableCell {
                                 text: "Wide".to_string(),
                                 column_span: Some(2),
+                                row_span: None,
                             },
                             TableCell {
                                 text: "Tail".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                         ],
                         rule_below: false,
@@ -2308,14 +2336,17 @@ mod tests {
                             TableCell {
                                 text: "A".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                             TableCell {
                                 text: "B".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                             TableCell {
                                 text: "C".to_string(),
                                 column_span: None,
+                                row_span: None,
                             },
                         ],
                         rule_below: false,

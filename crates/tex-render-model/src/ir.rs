@@ -399,6 +399,8 @@ pub struct TableCell {
     pub text: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub column_span: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row_span: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

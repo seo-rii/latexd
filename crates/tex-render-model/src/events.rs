@@ -423,6 +423,8 @@ pub struct TableCellSpanEvent {
     pub row_index: usize,
     pub column_index: usize,
     pub column_span: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row_span: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

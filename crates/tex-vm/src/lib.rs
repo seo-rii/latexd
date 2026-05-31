@@ -8583,6 +8583,7 @@ impl<'i> Vm<'i> {
                                                 row_index: current_row_index,
                                                 column_index: current_column_index,
                                                 column_span,
+                                                row_span: None,
                                             });
                                             current_column_index += column_span - 1;
                                         }
@@ -8591,6 +8592,119 @@ impl<'i> Vm<'i> {
                                         table_index = after_content;
                                         parsed = true;
                                     }
+                                }
+                            }
+                            if !parsed {
+                                rewritten.push('\\');
+                                rewritten.push_str(command);
+                                row_has_visible_content = true;
+                                table_index = command_end;
+                            }
+                        }
+                        "multirow" => {
+                            let mut parsed = false;
+                            let mut argument_index = skip_ascii_whitespace(table_body, command_end);
+                            if let Some((_, _, _, after_option)) =
+                                read_bracket_source_argument(table_body, argument_index)
+                            {
+                                argument_index = after_option;
+                            }
+                            if let Some((row_span_text, _, _, after_rows)) =
+                                read_braced_source_argument(table_body, argument_index)
+                            {
+                                let mut width_index = skip_ascii_whitespace(table_body, after_rows);
+                                if let Some((_, _, _, after_option)) =
+                                    read_bracket_source_argument(table_body, width_index)
+                                {
+                                    width_index = after_option;
+                                }
+                                if let Some((_, _, _, after_width)) =
+                                    read_braced_source_argument(table_body, width_index)
+                                {
+                                    let mut text_index =
+                                        skip_ascii_whitespace(table_body, after_width);
+                                    if let Some((_, _, _, after_option)) =
+                                        read_bracket_source_argument(table_body, text_index)
+                                    {
+                                        text_index = after_option;
+                                    }
+                                    if let Some((content, _, _, after_content)) =
+                                        read_braced_source_argument(table_body, text_index)
+                                    {
+                                        let row_span = row_span_text
+                                            .trim()
+                                            .trim_start_matches('+')
+                                            .parse::<isize>()
+                                            .ok()
+                                            .map(|value| value.unsigned_abs())
+                                            .unwrap_or(1)
+                                            .max(1);
+                                        if row_span > 1 {
+                                            table_cell_spans.push(TableCellSpanEvent {
+                                                row_index: current_row_index,
+                                                column_index: current_column_index,
+                                                column_span: 1,
+                                                row_span: Some(row_span),
+                                            });
+                                        }
+                                        rewritten.push_str(content);
+                                        row_has_visible_content = true;
+                                        table_index = after_content;
+                                        parsed = true;
+                                    }
+                                }
+                            }
+                            if !parsed {
+                                rewritten.push('\\');
+                                rewritten.push_str(command);
+                                row_has_visible_content = true;
+                                table_index = command_end;
+                            }
+                        }
+                        "multirowcell" => {
+                            let mut parsed = false;
+                            let mut argument_index = skip_ascii_whitespace(table_body, command_end);
+                            loop {
+                                argument_index = skip_ascii_whitespace(table_body, argument_index);
+                                let Some((_, _, _, after_option)) =
+                                    read_bracket_source_argument(table_body, argument_index)
+                                else {
+                                    break;
+                                };
+                                argument_index = after_option;
+                            }
+                            if let Some((row_span_text, _, _, after_rows)) =
+                                read_braced_source_argument(table_body, argument_index)
+                            {
+                                let mut text_index = skip_ascii_whitespace(table_body, after_rows);
+                                if let Some((_, _, _, after_option)) =
+                                    read_bracket_source_argument(table_body, text_index)
+                                {
+                                    text_index = after_option;
+                                }
+                                if let Some((content, _, _, after_content)) =
+                                    read_braced_source_argument(table_body, text_index)
+                                {
+                                    let row_span = row_span_text
+                                        .trim()
+                                        .trim_start_matches('+')
+                                        .parse::<isize>()
+                                        .ok()
+                                        .map(|value| value.unsigned_abs())
+                                        .unwrap_or(1)
+                                        .max(1);
+                                    if row_span > 1 {
+                                        table_cell_spans.push(TableCellSpanEvent {
+                                            row_index: current_row_index,
+                                            column_index: current_column_index,
+                                            column_span: 1,
+                                            row_span: Some(row_span),
+                                        });
+                                    }
+                                    rewritten.push_str(content);
+                                    row_has_visible_content = true;
+                                    table_index = after_content;
+                                    parsed = true;
                                 }
                             }
                             if !parsed {
@@ -22380,12 +22494,49 @@ Fallback text.
                 row_index: 0,
                 column_index: 0,
                 column_span: 2,
+                row_span: None,
             }]
         );
         let visible_text = visible.normalized_visible_text.as_deref().unwrap_or("");
         assert!(!visible_text.contains("multicolumn"));
         assert!(!visible_text.contains("{2}"));
         assert!(!visible_text.contains("{c}"));
+    }
+
+    #[test]
+    fn render_event_capture_records_multirow_table_spans() {
+        let source = r"\begin{document}\begin{tabular}{ll}\multirow{2}{*}{Span} & A \\ B & C\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(
+            visible.normalized_visible_text.as_deref(),
+            Some("Span | A ; B | C")
+        );
+        assert_eq!(
+            visible.table_cell_spans,
+            vec![TableCellSpanEvent {
+                row_index: 0,
+                column_index: 0,
+                column_span: 1,
+                row_span: Some(2),
+            }]
+        );
     }
 
     #[test]
