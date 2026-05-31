@@ -11615,6 +11615,39 @@ fn tabular_repeated_column_specs_expand_before_display_list_alignment() {
 }
 
 #[test]
+fn tabular_fixed_width_column_specs_survive_ir_and_align_display_list_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{w{r}{2cm}W{c}{1cm}}A & B \\ Long & Z\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.columns.len(), 2);
+    assert_eq!(table.columns[0].alignment, TableColumnAlignment::Right);
+    assert_eq!(table.columns[1].alignment, TableColumnAlignment::Center);
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(table_lines.contains(&"   A | B"), "{table_lines:?}");
+    assert!(table_lines.contains(&"Long | Z"), "{table_lines:?}");
+}
+
+#[test]
 fn tabular_vertical_column_rules_emit_display_list_rules() {
     let capture = capture_internal_render_ir(
         "main.tex",

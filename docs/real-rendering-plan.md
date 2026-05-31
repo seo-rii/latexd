@@ -479,8 +479,9 @@ Implemented first slice:
 - simple `l` / `c` / `r` / paragraph-style table preamble columns and bounded
   `*{n}{...}` repeated specs now survive into IR and drive coarse display-list
   text alignment.
-- `tabularx` `X` columns are treated as paragraph-style columns in the fallback
-  model.
+- `tabularx` `X` columns and array-package `w{align}{width}` /
+  `W{align}{width}` columns are treated as paragraph/aligned fixed-width
+  fallback columns without applying exact TeX widths.
 - simple vertical border markers now emit coarse `PageDisplayList::Rule`
   rectangles at the readable table fallback's column boundaries, including
   repeated `||` rule-count approximations.
@@ -602,6 +603,7 @@ Status:
 - table IR and basic monospaced display-list rendering are started;
 - `tabularx` environments are promoted through the same table IR/display-list
   fallback path, with `X` columns mapped to paragraph-style columns;
+- array-package `w` / `W` fixed-width columns preserve coarse alignment intent;
 - figure asset identity/caption propagation exists, and resolver-provided
   PNG/JPEG bytes can be embedded by `tex-pdf`;
 - project-root render-IR debug capture can feed real image files into the

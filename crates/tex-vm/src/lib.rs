@@ -8354,6 +8354,38 @@ impl<'i> Vm<'i> {
                         pending_rule_before_count = pending_rule_before_count.saturating_add(1);
                         spec_index += ch.len_utf8();
                     }
+                    'w' | 'W' => {
+                        let alignment_index =
+                            skip_ascii_whitespace(column_spec, spec_index + ch.len_utf8());
+                        let mut alignment = TableColumnAlignment::Paragraph;
+                        let mut after_spec = spec_index + ch.len_utf8();
+                        if let Some((alignment_text, _, _, after_alignment)) =
+                            read_braced_source_argument(column_spec, alignment_index)
+                        {
+                            alignment = match alignment_text.trim().chars().next() {
+                                Some('l') => TableColumnAlignment::Left,
+                                Some('c') => TableColumnAlignment::Center,
+                                Some('r') => TableColumnAlignment::Right,
+                                _ => TableColumnAlignment::Paragraph,
+                            };
+                            after_spec = after_alignment;
+                            let width_index = skip_ascii_whitespace(column_spec, after_alignment);
+                            if let Some((_, _, _, after_width)) =
+                                read_braced_source_argument(column_spec, width_index)
+                            {
+                                after_spec = after_width;
+                            }
+                        }
+                        table_columns.push(TableColumnSpec {
+                            alignment,
+                            rule_before: pending_rule_before_count > 0,
+                            rule_before_count: pending_rule_before_count,
+                            rule_after: false,
+                            rule_after_count: 0,
+                        });
+                        pending_rule_before_count = 0;
+                        spec_index = after_spec;
+                    }
                     'l' | 'c' | 'r' | 'p' | 'm' | 'b' | 'X' => {
                         let alignment = match ch {
                             'l' => TableColumnAlignment::Left,
@@ -8409,6 +8441,57 @@ impl<'i> Vm<'i> {
                                                 pending_rule_before_count =
                                                     pending_rule_before_count.saturating_add(1);
                                                 repeated_spec_index += repeated_ch.len_utf8();
+                                            }
+                                            'w' | 'W' => {
+                                                let alignment_index = skip_ascii_whitespace(
+                                                    repeated_spec,
+                                                    repeated_spec_index + repeated_ch.len_utf8(),
+                                                );
+                                                let mut alignment = TableColumnAlignment::Paragraph;
+                                                let mut after_spec =
+                                                    repeated_spec_index + repeated_ch.len_utf8();
+                                                if let Some((
+                                                    alignment_text,
+                                                    _,
+                                                    _,
+                                                    after_alignment,
+                                                )) = read_braced_source_argument(
+                                                    repeated_spec,
+                                                    alignment_index,
+                                                ) {
+                                                    alignment = match alignment_text
+                                                        .trim()
+                                                        .chars()
+                                                        .next()
+                                                    {
+                                                        Some('l') => TableColumnAlignment::Left,
+                                                        Some('c') => TableColumnAlignment::Center,
+                                                        Some('r') => TableColumnAlignment::Right,
+                                                        _ => TableColumnAlignment::Paragraph,
+                                                    };
+                                                    after_spec = after_alignment;
+                                                    let width_index = skip_ascii_whitespace(
+                                                        repeated_spec,
+                                                        after_alignment,
+                                                    );
+                                                    if let Some((_, _, _, after_width)) =
+                                                        read_braced_source_argument(
+                                                            repeated_spec,
+                                                            width_index,
+                                                        )
+                                                    {
+                                                        after_spec = after_width;
+                                                    }
+                                                }
+                                                table_columns.push(TableColumnSpec {
+                                                    alignment,
+                                                    rule_before: pending_rule_before_count > 0,
+                                                    rule_before_count: pending_rule_before_count,
+                                                    rule_after: false,
+                                                    rule_after_count: 0,
+                                                });
+                                                pending_rule_before_count = 0;
+                                                repeated_spec_index = after_spec;
                                             }
                                             'l' | 'c' | 'r' | 'p' | 'm' | 'b' | 'X' => {
                                                 let alignment = match repeated_ch {
@@ -22596,6 +22679,39 @@ Fallback text.
                     rule_after_count: 1,
                 },
             ]
+        );
+    }
+
+    #[test]
+    fn render_event_capture_records_fixed_width_table_column_specs() {
+        let source =
+            r"\begin{document}\begin{tabular}{w{r}{2cm}W{c}{1cm}}A & B\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible.table_columns.len(), 2);
+        assert_eq!(
+            visible.table_columns[0].alignment,
+            TableColumnAlignment::Right
+        );
+        assert_eq!(
+            visible.table_columns[1].alignment,
+            TableColumnAlignment::Center
         );
     }
 
