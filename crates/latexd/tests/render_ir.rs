@@ -2807,6 +2807,48 @@ fn graphic_layout_box_wrappers_preserve_images_without_argument_leakage() {
 }
 
 #[test]
+fn nested_graphic_layout_box_wrappers_thread_sizing_options() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        NESTED_GRAPHIC_LAYOUT_BOX_WRAPPER_SOURCE,
+        &SemanticAux::default(),
+        &[
+            ("figures/nested.pdf", "%PDF fake"),
+            ("figures/reflected.pdf", "%PDF fake"),
+        ],
+    );
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Graphic(graphic)
+                if graphic.path == "figures/nested.pdf"
+                    && graphic.options.as_deref()
+                        == Some("scale=0.5,yscale=2,width=0.5\\textwidth")
+        )
+    }));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::Image(image)
+                if image.asset_ref == "figures/nested.pdf"
+                    && (image.rect.width - 234.0).abs() < 0.01
+                    && (image.rect.height - 42.0).abs() < 0.01
+                    && image.scale == Some(ImageScale { x: 0.5, y: 2.0 })
+        )
+    }));
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::Image(image)
+                if image.asset_ref == "figures/reflected.pdf"
+                    && (image.rect.width - (2.0 * 72.0 / 2.54)).abs() < 0.01
+                    && image.scale == Some(ImageScale { x: -1.0, y: 1.0 })
+        )
+    }));
+}
+
+#[test]
 fn graphic_alignment_box_wrappers_preserve_images_without_argument_leakage() {
     let capture = capture_internal_render_ir_with_mounted_files(
         "main.tex",
@@ -15621,6 +15663,8 @@ const LEGACY_EPSFIG_SOURCE: &str = r"\begin{document}\begin{figure}\epsfig{file=
 const LEGACY_EPSF_FILE_SOURCE: &str = r"\begin{document}\begin{figure}\epsfbox{figures/plot}\caption{Plot caption.}\end{figure}\end{document}";
 
 const GRAPHIC_LAYOUT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\resizebox{0.8\textwidth}{0.4\textheight}{\includegraphics[width=5cm]{figures/plot}}\scalebox{0.5}[2]{\epsfbox{figures/other}}\rotatebox[origin=c]{90}{\psfig{figure=figures/third.eps,width=2cm}}\end{document}";
+
+const NESTED_GRAPHIC_LAYOUT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\resizebox{0.5\textwidth}{!}{\scalebox{0.5}[2]{\includegraphics{figures/nested}}}\reflectbox{\resizebox{2cm}{!}{\includegraphics{figures/reflected}}}\end{document}";
 
 const GRAPHIC_ALIGNMENT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\adjustbox{width=\textwidth,center}{\includegraphics{figures/plot}}\centerline{\includegraphics{figures/other}}\makebox[\textwidth][c]{\epsfbox{figures/third}}\end{document}";
 

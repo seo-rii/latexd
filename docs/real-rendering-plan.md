@@ -112,7 +112,9 @@ scale plus optional vertical scale, `adjustbox` `xscale`/`yscale` affects
 display-list image-box sizing, and `reflectbox` preserves reflection intent as
 `xscale=-1` for later renderer work. `PageDisplayList::Image` now carries
 optional `ImageScale` metadata, and SVG debug artifacts expose that metadata as
-`data-image-scale-x` / `data-image-scale-y`.
+`data-image-scale-x` / `data-image-scale-y`. Nested graphic wrappers now thread
+outer sizing and scale hints into inner graphics instead of dropping them at the
+next wrapper boundary.
 
 ## Product Goal
 
@@ -647,6 +649,7 @@ Status:
 - non-uniform graphic scale hints affect display-list image-box sizing;
 - optional `ImageScale` metadata reaches `PageDisplayList::Image` and SVG
   debug artifacts;
+- nested graphic wrappers preserve inherited sizing and scale hints;
 - table horizontal rules now produce renderer-visible display-list rule ops;
 - simple and repeated table column alignment specs survive into display-list
   text;

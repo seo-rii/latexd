@@ -2842,6 +2842,7 @@ impl<'i> Vm<'i> {
                                                         body_end,
                                                         &scan_state.graphic_paths,
                                                         &scan_state.graphic_extensions,
+                                                        None,
                                                     )
                                                 {
                                                     body_index = after;
@@ -7362,6 +7363,7 @@ impl<'i> Vm<'i> {
                         source.len(),
                         &scan_state.graphic_paths,
                         &scan_state.graphic_extensions,
+                        None,
                     ) {
                         index = after;
                     }
@@ -8243,6 +8245,7 @@ impl<'i> Vm<'i> {
                         range_end,
                         graphic_paths,
                         graphic_extensions,
+                        inherited_options,
                     ),
                 _ => None,
             };
@@ -8259,6 +8262,7 @@ impl<'i> Vm<'i> {
         limit: usize,
         graphic_paths: &[Utf8PathBuf],
         graphic_extensions: &[String],
+        outer_options: Option<&str>,
     ) -> Option<usize> {
         let mut argument_index = skip_ascii_whitespace(source, argument_index);
         if command == "resizebox"
@@ -8296,7 +8300,10 @@ impl<'i> Vm<'i> {
                 if after_body > limit {
                     return None;
                 }
-                let inherited_options = inherited_options.join(",");
+                let inherited_options = merge_graphic_options(
+                    (!inherited_options.is_empty()).then_some(inherited_options.join(",")),
+                    outer_options,
+                );
                 self.capture_graphics_in_source_range(
                     source_path,
                     source,
@@ -8304,7 +8311,7 @@ impl<'i> Vm<'i> {
                     body_end,
                     graphic_paths,
                     graphic_extensions,
-                    (!inherited_options.is_empty()).then_some(inherited_options.as_str()),
+                    inherited_options.as_deref(),
                 );
                 Some(after_body)
             }
@@ -8337,7 +8344,10 @@ impl<'i> Vm<'i> {
                 if after_body > limit {
                     return None;
                 }
-                let inherited_options = inherited_options.join(",");
+                let inherited_options = merge_graphic_options(
+                    (!inherited_options.is_empty()).then_some(inherited_options.join(",")),
+                    outer_options,
+                );
                 self.capture_graphics_in_source_range(
                     source_path,
                     source,
@@ -8345,7 +8355,7 @@ impl<'i> Vm<'i> {
                     body_end,
                     graphic_paths,
                     graphic_extensions,
-                    (!inherited_options.is_empty()).then_some(inherited_options.as_str()),
+                    inherited_options.as_deref(),
                 );
                 Some(after_body)
             }
@@ -8378,7 +8388,10 @@ impl<'i> Vm<'i> {
                 if after_body > limit {
                     return None;
                 }
-                let inherited_options = inherited_options.join(",");
+                let inherited_options = merge_graphic_options(
+                    (!inherited_options.is_empty()).then_some(inherited_options.join(",")),
+                    outer_options,
+                );
                 self.capture_graphics_in_source_range(
                     source_path,
                     source,
@@ -8386,7 +8399,7 @@ impl<'i> Vm<'i> {
                     body_end,
                     graphic_paths,
                     graphic_extensions,
-                    (!inherited_options.is_empty()).then_some(inherited_options.as_str()),
+                    inherited_options.as_deref(),
                 );
                 Some(after_body)
             }
@@ -8403,7 +8416,7 @@ impl<'i> Vm<'i> {
                     body_end,
                     graphic_paths,
                     graphic_extensions,
-                    Some("xscale=-1"),
+                    merge_graphic_options(Some("xscale=-1".to_string()), outer_options).as_deref(),
                 );
                 Some(after_body)
             }
@@ -8427,7 +8440,11 @@ impl<'i> Vm<'i> {
                     body_end,
                     graphic_paths,
                     graphic_extensions,
-                    (!options.trim().is_empty()).then_some(options.as_str()),
+                    merge_graphic_options(
+                        (!options.trim().is_empty()).then_some(options),
+                        outer_options,
+                    )
+                    .as_deref(),
                 );
                 Some(after_body)
             }
@@ -8444,7 +8461,7 @@ impl<'i> Vm<'i> {
                     body_end,
                     graphic_paths,
                     graphic_extensions,
-                    None,
+                    outer_options,
                 );
                 Some(after_body)
             }
@@ -24232,6 +24249,32 @@ Fallback text.
                 if ["0.8", "0.4", "0.5", "origin", "90", "textwidth", "textheight", "reflectbox"]
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_threads_nested_graphic_wrapper_options() {
+        let source = r"\begin{document}\resizebox{0.5\textwidth}{!}{\scalebox{0.5}[2]{\includegraphics{figures/nested}}}\reflectbox{\resizebox{2cm}{!}{\includegraphics{figures/reflected}}}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("figures/nested.pdf", "%PDF fake");
+        vm.mount_file("figures/reflected.pdf", "%PDF fake");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/nested.pdf"
+                    && graphic.options.as_deref()
+                        == Some("scale=0.5,yscale=2,width=0.5\\textwidth")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/reflected.pdf"
+                    && graphic.options.as_deref() == Some("width=2cm,xscale=-1")
         )));
     }
 
