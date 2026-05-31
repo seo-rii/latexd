@@ -997,6 +997,8 @@ mod tests {
                             width_px: 640,
                             height_px: 320,
                             density: None,
+                            natural_width_pt_milli: None,
+                            natural_height_pt_milli: None,
                         }),
                     }),
                     SourceProvenance::file("main.tex", 0, 30),
@@ -1017,7 +1019,7 @@ mod tests {
             [IrBlock::Graphic(block)]
                 if block.path == "figures/plot.pdf"
                     && block.options.as_deref() == Some("width=0.8\\linewidth")
-                    && block.asset_dimensions == Some(GraphicAssetDimensions { width_px: 640, height_px: 320, density: None })
+                    && block.asset_dimensions == Some(GraphicAssetDimensions { width_px: 640, height_px: 320, density: None, natural_width_pt_milli: None, natural_height_pt_milli: None })
                     && block.caption.as_deref() == Some("Plot caption.")
                     && block.caption_source.is_some()
         ));

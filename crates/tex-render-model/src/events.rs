@@ -304,6 +304,10 @@ pub struct GraphicAssetDimensions {
     pub height_px: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub density: Option<GraphicAssetDensity>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub natural_width_pt_milli: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub natural_height_pt_milli: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

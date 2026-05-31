@@ -2037,7 +2037,10 @@ fn extensionless_svg_graphic_asset_format_survives_render_boundaries() {
         "main.tex",
         EXTENSIONLESS_SVG_GRAPHIC_SOURCE,
         &SemanticAux::default(),
-        &[("figures/vector.svg", "<svg/>")],
+        &[(
+            "figures/vector.svg",
+            r#"<svg width="2in" height="1in" viewBox="0 0 200 100"></svg>"#,
+        )],
     );
     let graphic_event = capture
         .events
@@ -2069,8 +2072,20 @@ fn extensionless_svg_graphic_asset_format_survives_render_boundaries() {
         .expect("image op");
 
     assert_eq!(graphic_event.asset_format, Some(GraphicAssetFormat::Svg));
+    assert_eq!(
+        graphic_event.asset_dimensions,
+        Some(tex_render_model::GraphicAssetDimensions {
+            width_px: 144,
+            height_px: 72,
+            density: None,
+            natural_width_pt_milli: Some(144_000),
+            natural_height_pt_milli: Some(72_000),
+        })
+    );
     assert_eq!(graphic_block.asset_format, Some(GraphicAssetFormat::Svg));
     assert_eq!(image_op.asset_format, Some(GraphicAssetFormat::Svg));
+    assert!((image_op.rect.width - (5.0 * 72.0 / 2.54)).abs() < 0.01);
+    assert!((image_op.rect.height - (2.5 * 72.0 / 2.54)).abs() < 0.01);
     let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
     assert!(pdf_text.contains("[image: figures/vector.svg]"));
 }
@@ -2259,6 +2274,8 @@ fn project_root_render_ir_capture_uses_png_natural_dimensions() {
             width_px: 2,
             height_px: 2,
             density: None,
+            natural_width_pt_milli: None,
+            natural_height_pt_milli: None,
         })
     );
     assert!((image.rect.width - 2.0).abs() < 0.01);
@@ -2315,6 +2332,8 @@ fn project_root_render_ir_capture_uses_jpeg_density_for_natural_dimensions() {
                 y_density: 144,
                 unit: GraphicAssetDensityUnit::PixelsPerInch,
             }),
+            natural_width_pt_milli: None,
+            natural_height_pt_milli: None,
         })
     );
     assert!((image.rect.width - 60.0).abs() < 0.01);

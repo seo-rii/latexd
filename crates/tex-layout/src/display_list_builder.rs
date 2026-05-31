@@ -1016,9 +1016,22 @@ pub fn build_page_display_lists(
                 let (natural_image_width, natural_image_height) = if let Some(dimensions) =
                     logical.asset_dimensions
                 {
-                    let mut natural_width = dimensions.width_px as f32;
-                    let mut natural_height = dimensions.height_px as f32;
-                    if let Some(density) = dimensions.density {
+                    let (mut natural_width, mut natural_height) =
+                        if let (Some(width_pt_milli), Some(height_pt_milli)) = (
+                            dimensions.natural_width_pt_milli,
+                            dimensions.natural_height_pt_milli,
+                        ) {
+                            (
+                                width_pt_milli as f32 / 1000.0,
+                                height_pt_milli as f32 / 1000.0,
+                            )
+                        } else {
+                            (dimensions.width_px as f32, dimensions.height_px as f32)
+                        };
+                    if dimensions.natural_width_pt_milli.is_none()
+                        && dimensions.natural_height_pt_milli.is_none()
+                        && let Some(density) = dimensions.density
+                    {
                         let x_density_per_inch = match density.unit {
                             GraphicAssetDensityUnit::PixelsPerInch => density.x_density as f32,
                             GraphicAssetDensityUnit::PixelsPerCentimeter => {
@@ -1261,8 +1274,12 @@ pub fn build_page_display_lists(
                 if let Some(dimensions) = logical.asset_dimensions {
                     pending.hash_input.push('\u{1f}');
                     pending.hash_input.push_str(&format!(
-                        "asset-dimensions:{}:{}:{:?}",
-                        dimensions.width_px, dimensions.height_px, dimensions.density
+                        "asset-dimensions:{}:{}:{:?}:{:?}:{:?}",
+                        dimensions.width_px,
+                        dimensions.height_px,
+                        dimensions.density,
+                        dimensions.natural_width_pt_milli,
+                        dimensions.natural_height_pt_milli
                     ));
                 }
                 if let Some(crop) = crop {
@@ -2577,6 +2594,8 @@ mod tests {
                     width_px: 120,
                     height_px: 60,
                     density: None,
+                    natural_width_pt_milli: None,
+                    natural_height_pt_milli: None,
                 }),
                 caption: None,
                 caption_source: None,
@@ -2631,6 +2650,8 @@ mod tests {
                         y_density: 144,
                         unit: GraphicAssetDensityUnit::PixelsPerInch,
                     }),
+                    natural_width_pt_milli: None,
+                    natural_height_pt_milli: None,
                 }),
                 caption: None,
                 caption_source: None,
@@ -2648,6 +2669,8 @@ mod tests {
                     width_px: 288,
                     height_px: 144,
                     density: None,
+                    natural_width_pt_milli: None,
+                    natural_height_pt_milli: None,
                 }),
                 caption: None,
                 caption_source: None,
@@ -2673,6 +2696,41 @@ mod tests {
     }
 
     #[test]
+    fn graphic_asset_natural_point_dimensions_override_pixel_dimensions() {
+        let source = SourceProvenance::file("main.tex", 0, 24);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/vector.svg".to_string(),
+                options: None,
+                asset_format: Some(GraphicAssetFormat::Svg),
+                asset_hash: Some("blake3:asset".to_string()),
+                asset_dimensions: Some(GraphicAssetDimensions {
+                    width_px: 640,
+                    height_px: 480,
+                    density: None,
+                    natural_width_pt_milli: Some(144_000),
+                    natural_height_pt_milli: Some(72_000),
+                }),
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let image = display_lists[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::Image(image) if image.asset_ref == "figures/vector.svg" => Some(image),
+                _ => None,
+            })
+            .expect("image op");
+
+        assert!((image.rect.width - 144.0).abs() < 0.01);
+        assert!((image.rect.height - 72.0).abs() < 0.01);
+    }
+
+    #[test]
     fn graphic_keepaspectratio_fits_within_width_and_height() {
         let source = SourceProvenance::file("main.tex", 0, 24);
         let display_lists = build_page_display_lists(
@@ -2685,6 +2743,8 @@ mod tests {
                     width_px: 400,
                     height_px: 200,
                     density: None,
+                    natural_width_pt_milli: None,
+                    natural_height_pt_milli: None,
                 }),
                 caption: None,
                 caption_source: None,
@@ -2798,6 +2858,8 @@ mod tests {
                     width_px: 200,
                     height_px: 100,
                     density: None,
+                    natural_width_pt_milli: None,
+                    natural_height_pt_milli: None,
                 }),
                 caption: None,
                 caption_source: None,
@@ -2831,6 +2893,8 @@ mod tests {
                     width_px: 200,
                     height_px: 100,
                     density: None,
+                    natural_width_pt_milli: None,
+                    natural_height_pt_milli: None,
                 }),
                 caption: None,
                 caption_source: None,

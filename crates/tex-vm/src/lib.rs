@@ -14875,6 +14875,23 @@ impl<'i> Vm<'i> {
         format: Option<GraphicAssetFormat>,
     ) -> Option<tex_render_model::GraphicAssetDimensions> {
         let bytes = self.project_file_bytes(path)?;
+        let dimensions_from_pt =
+            |width_pt: f32, height_pt: f32| -> Option<tex_render_model::GraphicAssetDimensions> {
+                if !width_pt.is_finite()
+                    || !height_pt.is_finite()
+                    || width_pt <= 0.0
+                    || height_pt <= 0.0
+                {
+                    return None;
+                }
+                Some(tex_render_model::GraphicAssetDimensions {
+                    width_px: width_pt.round().max(1.0) as u32,
+                    height_px: height_pt.round().max(1.0) as u32,
+                    density: None,
+                    natural_width_pt_milli: Some((width_pt * 1000.0).round().max(1.0) as u32),
+                    natural_height_pt_milli: Some((height_pt * 1000.0).round().max(1.0) as u32),
+                })
+            };
         match format {
             Some(GraphicAssetFormat::Png) => {
                 if bytes.len() < 24 || &bytes[..8] != b"\x89PNG\r\n\x1a\n" {
@@ -14921,6 +14938,8 @@ impl<'i> Vm<'i> {
                     width_px: width,
                     height_px: height,
                     density,
+                    natural_width_pt_milli: None,
+                    natural_height_pt_milli: None,
                 })
             }
             Some(GraphicAssetFormat::Jpeg) => {
@@ -15002,12 +15021,114 @@ impl<'i> Vm<'i> {
                                 width_px: width,
                                 height_px: height,
                                 density,
+                                natural_width_pt_milli: None,
+                                natural_height_pt_milli: None,
                             },
                         );
                     }
                     index += segment_len;
                 }
                 None
+            }
+            Some(GraphicAssetFormat::Svg) => {
+                let text = String::from_utf8_lossy(&bytes);
+                let tag_start = text.find("<svg")?;
+                let tag_tail = &text[tag_start..];
+                let tag_end = tag_tail.find('>')?;
+                let tag = &tag_tail[..tag_end];
+                let parse_svg_length = |raw: &str| -> Option<f32> {
+                    let raw = raw.trim();
+                    if raw.ends_with('%') {
+                        return None;
+                    }
+                    let split_at = raw
+                        .find(|ch: char| !(ch.is_ascii_digit() || matches!(ch, '.' | '+' | '-')))
+                        .unwrap_or(raw.len());
+                    let value = raw[..split_at].parse::<f32>().ok()?;
+                    let unit = raw[split_at..].trim();
+                    let multiplier = match unit {
+                        "" | "px" => 72.0 / 96.0,
+                        "pt" | "bp" => 1.0,
+                        "in" => 72.0,
+                        "cm" => 72.0 / 2.54,
+                        "mm" => 72.0 / 25.4,
+                        "pc" => 12.0,
+                        _ => return None,
+                    };
+                    Some(value * multiplier)
+                };
+                let attr_value = |name: &str| -> Option<String> {
+                    let mut offset = 0usize;
+                    while let Some(relative) = tag[offset..].find(name) {
+                        let index = offset + relative;
+                        let before = tag[..index].chars().next_back();
+                        if before.is_some_and(|ch| {
+                            !(ch.is_whitespace() || matches!(ch, '<' | '/' | '\'' | '"'))
+                        }) {
+                            offset = index + name.len();
+                            continue;
+                        }
+                        let after = tag[index + name.len()..].trim_start();
+                        let after = after.strip_prefix('=')?.trim_start();
+                        let quote = after.chars().next()?;
+                        if quote != '"' && quote != '\'' {
+                            return None;
+                        }
+                        let value_start = quote.len_utf8();
+                        let value_end = after[value_start..].find(quote)? + value_start;
+                        return Some(after[value_start..value_end].to_string());
+                    }
+                    None
+                };
+                let width = attr_value("width").and_then(|value| parse_svg_length(&value));
+                let height = attr_value("height").and_then(|value| parse_svg_length(&value));
+                if let (Some(width), Some(height)) = (width, height) {
+                    return dimensions_from_pt(width, height);
+                }
+                let view_box = attr_value("viewBox").or_else(|| attr_value("viewbox"))?;
+                let values = view_box
+                    .split(|ch: char| ch.is_whitespace() || ch == ',')
+                    .filter_map(|part| part.parse::<f32>().ok())
+                    .collect::<Vec<_>>();
+                if values.len() >= 4 {
+                    return dimensions_from_pt(values[2] * 72.0 / 96.0, values[3] * 72.0 / 96.0);
+                }
+                None
+            }
+            Some(GraphicAssetFormat::Pdf) => {
+                let text = String::from_utf8_lossy(&bytes);
+                let media_box_index = text.find("/MediaBox")?;
+                let tail = &text[media_box_index + "/MediaBox".len()..];
+                let start = tail.find('[')?;
+                let end = tail[start + 1..].find(']')? + start + 1;
+                let values = tail[start + 1..end]
+                    .split(|ch: char| ch.is_whitespace() || ch == ',')
+                    .filter_map(|part| part.parse::<f32>().ok())
+                    .collect::<Vec<_>>();
+                if values.len() >= 4 {
+                    dimensions_from_pt(values[2] - values[0], values[3] - values[1])
+                } else {
+                    None
+                }
+            }
+            Some(GraphicAssetFormat::Eps) => {
+                let text = String::from_utf8_lossy(&bytes);
+                text.lines()
+                    .filter_map(|line| {
+                        line.strip_prefix("%%HiResBoundingBox:")
+                            .or_else(|| line.strip_prefix("%%BoundingBox:"))
+                    })
+                    .find_map(|line| {
+                        let values = line
+                            .split_whitespace()
+                            .filter_map(|part| part.parse::<f32>().ok())
+                            .collect::<Vec<_>>();
+                        (values.len() >= 4)
+                            .then(|| {
+                                dimensions_from_pt(values[2] - values[0], values[3] - values[1])
+                            })
+                            .flatten()
+                    })
             }
             _ => None,
         }
@@ -22483,6 +22604,90 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_records_pdf_asset_natural_dimensions() {
+        let source = r"\begin{document}\includegraphics{figures/plot.pdf}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file(
+            "figures/plot.pdf",
+            "%PDF-1.4\n1 0 obj\n<< /Type /Page /MediaBox [10 20 370 200] >>\nendobj\n",
+        );
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.asset_format == Some(GraphicAssetFormat::Pdf)
+                    && graphic.asset_dimensions == Some(GraphicAssetDimensions {
+                        width_px: 360,
+                        height_px: 180,
+                        density: None,
+                        natural_width_pt_milli: Some(360_000),
+                        natural_height_pt_milli: Some(180_000),
+                    })
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_eps_asset_natural_dimensions() {
+        let source = r"\begin{document}\includegraphics{figures/plot.eps}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file(
+            "figures/plot.eps",
+            "%!PS-Adobe-3.0 EPSF-3.0\n%%BoundingBox: 10 20 210 120\n",
+        );
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.eps"
+                    && graphic.asset_format == Some(GraphicAssetFormat::Eps)
+                    && graphic.asset_dimensions == Some(GraphicAssetDimensions {
+                        width_px: 200,
+                        height_px: 100,
+                        density: None,
+                        natural_width_pt_milli: Some(200_000),
+                        natural_height_pt_milli: Some(100_000),
+                    })
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_svg_asset_natural_dimensions() {
+        let source = r"\begin{document}\includegraphics{figures/vector.svg}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file(
+            "figures/vector.svg",
+            r#"<svg width="2in" height="1in" viewBox="0 0 200 100"></svg>"#,
+        );
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/vector.svg"
+                    && graphic.asset_format == Some(GraphicAssetFormat::Svg)
+                    && graphic.asset_dimensions == Some(GraphicAssetDimensions {
+                        width_px: 144,
+                        height_px: 72,
+                        density: None,
+                        natural_width_pt_milli: Some(144_000),
+                        natural_height_pt_milli: Some(72_000),
+                    })
+        )));
+    }
+
+    #[test]
     fn render_event_capture_records_png_asset_dimensions() {
         let source = r"\begin{document}\includegraphics{figures/plot}\end{document}";
         let root = std::env::temp_dir().join(format!(
@@ -22512,6 +22717,8 @@ Fallback text.
                         width_px: 120,
                         height_px: 60,
                         density: None,
+                        natural_width_pt_milli: None,
+                        natural_height_pt_milli: None,
                     })
         )));
         let _ = std::fs::remove_dir_all(root);
@@ -22554,6 +22761,8 @@ Fallback text.
                             y_density: 144,
                             unit: GraphicAssetDensityUnit::PixelsPerInch,
                         }),
+                        natural_width_pt_milli: None,
+                        natural_height_pt_milli: None,
                     })
         )));
         let _ = std::fs::remove_dir_all(root);
@@ -22603,6 +22812,8 @@ Fallback text.
                             y_density: 5669,
                             unit: GraphicAssetDensityUnit::PixelsPerMeter,
                         }),
+                        natural_width_pt_milli: None,
+                        natural_height_pt_milli: None,
                     })
         )));
         let _ = std::fs::remove_dir_all(root);
