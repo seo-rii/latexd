@@ -21,8 +21,8 @@ pub use events::{
     LineBreakEvent, LineBreakReason, ListItemEvent, ListKind, MathSourceEvent, MetadataField,
     ModeHint, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RenderDiagnosticEvent,
     RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
-    SetDocumentMetadataEvent, SpaceEvent, SpaceKind, TableCellSpanEvent, TableRuleEvent,
-    TableRulePosition, TableRuleSpan, TextEvent,
+    SetDocumentMetadataEvent, SpaceEvent, SpaceKind, TableCellSpanEvent, TableColumnAlignment,
+    TableColumnSpec, TableRuleEvent, TableRulePosition, TableRuleSpan, TextEvent,
 };
 pub use golden::{from_pretty_json, to_pretty_json, to_semantic_pretty_json};
 pub use ir::{

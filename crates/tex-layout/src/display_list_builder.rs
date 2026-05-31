@@ -2,8 +2,8 @@ use tex_render_model::{
     BibliographyBlock, Destination, DocumentIr, DrawOp, FontFamilyRequest, FontRequest, FontRole,
     FontSeries, FontShape, GraphicAssetDensityUnit, ImageCrop, ImageRotation, ImageTrim,
     ImageViewport, InlineNode, IrBlock, LinkAnnotation, PageDisplayList, Point, PositionedImage,
-    PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan, TableRuleSpan,
-    TextCluster,
+    PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan, TableColumnAlignment,
+    TableRuleSpan, TextCluster,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -586,9 +586,33 @@ pub fn build_page_display_lists(
                             .iter()
                             .sum::<usize>();
                         spanned_width += end_column.saturating_sub(column_index + 1) * 3;
+                        let text_width = cell.text.chars().count();
+                        let available_padding = spanned_width.saturating_sub(text_width);
+                        let alignment = block
+                            .columns
+                            .get(column_index)
+                            .map(|column| column.alignment)
+                            .unwrap_or(TableColumnAlignment::Left);
+                        let (left_padding, right_padding) = if column_span == 1
+                            && matches!(alignment, TableColumnAlignment::Right)
+                        {
+                            (available_padding, 0)
+                        } else if column_span == 1
+                            && matches!(alignment, TableColumnAlignment::Center)
+                        {
+                            (
+                                available_padding / 2,
+                                available_padding - available_padding / 2,
+                            )
+                        } else {
+                            (0, available_padding)
+                        };
+                        for _ in 0..left_padding {
+                            row_text.push(' ');
+                        }
                         row_text.push_str(&cell.text);
                         if cell_index + 1 < row.cells.len() {
-                            for _ in 0..spanned_width.saturating_sub(cell.text.chars().count()) {
+                            for _ in 0..right_padding {
                                 row_text.push(' ');
                             }
                         }
@@ -1553,8 +1577,8 @@ mod tests {
         GraphicAssetDimensions, GraphicAssetFormat, GraphicBlock, HeadingBlock, ImageCrop,
         ImageRotation, ImageTrim, ImageViewport, InlineNode, IrBlock, LabelDefinitionIr,
         LinkInline, ListBlock, ListItemIr, ListKind, ParagraphBlock, ProvenanceSpan,
-        ReferenceInline, SourceProvenance, SourceSpan, TableBlock, TableCell, TableRow,
-        TableRuleSpan, TextCluster, TitleBlock,
+        ReferenceInline, SourceProvenance, SourceSpan, TableBlock, TableCell, TableColumnAlignment,
+        TableColumnSpec, TableRow, TableRuleSpan, TextCluster, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists};
@@ -1606,6 +1630,7 @@ mod tests {
         let display_lists = build_page_display_lists(
             &DocumentIr::new(vec![IrBlock::Table(TableBlock {
                 environment: "tabular".to_string(),
+                columns: Vec::new(),
                 rows: vec![
                     TableRow {
                         rule_above: false,
@@ -1660,11 +1685,96 @@ mod tests {
     }
 
     #[test]
+    fn table_display_list_text_honors_column_alignment_specs() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                columns: vec![
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Left,
+                        rule_before: false,
+                        rule_after: false,
+                    },
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Center,
+                        rule_before: false,
+                        rule_after: false,
+                    },
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Right,
+                        rule_before: false,
+                        rule_after: false,
+                    },
+                ],
+                rows: vec![
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "A".to_string(),
+                                column_span: None,
+                            },
+                            TableCell {
+                                text: "B".to_string(),
+                                column_span: None,
+                            },
+                            TableCell {
+                                text: "Long".to_string(),
+                                column_span: None,
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    },
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "Left".to_string(),
+                                column_span: None,
+                            },
+                            TableCell {
+                                text: "Wide".to_string(),
+                                column_span: None,
+                            },
+                            TableCell {
+                                text: "9".to_string(),
+                                column_span: None,
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    },
+                ],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let lines = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(lines.contains(&"A    |  B   | Long"), "{lines:?}");
+        assert!(lines.contains(&"Left | Wide |    9"), "{lines:?}");
+    }
+
+    #[test]
     fn table_display_list_text_renders_horizontal_rules() {
         let source = SourceProvenance::file("main.tex", 0, 64);
         let display_lists = build_page_display_lists(
             &DocumentIr::new(vec![IrBlock::Table(TableBlock {
                 environment: "tabular".to_string(),
+                columns: Vec::new(),
                 rows: vec![
                     TableRow {
                         rule_above: true,
@@ -1739,6 +1849,7 @@ mod tests {
         let display_lists = build_page_display_lists(
             &DocumentIr::new(vec![IrBlock::Table(TableBlock {
                 environment: "tabular".to_string(),
+                columns: Vec::new(),
                 rows: vec![
                     TableRow {
                         rule_above: false,
@@ -1820,6 +1931,7 @@ mod tests {
         let display_lists = build_page_display_lists(
             &DocumentIr::new(vec![IrBlock::Table(TableBlock {
                 environment: "tabular".to_string(),
+                columns: Vec::new(),
                 rows: vec![
                     TableRow {
                         rule_above: false,

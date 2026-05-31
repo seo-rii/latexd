@@ -196,6 +196,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         {
                             self.blocks.push(IrBlock::Table(TableBlock {
                                 environment: "table".to_string(),
+                                columns: Vec::new(),
                                 rows: Vec::new(),
                                 caption: Some(caption),
                                 caption_source: Some(caption_source.clone()),
@@ -485,6 +486,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                 .environment
                                 .clone()
                                 .unwrap_or_else(|| "tabular".to_string()),
+                            columns: event.table_columns.clone(),
                             rows,
                             caption,
                             caption_source,
@@ -958,6 +960,7 @@ mod tests {
                     full_source_artifact: Some("fallbacks/raw-1.tex".to_string()),
                     table_rules: Vec::new(),
                     table_cell_spans: Vec::new(),
+                    table_columns: Vec::new(),
                     truncated: true,
                 }),
                 SourceProvenance::file("main.tex", 0, 48),

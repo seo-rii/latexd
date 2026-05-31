@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     CitationStyleHint, GraphicAssetDimensions, GraphicAssetFormat, ListKind, RawFallbackEvent,
-    SourceProvenance, TableRuleSpan,
+    SourceProvenance, TableColumnSpec, TableRuleSpan,
 };
 
 pub const DOCUMENT_IR_SCHEMA_VERSION: u32 = 1;
@@ -349,6 +349,8 @@ pub struct GraphicBlock {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TableBlock {
     pub environment: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub columns: Vec<TableColumnSpec>,
     pub rows: Vec<TableRow>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caption: Option<String>,

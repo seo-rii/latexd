@@ -391,6 +391,8 @@ pub struct RawFallbackEvent {
     pub table_rules: Vec<TableRuleEvent>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub table_cell_spans: Vec<TableCellSpanEvent>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub table_columns: Vec<TableColumnSpec>,
     #[serde(default)]
     pub truncated: bool,
 }
@@ -421,6 +423,25 @@ pub struct TableCellSpanEvent {
     pub row_index: usize,
     pub column_index: usize,
     pub column_span: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TableColumnSpec {
+    pub alignment: TableColumnAlignment,
+    #[serde(default)]
+    pub rule_before: bool,
+    #[serde(default)]
+    pub rule_after: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TableColumnAlignment {
+    Left,
+    Center,
+    Right,
+    Paragraph,
+    Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -539,6 +560,7 @@ mod tests {
                 full_source_artifact: None,
                 table_rules: Vec::new(),
                 table_cell_spans: Vec::new(),
+                table_columns: Vec::new(),
                 truncated: false,
             }),
             SourceProvenance::file("main.tex", 0, 35),
@@ -742,6 +764,7 @@ mod tests {
                 full_source_artifact: None,
                 table_rules: Vec::new(),
                 table_cell_spans: Vec::new(),
+                table_columns: Vec::new(),
                 truncated: false,
             }),
             SourceProvenance::file("main.tex", 420, 455),

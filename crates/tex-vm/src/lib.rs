@@ -15,7 +15,8 @@ use tex_render_model::{
     ModeHint, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent,
     RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent,
     SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind, TableCellSpanEvent,
-    TableRuleEvent, TableRulePosition, TableRuleSpan, TextEvent,
+    TableColumnAlignment, TableColumnSpec, TableRuleEvent, TableRulePosition, TableRuleSpan,
+    TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -3357,6 +3358,7 @@ impl<'i> Vm<'i> {
                                             full_source_artifact: Some(full_source_artifact),
                                             table_rules: Vec::new(),
                                             table_cell_spans: Vec::new(),
+                                            table_columns: Vec::new(),
                                             truncated,
                                         }),
                                         SourceProvenance::file(
@@ -8327,7 +8329,66 @@ impl<'i> Vm<'i> {
         {
             table_body_start = after;
         }
-        if let Some((_, _, _, after)) = read_braced_source_argument(body_source, table_body_start) {
+        let mut table_columns: Vec<TableColumnSpec> = Vec::new();
+        if let Some((column_spec, _, _, after)) =
+            read_braced_source_argument(body_source, table_body_start)
+        {
+            let mut spec_index = 0usize;
+            let mut pending_rule_before = false;
+            while spec_index < column_spec.len() {
+                let ch = column_spec[spec_index..]
+                    .chars()
+                    .next()
+                    .expect("column spec char");
+                match ch {
+                    '|' => {
+                        if let Some(column) = table_columns.last_mut() {
+                            column.rule_after = true;
+                        }
+                        pending_rule_before = true;
+                        spec_index += ch.len_utf8();
+                    }
+                    'l' | 'c' | 'r' | 'p' | 'm' | 'b' => {
+                        let alignment = match ch {
+                            'l' => TableColumnAlignment::Left,
+                            'c' => TableColumnAlignment::Center,
+                            'r' => TableColumnAlignment::Right,
+                            'p' | 'm' | 'b' => TableColumnAlignment::Paragraph,
+                            _ => TableColumnAlignment::Unknown,
+                        };
+                        table_columns.push(TableColumnSpec {
+                            alignment,
+                            rule_before: pending_rule_before,
+                            rule_after: false,
+                        });
+                        pending_rule_before = false;
+                        spec_index += ch.len_utf8();
+                        if matches!(ch, 'p' | 'm' | 'b') {
+                            let argument_index = skip_ascii_whitespace(column_spec, spec_index);
+                            if let Some((_, _, _, after_argument)) =
+                                read_braced_source_argument(column_spec, argument_index)
+                            {
+                                spec_index = after_argument;
+                            }
+                        }
+                    }
+                    '@' | '!' | '>' | '<' => {
+                        spec_index += ch.len_utf8();
+                        let argument_index = skip_ascii_whitespace(column_spec, spec_index);
+                        if let Some((_, _, _, after_argument)) =
+                            read_braced_source_argument(column_spec, argument_index)
+                        {
+                            spec_index = after_argument;
+                        }
+                    }
+                    _ => {
+                        spec_index += ch.len_utf8();
+                    }
+                }
+            }
+            if pending_rule_before && let Some(column) = table_columns.last_mut() {
+                column.rule_after = true;
+            }
             table_body_start = after;
         }
         table_body_start = skip_ascii_whitespace(body_source, table_body_start);
@@ -8564,6 +8625,7 @@ impl<'i> Vm<'i> {
                 full_source_artifact: Some(full_source_artifact),
                 table_rules,
                 table_cell_spans,
+                table_columns,
                 truncated,
             }),
             SourceProvenance::file(source_path.to_owned(), command_start as u32, raw_end as u32),
@@ -17906,8 +17968,8 @@ mod tests {
         BeginBlockEvent, BlockKind, CitationStyleHint, EndBlockEvent, EventProducer, GeneratedBy,
         GraphicAssetDensity, GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat,
         HeadingEvent, ListKind, MetadataField, ModeHint, RenderEvent, SemanticConfidence,
-        SourceSpanRole, SpaceKind, TableCellSpanEvent, TableRuleEvent, TableRulePosition,
-        TableRuleSpan,
+        SourceSpanRole, SpaceKind, TableCellSpanEvent, TableColumnAlignment, TableColumnSpec,
+        TableRuleEvent, TableRulePosition, TableRuleSpan,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -22185,6 +22247,54 @@ Fallback text.
         assert!(!visible_text.contains("multicolumn"));
         assert!(!visible_text.contains("{2}"));
         assert!(!visible_text.contains("{c}"));
+    }
+
+    #[test]
+    fn render_event_capture_records_simple_table_column_specs() {
+        let source = r"\begin{document}\begin{tabular}{|l|c|r|p{2cm}|}A & B & C & D\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(
+            visible.table_columns,
+            vec![
+                TableColumnSpec {
+                    alignment: TableColumnAlignment::Left,
+                    rule_before: true,
+                    rule_after: true,
+                },
+                TableColumnSpec {
+                    alignment: TableColumnAlignment::Center,
+                    rule_before: true,
+                    rule_after: true,
+                },
+                TableColumnSpec {
+                    alignment: TableColumnAlignment::Right,
+                    rule_before: true,
+                    rule_after: true,
+                },
+                TableColumnSpec {
+                    alignment: TableColumnAlignment::Paragraph,
+                    rule_before: true,
+                    rule_after: true,
+                },
+            ]
+        );
     }
 
     #[test]

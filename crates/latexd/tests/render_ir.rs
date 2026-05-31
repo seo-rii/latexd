@@ -10,7 +10,7 @@ use tex_render_model::{
     BlockKind, CitationStyleHint, DrawOp, EventProducer, GeneratedBy, GraphicAssetDensity,
     GraphicAssetDensityUnit, GraphicAssetFormat, ImageCrop, ImageRotation, ImageTrim,
     ImageViewport, ListKind, MetadataField, ModeHint, RenderEvent, SemanticConfidence, SpaceKind,
-    to_pretty_json, to_semantic_pretty_json,
+    TableColumnAlignment, to_pretty_json, to_semantic_pretty_json,
 };
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole, TableRuleSpan};
 
@@ -11535,6 +11535,46 @@ fn tabular_display_list_aligns_columns_by_cell_width() {
 
     assert!(table_lines.contains(&"A     | Longer"), "{table_lines:?}");
     assert!(table_lines.contains(&"Alpha | B"), "{table_lines:?}");
+}
+
+#[test]
+fn tabular_column_specs_survive_ir_and_align_display_list_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{lcr}A & B & Long \\ Left & Wide & 9\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.columns.len(), 3);
+    assert_eq!(table.columns[0].alignment, TableColumnAlignment::Left);
+    assert_eq!(table.columns[1].alignment, TableColumnAlignment::Center);
+    assert_eq!(table.columns[2].alignment, TableColumnAlignment::Right);
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        table_lines.contains(&"A    |  B   | Long"),
+        "{table_lines:?}"
+    );
+    assert!(
+        table_lines.contains(&"Left | Wide |    9"),
+        "{table_lines:?}"
+    );
 }
 
 #[test]
