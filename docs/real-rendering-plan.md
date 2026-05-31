@@ -516,10 +516,13 @@ Implemented first slice:
   color styling is not rendered yet.
 - `multirow` / `multirowcell` commands now preserve visible cell text and simple
   `row_span` metadata in the table fallback.
+- continuation rows below a simple multirow cell now insert a blank placeholder
+  column when the spanned column is omitted, so following cells are placed under
+  the next table column in the readable fallback.
 
 Remaining table work:
 
-- exact column width policy, programmable column hooks, and multirow
+- exact column width policy, programmable column hooks, and fuller multirow
   geometry rendering approximations;
 - exact vertical border trimming and exact rule trimming in `PageDisplayList`;
 - stronger booktabs/array-package compatibility on corpus fixtures;

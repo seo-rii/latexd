@@ -3,7 +3,7 @@ use tex_render_model::{
     FontSeries, FontShape, GraphicAssetDensityUnit, ImageCrop, ImageRotation, ImageScale,
     ImageTrim, ImageViewport, InlineNode, IrBlock, LinkAnnotation, PageDisplayList, Point,
     PositionedImage, PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan,
-    TableColumnAlignment, TableRuleSpan, TextCluster,
+    TableColumnAlignment, TableRow, TableRuleSpan, TextCluster,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -490,12 +490,73 @@ pub fn build_page_display_lists(
                 }
             }
             IrBlock::Table(block) => {
+                struct RenderedTableCell {
+                    text: String,
+                    column_span: usize,
+                    column_index: usize,
+                }
+
+                let row_column_count = |row: &TableRow| {
+                    row.cells
+                        .iter()
+                        .map(|cell| cell.column_span.unwrap_or(1).max(1))
+                        .sum::<usize>()
+                };
+                let expected_column_count = block
+                    .columns
+                    .len()
+                    .max(block.rows.iter().map(row_column_count).max().unwrap_or(0));
+                let mut active_row_spans = Vec::<usize>::new();
+                let mut rendered_rows = Vec::new();
+                for row in &block.rows {
+                    let active_column_count = active_row_spans
+                        .iter()
+                        .take(expected_column_count)
+                        .filter(|remaining| **remaining > 0)
+                        .count();
+                    let skip_active_columns = active_column_count > 0
+                        && row_column_count(row) + active_column_count <= expected_column_count;
+                    let mut column_index = 0usize;
+                    let mut rendered_cells = Vec::new();
+                    for cell in &row.cells {
+                        if skip_active_columns {
+                            while active_row_spans.get(column_index).copied().unwrap_or(0) > 0 {
+                                rendered_cells.push(RenderedTableCell {
+                                    text: String::new(),
+                                    column_span: 1,
+                                    column_index,
+                                });
+                                column_index += 1;
+                            }
+                        }
+                        let column_span = cell.column_span.unwrap_or(1).max(1);
+                        let row_span = cell.row_span.filter(|row_span| *row_span > 1);
+                        while column_index + column_span > active_row_spans.len() {
+                            active_row_spans.push(0);
+                        }
+                        if let Some(row_span) = row_span {
+                            for column in column_index..column_index + column_span {
+                                active_row_spans[column] = active_row_spans[column].max(row_span);
+                            }
+                        }
+                        rendered_cells.push(RenderedTableCell {
+                            text: cell.text.clone(),
+                            column_span,
+                            column_index,
+                        });
+                        column_index += column_span;
+                    }
+                    for remaining in &mut active_row_spans {
+                        *remaining = remaining.saturating_sub(1);
+                    }
+                    rendered_rows.push(rendered_cells);
+                }
                 let mut segments = Vec::new();
                 let mut column_widths = Vec::new();
-                for row in &block.rows {
-                    let mut column_index = 0usize;
-                    for cell in &row.cells {
-                        let column_span = cell.column_span.unwrap_or(1).max(1);
+                for row in &rendered_rows {
+                    for cell in row {
+                        let column_index = cell.column_index;
+                        let column_span = cell.column_span;
                         while column_index + column_span > column_widths.len() {
                             column_widths.push(0usize);
                         }
@@ -503,13 +564,12 @@ pub fn build_page_display_lists(
                             column_widths[column_index] =
                                 column_widths[column_index].max(cell.text.chars().count());
                         }
-                        column_index += column_span;
                     }
                 }
-                for row in &block.rows {
-                    let mut column_index = 0usize;
-                    for cell in &row.cells {
-                        let column_span = cell.column_span.unwrap_or(1).max(1);
+                for row in &rendered_rows {
+                    for cell in row {
+                        let column_index = cell.column_index;
+                        let column_span = cell.column_span;
                         let end_column = (column_index + column_span).min(column_widths.len());
                         let mut spanned_width = column_widths[column_index..end_column]
                             .iter()
@@ -519,7 +579,6 @@ pub fn build_page_display_lists(
                         if column_span > 1 && text_width > spanned_width && end_column > 0 {
                             column_widths[end_column - 1] += text_width - spanned_width;
                         }
-                        column_index += column_span;
                     }
                 }
                 let rule_width =
@@ -596,7 +655,7 @@ pub fn build_page_display_lists(
                         table_vertical_rule_offsets: Vec::new(),
                     });
                 }
-                for row in &block.rows {
+                for (row, rendered_cells) in block.rows.iter().zip(&rendered_rows) {
                     if row.rule_above {
                         if !segments.is_empty() {
                             segments.push(LogicalTextSegment {
@@ -649,7 +708,8 @@ pub fn build_page_display_lists(
                     if left_rule_count > 0 {
                         row_vertical_rule_offsets.push((0, left_rule_count));
                     }
-                    for (cell_index, cell) in row.cells.iter().enumerate() {
+                    for (cell_index, cell) in rendered_cells.iter().enumerate() {
+                        column_index = cell.column_index;
                         if cell_index > 0 {
                             let separator_start = row_text.chars().count();
                             row_text.push_str(" | ");
@@ -660,7 +720,7 @@ pub fn build_page_display_lists(
                                 row_vertical_rule_offsets.push((separator_start + 1, rule_count));
                             }
                         }
-                        let column_span = cell.column_span.unwrap_or(1).max(1);
+                        let column_span = cell.column_span;
                         let end_column = (column_index + column_span).min(column_widths.len());
                         let mut spanned_width = column_widths[column_index..end_column]
                             .iter()
@@ -691,7 +751,7 @@ pub fn build_page_display_lists(
                             row_text.push(' ');
                         }
                         row_text.push_str(&cell.text);
-                        if cell_index + 1 < row.cells.len() {
+                        if cell_index + 1 < rendered_cells.len() {
                             for _ in 0..right_padding {
                                 row_text.push(' ');
                             }
@@ -2407,6 +2467,63 @@ mod tests {
 
         assert!(lines.contains(&"Wide  | Tail"), "{lines:?}");
         assert!(lines.contains(&"A | B | C"), "{lines:?}");
+    }
+
+    #[test]
+    fn table_display_list_text_offsets_cells_below_multirow_spans() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                columns: Vec::new(),
+                rows: vec![
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "Span".to_string(),
+                                column_span: None,
+                                row_span: Some(2),
+                            },
+                            TableCell {
+                                text: "A".to_string(),
+                                column_span: None,
+                                row_span: None,
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    },
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![TableCell {
+                            text: "B".to_string(),
+                            column_span: None,
+                            row_span: None,
+                        }],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    },
+                ],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let lines = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(lines.contains(&"Span | A"), "{lines:?}");
+        assert!(lines.contains(&"     | B"), "{lines:?}");
     }
 
     #[test]
