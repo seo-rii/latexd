@@ -302,6 +302,23 @@ pub struct GraphicRefEvent {
 pub struct GraphicAssetDimensions {
     pub width_px: u32,
     pub height_px: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub density: Option<GraphicAssetDensity>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GraphicAssetDensity {
+    pub x_density: u32,
+    pub y_density: u32,
+    pub unit: GraphicAssetDensityUnit,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GraphicAssetDensityUnit {
+    PixelsPerInch,
+    PixelsPerCentimeter,
+    PixelsPerMeter,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

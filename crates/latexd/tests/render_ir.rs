@@ -7,9 +7,10 @@ use latexd::compiler::{
 };
 use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{
-    BlockKind, CitationStyleHint, DrawOp, EventProducer, GeneratedBy, GraphicAssetFormat,
-    ImageCrop, ImageRotation, ImageTrim, ImageViewport, ListKind, MetadataField, ModeHint,
-    RenderEvent, SemanticConfidence, SpaceKind, to_pretty_json, to_semantic_pretty_json,
+    BlockKind, CitationStyleHint, DrawOp, EventProducer, GeneratedBy, GraphicAssetDensity,
+    GraphicAssetDensityUnit, GraphicAssetFormat, ImageCrop, ImageRotation, ImageTrim,
+    ImageViewport, ListKind, MetadataField, ModeHint, RenderEvent, SemanticConfidence, SpaceKind,
+    to_pretty_json, to_semantic_pretty_json,
 };
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole, TableRuleSpan};
 
@@ -2257,10 +2258,67 @@ fn project_root_render_ir_capture_uses_png_natural_dimensions() {
         Some(tex_render_model::GraphicAssetDimensions {
             width_px: 2,
             height_px: 2,
+            density: None,
         })
     );
     assert!((image.rect.width - 2.0).abs() < 0.01);
     assert!((image.rect.height - 2.0).abs() < 0.01);
+}
+
+#[test]
+fn project_root_render_ir_capture_uses_jpeg_density_for_natural_dimensions() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
+    fs::create_dir_all(root.join("figures").as_std_path()).expect("create figures dir");
+    fs::write(
+        root.join("main.tex").as_std_path(),
+        r"\begin{document}\includegraphics{figures/photo.jpg}\end{document}",
+    )
+    .expect("write source");
+    let mut asset_bytes = vec![
+        0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0x00, 0x01, 0x02, 0x01, 0x00,
+        0x90, 0x00, 0x90, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x3c, 0x00, 0x78, 0x03,
+    ];
+    asset_bytes.resize(39, 0);
+    fs::write(root.join("figures/photo.jpg").as_std_path(), asset_bytes).expect("write image");
+
+    let capture =
+        capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
+            .expect("capture project render ir");
+    let graphic = capture
+        .events
+        .events
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::GraphicRef(graphic) if graphic.path == "figures/photo.jpg" => {
+                Some(graphic)
+            }
+            _ => None,
+        })
+        .expect("graphic event");
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/photo.jpg" => Some(image),
+            _ => None,
+        })
+        .expect("image op");
+
+    assert_eq!(
+        graphic.asset_dimensions,
+        Some(tex_render_model::GraphicAssetDimensions {
+            width_px: 120,
+            height_px: 60,
+            density: Some(GraphicAssetDensity {
+                x_density: 144,
+                y_density: 144,
+                unit: GraphicAssetDensityUnit::PixelsPerInch,
+            }),
+        })
+    );
+    assert!((image.rect.width - 60.0).abs() < 0.01);
+    assert!((image.rect.height - 30.0).abs() < 0.01);
 }
 
 #[test]

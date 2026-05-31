@@ -15,13 +15,14 @@ pub use display_list::{
 };
 pub use events::{
     BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, EndBlockEvent, EventId,
-    EventMeta, EventProducer, FallbackReason, FlushTitleBlockEvent, GraphicAssetDimensions,
-    GraphicAssetFormat, GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent,
-    InlineReferenceEvent, LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent,
-    ListKind, MathSourceEvent, MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason,
-    RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
-    SemanticConfidence, SetDocumentMetadataEvent, SpaceEvent, SpaceKind, TableCellSpanEvent,
-    TableRuleEvent, TableRulePosition, TableRuleSpan, TextEvent,
+    EventMeta, EventProducer, FallbackReason, FlushTitleBlockEvent, GraphicAssetDensity,
+    GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat, GraphicRefEvent,
+    HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
+    LineBreakEvent, LineBreakReason, ListItemEvent, ListKind, MathSourceEvent, MetadataField,
+    ModeHint, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RenderDiagnosticEvent,
+    RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
+    SetDocumentMetadataEvent, SpaceEvent, SpaceKind, TableCellSpanEvent, TableRuleEvent,
+    TableRulePosition, TableRuleSpan, TextEvent,
 };
 pub use golden::{from_pretty_json, to_pretty_json, to_semantic_pretty_json};
 pub use ir::{

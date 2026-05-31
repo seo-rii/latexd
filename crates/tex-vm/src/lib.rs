@@ -9,12 +9,13 @@ use tex_lexer::{CatCodeTable, Lexer, lex_plain};
 use tex_render_model::{
     BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint,
     EndBlockEvent, EventId, ExpansionFrame, FallbackReason, FlushTitleBlockEvent,
-    GraphicAssetFormat, GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent,
-    InlineReferenceEvent, LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent,
-    ListKind, MathSourceEvent, MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason,
-    ProvenanceSpan, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
-    SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
-    TableCellSpanEvent, TableRuleEvent, TableRulePosition, TableRuleSpan, TextEvent,
+    GraphicAssetDensity, GraphicAssetDensityUnit, GraphicAssetFormat, GraphicRefEvent,
+    HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
+    LineBreakEvent, LineBreakReason, ListItemEvent, ListKind, MathSourceEvent, MetadataField,
+    ModeHint, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent,
+    RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent,
+    SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind, TableCellSpanEvent,
+    TableRuleEvent, TableRulePosition, TableRuleSpan, TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -14881,15 +14882,52 @@ impl<'i> Vm<'i> {
                 }
                 let width = u32::from_be_bytes(bytes[16..20].try_into().ok()?);
                 let height = u32::from_be_bytes(bytes[20..24].try_into().ok()?);
+                let mut density = None;
+                let mut index = 8usize;
+                while index + 8 <= bytes.len() {
+                    let chunk_len =
+                        u32::from_be_bytes(bytes[index..index + 4].try_into().ok()?) as usize;
+                    let chunk_type = &bytes[index + 4..index + 8];
+                    let Some(data_start) = index.checked_add(8) else {
+                        break;
+                    };
+                    let Some(data_end) = data_start.checked_add(chunk_len) else {
+                        break;
+                    };
+                    let Some(next_index) = data_end.checked_add(4) else {
+                        break;
+                    };
+                    if next_index > bytes.len() {
+                        break;
+                    }
+                    if chunk_type == b"pHYs" && chunk_len >= 9 && bytes[data_start + 8] == 1 {
+                        let x_density =
+                            u32::from_be_bytes(bytes[data_start..data_start + 4].try_into().ok()?);
+                        let y_density = u32::from_be_bytes(
+                            bytes[data_start + 4..data_start + 8].try_into().ok()?,
+                        );
+                        if x_density > 0 && y_density > 0 {
+                            density = Some(GraphicAssetDensity {
+                                x_density,
+                                y_density,
+                                unit: GraphicAssetDensityUnit::PixelsPerMeter,
+                            });
+                        }
+                        break;
+                    }
+                    index = next_index;
+                }
                 (width > 0 && height > 0).then_some(tex_render_model::GraphicAssetDimensions {
                     width_px: width,
                     height_px: height,
+                    density,
                 })
             }
             Some(GraphicAssetFormat::Jpeg) => {
                 if bytes.len() < 4 || bytes[0] != 0xff || bytes[1] != 0xd8 {
                     return None;
                 }
+                let mut density = None;
                 let mut index = 2usize;
                 while index + 3 < bytes.len() {
                     while index < bytes.len() && bytes[index] != 0xff {
@@ -14912,6 +14950,33 @@ impl<'i> Vm<'i> {
                     let segment_len = u16::from_be_bytes([bytes[index], bytes[index + 1]]) as usize;
                     if segment_len < 2 || index + segment_len > bytes.len() {
                         break;
+                    }
+                    let data_start = index + 2;
+                    if marker == 0xe0
+                        && segment_len >= 14
+                        && &bytes[data_start..data_start + 5] == b"JFIF\0"
+                    {
+                        let x_density =
+                            u16::from_be_bytes([bytes[data_start + 8], bytes[data_start + 9]])
+                                as u32;
+                        let y_density =
+                            u16::from_be_bytes([bytes[data_start + 10], bytes[data_start + 11]])
+                                as u32;
+                        let unit = match bytes[data_start + 7] {
+                            1 => Some(GraphicAssetDensityUnit::PixelsPerInch),
+                            2 => Some(GraphicAssetDensityUnit::PixelsPerCentimeter),
+                            _ => None,
+                        };
+                        if x_density > 0
+                            && y_density > 0
+                            && let Some(unit) = unit
+                        {
+                            density = Some(GraphicAssetDensity {
+                                x_density,
+                                y_density,
+                                unit,
+                            });
+                        }
                     }
                     let is_sof_marker = matches!(
                         marker,
@@ -14936,6 +15001,7 @@ impl<'i> Vm<'i> {
                             tex_render_model::GraphicAssetDimensions {
                                 width_px: width,
                                 height_px: height,
+                                density,
                             },
                         );
                     }
@@ -17717,9 +17783,10 @@ mod tests {
     use serde_json::json;
     use tex_render_model::{
         BeginBlockEvent, BlockKind, CitationStyleHint, EndBlockEvent, EventProducer, GeneratedBy,
-        GraphicAssetDimensions, GraphicAssetFormat, HeadingEvent, ListKind, MetadataField,
-        ModeHint, RenderEvent, SemanticConfidence, SourceSpanRole, SpaceKind, TableCellSpanEvent,
-        TableRuleEvent, TableRulePosition, TableRuleSpan,
+        GraphicAssetDensity, GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat,
+        HeadingEvent, ListKind, MetadataField, ModeHint, RenderEvent, SemanticConfidence,
+        SourceSpanRole, SpaceKind, TableCellSpanEvent, TableRuleEvent, TableRulePosition,
+        TableRuleSpan,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -22444,6 +22511,7 @@ Fallback text.
                     && graphic.asset_dimensions == Some(GraphicAssetDimensions {
                         width_px: 120,
                         height_px: 60,
+                        density: None,
                     })
         )));
         let _ = std::fs::remove_dir_all(root);
@@ -22459,9 +22527,11 @@ Fallback text.
         let _ = std::fs::remove_dir_all(&root);
         std::fs::create_dir_all(root.join("figures")).expect("create figures dir");
         let mut asset_bytes = vec![
-            0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x3c, 0x00, 0x78, 0x03,
+            0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, b'J', b'F', b'I', b'F', 0x00, 0x01, 0x02, 0x01,
+            0x00, 0x90, 0x00, 0x90, 0x00, 0x00, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x3c, 0x00,
+            0x78, 0x03,
         ];
-        asset_bytes.resize(21, 0);
+        asset_bytes.resize(39, 0);
         std::fs::write(root.join("figures/photo.jpg"), asset_bytes).expect("write asset");
         let root = Utf8PathBuf::from_path_buf(root).expect("utf8 root");
         let mut interner = ControlSequenceInterner::new();
@@ -22479,6 +22549,60 @@ Fallback text.
                     && graphic.asset_dimensions == Some(GraphicAssetDimensions {
                         width_px: 120,
                         height_px: 60,
+                        density: Some(GraphicAssetDensity {
+                            x_density: 144,
+                            y_density: 144,
+                            unit: GraphicAssetDensityUnit::PixelsPerInch,
+                        }),
+                    })
+        )));
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn render_event_capture_records_png_asset_density() {
+        let source = r"\begin{document}\includegraphics{figures/plot.png}\end{document}";
+        let root = std::env::temp_dir().join(format!(
+            "latexd-tex-vm-png-asset-density-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("figures")).expect("create figures dir");
+        let mut asset_bytes = b"\x89PNG\r\n\x1a\n".to_vec();
+        asset_bytes.extend_from_slice(&13u32.to_be_bytes());
+        asset_bytes.extend_from_slice(b"IHDR");
+        asset_bytes.extend_from_slice(&120u32.to_be_bytes());
+        asset_bytes.extend_from_slice(&60u32.to_be_bytes());
+        asset_bytes.extend_from_slice(&[8, 2, 0, 0, 0]);
+        asset_bytes.extend_from_slice(&[0, 0, 0, 0]);
+        asset_bytes.extend_from_slice(&9u32.to_be_bytes());
+        asset_bytes.extend_from_slice(b"pHYs");
+        asset_bytes.extend_from_slice(&5669u32.to_be_bytes());
+        asset_bytes.extend_from_slice(&5669u32.to_be_bytes());
+        asset_bytes.push(1);
+        asset_bytes.extend_from_slice(&[0, 0, 0, 0]);
+        std::fs::write(root.join("figures/plot.png"), asset_bytes).expect("write asset");
+        let root = Utf8PathBuf::from_path_buf(root).expect("utf8 root");
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.set_file_root(root.clone());
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.png"
+                    && graphic.asset_format == Some(GraphicAssetFormat::Png)
+                    && graphic.asset_dimensions == Some(GraphicAssetDimensions {
+                        width_px: 120,
+                        height_px: 60,
+                        density: Some(GraphicAssetDensity {
+                            x_density: 5669,
+                            y_density: 5669,
+                            unit: GraphicAssetDensityUnit::PixelsPerMeter,
+                        }),
                     })
         )));
         let _ = std::fs::remove_dir_all(root);

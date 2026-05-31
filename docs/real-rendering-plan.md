@@ -64,11 +64,13 @@ the renderer boundary: resolver-provided PNG/JPEG bytes can be decoded into PDF
 debug PDFs with those embedded assets. Image display-list boxes also honor the
 common `\includegraphics` `width`, `height`/`totalheight`, and `scale` options
 for common units and text/page-relative dimensions, and resolver-backed PNG/JPEG
-headers now provide natural pixel dimensions for default aspect-preserving image
-boxes when no explicit size is given. When both `width` and `height` are present,
-`keepaspectratio` now fits the natural/default image box inside the requested
-rectangle instead of stretching it. `trim`, `viewport`/`bb`, and `clip` options
-are now preserved as renderer-neutral `ImageCrop` metadata on display-list image
+headers now provide natural pixel dimensions plus optional density metadata for
+default aspect-preserving image boxes when no explicit size is given. PNG `pHYs`
+and JPEG JFIF density fields are converted to TeX points before layout uses the
+natural box. When both `width` and `height` are present, `keepaspectratio` now
+fits the natural/default image box inside the requested rectangle instead of
+stretching it. `trim`, `viewport`/`bb`, and `clip` options are now preserved as
+renderer-neutral `ImageCrop` metadata on display-list image
 ops, exposed in SVG debug artifacts as `data-image-crop-*` attributes, and used
 to derive default image-box size when no explicit size is provided. The current
 PDF bitmap embedder is still the only renderer that applies `clip=true` crop
@@ -76,10 +78,10 @@ metadata by clipping to the destination rect and offsetting/scaling the embedded
 XObject. Missing graphic assets now produce render-event diagnostics when the
 capture has enough project or mounted-file context to know the asset is absent,
 while preserving the image placeholder. External PDF/EPS/SVG conversion,
-DPI-aware natural sizing, driver-accurate crop/clip rendering for non-bitmap
-assets, TeX-exact rotated-box reflow, exact table rule trimming, vertical
-spanning, nested table constructs, TeX alignment policy, and production preview
-wiring are still deferred. Rotation intent is no longer dropped: `angle` /
+natural sizes and driver-accurate crop/clip rendering for non-bitmap assets,
+TeX-exact rotated-box reflow, exact table rule trimming, vertical spanning,
+nested table constructs, TeX alignment policy, and production preview wiring are
+still deferred. Rotation intent is no longer dropped: `angle` /
 `origin` options and simple `\rotatebox` wrappers are preserved as
 renderer-neutral `ImageRotation` metadata. The display-list PDF path applies
 that metadata to embedded bitmap XObjects and unresolved-image placeholders,
@@ -392,7 +394,7 @@ Implemented first slice:
 
 Remaining figure work:
 
-- DPI-aware natural image dimensions and broader option-aware sizing;
+- natural image dimensions for PDF/EPS/SVG assets and broader option-aware sizing;
 - fuller wrapper sizing semantics for non-uniform scaling and nested boxes;
 - trim/viewport/clip rendering parity for non-bitmap and raster backends;
 - TeX-exact rotated-box dimensions, page reflow, and non-debug raster parity;
