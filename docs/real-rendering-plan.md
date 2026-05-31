@@ -75,7 +75,9 @@ debug PDFs with those embedded assets. Image display-list boxes also honor the
 common `\includegraphics` `width`, `height`/`totalheight`, and `scale` options
 for common units and text/page-relative dimensions; option control sequences
 such as `\textwidth` / `\linewidth` are preserved from the VM event through
-display-list sizing instead of being normalized away as visible text.
+display-list sizing instead of being normalized away as visible text. Common
+page/content aliases such as `\paperwidth`, `\pagewidth`, `\hsize`, and
+`\vsize` are accepted by the same dimension parser.
 Resolver-backed PNG/JPEG headers now provide natural pixel dimensions plus
 optional density metadata, and resolver-backed SVG/PDF/EPS headers now provide
 natural point dimensions for default aspect-preserving image boxes when no
@@ -669,6 +671,8 @@ Status:
   assets;
 - `\includegraphics` option control sequences such as `\textwidth` /
   `\linewidth` survive event capture into display-list sizing;
+- `\paperwidth`, `\pagewidth`, `\hsize`, and `\vsize` are accepted as graphic
+  dimension aliases;
 - bitmap and simple SVG/PDF/EPS natural-size layout is available;
 - explicit `natwidth` / `natheight` graphic options can drive default
   image-box sizing;

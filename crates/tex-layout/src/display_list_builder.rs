@@ -918,11 +918,16 @@ pub fn build_page_display_lists(
         }
 
         for (name, reference_pt) in [
+            ("\\hsize", content_width_pt),
             ("\\linewidth", content_width_pt),
             ("\\textwidth", content_width_pt),
             ("\\columnwidth", content_width_pt),
+            ("\\paperwidth", options.page_width_pt),
+            ("\\pagewidth", options.page_width_pt),
+            ("\\vsize", content_height_pt),
             ("\\textheight", content_height_pt),
             ("\\paperheight", options.page_height_pt),
+            ("\\pageheight", options.page_height_pt),
         ] {
             if normalized == name {
                 return Some(reference_pt);
