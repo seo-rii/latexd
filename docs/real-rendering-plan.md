@@ -52,10 +52,11 @@ boundary. Common `tabular`, `tabular*`, `array`, and `longtable` bodies are
 normalized into row/cell `Table` IR and rendered as readable monospaced
 display-list text, including table-float captions and basic max-width column
 padding for uneven rows. Horizontal table rules from `\hline` and common
-booktabs commands are preserved as row rule flags and rendered as dashed
-separators in the readable display-list fallback, and simple `\cline{a-b}` /
-`\cmidrule(...){a-b}` spans are carried as zero-based inclusive column ranges
-with visible `.` filler outside the covered columns. Simple
+booktabs commands are preserved as row rule flags and now emit renderer-visible
+`PageDisplayList::Rule` rectangles while preserving dashed separators in the
+readable display-list fallback. Simple `\cline{a-b}` / `\cmidrule(...){a-b}`
+spans are carried as zero-based inclusive column ranges with visible `.` filler
+outside the covered columns and matching partial rule rectangles. Simple
 `\multicolumn{n}{...}{text}` cells are also normalized to visible cell text plus
 `TableCell.column_span` metadata so the display-list fallback can occupy the
 combined monospaced column width. The first figure slice is also implemented at
@@ -85,8 +86,9 @@ while preserving the image placeholder, and those diagnostics now annotate
 `data-image-*` attributes. Existing-but-unsupported PDF/EPS/SVG assets also
 surface as unsupported-image placeholders until external conversion exists.
 External PDF/EPS/SVG conversion, driver-accurate crop/clip rendering for
-non-bitmap assets, TeX-exact rotated-box reflow, exact table rule trimming,
-vertical spanning, nested table constructs, TeX alignment policy, and production
+non-bitmap assets, TeX-exact rotated-box reflow, vertical table borders, exact
+table rule trimming, vertical spanning, nested table constructs, TeX alignment
+policy, and production
 preview wiring are still deferred. Rotation intent is no longer dropped: `angle` /
 `origin` options and simple `\rotatebox` wrappers are preserved as
 renderer-neutral `ImageRotation` metadata. The display-list PDF path applies
@@ -462,12 +464,14 @@ Implemented first slice:
 - `DocumentIrBuilder` promotes those events into `Table` IR with rows, cells,
   caption, and label-preserving source provenance;
 - the text-only display-list path renders table caption and rows with a
-  monospaced font request.
+  monospaced font request;
+- full and partial horizontal rules now also emit `PageDisplayList::Rule`
+  rectangles for renderer-visible table separators.
 
 Remaining table work:
 
 - column widths, alignment, spanning, and multirow approximations;
-- proper table borders/rules in `PageDisplayList`;
+- vertical borders and exact rule trimming in `PageDisplayList`;
 - stronger booktabs/array-package compatibility on corpus fixtures;
 - raster-oriented table readability gates.
 
@@ -581,6 +585,7 @@ Status:
 - project-root render-IR debug capture can feed real image files into the
   display-list PDF artifact;
 - bitmap and simple SVG/PDF/EPS natural-size layout is available;
+- table horizontal rules now produce renderer-visible display-list rule ops;
 - external PDF/EPS/SVG conversion and production preview wiring are still
   pending.
 

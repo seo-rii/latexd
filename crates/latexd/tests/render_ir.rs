@@ -11579,6 +11579,19 @@ fn tabular_partial_rules_survive_ir_and_display_list() {
         "{table_lines:?}"
     );
     assert!(table_lines.contains(&"A    | B     | C"), "{table_lines:?}");
+    let table_rules = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::Rule(rect) => Some(rect),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(table_rules.len(), 1, "{table_rules:?}");
+    assert!(
+        table_rules[0].x > 72.0 && table_rules[0].width > 70.0,
+        "{table_rules:?}"
+    );
 }
 
 #[test]

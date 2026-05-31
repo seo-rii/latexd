@@ -57,6 +57,7 @@ struct LogicalTextSegment {
     text: String,
     source: SourceProvenance,
     link_target: Option<String>,
+    table_rule: bool,
 }
 
 struct LogicalTextRun {
@@ -127,6 +128,7 @@ pub fn build_page_display_lists(
                         text: text.clone(),
                         source: source.clone(),
                         link_target: None,
+                        table_rule: false,
                     });
                 }
                 InlineNode::Space { source } => {
@@ -134,6 +136,7 @@ pub fn build_page_display_lists(
                         text: " ".to_string(),
                         source: source.clone(),
                         link_target: None,
+                        table_rule: false,
                     });
                 }
                 InlineNode::LineBreak { source } => {
@@ -141,6 +144,7 @@ pub fn build_page_display_lists(
                         text: "\n".to_string(),
                         source: source.clone(),
                         link_target: None,
+                        table_rule: false,
                     });
                 }
                 InlineNode::Citation(citation) => {
@@ -148,6 +152,7 @@ pub fn build_page_display_lists(
                         text: citation.display_text.clone(),
                         source: citation.source.clone(),
                         link_target: None,
+                        table_rule: false,
                     });
                 }
                 InlineNode::Reference(reference) => {
@@ -155,6 +160,7 @@ pub fn build_page_display_lists(
                         text: reference.display_text.clone(),
                         source: reference.source.clone(),
                         link_target: None,
+                        table_rule: false,
                     });
                 }
                 InlineNode::Link(link) => {
@@ -162,6 +168,7 @@ pub fn build_page_display_lists(
                         text: link.display_text.clone(),
                         source: link.source.clone(),
                         link_target: Some(link.target.clone()),
+                        table_rule: false,
                     });
                 }
                 InlineNode::InlineMath {
@@ -175,6 +182,7 @@ pub fn build_page_display_lists(
                             .unwrap_or_else(|| raw_source.clone()),
                         source: source.clone(),
                         link_target: None,
+                        table_rule: false,
                     });
                 }
                 InlineNode::RawFallback(fallback) => {
@@ -185,6 +193,7 @@ pub fn build_page_display_lists(
                             .unwrap_or_else(|| fallback.source_excerpt.clone()),
                         source: fallback.source.clone(),
                         link_target: None,
+                        table_rule: false,
                     });
                 }
             }
@@ -206,6 +215,7 @@ pub fn build_page_display_lists(
                             text: title.clone(),
                             source: source.clone(),
                             link_target: None,
+                            table_rule: false,
                         }],
                         source,
                         font: title_font.clone(),
@@ -226,6 +236,7 @@ pub fn build_page_display_lists(
                             text: author.clone(),
                             source: source.clone(),
                             link_target: None,
+                            table_rule: false,
                         }],
                         source,
                         font: body_font.clone(),
@@ -245,6 +256,7 @@ pub fn build_page_display_lists(
                             text: date.clone(),
                             source: source.clone(),
                             link_target: None,
+                            table_rule: false,
                         }],
                         source,
                         font: body_font.clone(),
@@ -273,11 +285,13 @@ pub fn build_page_display_lists(
                         text: number.clone(),
                         source: block.source.clone(),
                         link_target: None,
+                        table_rule: false,
                     });
                     segments.push(LogicalTextSegment {
                         text: " ".to_string(),
                         source: block.source.clone(),
                         link_target: None,
+                        table_rule: false,
                     });
                 }
                 segments.extend(inline_segments(&block.content));
@@ -319,6 +333,7 @@ pub fn build_page_display_lists(
                         text: format!("{} ", item.marker),
                         source: item.source.clone(),
                         link_target: None,
+                        table_rule: false,
                     }];
                     segments.extend(inline_segments(&item.content));
                     logical_items.push(LogicalItem::Text(LogicalTextRun {
@@ -356,6 +371,7 @@ pub fn build_page_display_lists(
                             .unwrap_or_else(|| block.raw_source.clone()),
                         source: block.source.clone(),
                         link_target: None,
+                        table_rule: false,
                     }],
                     source: block.source.clone(),
                     font: math_font.clone(),
@@ -378,6 +394,7 @@ pub fn build_page_display_lists(
                             text,
                             source: item.source.clone(),
                             link_target: None,
+                            table_rule: false,
                         }],
                         source: item.source.clone(),
                         font: body_font.clone(),
@@ -429,6 +446,7 @@ pub fn build_page_display_lists(
                             text: caption.clone(),
                             source: source.clone(),
                             link_target: None,
+                            table_rule: false,
                         }],
                         source,
                         font: body_font.clone(),
@@ -512,6 +530,7 @@ pub fn build_page_display_lists(
                         text: caption.clone(),
                         source,
                         link_target: None,
+                        table_rule: false,
                     });
                 }
                 for row in &block.rows {
@@ -521,12 +540,14 @@ pub fn build_page_display_lists(
                                 text: "\n".to_string(),
                                 source: block.source.clone(),
                                 link_target: None,
+                                table_rule: false,
                             });
                         }
                         segments.push(LogicalTextSegment {
                             text: rule_text.clone(),
                             source: block.source.clone(),
                             link_target: None,
+                            table_rule: true,
                         });
                     }
                     for rule in &row.partial_rules_above {
@@ -535,12 +556,14 @@ pub fn build_page_display_lists(
                                 text: "\n".to_string(),
                                 source: block.source.clone(),
                                 link_target: None,
+                                table_rule: false,
                             });
                         }
                         segments.push(LogicalTextSegment {
                             text: partial_rule_text(rule),
                             source: block.source.clone(),
                             link_target: None,
+                            table_rule: true,
                         });
                     }
                     if !segments.is_empty() {
@@ -548,6 +571,7 @@ pub fn build_page_display_lists(
                             text: "\n".to_string(),
                             source: block.source.clone(),
                             link_target: None,
+                            table_rule: false,
                         });
                     }
                     let mut row_text = String::new();
@@ -574,17 +598,20 @@ pub fn build_page_display_lists(
                         text: row_text,
                         source: block.source.clone(),
                         link_target: None,
+                        table_rule: false,
                     });
                     if row.rule_below {
                         segments.push(LogicalTextSegment {
                             text: "\n".to_string(),
                             source: block.source.clone(),
                             link_target: None,
+                            table_rule: false,
                         });
                         segments.push(LogicalTextSegment {
                             text: rule_text.clone(),
                             source: block.source.clone(),
                             link_target: None,
+                            table_rule: true,
                         });
                     }
                     for rule in &row.partial_rules_below {
@@ -592,11 +619,13 @@ pub fn build_page_display_lists(
                             text: "\n".to_string(),
                             source: block.source.clone(),
                             link_target: None,
+                            table_rule: false,
                         });
                         segments.push(LogicalTextSegment {
                             text: partial_rule_text(rule),
                             source: block.source.clone(),
                             link_target: None,
+                            table_rule: true,
                         });
                     }
                 }
@@ -625,6 +654,7 @@ pub fn build_page_display_lists(
                             .unwrap_or_else(|| block.source_excerpt.clone()),
                         source: block.source.clone(),
                         link_target: None,
+                        table_rule: false,
                     }],
                     source: block.source.clone(),
                     font: body_font.clone(),
@@ -842,6 +872,7 @@ pub fn build_page_display_lists(
                     |mut text: &str,
                      source: &SourceProvenance,
                      link_target: Option<&str>,
+                     table_rule: bool,
                      current_line: &mut Vec<LogicalTextSegment>,
                      current_len: &mut usize,
                      wrapped_lines: &mut Vec<Vec<LogicalTextSegment>>| {
@@ -869,6 +900,7 @@ pub fn build_page_display_lists(
                                     text: chunk.to_string(),
                                     source: source.clone(),
                                     link_target: link_target.map(ToOwned::to_owned),
+                                    table_rule,
                                 });
                                 *current_len += take_chars;
                             }
@@ -889,6 +921,7 @@ pub fn build_page_display_lists(
                                 before_newline,
                                 &segment.source,
                                 segment.link_target.as_deref(),
+                                segment.table_rule,
                                 &mut current_line,
                                 &mut current_len,
                                 &mut wrapped_lines,
@@ -901,6 +934,7 @@ pub fn build_page_display_lists(
                                 remaining,
                                 &segment.source,
                                 segment.link_target.as_deref(),
+                                segment.table_rule,
                                 &mut current_line,
                                 &mut current_len,
                                 &mut wrapped_lines,
@@ -971,6 +1005,56 @@ pub fn build_page_display_lists(
                         record_source_spans(&segment.source, &mut pending.source_spans);
                         let advance =
                             text_advance_pt(&segment.text, &logical.font, logical.size_pt);
+                        let mut table_rule_rects = Vec::new();
+                        if segment.table_rule {
+                            let mut rule_start_byte = None;
+                            for (byte_index, ch) in segment.text.char_indices() {
+                                if ch == '-' {
+                                    if rule_start_byte.is_none() {
+                                        rule_start_byte = Some(byte_index);
+                                    }
+                                } else if let Some(start_byte) = rule_start_byte.take() {
+                                    let prefix_advance = text_advance_pt(
+                                        &segment.text[..start_byte],
+                                        &logical.font,
+                                        logical.size_pt,
+                                    );
+                                    let rule_advance = text_advance_pt(
+                                        &segment.text[start_byte..byte_index],
+                                        &logical.font,
+                                        logical.size_pt,
+                                    );
+                                    if rule_advance > 0.0 {
+                                        table_rule_rects.push(Rect {
+                                            x: x + prefix_advance,
+                                            y: (y - logical.size_pt * 0.35).max(0.0),
+                                            width: rule_advance,
+                                            height: 0.8,
+                                        });
+                                    }
+                                }
+                            }
+                            if let Some(start_byte) = rule_start_byte {
+                                let prefix_advance = text_advance_pt(
+                                    &segment.text[..start_byte],
+                                    &logical.font,
+                                    logical.size_pt,
+                                );
+                                let rule_advance = text_advance_pt(
+                                    &segment.text[start_byte..],
+                                    &logical.font,
+                                    logical.size_pt,
+                                );
+                                if rule_advance > 0.0 {
+                                    table_rule_rects.push(Rect {
+                                        x: x + prefix_advance,
+                                        y: (y - logical.size_pt * 0.35).max(0.0),
+                                        width: rule_advance,
+                                        height: 0.8,
+                                    });
+                                }
+                            }
+                        }
                         pending.hash_input.push('\u{1f}');
                         pending.hash_input.push_str(&format!(
                             "text_segment:{x:.3}:{advance:.3}:{}",
@@ -1005,6 +1089,14 @@ pub fn build_page_display_lists(
                                 target,
                                 source,
                             }));
+                        }
+                        for rect in table_rule_rects {
+                            pending.hash_input.push('\u{1f}');
+                            pending.hash_input.push_str(&format!(
+                                "table_rule:{:.3}:{:.3}:{:.3}:{:.3}",
+                                rect.x, rect.y, rect.width, rect.height
+                            ));
+                            pending.ops.push(DrawOp::Rule(rect));
                         }
                         x += advance;
                     }
@@ -1629,6 +1721,16 @@ mod tests {
         );
         assert!(lines.contains(&"Head | Value"), "{lines:?}");
         assert!(lines.contains(&"A    | B"), "{lines:?}");
+        let rules = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Rule(rect) => Some(rect),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(rules.len(), 3, "{rules:?}");
+        assert!(rules.iter().all(|rule| rule.width > 70.0), "{rules:?}");
     }
 
     #[test]
@@ -1700,6 +1802,16 @@ mod tests {
         assert!(lines.contains(&"Head | Value | Tail"), "{lines:?}");
         assert!(lines.contains(&".......------------"), "{lines:?}");
         assert!(lines.contains(&"A    | B     | C"), "{lines:?}");
+        let rules = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Rule(rect) => Some(rect),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(rules.len(), 1, "{rules:?}");
+        assert!(rules[0].x > PageDisplayListOptions::default().margin_left_pt);
     }
 
     #[test]
