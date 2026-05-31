@@ -8354,6 +8354,47 @@ impl<'i> Vm<'i> {
                         pending_rule_before_count = pending_rule_before_count.saturating_add(1);
                         spec_index += ch.len_utf8();
                     }
+                    'S' => {
+                        let option_index =
+                            skip_ascii_whitespace(column_spec, spec_index + ch.len_utf8());
+                        let mut after_spec = spec_index + ch.len_utf8();
+                        if let Some((_, _, _, after_option)) =
+                            read_bracket_source_argument(column_spec, option_index)
+                        {
+                            after_spec = after_option;
+                        }
+                        table_columns.push(TableColumnSpec {
+                            alignment: TableColumnAlignment::Right,
+                            rule_before: pending_rule_before_count > 0,
+                            rule_before_count: pending_rule_before_count,
+                            rule_after: false,
+                            rule_after_count: 0,
+                        });
+                        pending_rule_before_count = 0;
+                        spec_index = after_spec;
+                    }
+                    'D' => {
+                        let mut after_spec = spec_index + ch.len_utf8();
+                        for _ in 0..3 {
+                            let argument_index = skip_ascii_whitespace(column_spec, after_spec);
+                            if let Some((_, _, _, after_argument)) =
+                                read_braced_source_argument(column_spec, argument_index)
+                            {
+                                after_spec = after_argument;
+                            } else {
+                                break;
+                            }
+                        }
+                        table_columns.push(TableColumnSpec {
+                            alignment: TableColumnAlignment::Right,
+                            rule_before: pending_rule_before_count > 0,
+                            rule_before_count: pending_rule_before_count,
+                            rule_after: false,
+                            rule_after_count: 0,
+                        });
+                        pending_rule_before_count = 0;
+                        spec_index = after_spec;
+                    }
                     'w' | 'W' => {
                         let alignment_index =
                             skip_ascii_whitespace(column_spec, spec_index + ch.len_utf8());
@@ -8441,6 +8482,60 @@ impl<'i> Vm<'i> {
                                                 pending_rule_before_count =
                                                     pending_rule_before_count.saturating_add(1);
                                                 repeated_spec_index += repeated_ch.len_utf8();
+                                            }
+                                            'S' => {
+                                                let option_index = skip_ascii_whitespace(
+                                                    repeated_spec,
+                                                    repeated_spec_index + repeated_ch.len_utf8(),
+                                                );
+                                                let mut after_spec =
+                                                    repeated_spec_index + repeated_ch.len_utf8();
+                                                if let Some((_, _, _, after_option)) =
+                                                    read_bracket_source_argument(
+                                                        repeated_spec,
+                                                        option_index,
+                                                    )
+                                                {
+                                                    after_spec = after_option;
+                                                }
+                                                table_columns.push(TableColumnSpec {
+                                                    alignment: TableColumnAlignment::Right,
+                                                    rule_before: pending_rule_before_count > 0,
+                                                    rule_before_count: pending_rule_before_count,
+                                                    rule_after: false,
+                                                    rule_after_count: 0,
+                                                });
+                                                pending_rule_before_count = 0;
+                                                repeated_spec_index = after_spec;
+                                            }
+                                            'D' => {
+                                                let mut after_spec =
+                                                    repeated_spec_index + repeated_ch.len_utf8();
+                                                for _ in 0..3 {
+                                                    let argument_index = skip_ascii_whitespace(
+                                                        repeated_spec,
+                                                        after_spec,
+                                                    );
+                                                    if let Some((_, _, _, after_argument)) =
+                                                        read_braced_source_argument(
+                                                            repeated_spec,
+                                                            argument_index,
+                                                        )
+                                                    {
+                                                        after_spec = after_argument;
+                                                    } else {
+                                                        break;
+                                                    }
+                                                }
+                                                table_columns.push(TableColumnSpec {
+                                                    alignment: TableColumnAlignment::Right,
+                                                    rule_before: pending_rule_before_count > 0,
+                                                    rule_before_count: pending_rule_before_count,
+                                                    rule_after: false,
+                                                    rule_after_count: 0,
+                                                });
+                                                pending_rule_before_count = 0;
+                                                repeated_spec_index = after_spec;
                                             }
                                             'w' | 'W' => {
                                                 let alignment_index = skip_ascii_whitespace(
@@ -22712,6 +22807,40 @@ Fallback text.
         assert_eq!(
             visible.table_columns[1].alignment,
             TableColumnAlignment::Center
+        );
+    }
+
+    #[test]
+    fn render_event_capture_records_numeric_table_column_specs() {
+        let source = r"\begin{document}\begin{tabular}{S[table-format=1.2]D{.}{.}{-1}}1.2 & 3.4\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible.table_columns.len(), 2);
+        assert!(
+            visible
+                .table_columns
+                .iter()
+                .all(|column| column.alignment == TableColumnAlignment::Right)
+        );
+        assert_eq!(
+            visible.normalized_visible_text.as_deref(),
+            Some("1.2 | 3.4")
         );
     }
 

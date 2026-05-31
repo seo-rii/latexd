@@ -482,6 +482,8 @@ Implemented first slice:
 - `tabularx` `X` columns and array-package `w{align}{width}` /
   `W{align}{width}` columns are treated as paragraph/aligned fixed-width
   fallback columns without applying exact TeX widths.
+- common numeric `siunitx` `S[...]` and `dcolumn` `D{...}{...}{...}` columns
+  are treated as right-aligned fallback columns without decimal alignment.
 - simple vertical border markers now emit coarse `PageDisplayList::Rule`
   rectangles at the readable table fallback's column boundaries, including
   repeated `||` rule-count approximations.
@@ -604,6 +606,8 @@ Status:
 - `tabularx` environments are promoted through the same table IR/display-list
   fallback path, with `X` columns mapped to paragraph-style columns;
 - array-package `w` / `W` fixed-width columns preserve coarse alignment intent;
+- `siunitx` `S` and `dcolumn` `D` numeric columns preserve coarse right-aligned
+  intent;
 - figure asset identity/caption propagation exists, and resolver-provided
   PNG/JPEG bytes can be embedded by `tex-pdf`;
 - project-root render-IR debug capture can feed real image files into the
