@@ -255,7 +255,15 @@ pub fn render_display_list_pdf_with_assets(
                     ));
                 }
                 DrawOp::Image(image) => {
-                    if let Some(bytes) = resolve_asset(&image.asset_ref) {
+                    let placeholder_status = ImagePlaceholderStatus::from_image(image);
+                    if placeholder_status == ImagePlaceholderStatus::Draft {
+                        push_image_placeholder(
+                            &mut stream,
+                            page.height_pt,
+                            image,
+                            placeholder_status,
+                        );
+                    } else if let Some(bytes) = resolve_asset(&image.asset_ref) {
                         if let Some(decoded) = decode_pdf_image(&bytes) {
                             let object_id = next_extra_object_id;
                             next_extra_object_id += 1;
@@ -532,6 +540,7 @@ fn push_pdf_image_rotation(
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ImagePlaceholderStatus {
     Generic,
+    Draft,
     Missing,
     Unsupported,
     Undecodable,
@@ -541,6 +550,7 @@ enum ImagePlaceholderStatus {
 impl ImagePlaceholderStatus {
     fn from_image(image: &PositionedImage) -> Self {
         match image.diagnostic.as_deref() {
+            Some(message) if message.starts_with("draft graphic asset ") => Self::Draft,
             Some(message) if message.starts_with("missing graphic asset ") => Self::Missing,
             Some(message) if message.starts_with("unsupported graphic asset format ") => {
                 Self::Unsupported
@@ -563,6 +573,7 @@ impl ImagePlaceholderStatus {
     fn as_str(self) -> &'static str {
         match self {
             Self::Generic => "generic",
+            Self::Draft => "draft",
             Self::Missing => "missing",
             Self::Unsupported => "unsupported",
             Self::Undecodable => "undecodable",
@@ -573,6 +584,7 @@ impl ImagePlaceholderStatus {
     fn label_prefix(self) -> &'static str {
         match self {
             Self::Generic => "image",
+            Self::Draft => "draft image",
             Self::Missing => "missing image",
             Self::Unsupported => "unsupported image",
             Self::Undecodable => "undecodable image",
@@ -900,7 +912,10 @@ pub fn render_display_list_svg_with_assets(
                         )
                     })
                     .unwrap_or_default();
-                let embedded_svg_href = if image.asset_format == Some(GraphicAssetFormat::Svg) {
+                let placeholder_status = ImagePlaceholderStatus::from_image(image);
+                let embedded_svg_href = if placeholder_status == ImagePlaceholderStatus::Generic
+                    && image.asset_format == Some(GraphicAssetFormat::Svg)
+                {
                     resolve_asset(&image.asset_ref).and_then(|bytes| {
                         let is_svg = std::str::from_utf8(&bytes)
                             .ok()
@@ -947,7 +962,6 @@ pub fn render_display_list_svg_with_assets(
                     ));
                     continue;
                 }
-                let placeholder_status = ImagePlaceholderStatus::from_image(image);
                 let placeholder_attrs = if placeholder_status == ImagePlaceholderStatus::Generic {
                     String::new()
                 } else {

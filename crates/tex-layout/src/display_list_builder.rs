@@ -1465,6 +1465,7 @@ pub fn build_page_display_lists(
                 let mut bb_urx_pt = None;
                 let mut bb_ury_pt = None;
                 let mut clip = false;
+                let mut draft = false;
                 let mut rotation_angle_degrees = None;
                 let mut rotation_origin = None;
                 if let Some(graphic_options) = &logical.options {
@@ -1476,6 +1477,14 @@ pub fn build_page_display_lists(
                         }
                         if part == "clip" {
                             clip = true;
+                            continue;
+                        }
+                        if part == "draft" {
+                            draft = true;
+                            continue;
+                        }
+                        if part == "final" {
+                            draft = false;
                             continue;
                         }
                         let Some((key, value)) = part.split_once('=') else {
@@ -1553,6 +1562,14 @@ pub fn build_page_display_lists(
                             }
                             "clip" => {
                                 clip = !matches!(value.trim(), "false" | "0" | "off");
+                            }
+                            "draft" => {
+                                draft = !matches!(value.trim(), "false" | "0" | "off");
+                            }
+                            "final" => {
+                                if !matches!(value.trim(), "false" | "0" | "off") {
+                                    draft = false;
+                                }
                             }
                             "angle" => {
                                 rotation_angle_degrees = value
@@ -1764,6 +1781,13 @@ pub fn build_page_display_lists(
                         .hash_input
                         .push_str(&format!("image-scale:{scale:?}"));
                 }
+                let image_diagnostic =
+                    draft.then(|| format!("draft graphic asset {}", logical.path));
+                if let Some(diagnostic) = &image_diagnostic {
+                    pending.hash_input.push('\u{1f}');
+                    pending.hash_input.push_str("image-diagnostic:");
+                    pending.hash_input.push_str(diagnostic);
+                }
                 pending.hash_input.push('\u{1f}');
                 pending.hash_input.push_str(&format!(
                     "image-rect:{:.3}:{:.3}:{image_width:.3}:{image_height:.3}",
@@ -1783,7 +1807,7 @@ pub fn build_page_display_lists(
                     crop,
                     scale,
                     rotation,
-                    diagnostic: None,
+                    diagnostic: image_diagnostic,
                     source: logical.source.clone(),
                 }));
                 y += image_height;

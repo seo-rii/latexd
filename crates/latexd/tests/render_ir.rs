@@ -2682,6 +2682,84 @@ fn project_root_missing_graphic_asset_emits_render_diagnostic() {
 }
 
 #[test]
+fn graphic_draft_option_surfaces_placeholder_without_embedding_project_asset() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
+    fs::create_dir_all(root.join("figures").as_std_path()).expect("create figures dir");
+    fs::write(
+        root.join("main.tex").as_std_path(),
+        r"\begin{document}\includegraphics[draft,width=10pt,height=5pt]{figures/plot.png}\end{document}",
+    )
+    .expect("write source");
+    fs::write(
+        root.join("figures/plot.png").as_std_path(),
+        tiny_png_bytes(),
+    )
+    .expect("write image");
+
+    let capture =
+        capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
+            .expect("capture project render ir");
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.png" => Some(image),
+            _ => None,
+        })
+        .expect("image op");
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+    let svg = tex_pdf::render_display_list_svg(&capture.page_display_lists[0]);
+
+    assert!(
+        image.diagnostic.as_deref().is_some_and(|diagnostic| {
+            diagnostic.contains("draft graphic asset figures/plot.png")
+        })
+    );
+    assert!(!pdf_text.contains("/Subtype /Image"));
+    assert!(pdf_text.contains("[draft image: figures/plot.png]"));
+    assert!(svg.contains("data-image-placeholder-kind=\"draft\""));
+    assert!(svg.contains("data-image-diagnostic=\"draft graphic asset figures/plot.png\""));
+}
+
+#[test]
+fn graphic_draft_pdf_asset_is_not_reported_as_unsupported() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
+    fs::create_dir_all(root.join("figures").as_std_path()).expect("create figures dir");
+    fs::write(
+        root.join("main.tex").as_std_path(),
+        r"\begin{document}\includegraphics[draft]{figures/plot.pdf}\end{document}",
+    )
+    .expect("write source");
+    fs::write(
+        root.join("figures/plot.pdf").as_std_path(),
+        b"%PDF-1.4\n1 0 obj\n<< /Type /Page /MediaBox [0 0 144 72] >>\nendobj\n",
+    )
+    .expect("write pdf");
+
+    let capture =
+        capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
+            .expect("capture project render ir");
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.pdf" => Some(image),
+            _ => None,
+        })
+        .expect("image op");
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+
+    assert_eq!(
+        image.diagnostic.as_deref(),
+        Some("draft graphic asset figures/plot.pdf")
+    );
+    assert!(pdf_text.contains("[draft image: figures/plot.pdf]"));
+    assert!(!pdf_text.contains("[unsupported image: figures/plot.pdf]"));
+}
+
+#[test]
 fn project_root_unsupported_pdf_graphic_surfaces_render_artifact_diagnostic() {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");

@@ -316,6 +316,7 @@ fn annotate_display_list_image_diagnostics(
             if let Some(message) = missing_graphic_diagnostics.get(&image.asset_ref) {
                 image.diagnostic = Some(message.clone());
             } else if asset_resolver_enabled
+                && image.diagnostic.is_none()
                 && image.asset_hash.is_some()
                 && matches!(
                     image.asset_format,
