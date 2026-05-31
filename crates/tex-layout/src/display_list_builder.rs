@@ -1310,6 +1310,7 @@ pub fn build_page_display_lists(
                     asset_hash: logical.asset_hash.clone(),
                     crop,
                     rotation,
+                    diagnostic: None,
                     source: logical.source.clone(),
                 }));
                 y += image_height;

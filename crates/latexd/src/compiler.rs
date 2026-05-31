@@ -32,8 +32,8 @@ use tex_pdf::{
     render_page_svg, render_single_page_pdf,
 };
 use tex_render_model::{
-    AuxView, DocumentIr, PageDisplayList, ProvenanceSpan, RenderEvent, RenderEventStream,
-    to_pretty_json,
+    AuxView, DocumentIr, DrawOp, GraphicAssetFormat, PageDisplayList, ProvenanceSpan, RenderEvent,
+    RenderEventStream, to_pretty_json,
 };
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{VmModuleCheckpointKind, VmReplayFrame};
@@ -253,10 +253,11 @@ fn capture_internal_render_ir_with_options(
     let outcome = vm.run_plain(source);
     let events = RenderEventStream::new(Some(source_path.to_string()), outcome.render_events);
     let document_ir = tex_layout::build_document_ir(&events, aux);
-    let page_display_lists = tex_layout::build_page_display_lists(
+    let mut page_display_lists = tex_layout::build_page_display_lists(
         &document_ir,
         tex_layout::PageDisplayListOptions::default(),
     );
+    annotate_display_list_image_diagnostics(&events, &mut page_display_lists, file_root.is_some());
     let display_list_pdf = if let Some(root) = file_root {
         render_display_list_pdf_with_assets(&page_display_lists, |asset_ref| {
             read_display_list_asset(root, asset_ref)
@@ -277,6 +278,74 @@ fn capture_internal_render_ir_with_options(
         page_display_lists,
         display_list_pdf,
         source_files,
+    }
+}
+
+fn annotate_display_list_image_diagnostics(
+    events: &RenderEventStream,
+    page_display_lists: &mut [PageDisplayList],
+    asset_resolver_enabled: bool,
+) {
+    let missing_graphic_diagnostics = events
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::Diagnostic(diagnostic) => diagnostic
+                .message
+                .strip_prefix("missing graphic asset ")
+                .map(|path| (path.to_string(), diagnostic.message.clone())),
+            _ => None,
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    for (page_index, page) in page_display_lists.iter_mut().enumerate() {
+        let mut diagnostic_hash_input = String::new();
+        for op in &mut page.ops {
+            let DrawOp::Image(image) = op else {
+                continue;
+            };
+            if let Some(message) = missing_graphic_diagnostics.get(&image.asset_ref) {
+                image.diagnostic = Some(message.clone());
+            } else if asset_resolver_enabled
+                && image.asset_hash.is_some()
+                && matches!(
+                    image.asset_format,
+                    Some(
+                        GraphicAssetFormat::Pdf | GraphicAssetFormat::Eps | GraphicAssetFormat::Svg
+                    )
+                )
+            {
+                let format = image
+                    .asset_format
+                    .map(|format| format.as_str())
+                    .unwrap_or("unknown");
+                image.diagnostic = Some(format!(
+                    "unsupported graphic asset format {format} for {}",
+                    image.asset_ref
+                ));
+            }
+            if let Some(diagnostic) = &image.diagnostic {
+                diagnostic_hash_input.push('\u{1f}');
+                diagnostic_hash_input.push_str(&image.asset_ref);
+                diagnostic_hash_input.push('\u{1e}');
+                diagnostic_hash_input.push_str(diagnostic);
+            }
+        }
+        if !diagnostic_hash_input.is_empty() {
+            page.content_hash =
+                blake3::hash(format!("{}{}", page.content_hash, diagnostic_hash_input).as_bytes())
+                    .to_hex()
+                    .to_string();
+            page.page_id = blake3::hash(
+                format!(
+                    "display-list:{page_index}:{}:{}:{}",
+                    page.width_pt, page.height_pt, page.content_hash
+                )
+                .as_bytes(),
+            )
+            .to_hex()
+            .to_string();
+        }
     }
 }
 

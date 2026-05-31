@@ -2499,12 +2499,17 @@ fn project_root_missing_graphic_asset_emits_render_diagnostic() {
             if diagnostic.message.contains("missing graphic asset")
                 && diagnostic.message.contains("figures/missing.png")
     )));
-    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
-        matches!(
-            op,
-            DrawOp::Image(image)
-                if image.asset_ref == "figures/missing.png" && image.asset_hash.is_none()
-        )
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/missing.png" => Some(image),
+            _ => None,
+        })
+        .expect("missing image op");
+    assert!(image.asset_hash.is_none());
+    assert!(image.diagnostic.as_deref().is_some_and(|diagnostic| {
+        diagnostic.contains("missing graphic asset figures/missing.png")
     }));
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("Visible."), "{extracted_text}");
@@ -2513,7 +2518,53 @@ fn project_root_missing_graphic_asset_emits_render_diagnostic() {
         "{extracted_text}"
     );
     let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
-    assert!(pdf_text.contains("[image: figures/missing.png]"));
+    assert!(pdf_text.contains("[missing image: figures/missing.png]"));
+    let svg = tex_pdf::render_display_list_svg(&capture.page_display_lists[0]);
+    assert!(svg.contains("data-image-placeholder-kind=\"missing\""));
+    assert!(svg.contains("data-image-diagnostic=\"missing graphic asset figures/missing.png\""));
+    assert!(svg.contains("[missing image: figures/missing.png]"));
+}
+
+#[test]
+fn project_root_unsupported_pdf_graphic_surfaces_render_artifact_diagnostic() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
+    fs::create_dir_all(root.join("figures").as_std_path()).expect("create figures dir");
+    fs::write(
+        root.join("main.tex").as_std_path(),
+        r"\begin{document}\includegraphics{figures/plot.pdf}\end{document}",
+    )
+    .expect("write source");
+    fs::write(
+        root.join("figures/plot.pdf").as_std_path(),
+        b"%PDF-1.4\n1 0 obj\n<< /Type /Page /MediaBox [0 0 144 72] >>\nendobj\n",
+    )
+    .expect("write pdf");
+
+    let capture =
+        capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
+            .expect("capture project render ir");
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.pdf" => Some(image),
+            _ => None,
+        })
+        .expect("pdf image op");
+
+    assert!(image.asset_hash.is_some());
+    assert_eq!(image.asset_format, Some(GraphicAssetFormat::Pdf));
+    assert!(image.diagnostic.as_deref().is_some_and(|diagnostic| {
+        diagnostic.contains("unsupported graphic asset format pdf")
+            && diagnostic.contains("figures/plot.pdf")
+    }));
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+    assert!(pdf_text.contains("[unsupported image: figures/plot.pdf]"));
+    let svg = tex_pdf::render_display_list_svg(&capture.page_display_lists[0]);
+    assert!(svg.contains("data-image-placeholder-kind=\"unsupported\""));
+    assert!(svg.contains("unsupported graphic asset format pdf for figures/plot.pdf"));
+    assert!(svg.contains("[unsupported image: figures/plot.pdf]"));
 }
 
 #[test]

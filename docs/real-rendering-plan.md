@@ -80,11 +80,14 @@ PDF bitmap embedder is still the only renderer that applies `clip=true` crop
 metadata by clipping to the destination rect and offsetting/scaling the embedded
 XObject. Missing graphic assets now produce render-event diagnostics when the
 capture has enough project or mounted-file context to know the asset is absent,
-while preserving the image placeholder. External PDF/EPS/SVG conversion,
-driver-accurate crop/clip rendering for non-bitmap assets, TeX-exact rotated-box
-reflow, exact table rule trimming, vertical spanning, nested table constructs,
-TeX alignment policy, and production preview wiring are still deferred. Rotation
-intent is no longer dropped: `angle` /
+while preserving the image placeholder, and those diagnostics now annotate
+`PageDisplayList::Image`, debug PDF placeholder text, and SVG debug
+`data-image-*` attributes. Existing-but-unsupported PDF/EPS/SVG assets also
+surface as unsupported-image placeholders until external conversion exists.
+External PDF/EPS/SVG conversion, driver-accurate crop/clip rendering for
+non-bitmap assets, TeX-exact rotated-box reflow, exact table rule trimming,
+vertical spanning, nested table constructs, TeX alignment policy, and production
+preview wiring are still deferred. Rotation intent is no longer dropped: `angle` /
 `origin` options and simple `\rotatebox` wrappers are preserved as
 renderer-neutral `ImageRotation` metadata. The display-list PDF path applies
 that metadata to embedded bitmap XObjects and unresolved-image placeholders,
@@ -402,7 +405,6 @@ Remaining figure work:
 - trim/viewport/clip rendering parity for non-bitmap and raster backends;
 - TeX-exact rotated-box dimensions, page reflow, and non-debug raster parity;
 - external PDF/EPS/SVG conversion or raster insertion;
-- missing/unsupported image diagnostics surfaced through render artifacts;
 - raster tests that fail on missing major figure regions.
 
 Done when:

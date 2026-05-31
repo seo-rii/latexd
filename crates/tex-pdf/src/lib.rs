@@ -1,6 +1,7 @@
 use tex_layout::{DocumentLayout, LayoutOptions, PageLayout};
 use tex_render_model::{
-    DrawOp, FontFamilyRequest, FontSeries, FontShape, PageDisplayList, Point, PositionedImage, Rect,
+    DrawOp, FontFamilyRequest, FontSeries, FontShape, GraphicAssetFormat, PageDisplayList, Point,
+    PositionedImage, Rect,
 };
 
 pub const PAGE_TEXT_LEFT_PT: f32 = 72.0;
@@ -254,93 +255,106 @@ pub fn render_display_list_pdf_with_assets(
                     ));
                 }
                 DrawOp::Image(image) => {
-                    if let Some(decoded) =
-                        resolve_asset(&image.asset_ref).and_then(|bytes| decode_pdf_image(&bytes))
-                    {
-                        let object_id = next_extra_object_id;
-                        next_extra_object_id += 1;
-                        let resource_name = format!("Im{next_page_image_index}");
-                        next_page_image_index += 1;
-                        image_resource_refs.push(format!("/{resource_name} {object_id} 0 R"));
-                        extra_objects.push(build_image_xobject(object_id, &decoded));
-                        let dest_x = image.rect.x;
-                        let dest_y = page.height_pt - image.rect.y - image.rect.height;
-                        let mut draw_x = dest_x;
-                        let mut draw_y = dest_y;
-                        let mut draw_width = image.rect.width;
-                        let mut draw_height = image.rect.height;
-                        let mut clip_to_dest = false;
-                        if let Some(crop) = image.crop.filter(|crop| crop.clip) {
-                            let natural_width = decoded.width as f32;
-                            let natural_height = decoded.height as f32;
-                            let (
-                                mut source_left,
-                                mut source_bottom,
-                                mut source_right,
-                                mut source_top,
-                            ) = if let Some(viewport) = crop.viewport {
-                                (
-                                    viewport.llx_pt,
-                                    viewport.lly_pt,
-                                    viewport.urx_pt,
-                                    viewport.ury_pt,
-                                )
-                            } else {
-                                (0.0, 0.0, natural_width, natural_height)
-                            };
-                            if let Some(trim) = crop.trim {
-                                source_left += trim.left_pt;
-                                source_bottom += trim.bottom_pt;
-                                source_right -= trim.right_pt;
-                                source_top -= trim.top_pt;
-                            }
-                            let source_width = source_right - source_left;
-                            let source_height = source_top - source_bottom;
-                            if source_width.is_finite()
-                                && source_height.is_finite()
-                                && source_width > 0.0
-                                && source_height > 0.0
-                            {
-                                let scale_x = image.rect.width / source_width;
-                                let scale_y = image.rect.height / source_height;
-                                if scale_x.is_finite()
-                                    && scale_y.is_finite()
-                                    && scale_x > 0.0
-                                    && scale_y > 0.0
+                    if let Some(bytes) = resolve_asset(&image.asset_ref) {
+                        if let Some(decoded) = decode_pdf_image(&bytes) {
+                            let object_id = next_extra_object_id;
+                            next_extra_object_id += 1;
+                            let resource_name = format!("Im{next_page_image_index}");
+                            next_page_image_index += 1;
+                            image_resource_refs.push(format!("/{resource_name} {object_id} 0 R"));
+                            extra_objects.push(build_image_xobject(object_id, &decoded));
+                            let dest_x = image.rect.x;
+                            let dest_y = page.height_pt - image.rect.y - image.rect.height;
+                            let mut draw_x = dest_x;
+                            let mut draw_y = dest_y;
+                            let mut draw_width = image.rect.width;
+                            let mut draw_height = image.rect.height;
+                            let mut clip_to_dest = false;
+                            if let Some(crop) = image.crop.filter(|crop| crop.clip) {
+                                let natural_width = decoded.width as f32;
+                                let natural_height = decoded.height as f32;
+                                let (
+                                    mut source_left,
+                                    mut source_bottom,
+                                    mut source_right,
+                                    mut source_top,
+                                ) = if let Some(viewport) = crop.viewport {
+                                    (
+                                        viewport.llx_pt,
+                                        viewport.lly_pt,
+                                        viewport.urx_pt,
+                                        viewport.ury_pt,
+                                    )
+                                } else {
+                                    (0.0, 0.0, natural_width, natural_height)
+                                };
+                                if let Some(trim) = crop.trim {
+                                    source_left += trim.left_pt;
+                                    source_bottom += trim.bottom_pt;
+                                    source_right -= trim.right_pt;
+                                    source_top -= trim.top_pt;
+                                }
+                                let source_width = source_right - source_left;
+                                let source_height = source_top - source_bottom;
+                                if source_width.is_finite()
+                                    && source_height.is_finite()
+                                    && source_width > 0.0
+                                    && source_height > 0.0
                                 {
-                                    draw_x = dest_x - source_left * scale_x;
-                                    draw_y = dest_y - source_bottom * scale_y;
-                                    draw_width = natural_width * scale_x;
-                                    draw_height = natural_height * scale_y;
-                                    clip_to_dest = true;
+                                    let scale_x = image.rect.width / source_width;
+                                    let scale_y = image.rect.height / source_height;
+                                    if scale_x.is_finite()
+                                        && scale_y.is_finite()
+                                        && scale_x > 0.0
+                                        && scale_y > 0.0
+                                    {
+                                        draw_x = dest_x - source_left * scale_x;
+                                        draw_y = dest_y - source_bottom * scale_y;
+                                        draw_width = natural_width * scale_x;
+                                        draw_height = natural_height * scale_y;
+                                        clip_to_dest = true;
+                                    }
                                 }
                             }
-                        }
-                        let rotated = push_pdf_image_rotation(&mut stream, page.height_pt, image);
-                        if clip_to_dest {
-                            stream.push_str(&format!(
-                                "q {} {} {} {} re W n q {} 0 0 {} {} {} cm /{} Do Q Q ",
-                                dest_x,
-                                dest_y,
-                                image.rect.width,
-                                image.rect.height,
-                                draw_width,
-                                draw_height,
-                                draw_x,
-                                draw_y,
-                                resource_name
-                            ));
+                            let rotated =
+                                push_pdf_image_rotation(&mut stream, page.height_pt, image);
+                            if clip_to_dest {
+                                stream.push_str(&format!(
+                                    "q {} {} {} {} re W n q {} 0 0 {} {} {} cm /{} Do Q Q ",
+                                    dest_x,
+                                    dest_y,
+                                    image.rect.width,
+                                    image.rect.height,
+                                    draw_width,
+                                    draw_height,
+                                    draw_x,
+                                    draw_y,
+                                    resource_name
+                                ));
+                            } else {
+                                stream.push_str(&format!(
+                                    "q {} 0 0 {} {} {} cm /{} Do Q ",
+                                    draw_width, draw_height, draw_x, draw_y, resource_name
+                                ));
+                            }
+                            if rotated {
+                                stream.push_str("Q ");
+                            }
                         } else {
-                            stream.push_str(&format!(
-                                "q {} 0 0 {} {} {} cm /{} Do Q ",
-                                draw_width, draw_height, draw_x, draw_y, resource_name
-                            ));
-                        }
-                        if rotated {
-                            stream.push_str("Q ");
+                            push_image_placeholder(
+                                &mut stream,
+                                page.height_pt,
+                                image,
+                                ImagePlaceholderStatus::from_decode_failure(image),
+                            );
                         }
                     } else {
-                        push_image_placeholder(&mut stream, page.height_pt, image);
+                        push_image_placeholder(
+                            &mut stream,
+                            page.height_pt,
+                            image,
+                            ImagePlaceholderStatus::from_image(image),
+                        );
                     }
                 }
                 DrawOp::LinkAnnotation(link) => {
@@ -515,7 +529,68 @@ fn push_pdf_image_rotation(
     true
 }
 
-fn push_image_placeholder(stream: &mut String, page_height_pt: f32, image: &PositionedImage) {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImagePlaceholderStatus {
+    Generic,
+    Missing,
+    Unsupported,
+    Undecodable,
+    Diagnostic,
+}
+
+impl ImagePlaceholderStatus {
+    fn from_image(image: &PositionedImage) -> Self {
+        match image.diagnostic.as_deref() {
+            Some(message) if message.starts_with("missing graphic asset ") => Self::Missing,
+            Some(message) if message.starts_with("unsupported graphic asset format ") => {
+                Self::Unsupported
+            }
+            Some(_) => Self::Diagnostic,
+            None => Self::Generic,
+        }
+    }
+
+    fn from_decode_failure(image: &PositionedImage) -> Self {
+        match Self::from_image(image) {
+            Self::Generic => match image.asset_format {
+                Some(GraphicAssetFormat::Png | GraphicAssetFormat::Jpeg) => Self::Undecodable,
+                _ => Self::Unsupported,
+            },
+            status => status,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Generic => "generic",
+            Self::Missing => "missing",
+            Self::Unsupported => "unsupported",
+            Self::Undecodable => "undecodable",
+            Self::Diagnostic => "diagnostic",
+        }
+    }
+
+    fn label_prefix(self) -> &'static str {
+        match self {
+            Self::Generic => "image",
+            Self::Missing => "missing image",
+            Self::Unsupported => "unsupported image",
+            Self::Undecodable => "undecodable image",
+            Self::Diagnostic => "image warning",
+        }
+    }
+}
+
+fn image_placeholder_text(image: &PositionedImage, status: ImagePlaceholderStatus) -> String {
+    format!("[{}: {}]", status.label_prefix(), image.asset_ref)
+}
+
+fn push_image_placeholder(
+    stream: &mut String,
+    page_height_pt: f32,
+    image: &PositionedImage,
+    status: ImagePlaceholderStatus,
+) {
     let rotated = push_pdf_image_rotation(stream, page_height_pt, image);
     stream.push_str(&format!(
         "q 0.92 g {} {} {} {} re f 0 G {} {} {} {} re S Q ",
@@ -535,7 +610,7 @@ fn push_image_placeholder(stream: &mut String, page_height_pt: f32, image: &Posi
         page_height_pt - image.rect.y - image.rect.height / 2.0
     ));
     stream.push('(');
-    stream.push_str(&escape_pdf_text(&format!("[image: {}]", image.asset_ref)));
+    stream.push_str(&escape_pdf_text(&image_placeholder_text(image, status)));
     stream.push_str(") Tj ET ");
     if rotated {
         stream.push_str("Q ");
@@ -809,13 +884,32 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                         )
                     })
                     .unwrap_or_default();
+                let placeholder_status = ImagePlaceholderStatus::from_image(image);
+                let placeholder_attrs = if placeholder_status == ImagePlaceholderStatus::Generic {
+                    String::new()
+                } else {
+                    let diagnostic_attr = image
+                        .diagnostic
+                        .as_deref()
+                        .map(|diagnostic| {
+                            format!(" data-image-diagnostic=\"{}\"", escape_xml_text(diagnostic))
+                        })
+                        .unwrap_or_default();
+                    format!(
+                        " data-image-placeholder-kind=\"{}\"{}",
+                        placeholder_status.as_str(),
+                        diagnostic_attr
+                    )
+                };
+                let placeholder_text = image_placeholder_text(image, placeholder_status);
                 body.push_str(&format!(
-                    "<g data-image-asset-ref=\"{}\"{}{}{}{}{}{}><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
+                    "<g data-image-asset-ref=\"{}\"{}{}{}{}{}{}{}><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
                     escape_xml_text(&image.asset_ref),
                     asset_format_attr,
                     asset_hash_attr,
                     crop_attrs,
                     rotation_attrs,
+                    placeholder_attrs,
                     transform_attr,
                     source_attrs_for(&image.source),
                     image.rect.x,
@@ -824,7 +918,7 @@ pub fn render_display_list_svg(page: &PageDisplayList) -> String {
                     image.rect.height,
                     image.rect.x + 4.0,
                     image.rect.y + image.rect.height / 2.0,
-                    escape_xml_text(&format!("[image: {}]", image.asset_ref))
+                    escape_xml_text(&placeholder_text)
                 ));
             }
             DrawOp::LinkAnnotation(link) => {
@@ -1482,6 +1576,7 @@ mod tests {
                     angle_degrees: 90.0,
                     origin: Some("c".to_string()),
                 }),
+                diagnostic: None,
                 source,
             })],
             source_spans: Vec::new(),
@@ -1538,6 +1633,7 @@ mod tests {
                 asset_hash: Some("blake3:tiny".to_string()),
                 crop: None,
                 rotation: None,
+                diagnostic: None,
                 source,
             })],
             source_spans: Vec::new(),
@@ -1580,6 +1676,7 @@ mod tests {
                     angle_degrees: 90.0,
                     origin: Some("c".to_string()),
                 }),
+                diagnostic: None,
                 source,
             })],
             source_spans: Vec::new(),
@@ -1623,6 +1720,7 @@ mod tests {
                     clip: true,
                 }),
                 rotation: None,
+                diagnostic: None,
                 source,
             })],
             source_spans: Vec::new(),
@@ -1657,6 +1755,7 @@ mod tests {
                 asset_hash: Some("blake3:bad".to_string()),
                 crop: None,
                 rotation: None,
+                diagnostic: None,
                 source,
             })],
             source_spans: Vec::new(),
@@ -1667,8 +1766,45 @@ mod tests {
         });
         let pdf_text = String::from_utf8_lossy(&pdf);
 
-        assert!(pdf_text.contains("[image: figures/bad.png]"));
+        assert!(pdf_text.contains("[undecodable image: figures/bad.png]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn missing_display_list_images_surface_diagnostics_in_pdf_and_svg() {
+        let source = SourceProvenance::file("main.tex", 0, 10);
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/missing.png".to_string(),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: None,
+                crop: None,
+                rotation: None,
+                diagnostic: Some("missing graphic asset figures/missing.png".to_string()),
+                source,
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf(&[page.clone()]);
+        let pdf_text = String::from_utf8_lossy(&pdf);
+        let svg = render_display_list_svg(&page);
+
+        assert!(pdf_text.contains("[missing image: figures/missing.png]"));
+        assert!(svg.contains("data-image-placeholder-kind=\"missing\""));
+        assert!(
+            svg.contains("data-image-diagnostic=\"missing graphic asset figures/missing.png\"")
+        );
+        assert!(svg.contains("[missing image: figures/missing.png]"));
     }
 
     #[test]

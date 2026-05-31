@@ -83,6 +83,8 @@ pub struct PositionedImage {
     pub crop: Option<ImageCrop>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rotation: Option<ImageRotation>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagnostic: Option<String>,
     pub source: SourceProvenance,
 }
 
