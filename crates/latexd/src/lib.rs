@@ -45,6 +45,7 @@ pub struct ServeArgs {
     pub bind: String,
     pub compiler_bin: Option<String>,
     pub compiler_args: Vec<String>,
+    pub internal_render_ir_svg_preview: bool,
     pub tile_renderer: TileRendererConfig,
     pub editor_bridge: Option<EditorBridgeConfig>,
 }
@@ -884,7 +885,8 @@ pub async fn serve(args: ServeArgs) -> Result<()> {
         build_root,
         artifacts_root,
         world: world.clone(),
-        compiler: CompilerDriver::new(args.compiler_bin, args.compiler_args),
+        compiler: CompilerDriver::new(args.compiler_bin, args.compiler_args)
+            .with_internal_render_ir_svg_preview(args.internal_render_ir_svg_preview),
         tile_renderer: args.tile_renderer,
         editor_bridge: args.editor_bridge,
         raster_cache: RwLock::new(BTreeMap::new()),

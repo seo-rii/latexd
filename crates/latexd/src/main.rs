@@ -35,6 +35,8 @@ struct ServeCli {
     compiler_bin: Option<String>,
     #[arg(long = "compiler-arg")]
     compiler_args: Vec<String>,
+    #[arg(long)]
+    internal_render_ir_svg_preview: bool,
     #[arg(long, value_enum, default_value_t = TileRendererMode::Mock)]
     tile_renderer: TileRendererMode,
     #[arg(long)]
@@ -127,6 +129,7 @@ async fn main() -> Result<()> {
                 bind: command.bind,
                 compiler_bin: command.compiler_bin,
                 compiler_args: command.compiler_args,
+                internal_render_ir_svg_preview: command.internal_render_ir_svg_preview,
                 tile_renderer,
                 editor_bridge: command.editor_bin.map(|program| EditorBridgeConfig {
                     program,
@@ -311,5 +314,25 @@ mod tests {
         assert_eq!(command.root, "/tmp/project");
         assert_eq!(command.input, "main.tex");
         assert_eq!(command.output_dir, "/tmp/out");
+    }
+
+    #[test]
+    fn parses_internal_render_ir_svg_preview_serve_flag() {
+        let cli = Cli::parse_from([
+            "latexd",
+            "serve",
+            "--root",
+            "/tmp/project",
+            "--compiler-bin",
+            "internal",
+            "--internal-render-ir-svg-preview",
+        ]);
+
+        let Command::Serve(command) = cli.command else {
+            panic!("expected serve command");
+        };
+        assert_eq!(command.root, "/tmp/project");
+        assert_eq!(command.compiler_bin.as_deref(), Some("internal"));
+        assert!(command.internal_render_ir_svg_preview);
     }
 }

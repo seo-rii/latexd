@@ -45,6 +45,7 @@ use crate::viewer_prefixed_path;
 pub struct CompilerDriver {
     compiler_bin: Option<String>,
     compiler_args: Vec<String>,
+    internal_render_ir_svg_preview: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -540,7 +541,13 @@ impl CompilerDriver {
         Self {
             compiler_bin,
             compiler_args,
+            internal_render_ir_svg_preview: false,
         }
+    }
+
+    pub fn with_internal_render_ir_svg_preview(mut self, enabled: bool) -> Self {
+        self.internal_render_ir_svg_preview = enabled;
+        self
     }
 
     pub async fn compile(&self, request: CompileRequest) -> Result<CompileOutcome, CompileFailure> {
@@ -1228,7 +1235,7 @@ impl CompilerDriver {
                 }],
                 message: format!("failed to build render IR artifacts: {error}"),
             })?;
-            render_ir_capture
+            let render_ir_artifact_paths = render_ir_capture
                 .write_debug_artifacts(&render_ir_artifact_dir)
                 .map_err(|error| CompileFailure {
                     diagnostics: vec![Diagnostic {
@@ -1245,6 +1252,16 @@ impl CompilerDriver {
                         render_ir_artifact_dir
                     ),
                 })?;
+            if self.internal_render_ir_svg_preview
+                && render_ir_artifact_paths.display_list_svgs.len() == page_artifacts.len()
+            {
+                for (page_index, page_artifact) in page_artifacts.iter_mut().enumerate() {
+                    page_artifact.svg_url = Some(viewer_prefixed_path(&format!(
+                        "/artifacts/rev/{}/render-ir/display-list-page-{page_index}.svg",
+                        request.rev
+                    )));
+                }
+            }
             let shipout_checkpoints = if let Some(plan) = replay_plan.as_ref() {
                 let previous = previous_build.as_ref().ok_or_else(|| CompileFailure {
                     diagnostics: vec![Diagnostic {
@@ -3530,14 +3547,14 @@ mod tests {
     use tex_vm::{VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot};
 
     use super::{
-        ArtifactSourceSpan, CheckpointPage, DepTrace, PageArtifactMeta, PreviousInternalBuild,
-        SemanticAux, StoredModuleCheckpoint, StoredModuleTrace, UnchangedTail,
-        capture_internal_render_ir, earliest_changed_offset, earliest_changed_rewrite_span_offset,
-        earliest_changed_rewrite_span_source_offset, load_latest_previous_internal_build,
-        parse_depfile, parse_fls, plan_page_patches, rebase_reused_shipout_checkpoint,
-        rebase_shipout_path_offset, replay_checkpoint_from_stored, save_source_texts,
-        select_shipout_replay_plan, select_shipout_replay_plan_with_spans,
-        shift_shipout_source_offset,
+        ArtifactSourceSpan, CheckpointPage, CompileRequest, CompilerDriver, DepTrace,
+        PageArtifactMeta, PreviousInternalBuild, SemanticAux, StoredModuleCheckpoint,
+        StoredModuleTrace, UnchangedTail, capture_internal_render_ir, earliest_changed_offset,
+        earliest_changed_rewrite_span_offset, earliest_changed_rewrite_span_source_offset,
+        load_latest_previous_internal_build, parse_depfile, parse_fls, plan_page_patches,
+        rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
+        replay_checkpoint_from_stored, save_source_texts, select_shipout_replay_plan,
+        select_shipout_replay_plan_with_spans, shift_shipout_source_offset,
     };
 
     #[test]
@@ -3561,6 +3578,46 @@ mod tests {
         assert_eq!(capture.page_display_lists.len(), 1);
         assert!(String::from_utf8_lossy(&capture.display_list_pdf).contains("(A Paper) Tj"));
         assert!(!capture.legacy_output.is_empty());
+    }
+
+    #[tokio::test]
+    async fn internal_compiler_can_use_render_ir_svgs_for_opt_in_preview() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("main.tex"),
+            r"\title{A Paper}\begin{document}\maketitle\section{Intro}Hello.\end{document}",
+        )
+        .expect("main tex");
+
+        let build_root = root.join(".latexd/build");
+        let manifest = tex_world::ProjectManifest::discover(&root).expect("manifest");
+        let outcome = CompilerDriver::new(Some("internal".to_string()), Vec::new())
+            .with_internal_render_ir_svg_preview(true)
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest,
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 1,
+                build_root: build_root.clone(),
+                changed_files: vec![Utf8PathBuf::from("main.tex")],
+            })
+            .await
+            .expect("internal compile");
+
+        let first_page = outcome
+            .page_artifacts
+            .first()
+            .expect("internal compiler page artifact");
+        assert!(first_page.pdf_url.contains("/artifacts/rev/1/pages/"));
+        assert!(first_page.svg_url.as_deref().is_some_and(|url| {
+            url.ends_with("/artifacts/rev/1/render-ir/display-list-page-0.svg")
+        }));
+        assert!(
+            build_root
+                .join("rev-1/render-ir/display-list-page-0.svg")
+                .exists()
+        );
     }
 
     #[test]
