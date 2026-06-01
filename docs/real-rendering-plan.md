@@ -108,9 +108,10 @@ graphic assets now produce render-event diagnostics when the capture has enough
 project or mounted-file context to know the asset is absent, while preserving
 the image placeholder, and those diagnostics now
 annotate `PageDisplayList::Image`, debug PDF placeholder text, and SVG debug
-`data-image-*` attributes. Existing-but-unsupported PDF/EPS/SVG assets also
-surface as unsupported-image placeholders until external conversion exists.
-Resolver-backed SVG and PNG/JPEG bitmap assets are now embedded as data-URI
+`data-image-*` attributes. Existing but unconvertible PDF/EPS assets surface as
+unsupported-image placeholders, while resolved PDF/EPS assets can be converted
+to PNG for debug display-list PDF/SVG artifacts through Ghostscript or Poppler.
+Resolver-backed SVG and PNG/JPEG bitmap assets are embedded as data-URI
 `<image>` elements in project-root display-list SVG debug artifacts. The
 internal compiler still writes legacy page PDFs for preview and also exports
 revision-local `rev-N/render-ir/` event, IR, display-list, PDF, SVG, and
@@ -120,8 +121,7 @@ preview snapshot advertises those debug artifact URLs when the revision contains
 them. `latexd serve --compiler-bin internal` now uses matching render-IR
 display-list SVG pages as the default preview SVG path when the debug SVG page
 count matches the internal compiler page count, while retaining the legacy page
-PDF fallback artifacts. Production PDF/SVG vector embedding and external
-conversion hardening are still deferred.
+PDF fallback artifacts. Production PDF/SVG vector embedding remains deferred.
 The `tex-pdf` display-list renderer now has an explicit converted-asset hook:
 callers can resolve an original external asset and provide converted PNG/JPEG
 bytes for PDF/EPS-style inputs without making the renderer depend directly on
@@ -133,9 +133,8 @@ PDF/EPS graphic assets can be converted to PNG for display-list PDF/SVG
 artifacts when the relevant local tool is available. Driver-accurate crop/clip
 rendering for non-bitmap assets, TeX-exact rotated-box reflow, programmable
 table preamble hooks, exact vertical border trimming, exact table rule trimming,
-actual multirow geometry, nested table constructs, full TeX alignment policy,
-and production preview wiring are still deferred. Rotation intent is no longer
-dropped: `angle` /
+actual multirow geometry, nested table constructs, and full TeX alignment policy
+are still deferred. Rotation intent is no longer dropped: `angle` /
 `origin` options and simple `\rotatebox` wrappers are preserved as
 renderer-neutral `ImageRotation` metadata. The display-list PDF path applies
 that metadata to embedded bitmap XObjects and unresolved-image placeholders,
