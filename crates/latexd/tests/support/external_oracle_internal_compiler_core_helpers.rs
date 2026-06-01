@@ -155,6 +155,47 @@ fn assert_internal_compiler_single_page_artifacts(
             .iter()
             .any(|item| item.left_px > 0 && item.right_px < syncmap[0].width_pt)
     );
+    let render_ir_dir = build_root.join("rev-1/render-ir");
+    let events_path = render_ir_dir.join("events.json");
+    let document_ir_path = render_ir_dir.join("document-ir.json");
+    let page_display_list_path = render_ir_dir.join("page-display-list.json");
+    let display_list_pdf_path = render_ir_dir.join("display-list.pdf");
+    let display_list_svg_path = render_ir_dir.join("display-list-page-0.svg");
+    for path in [
+        &events_path,
+        &document_ir_path,
+        &page_display_list_path,
+        &display_list_pdf_path,
+        &display_list_svg_path,
+    ] {
+        assert!(path.exists(), "missing internal render-ir artifact {path}");
+    }
+
+    let events_json = fs::read_to_string(&events_path)
+        .expect("read internal render-ir events");
+    let document_ir_json = fs::read_to_string(&document_ir_path)
+        .expect("read internal render-ir document IR");
+    let page_display_list_json = fs::read_to_string(&page_display_list_path)
+        .expect("read internal render-ir display list");
+    let events_json: serde_json::Value =
+        serde_json::from_str(&events_json).expect("decode internal render-ir events");
+    let document_ir_json: serde_json::Value =
+        serde_json::from_str(&document_ir_json).expect("decode internal render-ir document IR");
+    let page_display_list_json: serde_json::Value = serde_json::from_str(&page_display_list_json)
+        .expect("decode internal render-ir display list");
+    let display_list_pdf = fs::read(&display_list_pdf_path).expect("read internal render-ir PDF");
+    let display_list_svg =
+        fs::read_to_string(&display_list_svg_path).expect("read internal render-ir SVG");
+
+    assert_eq!(events_json["schema_version"], 1);
+    assert_eq!(document_ir_json["schema_version"], 1);
+    let display_lists = page_display_list_json
+        .as_array()
+        .expect("internal render-ir display list artifact should be a page array");
+    assert_eq!(display_lists.len(), outcome.page_metadata.len());
+    assert!(display_lists[0]["content_hash"].is_string());
+    assert!(display_list_pdf.starts_with(b"%PDF-1.4"));
+    assert!(display_list_svg.contains("<svg"));
 }
 
 async fn assert_internal_compiler_single_page_output_contains(

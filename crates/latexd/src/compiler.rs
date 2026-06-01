@@ -1209,6 +1209,42 @@ impl CompilerDriver {
                     ))),
                 });
             }
+            let render_ir_artifact_dir = rev_dir.join("render-ir");
+            let render_ir_capture = if let Some(aux) = semantic_aux.as_ref() {
+                capture_internal_render_ir_from_project_root(&request.root, &request.toplevel, aux)
+            } else {
+                capture_internal_render_ir_from_project_root(
+                    &request.root,
+                    &request.toplevel,
+                    &SemanticAux::default(),
+                )
+            }
+            .map_err(|error| CompileFailure {
+                diagnostics: vec![Diagnostic {
+                    level: DiagnosticLevel::Error,
+                    file: Some(request.toplevel.to_string()),
+                    line: None,
+                    message: format!("failed to build render IR artifacts: {error}"),
+                }],
+                message: format!("failed to build render IR artifacts: {error}"),
+            })?;
+            render_ir_capture
+                .write_debug_artifacts(&render_ir_artifact_dir)
+                .map_err(|error| CompileFailure {
+                    diagnostics: vec![Diagnostic {
+                        level: DiagnosticLevel::Error,
+                        file: Some(request.toplevel.to_string()),
+                        line: None,
+                        message: format!(
+                            "failed to write render IR artifacts {}: {error}",
+                            render_ir_artifact_dir
+                        ),
+                    }],
+                    message: format!(
+                        "failed to write render IR artifacts {}: {error}",
+                        render_ir_artifact_dir
+                    ),
+                })?;
             let shipout_checkpoints = if let Some(plan) = replay_plan.as_ref() {
                 let previous = previous_build.as_ref().ok_or_else(|| CompileFailure {
                     diagnostics: vec![Diagnostic {

@@ -112,7 +112,11 @@ annotate `PageDisplayList::Image`, debug PDF placeholder text, and SVG debug
 surface as unsupported-image placeholders until external conversion exists.
 Resolver-backed SVG and PNG/JPEG bitmap assets are now embedded as data-URI
 `<image>` elements in project-root display-list SVG debug artifacts, but
-production PDF/SVG vector embedding and external conversion are still deferred.
+the internal compiler still writes the legacy page artifacts for preview while
+also exporting revision-local `rev-N/render-ir/` event, IR, display-list, PDF,
+and SVG debug artifacts for the real-rendering path. Production PDF/SVG vector
+embedding, external conversion, and full serve-preview replacement are still
+deferred.
 External PDF/EPS conversion, driver-accurate crop/clip rendering for non-bitmap assets,
 TeX-exact rotated-box reflow, programmable table preamble hooks, exact vertical
 border trimming, exact table rule trimming, actual multirow geometry, nested
@@ -683,6 +687,9 @@ Status:
 - `latexd render-ir --root ... --input ... --output-dir ...` exposes the
   event/IR/display-list artifact pipeline without replacing the serve preview
   path;
+- internal compiler revisions also write `rev-N/render-ir/` debug artifacts so
+  the event/IR/display-list pipeline can be inspected next to existing page
+  artifacts;
 - `\includegraphics` option control sequences such as `\textwidth` /
   `\linewidth` survive event capture into display-list sizing;
 - `\paperwidth`, `\pagewidth`, `\hsize`, and `\vsize` are accepted as graphic
@@ -711,8 +718,8 @@ Status:
 - common `colortbl` table color commands are normalized without leaking command
   names or color arguments into table text;
 - simple multirow row counts survive into `TableCell.row_span` metadata;
-- external PDF/EPS conversion, production SVG/PDF vector embedding, and full
-  serve-preview replacement are still pending.
+- external PDF/EPS conversion, production SVG/PDF vector embedding, and replacing
+  the serve preview page path with render-IR artifacts are still pending.
 
 Exit criteria:
 
