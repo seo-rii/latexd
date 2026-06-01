@@ -11,6 +11,15 @@ export interface LatexdSourceSnapshotFile {
   line_count: number;
 }
 
+export interface RenderIrArtifactUrls {
+  legacy_output_url: string;
+  events_url: string;
+  document_ir_url: string;
+  page_display_list_url: string;
+  display_list_pdf_url: string;
+  display_list_svg_urls: string[];
+}
+
 export interface PreviewStateResponse {
   current_rev: number;
   last_applied_rev: number;
@@ -22,6 +31,7 @@ export interface PreviewStateResponse {
     pdf_url: string;
     svg_url?: string | null;
   }>;
+  render_ir_artifacts?: RenderIrArtifactUrls | null;
   source_snapshot?: LatexdSourceSnapshotFile[];
   diagnostics: unknown[];
   changed_files: string[];

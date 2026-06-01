@@ -96,6 +96,7 @@ export const initialState = {
   currentRev: 0,
   lastAppliedRev: 0,
   pdfUrl: null,
+  renderIrArtifacts: null,
   pageIds: [],
   pages: [],
   syncMaps: {},
@@ -679,6 +680,7 @@ export function reduce(state, message) {
           currentRev: message.rev,
           lastAppliedRev: message.rev,
           pdfUrl: message.pdf_url,
+          renderIrArtifacts: null,
           pageIds,
           pages,
           syncMaps,
@@ -1938,6 +1940,7 @@ export function mountViewer(root: HTMLElement, options: ViewerMountOptions) {
         currentRev: snapshot.current_rev,
         lastAppliedRev: snapshot.last_applied_rev,
         pdfUrl: snapshot.pdf_url,
+        renderIrArtifacts: snapshot.render_ir_artifacts ?? null,
         pageIds: snapshot.page_artifacts?.length > 0
           ? snapshot.page_artifacts.map((page) => page.page_id)
           : snapshot.page_ids ?? [],

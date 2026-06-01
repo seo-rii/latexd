@@ -269,6 +269,8 @@ pub struct PreviewSnapshot {
     pub page_count: usize,
     pub page_ids: Vec<String>,
     pub page_artifacts: Vec<PagePreviewArtifact>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub render_ir_artifacts: Option<RenderIrArtifactUrls>,
     #[serde(default)]
     pub source_snapshot: Vec<SourceSnapshotFile>,
     pub diagnostics: Vec<Diagnostic>,
@@ -276,6 +278,16 @@ pub struct PreviewSnapshot {
     pub building: bool,
     pub last_build_succeeded: Option<bool>,
     pub editor_bridge_enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
+pub struct RenderIrArtifactUrls {
+    pub legacy_output_url: String,
+    pub events_url: String,
+    pub document_ir_url: String,
+    pub page_display_list_url: String,
+    pub display_list_pdf_url: String,
+    pub display_list_svg_urls: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -1190,6 +1202,49 @@ impl AppState {
                         .unwrap_or("main.pdf")
                         .to_string();
                     let pdf_url = viewer_prefixed_path(&format!("/artifacts/rev/{rev}/{pdf_file}"));
+                    let render_ir_dir = self.build_root.join(format!("rev-{rev}/render-ir"));
+                    let render_ir_artifacts = if render_ir_dir.join("events.json").exists()
+                        && render_ir_dir.join("document-ir.json").exists()
+                        && render_ir_dir.join("page-display-list.json").exists()
+                        && render_ir_dir.join("display-list.pdf").exists()
+                    {
+                        let mut display_list_svg_urls = Vec::new();
+                        for page_index in 0..outcome.page_metadata.len() {
+                            let svg_path =
+                                render_ir_dir.join(format!("display-list-page-{page_index}.svg"));
+                            if !svg_path.exists() {
+                                display_list_svg_urls.clear();
+                                break;
+                            }
+                            display_list_svg_urls.push(viewer_prefixed_path(&format!(
+                                "/artifacts/rev/{rev}/render-ir/display-list-page-{page_index}.svg"
+                            )));
+                        }
+                        if display_list_svg_urls.len() == outcome.page_metadata.len() {
+                            Some(RenderIrArtifactUrls {
+                                legacy_output_url: viewer_prefixed_path(&format!(
+                                    "/artifacts/rev/{rev}/render-ir/legacy-output.txt"
+                                )),
+                                events_url: viewer_prefixed_path(&format!(
+                                    "/artifacts/rev/{rev}/render-ir/events.json"
+                                )),
+                                document_ir_url: viewer_prefixed_path(&format!(
+                                    "/artifacts/rev/{rev}/render-ir/document-ir.json"
+                                )),
+                                page_display_list_url: viewer_prefixed_path(&format!(
+                                    "/artifacts/rev/{rev}/render-ir/page-display-list.json"
+                                )),
+                                display_list_pdf_url: viewer_prefixed_path(&format!(
+                                    "/artifacts/rev/{rev}/render-ir/display-list.pdf"
+                                )),
+                                display_list_svg_urls,
+                            })
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
                     let source_snapshot = build_source_snapshot(self.as_ref(), rev).await;
                     {
                         let mut live = self.live.write().await;
@@ -1207,6 +1262,7 @@ impl AppState {
                                 .collect(),
                             outcome.page_artifacts.clone(),
                         );
+                        live.snapshot.render_ir_artifacts = render_ir_artifacts;
                         live.snapshot.source_snapshot = source_snapshot.clone();
                     }
                     {
@@ -4645,7 +4701,7 @@ mod tests {
         RENDER_SESSION_ATTACHED_PAGE_BUDGET, RENDER_SESSION_ATTACHED_REVISION_WINDOW,
         RENDER_SESSION_RECENT_EVENT_WINDOW, RENDER_SESSION_TILE_CACHE_BUDGET,
         RENDER_SESSION_TILE_CACHE_PAGE_BUDGET, RENDER_SESSION_WARM_BUCKET_BUDGET,
-        RENDER_SESSION_WARM_BUCKET_PAGE_BUDGET, RasterCacheKey, RasterQuery,
+        RENDER_SESSION_WARM_BUCKET_PAGE_BUDGET, RasterCacheKey, RasterQuery, RenderIrArtifactUrls,
         RenderSessionAttachedRevisionSnapshot, RenderSessionEvent, RenderSessionEventKind,
         RenderSessionHandle, RenderSessionLatencySummary, RenderSessionMetrics,
         RenderSessionRequest, RenderSessionTileCacheSnapshot, RenderSessionWarmBucketSnapshot,
@@ -4775,6 +4831,37 @@ mod tests {
             Some("/artifacts/rev/2/main.pdf")
         );
         assert!(snapshot.diagnostics.is_empty());
+    }
+
+    #[test]
+    fn preview_snapshot_serializes_render_ir_artifact_urls_when_present() {
+        let snapshot = PreviewSnapshot {
+            current_rev: 3,
+            last_applied_rev: 3,
+            render_ir_artifacts: Some(RenderIrArtifactUrls {
+                legacy_output_url: "/artifacts/rev/3/render-ir/legacy-output.txt".to_string(),
+                events_url: "/artifacts/rev/3/render-ir/events.json".to_string(),
+                document_ir_url: "/artifacts/rev/3/render-ir/document-ir.json".to_string(),
+                page_display_list_url: "/artifacts/rev/3/render-ir/page-display-list.json"
+                    .to_string(),
+                display_list_pdf_url: "/artifacts/rev/3/render-ir/display-list.pdf".to_string(),
+                display_list_svg_urls: vec![
+                    "/artifacts/rev/3/render-ir/display-list-page-0.svg".to_string(),
+                ],
+            }),
+            ..PreviewSnapshot::default()
+        };
+
+        let json = serde_json::to_value(&snapshot).expect("serialize preview snapshot");
+
+        assert_eq!(
+            json["render_ir_artifacts"]["events_url"],
+            "/artifacts/rev/3/render-ir/events.json"
+        );
+        assert_eq!(
+            json["render_ir_artifacts"]["display_list_svg_urls"][0],
+            "/artifacts/rev/3/render-ir/display-list-page-0.svg"
+        );
     }
 
     #[tokio::test]

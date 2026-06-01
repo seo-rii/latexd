@@ -55,6 +55,27 @@ test("successful build installs PDF url", () => {
   assert.equal(state.lastBuildSucceeded, true);
 });
 
+test("successful build clears stale render IR artifact links until snapshot refresh", () => {
+  const state = reduce({
+    ...initialState,
+    renderIrArtifacts: {
+      events_url: "/artifacts/rev/1/render-ir/events.json"
+    }
+  }, {
+    type: "full_pdf_ready",
+    rev: 2,
+    pdf_url: "/artifacts/rev/2/main.pdf",
+    page_ids: ["page-0"],
+    page_artifacts: [{
+      page_id: "page-0",
+      pdf_url: "/artifacts/rev/2/pages/page-0.pdf",
+      svg_url: "/artifacts/rev/2/pages/page-0.svg"
+    }]
+  });
+
+  assert.equal(state.renderIrArtifacts, null);
+});
+
 test("failed build preserves last good preview", () => {
   let state = reduce(initialState, {
     type: "full_pdf_ready",
