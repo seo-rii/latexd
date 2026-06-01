@@ -557,6 +557,55 @@ pub fn convert_pdf_or_eps_asset_to_png_with_cli(
     Ok(output.stdout)
 }
 
+pub fn convert_pdf_asset_to_png_with_pdftoppm(
+    program: &str,
+    asset_ref: &str,
+    bytes: &[u8],
+) -> Result<Vec<u8>> {
+    let input = tempfile::Builder::new()
+        .prefix("latexd-asset-")
+        .suffix(".pdf")
+        .tempfile()
+        .with_context(|| format!("failed to create temporary PDF input for {asset_ref}"))?;
+    std::fs::write(input.path(), bytes)
+        .with_context(|| format!("failed to write temporary PDF input for {asset_ref}"))?;
+    let output_dir = tempfile::tempdir()
+        .with_context(|| format!("failed to create temporary output dir for {asset_ref}"))?;
+    let output_prefix = output_dir.path().join("page");
+    let output = std::process::Command::new(program)
+        .args([
+            "-q",
+            "-png",
+            "-singlefile",
+            "-f",
+            "1",
+            "-l",
+            "1",
+            "-r",
+            "72",
+        ])
+        .arg(input.path())
+        .arg(&output_prefix)
+        .output()
+        .map_err(|error| anyhow!("failed to run pdftoppm {program} for {asset_ref}: {error}"))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "pdftoppm {program} failed to convert {asset_ref}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    let output_path = output_prefix.with_extension("png");
+    let png = std::fs::read(&output_path).with_context(|| {
+        format!(
+            "failed to read pdftoppm output {} for {asset_ref}",
+            output_path.display()
+        )
+    })?;
+    image::load_from_memory_with_format(&png, image::ImageFormat::Png)
+        .with_context(|| format!("pdftoppm output for {asset_ref} was not PNG"))?;
+    Ok(png)
+}
+
 fn scaled_dimension(dimension: u32, scale: f32) -> u32 {
     ((dimension as f32 * scale).round() as u32).max(1)
 }
@@ -701,8 +750,9 @@ mod tests {
 
     use super::{
         CliRenderer, GsApiRenderer, GsApiRuntime, GsApiRuntimePool, MockRenderer, PageRenderInput,
-        Rect, Renderer, Viewport, convert_pdf_or_eps_asset_to_png_with_cli, probe_gsapi_library,
-        required_tiles_for_viewport, stale_tiles, tile_key,
+        Rect, Renderer, Viewport, convert_pdf_asset_to_png_with_pdftoppm,
+        convert_pdf_or_eps_asset_to_png_with_cli, probe_gsapi_library, required_tiles_for_viewport,
+        stale_tiles, tile_key,
     };
 
     fn sample_page() -> PageRenderInput {
@@ -982,6 +1032,28 @@ showpage
             eps,
         )
         .expect("convert eps asset");
+        let image =
+            image::load_from_memory_with_format(&png, image::ImageFormat::Png).expect("decode png");
+
+        assert_eq!(image.width(), 144);
+        assert_eq!(image.height(), 72);
+    }
+
+    #[test]
+    fn pdftoppm_converter_converts_pdf_asset_to_png_when_available() {
+        let Ok(program) = which::which("pdftoppm") else {
+            return;
+        };
+        let pdf_file = NamedTempFile::new().expect("named temp file");
+        write_sample_pdf(pdf_file.path(), 144, 72);
+        let pdf = fs::read(pdf_file.path()).expect("read sample pdf");
+
+        let png = convert_pdf_asset_to_png_with_pdftoppm(
+            program.to_string_lossy().as_ref(),
+            "figures/vector.pdf",
+            &pdf,
+        )
+        .expect("convert pdf asset");
         let image =
             image::load_from_memory_with_format(&png, image::ImageFormat::Png).expect("decode png");
 

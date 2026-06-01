@@ -366,13 +366,28 @@ fn convert_external_display_list_asset(
     ) {
         return None;
     }
-    let program = which::which("gs").ok()?;
-    let converted = tex_render_gs::convert_pdf_or_eps_asset_to_png_with_cli(
-        program.to_string_lossy().as_ref(),
-        &image.asset_ref,
-        bytes,
-    )
-    .ok()?;
+    let converted = which::which("gs")
+        .ok()
+        .and_then(|program| {
+            tex_render_gs::convert_pdf_or_eps_asset_to_png_with_cli(
+                program.to_string_lossy().as_ref(),
+                &image.asset_ref,
+                bytes,
+            )
+            .ok()
+        })
+        .or_else(|| {
+            if image.asset_format != Some(GraphicAssetFormat::Pdf) {
+                return None;
+            }
+            let program = which::which("pdftoppm").ok()?;
+            tex_render_gs::convert_pdf_asset_to_png_with_pdftoppm(
+                program.to_string_lossy().as_ref(),
+                &image.asset_ref,
+                bytes,
+            )
+            .ok()
+        })?;
     Some(ConvertedImageAsset {
         bytes: converted,
         format: GraphicAssetFormat::Png,

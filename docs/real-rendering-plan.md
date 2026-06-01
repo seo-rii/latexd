@@ -128,13 +128,14 @@ bytes for PDF/EPS-style inputs without making the renderer depend directly on
 Ghostscript or Poppler. Unconverted resolved PDF/EPS assets now surface as
 unsupported placeholders instead of generic image placeholders.
 `latexd` now wires that hook to Ghostscript CLI conversion for render-IR debug
-artifacts, so resolved PDF/EPS graphic assets can be converted to PNG for the
-display-list PDF/SVG artifacts when `gs` is available. Poppler fallback,
-driver-accurate crop/clip rendering for non-bitmap assets, TeX-exact rotated-box
-reflow, programmable table preamble hooks, exact vertical border trimming, exact
-table rule trimming, actual multirow geometry, nested table constructs, full TeX
-alignment policy, and production preview wiring are still deferred. Rotation
-intent is no longer dropped: `angle` /
+artifacts, with a Poppler `pdftoppm` fallback for PDF assets, so resolved
+PDF/EPS graphic assets can be converted to PNG for display-list PDF/SVG
+artifacts when the relevant local tool is available. Driver-accurate crop/clip
+rendering for non-bitmap assets, TeX-exact rotated-box reflow, programmable
+table preamble hooks, exact vertical border trimming, exact table rule trimming,
+actual multirow geometry, nested table constructs, full TeX alignment policy,
+and production preview wiring are still deferred. Rotation intent is no longer
+dropped: `angle` /
 `origin` options and simple `\rotatebox` wrappers are preserved as
 renderer-neutral `ImageRotation` metadata. The display-list PDF path applies
 that metadata to embedded bitmap XObjects and unresolved-image placeholders,
@@ -716,7 +717,8 @@ Status:
   independent from the eventual Ghostscript/Poppler conversion layer;
 - `latexd` now uses a Ghostscript CLI converter to supply PNG bytes for resolved
   PDF/EPS render-IR graphic assets in debug display-list PDF/SVG artifacts when
-  `gs` is installed;
+  `gs` is installed, and falls back to Poppler `pdftoppm` for PDF assets when
+  Ghostscript is unavailable or cannot convert the asset;
 - resolved but unconverted PDF/EPS assets surface as unsupported placeholders in
   display-list PDF/SVG output instead of falling back to generic image labels;
 - `\includegraphics` option control sequences such as `\textwidth` /
@@ -747,9 +749,8 @@ Status:
 - common `colortbl` table color commands are normalized without leaking command
   names or color arguments into table text;
 - simple multirow row counts survive into `TableCell.row_span` metadata;
-- adding a Poppler fallback converter, production SVG/PDF vector embedding, and
-  making render-IR artifacts the default serve preview page path are still
-  pending.
+- production SVG/PDF vector embedding and making render-IR artifacts the default
+  serve preview page path are still pending.
 
 Exit criteria:
 
