@@ -35,7 +35,10 @@ struct ServeCli {
     compiler_bin: Option<String>,
     #[arg(long = "compiler-arg")]
     compiler_args: Vec<String>,
-    #[arg(long)]
+    #[arg(
+        long,
+        help = "Compatibility flag; internal compiler render-IR SVG preview is enabled by default"
+    )]
     internal_render_ir_svg_preview: bool,
     #[arg(long, value_enum, default_value_t = TileRendererMode::Mock)]
     tile_renderer: TileRendererMode,

@@ -117,11 +117,11 @@ revision-local `rev-N/render-ir/` event, IR, display-list, PDF, SVG, and
 legacy-text debug artifacts for the real-rendering path; the revision artifact
 route exposes the `render-ir/` JSON/TXT artifacts for inspection, and the
 preview snapshot advertises those debug artifact URLs when the revision contains
-them. `latexd serve --compiler-bin internal --internal-render-ir-svg-preview`
-can now opt into using matching render-IR display-list SVG pages as the preview
-page images while retaining the legacy page PDF fallback. Production PDF/SVG
-vector embedding, external conversion, and default serve-preview replacement are
-still deferred.
+them. `latexd serve --compiler-bin internal` now uses matching render-IR
+display-list SVG pages as the default preview SVG path when the debug SVG page
+count matches the internal compiler page count, while retaining the legacy page
+PDF fallback artifacts. Production PDF/SVG vector embedding and external
+conversion hardening are still deferred.
 The `tex-pdf` display-list renderer now has an explicit converted-asset hook:
 callers can resolve an original external asset and provide converted PNG/JPEG
 bytes for PDF/EPS-style inputs without making the renderer depend directly on
@@ -708,10 +708,9 @@ Status:
   keeping non-render-IR metadata files private;
 - preview snapshots advertise `render_ir_artifacts` URLs when an internal
   compiler revision has written the debug artifact bundle;
-- `latexd serve --compiler-bin internal --internal-render-ir-svg-preview` can
-  opt into render-IR display-list SVG page images when the debug SVG page count
-  matches the internal compiler page count, while keeping legacy page PDFs as
-  fallback artifacts;
+- `latexd serve --compiler-bin internal` now uses render-IR display-list SVG page
+  images by default when the debug SVG page count matches the internal compiler
+  page count, while keeping legacy page PDFs as fallback artifacts;
 - `tex-pdf` can now consume caller-supplied converted PNG/JPEG bytes for
   resolved PDF/EPS-style display-list image assets, which keeps the renderer
   independent from the eventual Ghostscript/Poppler conversion layer;
@@ -749,8 +748,7 @@ Status:
 - common `colortbl` table color commands are normalized without leaking command
   names or color arguments into table text;
 - simple multirow row counts survive into `TableCell.row_span` metadata;
-- production SVG/PDF vector embedding and making render-IR artifacts the default
-  serve preview page path are still pending.
+- production SVG/PDF vector embedding remains pending.
 
 Exit criteria:
 

@@ -86,13 +86,13 @@ fn assert_first_page_artifact_urls(root: &Utf8Path, outcome: &CompileOutcome) {
             outcome.page_metadata[0].page_id
         )
     );
-    let expected_svg_url = format!(
-        "/artifacts/rev/1/pages/{}.svg",
-        outcome.page_metadata[0].page_id
-    );
     assert_eq!(
         outcome.page_artifacts[0].svg_url.as_deref(),
-        Some(expected_svg_url.as_str())
+        Some("/artifacts/rev/1/render-ir/display-list-page-0.svg")
+    );
+    assert!(
+        root.join(".latexd/build/rev-1/render-ir/display-list-page-0.svg")
+            .exists()
     );
 }
 

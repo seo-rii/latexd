@@ -567,7 +567,7 @@ impl CompilerDriver {
         Self {
             compiler_bin,
             compiler_args,
-            internal_render_ir_svg_preview: false,
+            internal_render_ir_svg_preview: true,
         }
     }
 
@@ -3607,7 +3607,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn internal_compiler_can_use_render_ir_svgs_for_opt_in_preview() {
+    async fn internal_compiler_uses_render_ir_svgs_for_default_preview() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
         fs::write(
@@ -3619,7 +3619,6 @@ mod tests {
         let build_root = root.join(".latexd/build");
         let manifest = tex_world::ProjectManifest::discover(&root).expect("manifest");
         let outcome = CompilerDriver::new(Some("internal".to_string()), Vec::new())
-            .with_internal_render_ir_svg_preview(true)
             .compile(CompileRequest {
                 root: root.clone(),
                 manifest,
@@ -3638,6 +3637,45 @@ mod tests {
         assert!(first_page.pdf_url.contains("/artifacts/rev/1/pages/"));
         assert!(first_page.svg_url.as_deref().is_some_and(|url| {
             url.ends_with("/artifacts/rev/1/render-ir/display-list-page-0.svg")
+        }));
+        assert!(
+            build_root
+                .join("rev-1/render-ir/display-list-page-0.svg")
+                .exists()
+        );
+    }
+
+    #[tokio::test]
+    async fn internal_compiler_can_keep_legacy_page_svgs_when_render_ir_preview_is_disabled() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("main.tex"),
+            r"\title{A Paper}\begin{document}\maketitle\section{Intro}Hello.\end{document}",
+        )
+        .expect("main tex");
+
+        let build_root = root.join(".latexd/build");
+        let manifest = tex_world::ProjectManifest::discover(&root).expect("manifest");
+        let outcome = CompilerDriver::new(Some("internal".to_string()), Vec::new())
+            .with_internal_render_ir_svg_preview(false)
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest,
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 1,
+                build_root: build_root.clone(),
+                changed_files: vec![Utf8PathBuf::from("main.tex")],
+            })
+            .await
+            .expect("internal compile");
+
+        let first_page = outcome
+            .page_artifacts
+            .first()
+            .expect("internal compiler page artifact");
+        assert!(first_page.svg_url.as_deref().is_some_and(|url| {
+            url.contains("/artifacts/rev/1/pages/") && url.ends_with(".svg")
         }));
         assert!(
             build_root

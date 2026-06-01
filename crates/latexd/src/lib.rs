@@ -880,13 +880,15 @@ pub async fn serve(args: ServeArgs) -> Result<()> {
 
     let (events, _) = broadcast::channel(64);
     let editor_bridge_enabled = args.editor_bridge.is_some();
+    let internal_render_ir_svg_preview =
+        args.internal_render_ir_svg_preview || args.compiler_bin.as_deref() == Some("internal");
     let state = Arc::new(AppState {
         root: root.clone(),
         build_root,
         artifacts_root,
         world: world.clone(),
         compiler: CompilerDriver::new(args.compiler_bin, args.compiler_args)
-            .with_internal_render_ir_svg_preview(args.internal_render_ir_svg_preview),
+            .with_internal_render_ir_svg_preview(internal_render_ir_svg_preview),
         tile_renderer: args.tile_renderer,
         editor_bridge: args.editor_bridge,
         raster_cache: RwLock::new(BTreeMap::new()),

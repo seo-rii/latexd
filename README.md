@@ -82,11 +82,12 @@ Run the daemon against the bundled sample project:
 cargo run -p latexd -- serve --root fixtures/arxiv-basic --compiler-bin internal
 ```
 
-To inspect the render-IR display-list SVGs in the live preview path without
-replacing the legacy page PDF fallback, add:
+With the internal compiler, the live preview uses render-IR display-list SVGs
+when the debug artifact page count matches the compiled page count, while
+keeping the legacy page PDFs as fallback artifacts:
 
 ```bash
-cargo run -p latexd -- serve --root fixtures/arxiv-basic --compiler-bin internal --internal-render-ir-svg-preview
+cargo run -p latexd -- serve --root fixtures/arxiv-basic --compiler-bin internal
 ```
 
 Then open:
