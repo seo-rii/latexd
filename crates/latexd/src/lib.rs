@@ -1540,11 +1540,12 @@ async fn revision_artifact(
         )
             .into_response();
     };
-    if relative_path.as_str().is_empty()
-        || relative_path
-            .extension()
-            .is_none_or(|extension| extension != "pdf" && extension != "svg")
-    {
+    let extension = relative_path.extension();
+    let is_page_artifact =
+        extension.is_some_and(|extension| extension == "pdf" || extension == "svg");
+    let is_render_ir_debug_artifact = relative_path.as_str().starts_with("render-ir/")
+        && extension.is_some_and(|extension| extension == "json" || extension == "txt");
+    if relative_path.as_str().is_empty() || (!is_page_artifact && !is_render_ir_debug_artifact) {
         return (
             StatusCode::BAD_REQUEST,
             [(
@@ -1562,6 +1563,8 @@ async fn revision_artifact(
         .join(relative_path);
     let content_type = match artifact_path.extension() {
         Some("svg") => "image/svg+xml; charset=utf-8",
+        Some("json") => "application/json; charset=utf-8",
+        Some("txt") => "text/plain; charset=utf-8",
         _ => "application/pdf",
     };
     match tokio::fs::read(artifact_path.as_std_path()).await {
@@ -6826,6 +6829,84 @@ mod tests {
             .await
             .expect("body");
         assert_eq!(body.as_ref(), b"<svg>page-a</svg>");
+    }
+
+    #[tokio::test]
+    async fn revision_artifact_serves_render_ir_json_and_txt_debug_artifacts() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - main.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("main.tex"), "hello").expect("main tex");
+        let build_root = root.join(".latexd/build");
+        fs::create_dir_all(build_root.join("rev-3/render-ir")).expect("render-ir dir");
+        fs::write(
+            build_root.join("rev-3/render-ir/events.json"),
+            br#"{"schema_version":1}"#,
+        )
+        .expect("render-ir events");
+        fs::write(
+            build_root.join("rev-3/render-ir/legacy-output.txt"),
+            b"legacy text",
+        )
+        .expect("render-ir legacy output");
+        let state = Arc::new(AppState {
+            root: root.clone(),
+            build_root: build_root.clone(),
+            artifacts_root: root.join(".latexd/artifacts"),
+            world: ProjectWorld::load(root.clone()).expect("world"),
+            compiler: CompilerDriver::new(None, Vec::new()),
+            tile_renderer: TileRendererConfig::Mock,
+            editor_bridge: None,
+            raster_cache: RwLock::new(BTreeMap::new()),
+            inflight_rasters: RwLock::new(BTreeMap::new()),
+            build_cache: RwLock::new(BuildCache::default()),
+            live: RwLock::new(LivePreviewState::default()),
+            events: broadcast::channel(4).0,
+        });
+
+        let json_response = revision_artifact(
+            Path((3, "render-ir/events.json".to_string())),
+            State(state.clone()),
+        )
+        .await;
+        assert_eq!(json_response.status(), StatusCode::OK);
+        assert_eq!(
+            json_response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("application/json; charset=utf-8")
+        );
+        let json_body = to_bytes(json_response.into_body(), usize::MAX)
+            .await
+            .expect("json body");
+        assert_eq!(json_body.as_ref(), br#"{"schema_version":1}"#);
+
+        let text_response = revision_artifact(
+            Path((3, "render-ir/legacy-output.txt".to_string())),
+            State(state.clone()),
+        )
+        .await;
+        assert_eq!(text_response.status(), StatusCode::OK);
+        assert_eq!(
+            text_response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("text/plain; charset=utf-8")
+        );
+        let text_body = to_bytes(text_response.into_body(), usize::MAX)
+            .await
+            .expect("text body");
+        assert_eq!(text_body.as_ref(), b"legacy text");
+
+        let outside_response =
+            revision_artifact(Path((3, "build-meta.json".to_string())), State(state)).await;
+        assert_eq!(outside_response.status(), StatusCode::BAD_REQUEST);
     }
 
     #[test]

@@ -114,9 +114,10 @@ Resolver-backed SVG and PNG/JPEG bitmap assets are now embedded as data-URI
 `<image>` elements in project-root display-list SVG debug artifacts, but
 the internal compiler still writes the legacy page artifacts for preview while
 also exporting revision-local `rev-N/render-ir/` event, IR, display-list, PDF,
-and SVG debug artifacts for the real-rendering path. Production PDF/SVG vector
-embedding, external conversion, and full serve-preview replacement are still
-deferred.
+SVG, and legacy-text debug artifacts for the real-rendering path; the revision
+artifact route exposes the `render-ir/` JSON/TXT artifacts for inspection.
+Production PDF/SVG vector embedding, external conversion, and full serve-preview
+replacement are still deferred.
 External PDF/EPS conversion, driver-accurate crop/clip rendering for non-bitmap assets,
 TeX-exact rotated-box reflow, programmable table preamble hooks, exact vertical
 border trimming, exact table rule trimming, actual multirow geometry, nested
@@ -690,6 +691,8 @@ Status:
 - internal compiler revisions also write `rev-N/render-ir/` debug artifacts so
   the event/IR/display-list pipeline can be inspected next to existing page
   artifacts;
+- the revision artifact route exposes `render-ir/` JSON/TXT artifacts while
+  keeping non-render-IR metadata files private;
 - `\includegraphics` option control sequences such as `\textwidth` /
   `\linewidth` survive event capture into display-list sizing;
 - `\paperwidth`, `\pagewidth`, `\hsize`, and `\vsize` are accepted as graphic
