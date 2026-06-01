@@ -122,6 +122,11 @@ can now opt into using matching render-IR display-list SVG pages as the preview
 page images while retaining the legacy page PDF fallback. Production PDF/SVG
 vector embedding, external conversion, and default serve-preview replacement are
 still deferred.
+The `tex-pdf` display-list renderer now has an explicit converted-asset hook:
+callers can resolve an original external asset and provide converted PNG/JPEG
+bytes for PDF/EPS-style inputs without making the renderer depend directly on
+Ghostscript or Poppler. Unconverted resolved PDF/EPS assets now surface as
+unsupported placeholders instead of generic image placeholders.
 External PDF/EPS conversion, driver-accurate crop/clip rendering for non-bitmap assets,
 TeX-exact rotated-box reflow, programmable table preamble hooks, exact vertical
 border trimming, exact table rule trimming, actual multirow geometry, nested
@@ -703,6 +708,11 @@ Status:
   opt into render-IR display-list SVG page images when the debug SVG page count
   matches the internal compiler page count, while keeping legacy page PDFs as
   fallback artifacts;
+- `tex-pdf` can now consume caller-supplied converted PNG/JPEG bytes for
+  resolved PDF/EPS-style display-list image assets, which keeps the renderer
+  independent from the eventual Ghostscript/Poppler conversion layer;
+- resolved but unconverted PDF/EPS assets surface as unsupported placeholders in
+  display-list PDF/SVG output instead of falling back to generic image labels;
 - `\includegraphics` option control sequences such as `\textwidth` /
   `\linewidth` survive event capture into display-list sizing;
 - `\paperwidth`, `\pagewidth`, `\hsize`, and `\vsize` are accepted as graphic
@@ -731,8 +741,9 @@ Status:
 - common `colortbl` table color commands are normalized without leaking command
   names or color arguments into table text;
 - simple multirow row counts survive into `TableCell.row_span` metadata;
-- external PDF/EPS conversion, production SVG/PDF vector embedding, and making
-  render-IR artifacts the default serve preview page path are still pending.
+- wiring an actual Ghostscript/Poppler converter into the new converted-asset
+  hook, production SVG/PDF vector embedding, and making render-IR artifacts the
+  default serve preview page path are still pending.
 
 Exit criteria:
 
