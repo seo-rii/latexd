@@ -509,6 +509,54 @@ pub fn stale_tiles(cached: &[TileKey], required: &[TileRequest]) -> Vec<TileKey>
         .collect()
 }
 
+pub fn convert_pdf_or_eps_asset_to_png_with_cli(
+    program: &str,
+    asset_ref: &str,
+    bytes: &[u8],
+) -> Result<Vec<u8>> {
+    let suffix = Path::new(asset_ref)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .filter(|extension| !extension.is_empty())
+        .map(|extension| format!(".{extension}"))
+        .unwrap_or_else(|| ".pdf".to_string());
+    let input = tempfile::Builder::new()
+        .prefix("latexd-asset-")
+        .suffix(&suffix)
+        .tempfile()
+        .with_context(|| format!("failed to create temporary input for {asset_ref}"))?;
+    std::fs::write(input.path(), bytes)
+        .with_context(|| format!("failed to write temporary input for {asset_ref}"))?;
+
+    let output = std::process::Command::new(program)
+        .args([
+            "-q",
+            "-dSAFER",
+            "-dBATCH",
+            "-dNOPAUSE",
+            "-dEPSCrop",
+            "-sDEVICE=pngalpha",
+            "-dTextAlphaBits=4",
+            "-dGraphicsAlphaBits=4",
+            "-dFirstPage=1",
+            "-dLastPage=1",
+            "-r72",
+            "-sOutputFile=%stdout",
+        ])
+        .arg(input.path())
+        .output()
+        .map_err(|error| anyhow!("failed to run ghostscript {program} for {asset_ref}: {error}"))?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "ghostscript {program} failed to convert {asset_ref}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ));
+    }
+    image::load_from_memory_with_format(&output.stdout, image::ImageFormat::Png)
+        .with_context(|| format!("ghostscript output for {asset_ref} was not PNG"))?;
+    Ok(output.stdout)
+}
+
 fn scaled_dimension(dimension: u32, scale: f32) -> u32 {
     ((dimension as f32 * scale).round() as u32).max(1)
 }
@@ -653,8 +701,8 @@ mod tests {
 
     use super::{
         CliRenderer, GsApiRenderer, GsApiRuntime, GsApiRuntimePool, MockRenderer, PageRenderInput,
-        Rect, Renderer, Viewport, probe_gsapi_library, required_tiles_for_viewport, stale_tiles,
-        tile_key,
+        Rect, Renderer, Viewport, convert_pdf_or_eps_asset_to_png_with_cli, probe_gsapi_library,
+        required_tiles_for_viewport, stale_tiles, tile_key,
     };
 
     fn sample_page() -> PageRenderInput {
@@ -892,6 +940,53 @@ mod tests {
         assert_eq!(tiles[0].image.height, 16);
         assert_eq!(tiles[1].rect.x, 80);
         assert_eq!(tiles[1].rect.y, 24);
+    }
+
+    #[test]
+    fn cli_converter_converts_pdf_asset_to_png_when_available() {
+        let Ok(program) = which::which("gs") else {
+            return;
+        };
+        let pdf_file = NamedTempFile::new().expect("named temp file");
+        write_sample_pdf(pdf_file.path(), 144, 72);
+        let pdf = fs::read(pdf_file.path()).expect("read sample pdf");
+
+        let png = convert_pdf_or_eps_asset_to_png_with_cli(
+            program.to_string_lossy().as_ref(),
+            "figures/vector.pdf",
+            &pdf,
+        )
+        .expect("convert pdf asset");
+        let image =
+            image::load_from_memory_with_format(&png, image::ImageFormat::Png).expect("decode png");
+
+        assert_eq!(image.width(), 144);
+        assert_eq!(image.height(), 72);
+    }
+
+    #[test]
+    fn cli_converter_converts_eps_asset_to_png_when_available() {
+        let Ok(program) = which::which("gs") else {
+            return;
+        };
+        let eps = b"%!PS-Adobe-3.0 EPSF-3.0
+%%BoundingBox: 0 0 144 72
+newpath 0 0 moveto 144 72 lineto 144 0 lineto closepath
+0.2 setgray fill
+showpage
+";
+
+        let png = convert_pdf_or_eps_asset_to_png_with_cli(
+            program.to_string_lossy().as_ref(),
+            "figures/vector.eps",
+            eps,
+        )
+        .expect("convert eps asset");
+        let image =
+            image::load_from_memory_with_format(&png, image::ImageFormat::Png).expect("decode png");
+
+        assert_eq!(image.width(), 144);
+        assert_eq!(image.height(), 72);
     }
 
     #[test]

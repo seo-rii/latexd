@@ -3051,7 +3051,89 @@ fn graphic_draft_pdf_asset_is_not_reported_as_unsupported() {
 }
 
 #[test]
-fn project_root_unsupported_pdf_graphic_surfaces_render_artifact_diagnostic() {
+fn project_root_render_ir_capture_converts_pdf_assets_in_debug_artifacts_when_gs_available() {
+    let Ok(_) = which::which("gs") else {
+        return;
+    };
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
+    fs::create_dir_all(root.join("figures").as_std_path()).expect("create figures dir");
+    fs::write(
+        root.join("main.tex").as_std_path(),
+        r"\begin{document}\includegraphics{figures/plot.pdf}\end{document}",
+    )
+    .expect("write source");
+    let stream = "0.2 g 0 0 144 72 re f";
+    let objects = [
+        "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n".to_string(),
+        "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n".to_string(),
+        "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 144 72] /Contents 4 0 R >> endobj\n"
+            .to_string(),
+        format!(
+            "4 0 obj << /Length {} >> stream\n{}\nendstream\nendobj\n",
+            stream.len(),
+            stream
+        ),
+    ];
+    let mut pdf = Vec::new();
+    pdf.extend_from_slice(b"%PDF-1.4\n");
+    let mut offsets = vec![0usize];
+    for object in &objects {
+        offsets.push(pdf.len());
+        pdf.extend_from_slice(object.as_bytes());
+    }
+    let xref_offset = pdf.len();
+    pdf.extend_from_slice(format!("xref\n0 {}\n", objects.len() + 1).as_bytes());
+    pdf.extend_from_slice(b"0000000000 65535 f \n");
+    for offset in offsets.iter().skip(1) {
+        pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend_from_slice(
+        format!(
+            "trailer << /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
+            objects.len() + 1,
+            xref_offset
+        )
+        .as_bytes(),
+    );
+    fs::write(root.join("figures/plot.pdf").as_std_path(), pdf).expect("write pdf");
+
+    let capture =
+        capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
+            .expect("capture project render ir");
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.pdf" => Some(image),
+            _ => None,
+        })
+        .expect("pdf image op");
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+
+    assert!(image.asset_hash.is_some());
+    assert_eq!(image.asset_format, Some(GraphicAssetFormat::Pdf));
+    assert!(image.diagnostic.is_none());
+    assert!(pdf_text.contains("/Subtype /Image"));
+    assert!(pdf_text.contains("/Im1 Do"));
+    assert!(!pdf_text.contains("[unsupported image: figures/plot.pdf]"));
+
+    let output_dir = root.join("render-artifacts");
+    let paths = capture
+        .write_debug_artifacts(&output_dir)
+        .expect("write debug artifacts");
+    let display_list_svg =
+        fs::read_to_string(&paths.display_list_svgs[0]).expect("read display-list svg");
+    assert!(display_list_svg.contains("data-image-asset-ref=\"figures/plot.pdf\""));
+    assert!(display_list_svg.contains("data-image-asset-format=\"pdf\""));
+    assert!(display_list_svg.contains("data-image-converted-format=\"png\""));
+    assert!(display_list_svg.contains("data-image-embedded=\"true\""));
+    assert!(display_list_svg.contains("href=\"data:image/png,%89PNG"));
+    assert!(!display_list_svg.contains("[unsupported image: figures/plot.pdf]"));
+}
+
+#[test]
+fn project_root_unconvertible_pdf_graphic_surfaces_render_artifact_placeholder() {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
     fs::create_dir_all(root.join("figures").as_std_path()).expect("create figures dir");
@@ -3080,16 +3162,17 @@ fn project_root_unsupported_pdf_graphic_surfaces_render_artifact_diagnostic() {
 
     assert!(image.asset_hash.is_some());
     assert_eq!(image.asset_format, Some(GraphicAssetFormat::Pdf));
-    assert!(image.diagnostic.as_deref().is_some_and(|diagnostic| {
-        diagnostic.contains("unsupported graphic asset format pdf")
-            && diagnostic.contains("figures/plot.pdf")
-    }));
+    assert!(image.diagnostic.is_none());
     let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
     assert!(pdf_text.contains("[unsupported image: figures/plot.pdf]"));
-    let svg = tex_pdf::render_display_list_svg(&capture.page_display_lists[0]);
+    let output_dir = root.join("render-artifacts");
+    let paths = capture
+        .write_debug_artifacts(&output_dir)
+        .expect("write debug artifacts");
+    let svg = fs::read_to_string(&paths.display_list_svgs[0]).expect("read display-list svg");
     assert!(svg.contains("data-image-placeholder-kind=\"unsupported\""));
-    assert!(svg.contains("unsupported graphic asset format pdf for figures/plot.pdf"));
     assert!(svg.contains("[unsupported image: figures/plot.pdf]"));
+    assert!(!svg.contains("data-image-embedded=\"true\""));
 }
 
 #[test]
