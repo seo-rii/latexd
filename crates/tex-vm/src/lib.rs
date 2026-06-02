@@ -19245,16 +19245,88 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!("infinity");
                         index = command_index;
                     }
-                    "sum" => {
-                        push_token!("sum");
-                        index = command_index;
+                    "sum" | "prod" | "int" | "lim" => {
+                        let mut script_index = skip_ascii_whitespace(source, command_index);
+                        let mut lower = None;
+                        let mut upper = None;
+                        for _ in 0..2 {
+                            script_index = skip_ascii_whitespace(source, script_index);
+                            if script_index >= bytes.len()
+                                || !matches!(bytes[script_index], b'_' | b'^')
+                            {
+                                break;
+                            }
+                            let marker = bytes[script_index];
+                            let mut argument_index =
+                                skip_ascii_whitespace(source, script_index + 1);
+                            if argument_index >= bytes.len() {
+                                return None;
+                            }
+                            let argument = if let Some((argument, _, _, after_argument)) =
+                                read_braced_source_argument(source, argument_index)
+                            {
+                                script_index = after_argument;
+                                normalize_latex_math_text(argument)
+                                    .unwrap_or_else(|| normalize_latex_math_source(argument))
+                            } else if argument_index < bytes.len() && bytes[argument_index] == b'\\'
+                            {
+                                let command_start = argument_index;
+                                argument_index += 1;
+                                if argument_index >= bytes.len() {
+                                    return None;
+                                }
+                                if bytes[argument_index].is_ascii_alphabetic()
+                                    || bytes[argument_index] == b'@'
+                                {
+                                    while argument_index < bytes.len()
+                                        && (bytes[argument_index].is_ascii_alphabetic()
+                                            || bytes[argument_index] == b'@')
+                                    {
+                                        argument_index += 1;
+                                    }
+                                } else {
+                                    argument_index += 1;
+                                }
+                                script_index = argument_index;
+                                let argument_source = &source[command_start..argument_index];
+                                normalize_latex_math_text(argument_source)
+                                    .unwrap_or_else(|| normalize_latex_math_source(argument_source))
+                            } else {
+                                let argument_char = source[argument_index..]
+                                    .chars()
+                                    .next()
+                                    .expect("math operator script char");
+                                let argument_start = argument_index;
+                                argument_index += argument_char.len_utf8();
+                                script_index = argument_index;
+                                let argument_source = &source[argument_start..argument_index];
+                                normalize_latex_math_text(argument_source)
+                                    .unwrap_or_else(|| normalize_latex_math_source(argument_source))
+                            };
+                            if marker == b'_' {
+                                lower = Some(argument);
+                            } else {
+                                upper = Some(argument);
+                            }
+                        }
+                        let mut operator = command.to_string();
+                        if let Some(lower) = lower {
+                            operator.push_str("_{");
+                            operator.push_str(&lower);
+                            operator.push('}');
+                        }
+                        if let Some(upper) = upper {
+                            operator.push_str("^{");
+                            operator.push_str(&upper);
+                            operator.push('}');
+                        }
+                        push_token!(&operator);
+                        index = script_index;
                     }
-                    "prod" => {
-                        push_token!("prod");
-                        index = command_index;
-                    }
-                    "int" => {
-                        push_token!("int");
+                    "sin" | "cos" | "tan" | "cot" | "sec" | "csc" | "log" | "ln" | "exp"
+                    | "min" | "max" | "arg" | "deg" | "det" | "dim" | "gcd" | "hom" | "ker"
+                    | "Pr" | "sup" | "inf" => {
+                        push_token!(command);
                         index = command_index;
                     }
                     "partial" => {
@@ -26044,6 +26116,30 @@ Fallback text.
                     == r"\hat{x} + \bar{y} + \vec{v} + \left\langle \alpha, \beta \right\rangle"
                     && math.normalized_text.as_deref()
                         == Some("hat(x) + bar(y) + vec(v) + < alpha, beta >")
+        ));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_operators_and_scripts() {
+        let source = r"\begin{document}Series \(\sum_{i=1}^{n} x_i + \int_{0}^{1} f(x)\,dx + \sin \theta\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math)
+                if math.raw_source
+                    == r"\sum_{i=1}^{n} x_i + \int_{0}^{1} f(x)\,dx + \sin \theta"
+                    && math.normalized_text.as_deref()
+                        == Some("sum_{i = 1}^{n} x_i + int_{0}^{1} f(x) dx + sin theta")
         ));
     }
 

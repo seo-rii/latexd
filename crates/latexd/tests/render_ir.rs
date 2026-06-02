@@ -4171,6 +4171,50 @@ fn math_accents_and_delimiters_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_operators_and_scripts_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Series \(\sum_{i=1}^{n} x_i + \int_{0}^{1} f(x)\,dx + \sin \theta\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"\sum_{i=1}^{n} x_i + \int_{0}^{1} f(x)\,dx + \sin \theta"
+                && normalized_text.as_deref()
+                    == Some("sum_{i = 1}^{n} x_i + int_{0}^{1} f(x) dx + sin theta")
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("sum_{i = 1}^{n} x_i"));
+    assert!(display_list_text.contains("int_{0}^{1} f(x) dx"));
+    assert!(display_list_text.contains("sin theta"));
+    assert!(!display_list_text.contains(r"\sum"));
+    assert!(!display_list_text.contains(r"\int"));
+}
+
+#[test]
 fn math_environment_capture_survives_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", MATH_ENVIRONMENT_SOURCE, &SemanticAux::default());
@@ -15276,7 +15320,9 @@ fn subequations_wrapper_preserves_inner_display_math() {
     assert!(capture.document_ir.blocks.iter().any(|block| {
         matches!(
             block,
-            IrBlock::DisplayMath(display) if display.raw_source == "x&=y"
+            IrBlock::DisplayMath(display)
+                if display.raw_source == "x&=y"
+                    && display.normalized_text.as_deref() == Some("x = y")
         )
     }));
     assert!(!capture.document_ir.blocks.iter().any(|block| {
@@ -15299,7 +15345,8 @@ fn subequations_wrapper_preserves_inner_display_math() {
     assert!(label_keys.contains(&"eq:group"));
 
     let extracted_text = capture.document_ir.extracted_text();
-    assert!(extracted_text.contains("x&=y"));
+    assert!(extracted_text.contains("x = y"));
+    assert!(!extracted_text.contains("x&=y"));
     assert!(!extracted_text.contains("eq:group"));
 
     let display_list_text = capture.page_display_lists[0]
@@ -15311,7 +15358,8 @@ fn subequations_wrapper_preserves_inner_display_math() {
         })
         .collect::<Vec<_>>()
         .join("");
-    assert!(display_list_text.contains("x&=y"));
+    assert!(display_list_text.contains("x = y"));
+    assert!(!display_list_text.contains("x&=y"));
     assert!(!display_list_text.contains("eq:group"));
 }
 
