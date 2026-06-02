@@ -4129,6 +4129,48 @@ fn dollar_math_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn math_accents_and_delimiters_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Vector \(\hat{x} + \bar{y} + \vec{v} + \left\langle \alpha, \beta \right\rangle\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"\hat{x} + \bar{y} + \vec{v} + \left\langle \alpha, \beta \right\rangle"
+                && normalized_text.as_deref()
+                    == Some("hat(x) + bar(y) + vec(v) + < alpha, beta >")
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("hat(x) + bar(y) + vec(v) + < alpha, beta >"));
+    assert!(!display_list_text.contains(r"\hat{x}"));
+    assert!(!display_list_text.contains(r"\left\langle"));
+}
+
+#[test]
 fn math_environment_capture_survives_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", MATH_ENVIRONMENT_SOURCE, &SemanticAux::default());

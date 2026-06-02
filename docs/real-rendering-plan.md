@@ -599,14 +599,15 @@ Current status:
   readable `normalized_text`;
 - the first normalized-text subset covers common Greek names, comparison and
   arithmetic operators, fractions, roots, text/operator wrappers, simple
-  superscript/subscript braces, and alignment markers;
+  superscript/subscript braces, accent wrappers, delimiter commands, and
+  alignment markers;
 - document IR and page display lists already prefer normalized math text when
   present while keeping raw source available as fallback.
 
 Remaining math work:
 
-- accents, delimiters, sums/products/integrals, matrices, and richer math
-  grouping remain subset work;
+- sums/products/integrals, matrices, and richer math grouping remain subset
+  work;
 - renderer-level glyph shaping and true math layout are intentionally deferred;
 - corpus metrics still need math-heavy fixture gates once the subset expands.
 
@@ -778,7 +779,7 @@ Scope:
 
 - inline/display math IR;
 - common symbols and operators, with first normalized-text slice implemented;
-- superscript/subscript/fraction/root subset, with accents still pending;
+- superscript/subscript/fraction/root/accent/delimiter subset;
 - math fallback policy.
 
 Exit criteria:

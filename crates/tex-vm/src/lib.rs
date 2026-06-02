@@ -19147,7 +19147,51 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!(&argument);
                         index = after_argument;
                     }
-                    "left" | "right" => {
+                    "hat" | "widehat" | "bar" | "overline" | "vec" | "tilde" | "widetilde"
+                    | "dot" | "ddot" | "underline" => {
+                        let argument_index = skip_ascii_whitespace(source, command_index);
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_math_source(argument));
+                        let accent = match command {
+                            "widehat" => "hat",
+                            "overline" => "bar",
+                            "widetilde" => "tilde",
+                            _ => command,
+                        };
+                        push_token!(&format!("{accent}({argument})"));
+                        index = after_argument;
+                    }
+                    "left" | "right" | "big" | "Big" | "bigg" | "Bigg" | "bigl" | "bigr"
+                    | "Bigl" | "Bigr" | "biggl" | "biggr" | "Biggl" | "Biggr" => {
+                        index = command_index;
+                    }
+                    "langle" => {
+                        push_token!("<");
+                        index = command_index;
+                    }
+                    "rangle" => {
+                        push_token!(">");
+                        index = command_index;
+                    }
+                    "lvert" | "rvert" | "vert" | "mid" => {
+                        push_token!("|");
+                        index = command_index;
+                    }
+                    "lVert" | "rVert" | "Vert" => {
+                        push_token!("||");
+                        index = command_index;
+                    }
+                    "lbrace" => {
+                        push_token!("{");
+                        index = command_index;
+                    }
+                    "rbrace" => {
+                        push_token!("}");
                         index = command_index;
                     }
                     "," | ":" | ";" | " " | "quad" | "qquad" | "\\" => {
@@ -25976,6 +26020,30 @@ Fallback text.
             RenderEvent::InlineMath(math)
                 if math.raw_source == r"\alpha + \frac{x}{y} + \sqrt{z}"
                     && math.normalized_text.as_deref() == Some("alpha + x/y + sqrt(z)")
+        ));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_accents_and_delimiters() {
+        let source = r"\begin{document}Vector \(\hat{x} + \bar{y} + \vec{v} + \left\langle \alpha, \beta \right\rangle\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math)
+                if math.raw_source
+                    == r"\hat{x} + \bar{y} + \vec{v} + \left\langle \alpha, \beta \right\rangle"
+                    && math.normalized_text.as_deref()
+                        == Some("hat(x) + bar(y) + vec(v) + < alpha, beta >")
         ));
     }
 
