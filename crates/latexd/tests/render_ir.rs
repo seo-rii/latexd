@@ -4253,6 +4253,33 @@ fn unknown_math_commands_use_raw_source_without_lossy_normalization() {
 }
 
 #[test]
+fn matrix_math_environment_uses_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}\[\begin{pmatrix} a & b \\ c & d \end{pmatrix}\]\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::DisplayMath(display)
+                if display.raw_source == r"\begin{pmatrix} a & b \\ c & d \end{pmatrix}"
+                    && display.normalized_text.as_deref() == Some("matrix(a, b; c, d)")
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("matrix(a, b; c, d)"));
+    assert!(!display_list_text.contains(r"\begin{pmatrix}"));
+}
+
+#[test]
 fn math_environment_capture_survives_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", MATH_ENVIRONMENT_SOURCE, &SemanticAux::default());
