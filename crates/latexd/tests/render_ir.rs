@@ -4280,6 +4280,34 @@ fn matrix_math_environment_uses_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn cases_math_environment_uses_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}\[\begin{cases} x & x>0 \\ -x & x<0 \end{cases}\]\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::DisplayMath(display)
+                if display.raw_source == r"\begin{cases} x & x>0 \\ -x & x<0 \end{cases}"
+                    && display.normalized_text.as_deref()
+                        == Some("cases(x, x > 0; - x, x < 0)")
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("cases(x, x > 0; - x, x < 0)"));
+    assert!(!display_list_text.contains(r"\begin{cases}"));
+}
+
+#[test]
 fn math_environment_capture_survives_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", MATH_ENVIRONMENT_SOURCE, &SemanticAux::default());

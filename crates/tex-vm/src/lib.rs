@@ -26246,6 +26246,30 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_normalizes_cases_math_environments() {
+        let source =
+            r"\begin{document}\[\begin{cases} x & x>0 \\ -x & x<0 \end{cases}\]\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let display_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::DisplayMath(_)))
+            .expect("display math event");
+
+        assert!(matches!(
+            &display_math.event,
+            RenderEvent::DisplayMath(math)
+                if math.raw_source == r"\begin{cases} x & x>0 \\ -x & x<0 \end{cases}"
+                    && math.normalized_text.as_deref()
+                        == Some("cases(x, x > 0; - x, x < 0)")
+        ));
+    }
+
+    #[test]
     fn render_event_capture_records_dollar_math() {
         let source = r"\begin{document}Area $x^2 + y^2$.$$z^2$$\end{document}";
         let mut interner = ControlSequenceInterner::new();
