@@ -603,6 +603,8 @@ Current status:
   wrappers, delimiter commands, and alignment markers;
 - document IR and page display lists already prefer normalized math text when
   present while keeping raw source available as fallback.
+- unsupported math commands intentionally leave `normalized_text` empty so raw
+  source remains visible instead of producing lossy ASCII stubs.
 
 Remaining math work:
 

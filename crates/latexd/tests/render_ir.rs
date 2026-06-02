@@ -4215,6 +4215,44 @@ fn math_operators_and_scripts_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn unknown_math_commands_use_raw_source_without_lossy_normalization() {
+    let source = r"\begin{document}Set \(\mathbb{R} + \unknownmath{x}\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source == r"\mathbb{R} + \unknownmath{x}"
+                && normalized_text.is_none()
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains(r"\mathbb{R} + \unknownmath{x}"));
+}
+
+#[test]
 fn math_environment_capture_survives_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", MATH_ENVIRONMENT_SOURCE, &SemanticAux::default());

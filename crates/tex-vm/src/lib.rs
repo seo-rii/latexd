@@ -26144,6 +26144,28 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_keeps_unknown_math_as_raw_fallback_text() {
+        let source = r"\begin{document}Set \(\mathbb{R} + \unknownmath{x}\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math)
+                if math.raw_source == r"\mathbb{R} + \unknownmath{x}"
+                    && math.normalized_text.is_none()
+        ));
+    }
+
+    #[test]
     fn render_event_capture_records_dollar_math() {
         let source = r"\begin{document}Area $x^2 + y^2$.$$z^2$$\end{document}";
         let mut interner = ControlSequenceInterner::new();
