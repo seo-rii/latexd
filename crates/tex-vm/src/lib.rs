@@ -1358,19 +1358,13 @@ impl<'i> Vm<'i> {
                             }
                         }
                         let event = if delimiter_len == 2 {
-                            RenderEvent::DisplayMath(MathSourceEvent {
-                                raw_source: normalize_latex_math_source(
-                                    &source[math_start..math_end],
-                                ),
-                                normalized_text: None,
-                            })
+                            RenderEvent::DisplayMath(math_source_event(
+                                &source[math_start..math_end],
+                            ))
                         } else {
-                            RenderEvent::InlineMath(MathSourceEvent {
-                                raw_source: normalize_latex_math_source(
-                                    &source[math_start..math_end],
-                                ),
-                                normalized_text: None,
-                            })
+                            RenderEvent::InlineMath(math_source_event(
+                                &source[math_start..math_end],
+                            ))
                         };
                         self.emit_render_event(
                             event,
@@ -2716,12 +2710,9 @@ impl<'i> Vm<'i> {
                                         body_index = command_index;
                                     }
                                     self.emit_render_event(
-                                        RenderEvent::DisplayMath(MathSourceEvent {
-                                            raw_source: normalize_latex_math_source(
-                                                &source[body_start..body_end],
-                                            ),
-                                            normalized_text: None,
-                                        }),
+                                        RenderEvent::DisplayMath(math_source_event(
+                                            &source[body_start..body_end],
+                                        )),
                                         SourceProvenance::file(
                                             source_path.to_owned(),
                                             body_start as u32,
@@ -4936,19 +4927,13 @@ impl<'i> Vm<'i> {
                                             true,
                                         );
                                         let event = if delimiter_len == 2 {
-                                            RenderEvent::DisplayMath(MathSourceEvent {
-                                                raw_source: normalize_latex_math_source(
-                                                    &source[math_start..math_end],
-                                                ),
-                                                normalized_text: None,
-                                            })
+                                            RenderEvent::DisplayMath(math_source_event(
+                                                &source[math_start..math_end],
+                                            ))
                                         } else {
-                                            RenderEvent::InlineMath(MathSourceEvent {
-                                                raw_source: normalize_latex_math_source(
-                                                    &source[math_start..math_end],
-                                                ),
-                                                normalized_text: None,
-                                            })
+                                            RenderEvent::InlineMath(math_source_event(
+                                                &source[math_start..math_end],
+                                            ))
                                         };
                                         self.emit_render_event(
                                             event,
@@ -5011,12 +4996,9 @@ impl<'i> Vm<'i> {
                                             let math_start = inner_index;
                                             let math_end = inner_index + relative_end;
                                             self.emit_render_event(
-                                                RenderEvent::InlineMath(MathSourceEvent {
-                                                    raw_source: normalize_latex_math_source(
-                                                        &source[math_start..math_end],
-                                                    ),
-                                                    normalized_text: None,
-                                                }),
+                                                RenderEvent::InlineMath(math_source_event(
+                                                    &source[math_start..math_end],
+                                                )),
                                                 SourceProvenance::file(
                                                     source_path.to_owned(),
                                                     math_start as u32,
@@ -5041,12 +5023,9 @@ impl<'i> Vm<'i> {
                                             let math_start = inner_index;
                                             let math_end = inner_index + relative_end;
                                             self.emit_render_event(
-                                                RenderEvent::DisplayMath(MathSourceEvent {
-                                                    raw_source: normalize_latex_math_source(
-                                                        &source[math_start..math_end],
-                                                    ),
-                                                    normalized_text: None,
-                                                }),
+                                                RenderEvent::DisplayMath(math_source_event(
+                                                    &source[math_start..math_end],
+                                                )),
                                                 SourceProvenance::file(
                                                     source_path.to_owned(),
                                                     math_start as u32,
@@ -5605,27 +5584,17 @@ impl<'i> Vm<'i> {
                                                             );
                                                             let event = if delimiter_len == 2 {
                                                                 RenderEvent::DisplayMath(
-                                                                    MathSourceEvent {
-                                                                        raw_source:
-                                                                            normalize_latex_math_source(
-                                                                                &source
-                                                                                    [math_start
-                                                                                        ..math_end],
-                                                                            ),
-                                                                        normalized_text: None,
-                                                                    },
+                                                                    math_source_event(
+                                                                        &source
+                                                                            [math_start..math_end],
+                                                                    ),
                                                                 )
                                                             } else {
                                                                 RenderEvent::InlineMath(
-                                                                    MathSourceEvent {
-                                                                        raw_source:
-                                                                            normalize_latex_math_source(
-                                                                                &source
-                                                                                    [math_start
-                                                                                        ..math_end],
-                                                                            ),
-                                                                        normalized_text: None,
-                                                                    },
+                                                                    math_source_event(
+                                                                        &source
+                                                                            [math_start..math_end],
+                                                                    ),
                                                                 )
                                                             };
                                                             self.emit_render_event(
@@ -5707,15 +5676,10 @@ impl<'i> Vm<'i> {
                                                                     + relative_end;
                                                                 self.emit_render_event(
                                                                     RenderEvent::InlineMath(
-                                                                        MathSourceEvent {
-                                                                            raw_source:
-                                                                                normalize_latex_math_source(
-                                                                                    &source
-                                                                                        [math_start
-                                                                                            ..math_end],
-                                                                                ),
-                                                                            normalized_text: None,
-                                                                        },
+                                                                        math_source_event(
+                                                                            &source[math_start
+                                                                                ..math_end],
+                                                                        ),
                                                                     ),
                                                                     SourceProvenance::file(
                                                                         source_path.to_owned(),
@@ -5752,15 +5716,10 @@ impl<'i> Vm<'i> {
                                                                     + relative_end;
                                                                 self.emit_render_event(
                                                                     RenderEvent::DisplayMath(
-                                                                        MathSourceEvent {
-                                                                            raw_source:
-                                                                                normalize_latex_math_source(
-                                                                                    &source
-                                                                                        [math_start
-                                                                                            ..math_end],
-                                                                                ),
-                                                                            normalized_text: None,
-                                                                        },
+                                                                        math_source_event(
+                                                                            &source[math_start
+                                                                                ..math_end],
+                                                                        ),
                                                                     ),
                                                                     SourceProvenance::file(
                                                                         source_path.to_owned(),
@@ -7542,12 +7501,9 @@ impl<'i> Vm<'i> {
                         let math_start = index;
                         let math_end = index + relative_end;
                         self.emit_render_event(
-                            RenderEvent::InlineMath(MathSourceEvent {
-                                raw_source: normalize_latex_math_source(
-                                    &source[math_start..math_end],
-                                ),
-                                normalized_text: None,
-                            }),
+                            RenderEvent::InlineMath(math_source_event(
+                                &source[math_start..math_end],
+                            )),
                             SourceProvenance::file(
                                 source_path.to_owned(),
                                 math_start as u32,
@@ -7622,12 +7578,9 @@ impl<'i> Vm<'i> {
                             math_index = command_index;
                         }
                         self.emit_render_event(
-                            RenderEvent::DisplayMath(MathSourceEvent {
-                                raw_source: normalize_latex_math_source(
-                                    &source[math_start..math_end],
-                                ),
-                                normalized_text: None,
-                            }),
+                            RenderEvent::DisplayMath(math_source_event(
+                                &source[math_start..math_end],
+                            )),
                             SourceProvenance::file(
                                 source_path.to_owned(),
                                 math_start as u32,
@@ -19045,6 +18998,304 @@ fn normalize_latex_math_source(source: &str) -> String {
     text.trim().to_string()
 }
 
+fn math_source_event(source: &str) -> MathSourceEvent {
+    let raw_source = normalize_latex_math_source(source);
+    let normalized_text = normalize_latex_math_text(&raw_source);
+    MathSourceEvent {
+        raw_source,
+        normalized_text,
+    }
+}
+
+fn normalize_latex_math_text(source: &str) -> Option<String> {
+    let source = source.trim();
+    if source.is_empty() {
+        return None;
+    }
+
+    let bytes = source.as_bytes();
+    let mut text = String::new();
+    let mut index = 0usize;
+    let mut pending_space = false;
+
+    macro_rules! push_space {
+        () => {{
+            if !text.is_empty() {
+                pending_space = true;
+            }
+        }};
+    }
+
+    macro_rules! push_token {
+        ($token:expr) => {{
+            let token = $token;
+            if !token.is_empty() {
+                if pending_space
+                    && !text.is_empty()
+                    && !token.starts_with(['.', ',', ';', ':', '!', '?', ')', ']', '/', '^', '_'])
+                    && !text.ends_with([' ', '(', '[', '/', '^', '_'])
+                {
+                    text.push(' ');
+                }
+                text.push_str(token);
+                pending_space = false;
+            }
+        }};
+    }
+
+    macro_rules! push_operator {
+        ($operator:expr) => {{
+            if !text.is_empty() && !text.ends_with([' ', '(', '[', '/', '^', '_']) {
+                text.push(' ');
+            }
+            text.push_str($operator);
+            pending_space = true;
+        }};
+    }
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => {
+                let mut command_index = index + 1;
+                if command_index >= bytes.len() {
+                    return None;
+                }
+                let command =
+                    if bytes[command_index].is_ascii_alphabetic() || bytes[command_index] == b'@' {
+                        let start = command_index;
+                        while command_index < bytes.len()
+                            && (bytes[command_index].is_ascii_alphabetic()
+                                || bytes[command_index] == b'@')
+                        {
+                            command_index += 1;
+                        }
+                        &source[start..command_index]
+                    } else {
+                        let start = command_index;
+                        command_index += 1;
+                        &source[start..command_index]
+                    };
+                match command {
+                    "label" => {
+                        if let Some((_, _, _, after_label)) =
+                            read_braced_source_argument(source, command_index)
+                        {
+                            index = after_label;
+                        } else {
+                            return None;
+                        }
+                    }
+                    "frac" | "dfrac" | "tfrac" => {
+                        let numerator_index = skip_ascii_whitespace(source, command_index);
+                        let Some((numerator, _, _, after_numerator)) =
+                            read_braced_source_argument(source, numerator_index)
+                        else {
+                            return None;
+                        };
+                        let denominator_index = skip_ascii_whitespace(source, after_numerator);
+                        let Some((denominator, _, _, after_denominator)) =
+                            read_braced_source_argument(source, denominator_index)
+                        else {
+                            return None;
+                        };
+                        let numerator = normalize_latex_math_text(numerator)
+                            .unwrap_or_else(|| normalize_latex_math_source(numerator));
+                        let denominator = normalize_latex_math_text(denominator)
+                            .unwrap_or_else(|| normalize_latex_math_source(denominator));
+                        push_token!(&numerator);
+                        push_token!("/");
+                        push_token!(&denominator);
+                        index = after_denominator;
+                    }
+                    "sqrt" => {
+                        let mut argument_index = skip_ascii_whitespace(source, command_index);
+                        let root = if let Some((root, _, _, after_root)) =
+                            read_bracket_source_argument(source, argument_index)
+                        {
+                            argument_index = skip_ascii_whitespace(source, after_root);
+                            Some(
+                                normalize_latex_math_text(root)
+                                    .unwrap_or_else(|| normalize_latex_math_source(root)),
+                            )
+                        } else {
+                            None
+                        };
+                        let Some((radicand, _, _, after_radicand)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let radicand = normalize_latex_math_text(radicand)
+                            .unwrap_or_else(|| normalize_latex_math_source(radicand));
+                        if let Some(root) = root {
+                            push_token!(&format!("root[{root}]({radicand})"));
+                        } else {
+                            push_token!(&format!("sqrt({radicand})"));
+                        }
+                        index = after_radicand;
+                    }
+                    "text" | "textrm" | "textnormal" | "mathrm" | "mathbf" | "mathit"
+                    | "mathsf" | "mathtt" | "operatorname" => {
+                        let argument_index = skip_ascii_whitespace(source, command_index);
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_text(argument));
+                        push_token!(&argument);
+                        index = after_argument;
+                    }
+                    "left" | "right" => {
+                        index = command_index;
+                    }
+                    "," | ":" | ";" | " " | "quad" | "qquad" | "\\" => {
+                        push_space!();
+                        index = command_index;
+                    }
+                    "!" => {
+                        index = command_index;
+                    }
+                    "le" | "leq" => {
+                        push_operator!("<=");
+                        index = command_index;
+                    }
+                    "ge" | "geq" => {
+                        push_operator!(">=");
+                        index = command_index;
+                    }
+                    "neq" | "ne" => {
+                        push_operator!("!=");
+                        index = command_index;
+                    }
+                    "approx" | "sim" => {
+                        push_operator!("~");
+                        index = command_index;
+                    }
+                    "times" => {
+                        push_operator!("x");
+                        index = command_index;
+                    }
+                    "cdot" | "ast" => {
+                        push_operator!("*");
+                        index = command_index;
+                    }
+                    "pm" => {
+                        push_operator!("+/-");
+                        index = command_index;
+                    }
+                    "mp" => {
+                        push_operator!("-/+");
+                        index = command_index;
+                    }
+                    "to" | "rightarrow" | "mapsto" => {
+                        push_operator!("->");
+                        index = command_index;
+                    }
+                    "leftarrow" => {
+                        push_operator!("<-");
+                        index = command_index;
+                    }
+                    "infty" => {
+                        push_token!("infinity");
+                        index = command_index;
+                    }
+                    "sum" => {
+                        push_token!("sum");
+                        index = command_index;
+                    }
+                    "prod" => {
+                        push_token!("prod");
+                        index = command_index;
+                    }
+                    "int" => {
+                        push_token!("int");
+                        index = command_index;
+                    }
+                    "partial" => {
+                        push_token!("partial");
+                        index = command_index;
+                    }
+                    "nabla" => {
+                        push_token!("nabla");
+                        index = command_index;
+                    }
+                    "alpha" | "beta" | "gamma" | "delta" | "epsilon" | "varepsilon" | "zeta"
+                    | "eta" | "theta" | "vartheta" | "iota" | "kappa" | "lambda" | "mu" | "nu"
+                    | "xi" | "pi" | "varpi" | "rho" | "varrho" | "sigma" | "varsigma" | "tau"
+                    | "upsilon" | "phi" | "varphi" | "chi" | "psi" | "omega" | "Gamma"
+                    | "Delta" | "Theta" | "Lambda" | "Xi" | "Pi" | "Sigma" | "Upsilon" | "Phi"
+                    | "Psi" | "Omega" => {
+                        push_token!(command);
+                        index = command_index;
+                    }
+                    "{" | "}" | "$" | "#" | "%" | "&" | "_" | "^" => {
+                        push_token!(command);
+                        index = command_index;
+                    }
+                    _ => {
+                        return None;
+                    }
+                }
+            }
+            b'{' | b'}' => {
+                index += 1;
+            }
+            b'&' => {
+                push_space!();
+                index += 1;
+            }
+            b'^' | b'_' => {
+                if pending_space
+                    && !text.is_empty()
+                    && !text.ends_with([' ', '(', '[', '/', '^', '_'])
+                {
+                    text.push(' ');
+                }
+                text.push(bytes[index] as char);
+                pending_space = false;
+                index += 1;
+                let script_index = skip_ascii_whitespace(source, index);
+                if let Some((script, _, _, after_script)) =
+                    read_braced_source_argument(source, script_index)
+                {
+                    let script = normalize_latex_math_text(script)
+                        .unwrap_or_else(|| normalize_latex_math_source(script));
+                    text.push_str(&script);
+                    index = after_script;
+                } else {
+                    index = script_index;
+                }
+            }
+            byte if byte.is_ascii_whitespace() => {
+                push_space!();
+                index += 1;
+            }
+            b'=' | b'+' | b'-' | b'<' | b'>' => {
+                push_operator!(&source[index..index + 1]);
+                index += 1;
+            }
+            _ => {
+                let next_char = source[index..]
+                    .chars()
+                    .next()
+                    .expect("math source char at byte index");
+                let mut buffer = [0u8; 4];
+                push_token!(next_char.encode_utf8(&mut buffer));
+                index += next_char.len_utf8();
+            }
+        }
+    }
+
+    let text = text.trim().to_string();
+    if text.is_empty() || text == source {
+        None
+    } else {
+        Some(text)
+    }
+}
+
 fn render_roman_numeral(value: i32) -> String {
     if value <= 0 {
         return String::new();
@@ -25684,7 +25935,8 @@ Fallback text.
 
         assert!(matches!(
             &inline_math.event,
-            RenderEvent::InlineMath(math) if math.raw_source == "x^2 + y^2"
+            RenderEvent::InlineMath(math)
+                if math.raw_source == "x^2 + y^2" && math.normalized_text.is_none()
         ));
         assert_eq!(inline_math.meta.mode_hint, ModeHint::Math);
         assert!(matches!(
@@ -25703,6 +25955,28 @@ Fallback text.
                                 == r"\(x^2 + y^2\)"
                 )
         }));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_common_inline_math_text() {
+        let source = r"\begin{document}Values \(\alpha + \frac{x}{y} + \sqrt{z}\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math)
+                if math.raw_source == r"\alpha + \frac{x}{y} + \sqrt{z}"
+                    && math.normalized_text.as_deref() == Some("alpha + x/y + sqrt(z)")
+        ));
     }
 
     #[test]
@@ -25785,7 +26059,9 @@ Fallback text.
         assert_eq!(display_math.len(), 4);
         assert!(matches!(
             &display_math[0].event,
-            RenderEvent::DisplayMath(math) if math.raw_source == r"\frac{a}{b}"
+            RenderEvent::DisplayMath(math)
+                if math.raw_source == r"\frac{a}{b}"
+                    && math.normalized_text.as_deref() == Some("a/b")
         ));
         assert!(matches!(
             &display_math[1].event,

@@ -4138,6 +4138,7 @@ fn math_environment_capture_survives_ir_and_display_list() {
             block,
             IrBlock::DisplayMath(display)
                 if display.raw_source == r"\frac{a}{b}"
+                    && display.normalized_text.as_deref() == Some("a/b")
                     && matches!(
                         &display.source.primary,
                         ProvenanceSpan::File(span)
@@ -4202,10 +4203,11 @@ fn math_environment_capture_survives_ir_and_display_list() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(display_list_text.contains(r"\frac{a}{b}"));
-    assert!(display_list_text.contains("a&=b"));
-    assert!(display_list_text.contains("x&=y"));
-    assert!(display_list_text.contains("u&=&v"));
+    assert!(display_list_text.contains("a/b"));
+    assert!(!display_list_text.contains(r"\frac{a}{b}"));
+    assert!(display_list_text.contains("a = b"));
+    assert!(display_list_text.contains("x = y"));
+    assert!(display_list_text.contains("u = v"));
 }
 
 #[test]

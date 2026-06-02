@@ -593,6 +593,23 @@ Tasks:
 - normalize math text in oracle metrics so ASCII stubs and Unicode glyphs do not
   create misleading failures.
 
+Current status:
+
+- inline/display math events preserve raw TeX source and carry optional
+  readable `normalized_text`;
+- the first normalized-text subset covers common Greek names, comparison and
+  arithmetic operators, fractions, roots, text/operator wrappers, simple
+  superscript/subscript braces, and alignment markers;
+- document IR and page display lists already prefer normalized math text when
+  present while keeping raw source available as fallback.
+
+Remaining math work:
+
+- accents, delimiters, sums/products/integrals, matrices, and richer math
+  grouping remain subset work;
+- renderer-level glyph shaping and true math layout are intentionally deferred;
+- corpus metrics still need math-heavy fixture gates once the subset expands.
+
 Done when:
 
 - math-heavy papers no longer lose large vocabulary sets;
@@ -760,8 +777,8 @@ Exit criteria:
 Scope:
 
 - inline/display math IR;
-- common symbols and operators;
-- superscript/subscript/fraction/root/accent subset;
+- common symbols and operators, with first normalized-text slice implemented;
+- superscript/subscript/fraction/root subset, with accents still pending;
 - math fallback policy.
 
 Exit criteria:
