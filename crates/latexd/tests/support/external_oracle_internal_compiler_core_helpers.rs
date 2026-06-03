@@ -71,7 +71,23 @@ async fn compile_internal_compiler_main(
         .expect("internal compiler build should succeed")
 }
 
+fn first_render_ir_display_list_svg_file_name(root: &Utf8Path) -> String {
+    let page_display_list_path = root.join(".latexd/build/rev-1/render-ir/page-display-list.json");
+    let page_display_list_json: serde_json::Value = serde_json::from_slice(
+        &fs::read(page_display_list_path).expect("read internal render-ir display list"),
+    )
+    .expect("decode internal render-ir display list");
+    let page_id = page_display_list_json
+        .as_array()
+        .and_then(|pages| pages.first())
+        .and_then(|page| page["page_id"].as_str())
+        .expect("first display-list page id");
+    format!("display-list-page-{page_id}.svg")
+}
+
 fn assert_first_page_artifact_urls(root: &Utf8Path, outcome: &CompileOutcome) {
+    let display_list_svg_file_name = first_render_ir_display_list_svg_file_name(root);
+    let display_list_svg_url = format!("/artifacts/rev/1/render-ir/{display_list_svg_file_name}");
     assert!(
         root.join(format!(
             ".latexd/build/rev-1/pages/{}.pdf",
@@ -88,10 +104,11 @@ fn assert_first_page_artifact_urls(root: &Utf8Path, outcome: &CompileOutcome) {
     );
     assert_eq!(
         outcome.page_artifacts[0].svg_url.as_deref(),
-        Some("/artifacts/rev/1/render-ir/display-list-page-0.svg")
+        Some(display_list_svg_url.as_str())
     );
     assert!(
-        root.join(".latexd/build/rev-1/render-ir/display-list-page-0.svg")
+        root.join(".latexd/build/rev-1/render-ir")
+            .join(&display_list_svg_file_name)
             .exists()
     );
 }
@@ -160,7 +177,8 @@ fn assert_internal_compiler_single_page_artifacts(
     let document_ir_path = render_ir_dir.join("document-ir.json");
     let page_display_list_path = render_ir_dir.join("page-display-list.json");
     let display_list_pdf_path = render_ir_dir.join("display-list.pdf");
-    let display_list_svg_path = render_ir_dir.join("display-list-page-0.svg");
+    let display_list_svg_path =
+        render_ir_dir.join(first_render_ir_display_list_svg_file_name(root));
     for path in [
         &events_path,
         &document_ir_path,
