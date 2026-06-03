@@ -871,29 +871,33 @@ pub fn build_page_display_lists(
             }
         },
     );
-    let finish_page =
-        |pages: &mut Vec<PageDisplayList>, page_index: usize, pending: PendingPage| {
-            let content_hash = blake3::hash(pending.hash_input.as_bytes())
-                .to_hex()
-                .to_string();
-            let page_id = blake3::hash(
-                format!(
-                    "display-list:{page_index}:{}:{}:{content_hash}",
-                    options.page_width_pt, options.page_height_pt
-                )
-                .as_bytes(),
-            )
+    let mut page_content_occurrences = std::collections::BTreeMap::<String, usize>::new();
+    let mut finish_page = |pages: &mut Vec<PageDisplayList>, pending: PendingPage| {
+        let content_hash = blake3::hash(pending.hash_input.as_bytes())
             .to_hex()
             .to_string();
-            pages.push(PageDisplayList {
-                page_id,
-                width_pt: options.page_width_pt,
-                height_pt: options.page_height_pt,
-                ops: pending.ops,
-                source_spans: pending.source_spans,
-                content_hash,
-            });
-        };
+        let occurrence = page_content_occurrences
+            .entry(content_hash.clone())
+            .or_default();
+        let page_id = blake3::hash(
+            format!(
+                "display-list:{content_hash}:{}:{}:{occurrence}",
+                options.page_width_pt, options.page_height_pt
+            )
+            .as_bytes(),
+        )
+        .to_hex()
+        .to_string();
+        *occurrence += 1;
+        pages.push(PageDisplayList {
+            page_id,
+            width_pt: options.page_width_pt,
+            height_pt: options.page_height_pt,
+            ops: pending.ops,
+            source_spans: pending.source_spans,
+            content_hash,
+        });
+    };
     let new_pending_page = || PendingPage {
         ops: Vec::new(),
         source_spans: Vec::new(),
@@ -983,7 +987,6 @@ pub fn build_page_display_lists(
         ])
     };
     let mut pending = new_pending_page();
-    let mut page_index = 0usize;
     let mut y = options.margin_top_pt;
     let record_source_spans = |source: &SourceProvenance, source_spans: &mut Vec<SourceSpan>| {
         if let ProvenanceSpan::File(span) = &source.primary {
@@ -1204,8 +1207,7 @@ pub fn build_page_display_lists(
                         > options.page_height_pt - options.margin_bottom_pt
                         && !pending.ops.is_empty()
                     {
-                        finish_page(&mut pages, page_index, pending);
-                        page_index += 1;
+                        finish_page(&mut pages, pending);
                         pending = new_pending_page();
                         y = options.margin_top_pt;
                     }
@@ -1718,8 +1720,7 @@ pub fn build_page_display_lists(
                 if y + required_height > options.page_height_pt - options.margin_bottom_pt
                     && !pending.ops.is_empty()
                 {
-                    finish_page(&mut pages, page_index, pending);
-                    page_index += 1;
+                    finish_page(&mut pages, pending);
                     pending = new_pending_page();
                     y = options.margin_top_pt;
                 }
@@ -1869,9 +1870,9 @@ pub fn build_page_display_lists(
     if pending.ops.is_empty() && pages.is_empty() {
         pending.text = String::new();
         pending.hash_input = format!("options:{options:?}:font-metrics:basic-v1");
-        finish_page(&mut pages, page_index, pending);
+        finish_page(&mut pages, pending);
     } else if !pending.ops.is_empty() {
-        finish_page(&mut pages, page_index, pending);
+        finish_page(&mut pages, pending);
     }
 
     pages
@@ -2803,6 +2804,118 @@ mod tests {
 
         assert_ne!(combined[0].content_hash, split[0].content_hash);
         assert_ne!(combined[0].page_id, split[0].page_id);
+    }
+
+    #[test]
+    fn page_ids_use_content_occurrence_not_absolute_page_index() {
+        let paragraph = |text: &str, start_utf8: u32| {
+            let source =
+                SourceProvenance::file("main.tex", start_utf8, start_utf8 + text.len() as u32);
+            IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: text.to_string(),
+                    source: source.clone(),
+                }],
+                source,
+            })
+        };
+        let options = PageDisplayListOptions {
+            page_height_pt: 36.0,
+            margin_top_pt: 4.0,
+            margin_bottom_pt: 4.0,
+            line_height_pt: 10.0,
+            block_gap_pt: 10.0,
+            ..PageDisplayListOptions::default()
+        };
+
+        let original = build_page_display_lists(
+            &DocumentIr::new(vec![
+                paragraph("first", 0),
+                paragraph("tail", 10),
+                paragraph("duplicate", 20),
+                paragraph("duplicate", 30),
+            ]),
+            options.clone(),
+        );
+        let shifted = build_page_display_lists(
+            &DocumentIr::new(vec![
+                paragraph("first", 0),
+                paragraph("inserted", 40),
+                paragraph("tail", 10),
+                paragraph("duplicate", 20),
+                paragraph("duplicate", 30),
+            ]),
+            options,
+        );
+
+        assert_eq!(original.len(), 4);
+        assert_eq!(shifted.len(), 5);
+
+        let original_tail = original
+            .iter()
+            .find(|page| {
+                page.ops.iter().any(|op| {
+                    matches!(
+                        op,
+                        DrawOp::TextRun(run) if run.text == "tail"
+                    )
+                })
+            })
+            .expect("original tail page");
+        let shifted_tail = shifted
+            .iter()
+            .find(|page| {
+                page.ops.iter().any(|op| {
+                    matches!(
+                        op,
+                        DrawOp::TextRun(run) if run.text == "tail"
+                    )
+                })
+            })
+            .expect("shifted tail page");
+        assert_eq!(original_tail.content_hash, shifted_tail.content_hash);
+        assert_eq!(original_tail.page_id, shifted_tail.page_id);
+
+        let original_duplicates = original
+            .iter()
+            .filter(|page| {
+                page.ops.iter().any(|op| {
+                    matches!(
+                        op,
+                        DrawOp::TextRun(run) if run.text == "duplicate"
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        let shifted_duplicates = shifted
+            .iter()
+            .filter(|page| {
+                page.ops.iter().any(|op| {
+                    matches!(
+                        op,
+                        DrawOp::TextRun(run) if run.text == "duplicate"
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(original_duplicates.len(), 2);
+        assert_eq!(shifted_duplicates.len(), 2);
+        assert_eq!(
+            original_duplicates[0].content_hash,
+            original_duplicates[1].content_hash
+        );
+        assert_ne!(
+            original_duplicates[0].page_id,
+            original_duplicates[1].page_id
+        );
+        assert_eq!(
+            original_duplicates[0].page_id,
+            shifted_duplicates[0].page_id
+        );
+        assert_eq!(
+            original_duplicates[1].page_id,
+            shifted_duplicates[1].page_id
+        );
     }
 
     #[test]

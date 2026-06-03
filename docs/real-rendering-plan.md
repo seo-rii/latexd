@@ -798,6 +798,13 @@ Scope:
 - keep replay invalidation conservative but useful;
 - measure warm edit latency against current scaffold path.
 
+Current status:
+
+- `PageDisplayList` page identities now use page content hashes plus page
+  geometry and same-content occurrence counts instead of absolute page indexes,
+  so unchanged pages can keep identity when earlier pages are inserted while
+  duplicate same-content pages remain distinct.
+
 Exit criteria:
 
 - body edit reuses unaffected pages;
