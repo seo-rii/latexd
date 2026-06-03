@@ -312,7 +312,8 @@ fn annotate_display_list_image_diagnostics(
         })
         .collect::<BTreeMap<_, _>>();
 
-    for (page_index, page) in page_display_lists.iter_mut().enumerate() {
+    let mut any_diagnostic_hash_changed = false;
+    for page in page_display_lists.iter_mut() {
         let mut diagnostic_hash_input = String::new();
         for op in &mut page.ops {
             let DrawOp::Image(image) = op else {
@@ -333,15 +334,26 @@ fn annotate_display_list_image_diagnostics(
                 blake3::hash(format!("{}{}", page.content_hash, diagnostic_hash_input).as_bytes())
                     .to_hex()
                     .to_string();
+            any_diagnostic_hash_changed = true;
+        }
+    }
+
+    if any_diagnostic_hash_changed {
+        let mut page_content_occurrences = BTreeMap::<String, usize>::new();
+        for page in page_display_lists.iter_mut() {
+            let occurrence = page_content_occurrences
+                .entry(page.content_hash.clone())
+                .or_default();
             page.page_id = blake3::hash(
                 format!(
-                    "display-list:{page_index}:{}:{}:{}",
-                    page.width_pt, page.height_pt, page.content_hash
+                    "display-list:{}:{}:{}:{}",
+                    page.content_hash, page.width_pt, page.height_pt, occurrence
                 )
                 .as_bytes(),
             )
             .to_hex()
             .to_string();
+            *occurrence += 1;
         }
     }
 }
@@ -3568,19 +3580,23 @@ mod tests {
         preamble_key_for_source,
     };
     use tex_layout::TextSpan;
-    use tex_render_model::RenderEvent;
+    use tex_render_model::{
+        DrawOp, PageDisplayList, PositionedImage, Rect, RenderDiagnosticEvent, RenderEvent,
+        RenderEventEnvelope, RenderEventStream, SourceProvenance,
+    };
     use tex_tokens::ControlSequenceInterner;
     use tex_vm::{VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot};
 
     use super::{
         ArtifactSourceSpan, CheckpointPage, CompileRequest, CompilerDriver, DepTrace,
         PageArtifactMeta, PreviousInternalBuild, SemanticAux, StoredModuleCheckpoint,
-        StoredModuleTrace, UnchangedTail, capture_internal_render_ir, earliest_changed_offset,
-        earliest_changed_rewrite_span_offset, earliest_changed_rewrite_span_source_offset,
-        load_latest_previous_internal_build, parse_depfile, parse_fls, plan_page_patches,
-        rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
-        replay_checkpoint_from_stored, save_source_texts, select_shipout_replay_plan,
-        select_shipout_replay_plan_with_spans, shift_shipout_source_offset,
+        StoredModuleTrace, UnchangedTail, annotate_display_list_image_diagnostics,
+        capture_internal_render_ir, earliest_changed_offset, earliest_changed_rewrite_span_offset,
+        earliest_changed_rewrite_span_source_offset, load_latest_previous_internal_build,
+        parse_depfile, parse_fls, plan_page_patches, rebase_reused_shipout_checkpoint,
+        rebase_shipout_path_offset, replay_checkpoint_from_stored, save_source_texts,
+        select_shipout_replay_plan, select_shipout_replay_plan_with_spans,
+        shift_shipout_source_offset,
     };
 
     #[test]
@@ -3604,6 +3620,114 @@ mod tests {
         assert_eq!(capture.page_display_lists.len(), 1);
         assert!(String::from_utf8_lossy(&capture.display_list_pdf).contains("(A Paper) Tj"));
         assert!(!capture.legacy_output.is_empty());
+    }
+
+    #[test]
+    fn diagnostic_display_list_page_ids_use_content_occurrence_not_absolute_page_index() {
+        let source = SourceProvenance::generated("test", "display-list diagnostic test");
+        let image_page = |page_id: &str, content_hash: &str, asset_ref: &str| PageDisplayList {
+            page_id: page_id.to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 72.0,
+                    width: 100.0,
+                    height: 100.0,
+                },
+                asset_ref: asset_ref.to_string(),
+                asset_format: None,
+                asset_hash: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: source.clone(),
+            })],
+            source_spans: Vec::new(),
+            content_hash: content_hash.to_string(),
+        };
+        let events = RenderEventStream::new(
+            Some("diagnostic-page-id".to_string()),
+            vec![RenderEventEnvelope::new(
+                1,
+                RenderEvent::Diagnostic(RenderDiagnosticEvent {
+                    message: "missing graphic asset figures/missing.png".to_string(),
+                }),
+                source.clone(),
+            )],
+        );
+
+        let mut original = vec![
+            image_page("first", "first-hash", "figures/missing.png"),
+            image_page("tail", "tail-hash", "figures/tail.png"),
+            image_page("dup-a", "duplicate-hash", "figures/missing.png"),
+            image_page("dup-b", "duplicate-hash", "figures/missing.png"),
+        ];
+        let mut shifted = vec![
+            image_page("first", "first-hash", "figures/missing.png"),
+            image_page("inserted", "inserted-hash", "figures/inserted.png"),
+            image_page("tail", "tail-hash", "figures/tail.png"),
+            image_page("dup-a", "duplicate-hash", "figures/missing.png"),
+            image_page("dup-b", "duplicate-hash", "figures/missing.png"),
+        ];
+
+        annotate_display_list_image_diagnostics(&events, &mut original);
+        annotate_display_list_image_diagnostics(&events, &mut shifted);
+
+        let original_tail = original
+            .iter()
+            .find(|page| {
+                page.ops.iter().any(|op| {
+                    matches!(
+                        op,
+                        DrawOp::Image(image) if image.asset_ref == "figures/tail.png"
+                    )
+                })
+            })
+            .expect("original tail page");
+        let shifted_tail = shifted
+            .iter()
+            .find(|page| {
+                page.ops.iter().any(|op| {
+                    matches!(
+                        op,
+                        DrawOp::Image(image) if image.asset_ref == "figures/tail.png"
+                    )
+                })
+            })
+            .expect("shifted tail page");
+        assert_eq!(original_tail.content_hash, shifted_tail.content_hash);
+        assert_eq!(original_tail.page_id, shifted_tail.page_id);
+
+        let duplicate_hash = original[2].content_hash.clone();
+        let original_duplicates = original
+            .iter()
+            .filter(|page| page.content_hash == duplicate_hash)
+            .collect::<Vec<_>>();
+        let shifted_duplicates = shifted
+            .iter()
+            .filter(|page| page.content_hash == duplicate_hash)
+            .collect::<Vec<_>>();
+        assert_eq!(original_duplicates.len(), 2);
+        assert_eq!(shifted_duplicates.len(), 2);
+        assert_eq!(
+            original_duplicates[0].content_hash,
+            original_duplicates[1].content_hash
+        );
+        assert_ne!(
+            original_duplicates[0].page_id,
+            original_duplicates[1].page_id
+        );
+        assert_eq!(
+            original_duplicates[0].page_id,
+            shifted_duplicates[0].page_id
+        );
+        assert_eq!(
+            original_duplicates[1].page_id,
+            shifted_duplicates[1].page_id
+        );
     }
 
     #[tokio::test]
