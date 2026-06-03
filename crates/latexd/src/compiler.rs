@@ -99,6 +99,10 @@ pub struct InternalRenderArtifactPaths {
     pub fallback_sources: Vec<Utf8PathBuf>,
 }
 
+pub(crate) fn render_ir_display_list_svg_file_name(page_id: &str) -> String {
+    format!("display-list-page-{page_id}.svg")
+}
+
 impl InternalRenderIrCapture {
     pub fn write_debug_artifacts(
         &self,
@@ -129,8 +133,7 @@ impl InternalRenderIrCapture {
             display_list_svgs: self
                 .page_display_lists
                 .iter()
-                .enumerate()
-                .map(|(index, _)| output_dir.join(format!("display-list-page-{index}.svg")))
+                .map(|page| output_dir.join(render_ir_display_list_svg_file_name(&page.page_id)))
                 .collect(),
             display_list_pdf: output_dir.join("display-list.pdf"),
             fallback_sources,
@@ -1293,10 +1296,16 @@ impl CompilerDriver {
             if self.internal_render_ir_svg_preview
                 && render_ir_artifact_paths.display_list_svgs.len() == page_artifacts.len()
             {
-                for (page_index, page_artifact) in page_artifacts.iter_mut().enumerate() {
+                for (page_artifact, svg_path) in page_artifacts
+                    .iter_mut()
+                    .zip(&render_ir_artifact_paths.display_list_svgs)
+                {
+                    let Some(svg_file_name) = svg_path.file_name() else {
+                        continue;
+                    };
                     page_artifact.svg_url = Some(viewer_prefixed_path(&format!(
-                        "/artifacts/rev/{}/render-ir/display-list-page-{page_index}.svg",
-                        request.rev
+                        "/artifacts/rev/{}/render-ir/{svg_file_name}",
+                        request.rev,
                     )));
                 }
             }
@@ -3594,9 +3603,9 @@ mod tests {
         capture_internal_render_ir, earliest_changed_offset, earliest_changed_rewrite_span_offset,
         earliest_changed_rewrite_span_source_offset, load_latest_previous_internal_build,
         parse_depfile, parse_fls, plan_page_patches, rebase_reused_shipout_checkpoint,
-        rebase_shipout_path_offset, replay_checkpoint_from_stored, save_source_texts,
-        select_shipout_replay_plan, select_shipout_replay_plan_with_spans,
-        shift_shipout_source_offset,
+        rebase_shipout_path_offset, render_ir_display_list_svg_file_name,
+        replay_checkpoint_from_stored, save_source_texts, select_shipout_replay_plan,
+        select_shipout_replay_plan_with_spans, shift_shipout_source_offset,
     };
 
     #[test]
@@ -3758,13 +3767,23 @@ mod tests {
             .page_artifacts
             .first()
             .expect("internal compiler page artifact");
+        let display_lists = serde_json::from_slice::<Vec<PageDisplayList>>(
+            &fs::read(build_root.join("rev-1/render-ir/page-display-list.json"))
+                .expect("read page display-list artifact"),
+        )
+        .expect("parse page display-list artifact");
+        let first_display_list_svg =
+            render_ir_display_list_svg_file_name(&display_lists[0].page_id);
         assert!(first_page.pdf_url.contains("/artifacts/rev/1/pages/"));
         assert!(first_page.svg_url.as_deref().is_some_and(|url| {
-            url.ends_with("/artifacts/rev/1/render-ir/display-list-page-0.svg")
+            url.ends_with(&format!(
+                "/artifacts/rev/1/render-ir/{first_display_list_svg}"
+            ))
         }));
         assert!(
             build_root
-                .join("rev-1/render-ir/display-list-page-0.svg")
+                .join("rev-1/render-ir")
+                .join(&first_display_list_svg)
                 .exists()
         );
     }
@@ -3801,9 +3820,17 @@ mod tests {
         assert!(first_page.svg_url.as_deref().is_some_and(|url| {
             url.contains("/artifacts/rev/1/pages/") && url.ends_with(".svg")
         }));
+        let display_lists = serde_json::from_slice::<Vec<PageDisplayList>>(
+            &fs::read(build_root.join("rev-1/render-ir/page-display-list.json"))
+                .expect("read page display-list artifact"),
+        )
+        .expect("parse page display-list artifact");
         assert!(
             build_root
-                .join("rev-1/render-ir/display-list-page-0.svg")
+                .join("rev-1/render-ir")
+                .join(render_ir_display_list_svg_file_name(
+                    &display_lists[0].page_id
+                ))
                 .exists()
         );
     }

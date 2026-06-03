@@ -29,6 +29,7 @@ use tex_render_gs::{
     CliRenderer, GsApiRenderer, GsApiRuntime, GsApiRuntimePool, MockRenderer, PageRenderInput,
     Rect, Renderer, TileImage, Viewport, required_tiles_for_viewport,
 };
+use tex_render_model::PageDisplayList;
 use tex_world::normalize_relative_path;
 use tokio::{
     process::Command,
@@ -37,7 +38,10 @@ use tokio::{
 use tower_http::trace::TraceLayer;
 use tracing::{debug, error, info, warn};
 
-use crate::compiler::{CompileRequest, CompilerDriver, PageArtifactMeta, PageSyncMapArtifact};
+use crate::compiler::{
+    CompileRequest, CompilerDriver, PageArtifactMeta, PageSyncMapArtifact,
+    render_ir_display_list_svg_file_name,
+};
 
 #[derive(Debug, Clone)]
 pub struct ServeArgs {
@@ -1212,18 +1216,29 @@ impl AppState {
                         && render_ir_dir.join("page-display-list.json").exists()
                         && render_ir_dir.join("display-list.pdf").exists()
                     {
-                        let mut display_list_svg_urls = Vec::new();
-                        for page_index in 0..outcome.page_metadata.len() {
-                            let svg_path =
-                                render_ir_dir.join(format!("display-list-page-{page_index}.svg"));
-                            if !svg_path.exists() {
-                                display_list_svg_urls.clear();
-                                break;
+                        let display_list_svg_urls = std::fs::read(
+                            render_ir_dir.join("page-display-list.json").as_std_path(),
+                        )
+                        .ok()
+                        .and_then(|bytes| {
+                            serde_json::from_slice::<Vec<PageDisplayList>>(&bytes).ok()
+                        })
+                        .map(|pages| {
+                            let mut urls = Vec::new();
+                            for page in pages {
+                                let svg_file_name =
+                                    render_ir_display_list_svg_file_name(&page.page_id);
+                                if !render_ir_dir.join(&svg_file_name).exists() {
+                                    urls.clear();
+                                    break;
+                                }
+                                urls.push(viewer_prefixed_path(&format!(
+                                    "/artifacts/rev/{rev}/render-ir/{svg_file_name}"
+                                )));
                             }
-                            display_list_svg_urls.push(viewer_prefixed_path(&format!(
-                                "/artifacts/rev/{rev}/render-ir/display-list-page-{page_index}.svg"
-                            )));
-                        }
+                            urls
+                        })
+                        .unwrap_or_default();
                         if display_list_svg_urls.len() == outcome.page_metadata.len() {
                             Some(RenderIrArtifactUrls {
                                 legacy_output_url: viewer_prefixed_path(&format!(
@@ -4850,7 +4865,7 @@ mod tests {
                     .to_string(),
                 display_list_pdf_url: "/artifacts/rev/3/render-ir/display-list.pdf".to_string(),
                 display_list_svg_urls: vec![
-                    "/artifacts/rev/3/render-ir/display-list-page-0.svg".to_string(),
+                    "/artifacts/rev/3/render-ir/display-list-page-page-a.svg".to_string(),
                 ],
             }),
             ..PreviewSnapshot::default()
@@ -4864,7 +4879,7 @@ mod tests {
         );
         assert_eq!(
             json["render_ir_artifacts"]["display_list_svg_urls"][0],
-            "/artifacts/rev/3/render-ir/display-list-page-0.svg"
+            "/artifacts/rev/3/render-ir/display-list-page-page-a.svg"
         );
     }
 
