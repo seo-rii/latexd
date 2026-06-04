@@ -848,6 +848,38 @@ pub fn build_page_display_lists(
                     }
                     chars.into_iter().collect::<String>()
                 };
+                let table_vertical_rule_offsets = || {
+                    let mut offsets = Vec::new();
+                    if column_widths.is_empty() {
+                        return offsets;
+                    }
+
+                    let left_rule_count = column_rule_before_count(0);
+                    if left_rule_count > 0 {
+                        offsets.push((0, left_rule_count));
+                    }
+
+                    let mut char_offset = 0usize;
+                    for previous_column_index in 0..column_widths.len().saturating_sub(1) {
+                        char_offset += column_widths[previous_column_index];
+                        let column_index = previous_column_index + 1;
+                        let rule_count = column_rule_after_count(previous_column_index)
+                            .max(column_rule_before_count(column_index));
+                        let separator_width = separator_width(previous_column_index, column_index);
+                        if rule_count > 0 {
+                            offsets.push((char_offset + separator_width / 2, rule_count));
+                        }
+                        char_offset += separator_width;
+                    }
+
+                    let last_column_index = column_widths.len() - 1;
+                    char_offset += column_widths[last_column_index];
+                    let right_rule_count = column_rule_after_count(last_column_index);
+                    if right_rule_count > 0 {
+                        offsets.push((char_offset, right_rule_count));
+                    }
+                    offsets
+                };
                 if let Some(caption) = &block.caption {
                     let source = block
                         .caption_source
@@ -877,7 +909,7 @@ pub fn build_page_display_lists(
                             source: block.source.clone(),
                             link_target: None,
                             table_rule: true,
-                            table_vertical_rule_offsets: Vec::new(),
+                            table_vertical_rule_offsets: table_vertical_rule_offsets(),
                         });
                     }
                     for rule in &row.partial_rules_above {
@@ -895,7 +927,7 @@ pub fn build_page_display_lists(
                             source: block.source.clone(),
                             link_target: None,
                             table_rule: true,
-                            table_vertical_rule_offsets: Vec::new(),
+                            table_vertical_rule_offsets: table_vertical_rule_offsets(),
                         });
                     }
                     if !segments.is_empty() {
@@ -1051,7 +1083,7 @@ pub fn build_page_display_lists(
                             source: block.source.clone(),
                             link_target: None,
                             table_rule: true,
-                            table_vertical_rule_offsets: Vec::new(),
+                            table_vertical_rule_offsets: table_vertical_rule_offsets(),
                         });
                     }
                     for rule in &row.partial_rules_below {
@@ -1067,7 +1099,7 @@ pub fn build_page_display_lists(
                             source: block.source.clone(),
                             link_target: None,
                             table_rule: true,
-                            table_vertical_rule_offsets: Vec::new(),
+                            table_vertical_rule_offsets: table_vertical_rule_offsets(),
                         });
                     }
                 }
@@ -3112,6 +3144,108 @@ mod tests {
         );
         assert!(lines.contains(&"A    1"), "{lines:?}");
         assert!(lines.contains(&"B   22"), "{lines:?}");
+        assert!(!lines.iter().any(|line| line.contains('|')), "{lines:?}");
+    }
+
+    #[test]
+    fn table_display_list_vertical_rules_span_horizontal_rule_rows() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                width_spec: None,
+                columns: vec![
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Left,
+                        rule_before: true,
+                        rule_before_count: 1,
+                        rule_after: true,
+                        rule_after_count: 1,
+                        separator_after: None,
+                        width_pt_milli: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Right,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: true,
+                        rule_after_count: 1,
+                        separator_after: None,
+                        width_pt_milli: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                ],
+                rows: vec![TableRow {
+                    rule_above: true,
+                    partial_rules_above: Vec::new(),
+                    cells: vec![
+                        TableCell {
+                            text: "A".to_string(),
+                            column_span: None,
+                            row_span: None,
+                            alignment: None,
+                            rule_before_count: 0,
+                            rule_after_count: 0,
+                            cell_prefix: None,
+                            cell_suffix: None,
+                        },
+                        TableCell {
+                            text: "1".to_string(),
+                            column_span: None,
+                            row_span: None,
+                            alignment: None,
+                            rule_before_count: 0,
+                            rule_after_count: 0,
+                            cell_prefix: None,
+                            cell_suffix: None,
+                        },
+                    ],
+                    rule_below: true,
+                    partial_rules_below: Vec::new(),
+                }],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let vertical_rules = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Rule(rect) if rect.height > rect.width => Some(rect),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let horizontal_rules = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Rule(rect) if rect.width > rect.height => Some(rect),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let lines = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(horizontal_rules.len(), 2, "{horizontal_rules:?}");
+        assert_eq!(vertical_rules.len(), 3, "{vertical_rules:?}");
+        assert!(
+            vertical_rules
+                .iter()
+                .all(|rule| (rule.height - 42.0).abs() < 0.001),
+            "{vertical_rules:?}"
+        );
+        assert!(lines.contains(&"A   1"), "{lines:?}");
         assert!(!lines.iter().any(|line| line.contains('|')), "{lines:?}");
     }
 

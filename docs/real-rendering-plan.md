@@ -71,7 +71,9 @@ combined monospaced column width, and simple `l` / `c` / `r` multicolumn specs
 now survive as `TableCell.alignment` overrides for readable spanning headers.
 Simple `|` markers and `@{\vrule}` / `!{\vline}`-style hooks in multicolumn
 specs also survive as row-scoped cell-level vertical rule metadata and emit
-renderer-visible rule rectangles.
+renderer-visible rule rectangles. Column-level vertical borders now also span
+horizontal rule-only rows so table borders do not break across coarse `\hline`
+or partial-rule display-list rows.
 Simple visible `>{...}` / `<{...}` hooks and non-rule `@{...}` / `!{...}`
 separator hooks in multicolumn specs now survive as cell-level prefix/suffix
 metadata and decorate display-list cell text.
@@ -623,8 +625,9 @@ Implemented first slice:
   boundaries, including repeated `||` rule-count approximations; when those
   borders are rendered as rule ops, the corresponding display-list text
   separator is whitespace rather than a searchable `|` glyph. Adjacent
-  same-position vertical rule rects from consecutive table rows are merged into
-  longer display-list rule ops.
+  same-position vertical rule rects from consecutive table and horizontal-rule
+  rows are merged into longer display-list rule ops, so coarse borders stay
+  continuous across `\hline`, `\cline`, and `\cmidrule` rows.
 - common `booktabs` spacing and rule-control commands such as optional-width
   `\toprule` / `\midrule` / `\bottomrule`, `\addlinespace`,
   `\morecmidrules`, and `\specialrule` are suppressed from visible table text
