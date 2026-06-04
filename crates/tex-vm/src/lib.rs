@@ -8647,6 +8647,60 @@ impl<'i> Vm<'i> {
         {
             table_body_start = after;
         }
+        struct CustomColumnType {
+            parameter_count: usize,
+            replacement: String,
+        }
+        let mut custom_column_types = HashMap::<char, CustomColumnType>::new();
+        let mut custom_definition_index = 0usize;
+        let definition_source = &source[..command_start.min(source.len())];
+        while let Some(relative_definition_start) =
+            definition_source[custom_definition_index..].find("\\newcolumntype")
+        {
+            let definition_start = custom_definition_index + relative_definition_start;
+            let mut definition_index = definition_start + "\\newcolumntype".len();
+            if definition_source.as_bytes().get(definition_index).copied() == Some(b'*') {
+                definition_index += 1;
+            }
+            definition_index = skip_ascii_whitespace(definition_source, definition_index);
+            if let Some((type_name, _, _, after_name)) =
+                read_braced_source_argument(definition_source, definition_index)
+            {
+                let mut parameter_count = 0usize;
+                definition_index = skip_ascii_whitespace(definition_source, after_name);
+                if let Some((count_text, _, _, after_count)) =
+                    read_bracket_source_argument(definition_source, definition_index)
+                {
+                    parameter_count = count_text.trim().parse::<usize>().unwrap_or(0).min(9);
+                    definition_index = skip_ascii_whitespace(definition_source, after_count);
+                    if let Some((_, _, _, after_default)) =
+                        read_bracket_source_argument(definition_source, definition_index)
+                    {
+                        definition_index = skip_ascii_whitespace(definition_source, after_default);
+                    }
+                }
+                if let Some((replacement, _, _, after_replacement)) =
+                    read_braced_source_argument(definition_source, definition_index)
+                {
+                    let mut type_chars = type_name.trim().chars();
+                    if let Some(type_char) = type_chars.next()
+                        && type_chars.next().is_none()
+                        && type_char.is_ascii_alphabetic()
+                    {
+                        custom_column_types.insert(
+                            type_char,
+                            CustomColumnType {
+                                parameter_count,
+                                replacement: replacement.to_string(),
+                            },
+                        );
+                    }
+                    custom_definition_index = after_replacement;
+                    continue;
+                }
+            }
+            custom_definition_index = definition_start + "\\newcolumntype".len();
+        }
         let mut table_columns: Vec<TableColumnSpec> = Vec::new();
         if let Some((column_spec, _, _, after)) =
             read_braced_source_argument(body_source, table_body_start)
@@ -8717,6 +8771,154 @@ impl<'i> Vm<'i> {
                 } else {
                     None
                 }
+            };
+            let read_custom_column_spec = |spec_source: &str,
+                                           spec_index: usize,
+                                           spec_char: char,
+                                           pending_alignment_hint: Option<TableColumnAlignment>,
+                                           pending_rule_before_count: u8,
+                                           pending_cell_prefix: Option<String>|
+             -> Option<(TableColumnSpec, usize)> {
+                let custom = custom_column_types.get(&spec_char)?;
+                let mut after_spec = spec_index + spec_char.len_utf8();
+                let mut arguments = Vec::new();
+                for _ in 0..custom.parameter_count {
+                    after_spec = skip_ascii_whitespace(spec_source, after_spec);
+                    if let Some((argument, _, _, after_argument)) =
+                        read_bracket_source_argument(spec_source, after_spec)
+                    {
+                        arguments.push(argument.to_string());
+                        after_spec = after_argument;
+                    } else if let Some((argument, _, _, after_argument)) =
+                        read_braced_source_argument(spec_source, after_spec)
+                    {
+                        arguments.push(argument.to_string());
+                        after_spec = after_argument;
+                    } else {
+                        return None;
+                    }
+                }
+
+                let mut replacement = custom.replacement.clone();
+                for (argument_index, argument) in arguments.iter().enumerate() {
+                    replacement =
+                        replacement.replace(&format!("#{}", argument_index + 1), argument);
+                }
+
+                let mut alignment = pending_alignment_hint
+                    .or_else(|| modifier_alignment_hint(&replacement))
+                    .unwrap_or(TableColumnAlignment::Unknown);
+                let mut width_pt_milli = None;
+                let mut replacement_index = 0usize;
+                while replacement_index < replacement.len() {
+                    let replacement_ch = replacement[replacement_index..]
+                        .chars()
+                        .next()
+                        .expect("custom column replacement char");
+                    match replacement_ch {
+                        '@' | '!' | '>' | '<' => {
+                            replacement_index += replacement_ch.len_utf8();
+                            replacement_index =
+                                skip_ascii_whitespace(&replacement, replacement_index);
+                            if let Some((_, _, _, after_modifier)) =
+                                read_braced_source_argument(&replacement, replacement_index)
+                            {
+                                replacement_index = after_modifier;
+                            }
+                        }
+                        'l' => {
+                            if matches!(alignment, TableColumnAlignment::Unknown) {
+                                alignment = TableColumnAlignment::Left;
+                            }
+                            replacement_index += replacement_ch.len_utf8();
+                        }
+                        'c' => {
+                            if matches!(alignment, TableColumnAlignment::Unknown) {
+                                alignment = TableColumnAlignment::Center;
+                            }
+                            replacement_index += replacement_ch.len_utf8();
+                        }
+                        'r' => {
+                            if matches!(alignment, TableColumnAlignment::Unknown) {
+                                alignment = TableColumnAlignment::Right;
+                            }
+                            replacement_index += replacement_ch.len_utf8();
+                        }
+                        'p' | 'm' | 'b' => {
+                            if matches!(alignment, TableColumnAlignment::Unknown) {
+                                alignment = TableColumnAlignment::Paragraph;
+                            }
+                            replacement_index += replacement_ch.len_utf8();
+                            let width_index =
+                                skip_ascii_whitespace(&replacement, replacement_index);
+                            if let Some((width_text, _, _, after_width)) =
+                                read_braced_source_argument(&replacement, width_index)
+                            {
+                                width_pt_milli = parse_table_column_width_pt_milli(width_text);
+                                replacement_index = after_width;
+                            } else {
+                                replacement_index = width_index;
+                            }
+                        }
+                        'w' | 'W' => {
+                            replacement_index += replacement_ch.len_utf8();
+                            let alignment_index =
+                                skip_ascii_whitespace(&replacement, replacement_index);
+                            if let Some((alignment_text, _, _, after_alignment)) =
+                                read_braced_source_argument(&replacement, alignment_index)
+                            {
+                                if matches!(alignment, TableColumnAlignment::Unknown) {
+                                    alignment = match alignment_text.trim().chars().next() {
+                                        Some('l') => TableColumnAlignment::Left,
+                                        Some('c') => TableColumnAlignment::Center,
+                                        Some('r') => TableColumnAlignment::Right,
+                                        _ => TableColumnAlignment::Paragraph,
+                                    };
+                                }
+                                let width_index =
+                                    skip_ascii_whitespace(&replacement, after_alignment);
+                                if let Some((width_text, _, _, after_width)) =
+                                    read_braced_source_argument(&replacement, width_index)
+                                {
+                                    width_pt_milli = parse_table_column_width_pt_milli(width_text);
+                                    replacement_index = after_width;
+                                } else {
+                                    replacement_index = after_alignment;
+                                }
+                            }
+                        }
+                        'S' | 'D' => {
+                            if matches!(alignment, TableColumnAlignment::Unknown) {
+                                alignment = TableColumnAlignment::Decimal;
+                            }
+                            replacement_index += replacement_ch.len_utf8();
+                        }
+                        'X' => {
+                            if matches!(alignment, TableColumnAlignment::Unknown) {
+                                alignment = TableColumnAlignment::Paragraph;
+                            }
+                            replacement_index += replacement_ch.len_utf8();
+                        }
+                        _ => {
+                            replacement_index += replacement_ch.len_utf8();
+                        }
+                    }
+                }
+
+                Some((
+                    TableColumnSpec {
+                        alignment,
+                        rule_before: pending_rule_before_count > 0,
+                        rule_before_count: pending_rule_before_count,
+                        rule_after: false,
+                        rule_after_count: 0,
+                        separator_after: None,
+                        width_pt_milli,
+                        cell_prefix: pending_cell_prefix,
+                        cell_suffix: None,
+                    },
+                    after_spec,
+                ))
             };
             let apply_intercolumn_modifier =
                 |table_columns: &mut Vec<TableColumnSpec>,
@@ -8883,34 +9085,49 @@ impl<'i> Vm<'i> {
                         }
                     }
                     unknown if unknown.is_ascii_alphabetic() => {
-                        let alignment = pending_alignment_hint
-                            .take()
-                            .unwrap_or(TableColumnAlignment::Unknown);
-                        table_columns.push(TableColumnSpec {
-                            alignment,
-                            rule_before: pending_rule_before_count > 0,
-                            rule_before_count: pending_rule_before_count,
-                            rule_after: false,
-                            rule_after_count: 0,
-                            separator_after: None,
-                            width_pt_milli: None,
-                            cell_prefix: pending_cell_prefix.take(),
-                            cell_suffix: None,
-                        });
-                        pending_rule_before_count = 0;
-                        spec_index += unknown.len_utf8();
-                        for _ in 0..4 {
-                            spec_index = skip_ascii_whitespace(column_spec, spec_index);
-                            if let Some((_, _, _, after_argument)) =
-                                read_bracket_source_argument(column_spec, spec_index)
-                            {
-                                spec_index = after_argument;
-                            } else if let Some((_, _, _, after_argument)) =
-                                read_braced_source_argument(column_spec, spec_index)
-                            {
-                                spec_index = after_argument;
-                            } else {
-                                break;
+                        if let Some((column, after_custom)) = read_custom_column_spec(
+                            column_spec,
+                            spec_index,
+                            unknown,
+                            pending_alignment_hint,
+                            pending_rule_before_count,
+                            pending_cell_prefix.clone(),
+                        ) {
+                            table_columns.push(column);
+                            pending_alignment_hint = None;
+                            pending_cell_prefix = None;
+                            pending_rule_before_count = 0;
+                            spec_index = after_custom;
+                        } else {
+                            let alignment = pending_alignment_hint
+                                .take()
+                                .unwrap_or(TableColumnAlignment::Unknown);
+                            table_columns.push(TableColumnSpec {
+                                alignment,
+                                rule_before: pending_rule_before_count > 0,
+                                rule_before_count: pending_rule_before_count,
+                                rule_after: false,
+                                rule_after_count: 0,
+                                separator_after: None,
+                                width_pt_milli: None,
+                                cell_prefix: pending_cell_prefix.take(),
+                                cell_suffix: None,
+                            });
+                            pending_rule_before_count = 0;
+                            spec_index += unknown.len_utf8();
+                            for _ in 0..4 {
+                                spec_index = skip_ascii_whitespace(column_spec, spec_index);
+                                if let Some((_, _, _, after_argument)) =
+                                    read_bracket_source_argument(column_spec, spec_index)
+                                {
+                                    spec_index = after_argument;
+                                } else if let Some((_, _, _, after_argument)) =
+                                    read_braced_source_argument(column_spec, spec_index)
+                                {
+                                    spec_index = after_argument;
+                                } else {
+                                    break;
+                                }
                             }
                         }
                     }
@@ -9140,43 +9357,64 @@ impl<'i> Vm<'i> {
                                                 }
                                             }
                                             unknown if unknown.is_ascii_alphabetic() => {
-                                                let alignment = pending_alignment_hint
-                                                    .take()
-                                                    .unwrap_or(TableColumnAlignment::Unknown);
-                                                table_columns.push(TableColumnSpec {
-                                                    alignment,
-                                                    rule_before: pending_rule_before_count > 0,
-                                                    rule_before_count: pending_rule_before_count,
-                                                    rule_after: false,
-                                                    rule_after_count: 0,
-                                                    separator_after: None,
-                                                    width_pt_milli: None,
-                                                    cell_prefix: pending_cell_prefix.take(),
-                                                    cell_suffix: None,
-                                                });
-                                                pending_rule_before_count = 0;
-                                                repeated_spec_index += unknown.len_utf8();
-                                                for _ in 0..4 {
-                                                    repeated_spec_index = skip_ascii_whitespace(
+                                                if let Some((column, after_custom)) =
+                                                    read_custom_column_spec(
                                                         repeated_spec,
                                                         repeated_spec_index,
-                                                    );
-                                                    if let Some((_, _, _, after_argument)) =
-                                                        read_bracket_source_argument(
+                                                        unknown,
+                                                        pending_alignment_hint,
+                                                        pending_rule_before_count,
+                                                        pending_cell_prefix.clone(),
+                                                    )
+                                                {
+                                                    table_columns.push(column);
+                                                    pending_alignment_hint = None;
+                                                    pending_cell_prefix = None;
+                                                    pending_rule_before_count = 0;
+                                                    repeated_spec_index = after_custom;
+                                                } else {
+                                                    let alignment = pending_alignment_hint
+                                                        .take()
+                                                        .unwrap_or(TableColumnAlignment::Unknown);
+                                                    table_columns.push(TableColumnSpec {
+                                                        alignment,
+                                                        rule_before: pending_rule_before_count > 0,
+                                                        rule_before_count:
+                                                            pending_rule_before_count,
+                                                        rule_after: false,
+                                                        rule_after_count: 0,
+                                                        separator_after: None,
+                                                        width_pt_milli: None,
+                                                        cell_prefix: pending_cell_prefix.take(),
+                                                        cell_suffix: None,
+                                                    });
+                                                    pending_rule_before_count = 0;
+                                                    repeated_spec_index += unknown.len_utf8();
+                                                    for _ in 0..4 {
+                                                        repeated_spec_index = skip_ascii_whitespace(
                                                             repeated_spec,
                                                             repeated_spec_index,
-                                                        )
-                                                    {
-                                                        repeated_spec_index = after_argument;
-                                                    } else if let Some((_, _, _, after_argument)) =
-                                                        read_braced_source_argument(
+                                                        );
+                                                        if let Some((_, _, _, after_argument)) =
+                                                            read_bracket_source_argument(
+                                                                repeated_spec,
+                                                                repeated_spec_index,
+                                                            )
+                                                        {
+                                                            repeated_spec_index = after_argument;
+                                                        } else if let Some((
+                                                            _,
+                                                            _,
+                                                            _,
+                                                            after_argument,
+                                                        )) = read_braced_source_argument(
                                                             repeated_spec,
                                                             repeated_spec_index,
-                                                        )
-                                                    {
-                                                        repeated_spec_index = after_argument;
-                                                    } else {
-                                                        break;
+                                                        ) {
+                                                            repeated_spec_index = after_argument;
+                                                        } else {
+                                                            break;
+                                                        }
                                                     }
                                                 }
                                             }
@@ -24765,6 +25003,40 @@ Fallback text.
             visible.normalized_visible_text.as_deref(),
             Some("A | B | C")
         );
+    }
+
+    #[test]
+    fn render_event_capture_interprets_simple_newcolumntype_specs() {
+        let source = r"\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}\begin{document}\begin{tabular}{L{10pt}r}A & B\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible.table_columns.len(), 2);
+        assert_eq!(
+            visible.table_columns[0].alignment,
+            TableColumnAlignment::Left
+        );
+        assert_eq!(visible.table_columns[0].width_pt_milli, Some(10_000));
+        assert_eq!(
+            visible.table_columns[1].alignment,
+            TableColumnAlignment::Right
+        );
+        assert_eq!(visible.normalized_visible_text.as_deref(), Some("A | B"));
     }
 
     #[test]

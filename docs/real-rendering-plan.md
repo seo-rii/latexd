@@ -72,8 +72,9 @@ now decorate display-list cell text, and common `>{\raggedleft}`,
 `>{\centering}`, and `>{\raggedright}` alignment hooks now drive the following
 column's coarse alignment while otherwise staying non-visible, and unknown
 alphabetic custom column specs preserve column count as `Unknown` columns while
-skipping bounded option/argument payloads. Simple column border markers and
-simple `@{\vrule}` /
+skipping bounded option/argument payloads. Simple `\newcolumntype` definitions
+seen before a table can also drive coarse alignment/width metadata for matching
+custom columns. Simple column border markers and simple `@{\vrule}` /
 `@{\vline}` / `!{\vrule}` / `!{\vline}` array hooks also emit coarse vertical
 `PageDisplayList::Rule` rectangles at the monospaced fallback boundary
 positions, including repeated `||` rule-count approximations; when those
@@ -574,6 +575,9 @@ Implemented first slice:
 - unknown alphabetic custom column specs such as `L{...}` / `Y[...]` preserve
   column count as `Unknown` columns and skip their bounded option/argument
   payloads instead of parsing those payloads as extra columns.
+- simple pre-table `\newcolumntype` definitions such as
+  `\newcolumntype{L}[1]{>{...}p{#1}}` are interpreted narrowly enough to
+  preserve replacement-derived alignment and width metadata.
 - simple `tabu`/`longtabu` preambles, including `longtabu to ... {cols}` and
   `X[...]` options, are normalized into the same table column metadata.
 - common numeric `siunitx` `S[...]` and `dcolumn` `D{...}{...}{...}` columns
@@ -753,6 +757,8 @@ Status:
   while preserving the following real columns, and common alignment hooks
   preserve coarse column alignment intent;
 - unknown custom column specs preserve coarse column count as `Unknown`;
+- simple `\newcolumntype` replacements can drive coarse custom-column alignment
+  and width metadata;
 - `siunitx` `S` and `dcolumn` `D` numeric columns preserve coarse decimal
   alignment intent;
 - figure asset identity/caption propagation exists, and resolver-provided

@@ -12768,6 +12768,50 @@ fn tabular_unknown_custom_column_specs_preserve_column_count() {
 }
 
 #[test]
+fn tabular_newcolumntype_specs_drive_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}\newcolumntype{R}{>{\raggedleft\arraybackslash}l}\begin{document}\begin{tabular}{L{10pt}R}A & 9 \\ Longer & 10\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.columns.len(), 2);
+    assert_eq!(table.columns[0].alignment, TableColumnAlignment::Left);
+    assert_eq!(table.columns[0].width_pt_milli, Some(10_000));
+    assert_eq!(table.columns[1].alignment, TableColumnAlignment::Right);
+    let extracted_text = capture.document_ir.extracted_text();
+    for hidden in [
+        "newcolumntype",
+        "raggedright",
+        "raggedleft",
+        "arraybackslash",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+    }
+
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(table_lines.contains(&"A      |  9"), "{table_lines:?}");
+    assert!(table_lines.contains(&"Longer | 10"), "{table_lines:?}");
+}
+
+#[test]
 fn tabular_vertical_column_rules_emit_display_list_rules() {
     let capture = capture_internal_render_ir(
         "main.tex",
