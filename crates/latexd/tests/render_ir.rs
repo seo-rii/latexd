@@ -13046,6 +13046,53 @@ fn tabular_newcolumntype_specs_drive_ir_and_display_list() {
 }
 
 #[test]
+fn repeated_newcolumntype_default_args_drive_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\newcolumntype{Q}[2][c]{w{#1}{#2}}\begin{document}\begin{tabular}{*{2}{Q{1cm}}r}A & B & 9 \\ Long & Wide & 10\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.columns.len(), 3);
+    assert_eq!(table.columns[0].alignment, TableColumnAlignment::Center);
+    assert_eq!(table.columns[1].alignment, TableColumnAlignment::Center);
+    assert_eq!(table.columns[2].alignment, TableColumnAlignment::Right);
+    assert_eq!(table.columns[0].width_pt_milli, Some(28_346));
+    assert_eq!(table.columns[1].width_pt_milli, Some(28_346));
+    let extracted_text = capture.document_ir.extracted_text();
+    for hidden in ["newcolumntype", "1cm"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+    }
+
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        table_lines.contains(&"  A   |   B   |  9"),
+        "{table_lines:?}"
+    );
+    assert!(
+        table_lines.contains(&"Long  | Wide  | 10"),
+        "{table_lines:?}"
+    );
+}
+
+#[test]
 fn tabular_vertical_column_rules_emit_display_list_rules() {
     let capture = capture_internal_render_ir(
         "main.tex",

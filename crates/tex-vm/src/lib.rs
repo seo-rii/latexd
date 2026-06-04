@@ -8663,6 +8663,7 @@ impl<'i> Vm<'i> {
         }
         struct CustomColumnType {
             parameter_count: usize,
+            default_argument: Option<String>,
             replacement: String,
         }
         let mut custom_column_types = HashMap::<char, CustomColumnType>::new();
@@ -8681,16 +8682,21 @@ impl<'i> Vm<'i> {
                 read_braced_source_argument(definition_source, definition_index)
             {
                 let mut parameter_count = 0usize;
+                let mut default_argument = None;
                 definition_index = skip_ascii_whitespace(definition_source, after_name);
                 if let Some((count_text, _, _, after_count)) =
                     read_bracket_source_argument(definition_source, definition_index)
                 {
                     parameter_count = count_text.trim().parse::<usize>().unwrap_or(0).min(9);
                     definition_index = skip_ascii_whitespace(definition_source, after_count);
-                    if let Some((_, _, _, after_default)) =
+                    if let Some((default_text, _, _, after_default)) =
                         read_bracket_source_argument(definition_source, definition_index)
                     {
+                        let default_text = default_text.to_string();
                         definition_index = skip_ascii_whitespace(definition_source, after_default);
+                        if parameter_count > 0 {
+                            default_argument = Some(default_text);
+                        }
                     }
                 }
                 if let Some((replacement, _, _, after_replacement)) =
@@ -8705,6 +8711,7 @@ impl<'i> Vm<'i> {
                             type_char,
                             CustomColumnType {
                                 parameter_count,
+                                default_argument,
                                 replacement: replacement.to_string(),
                             },
                         );
@@ -8803,9 +8810,20 @@ impl<'i> Vm<'i> {
                 let custom = custom_column_types.get(&spec_char)?;
                 let mut after_spec = spec_index + spec_char.len_utf8();
                 let mut arguments = Vec::new();
-                for _ in 0..custom.parameter_count {
+                for parameter_index in 0..custom.parameter_count {
                     after_spec = skip_ascii_whitespace(spec_source, after_spec);
-                    if let Some((argument, _, _, after_argument)) =
+                    if parameter_index == 0
+                        && let Some(default_argument) = custom.default_argument.as_ref()
+                    {
+                        if let Some((argument, _, _, after_argument)) =
+                            read_bracket_source_argument(spec_source, after_spec)
+                        {
+                            arguments.push(argument.to_string());
+                            after_spec = after_argument;
+                        } else {
+                            arguments.push(default_argument.clone());
+                        }
+                    } else if let Some((argument, _, _, after_argument)) =
                         read_bracket_source_argument(spec_source, after_spec)
                     {
                         arguments.push(argument.to_string());
@@ -25663,6 +25681,40 @@ Fallback text.
             TableColumnAlignment::Left
         );
         assert_eq!(visible.table_columns[0].width_pt_milli, Some(10_000));
+        assert_eq!(
+            visible.table_columns[1].alignment,
+            TableColumnAlignment::Right
+        );
+        assert_eq!(visible.normalized_visible_text.as_deref(), Some("A | B"));
+    }
+
+    #[test]
+    fn render_event_capture_interprets_newcolumntype_default_arguments() {
+        let source = r"\newcolumntype{P}[1][2cm]{>{\centering\arraybackslash}p{#1}}\begin{document}\begin{tabular}{Pr}A & B\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible.table_columns.len(), 2);
+        assert_eq!(
+            visible.table_columns[0].alignment,
+            TableColumnAlignment::Center
+        );
+        assert_eq!(visible.table_columns[0].width_pt_milli, Some(56_693));
         assert_eq!(
             visible.table_columns[1].alignment,
             TableColumnAlignment::Right

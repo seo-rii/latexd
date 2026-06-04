@@ -602,7 +602,9 @@ Implemented first slice:
   payloads instead of parsing those payloads as extra columns.
 - simple pre-table `\newcolumntype` definitions such as
   `\newcolumntype{L}[1]{>{...}p{#1}}` are interpreted narrowly enough to
-  preserve replacement-derived alignment and width metadata.
+  preserve replacement-derived alignment and width metadata; first-argument
+  defaults from definitions such as `\newcolumntype{Q}[2][c]{...}` are now
+  applied inside normal and repeated table preambles.
 - simple `tabu`/`longtabu` preambles, including `longtabu to ... {cols}` and
   `X[...]` options, are normalized into the same table column metadata.
 - common numeric `siunitx` `S[...]` and `dcolumn` `D{...}{...}{...}` columns
