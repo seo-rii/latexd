@@ -64,8 +64,9 @@ now survive as `TableCell.alignment` overrides for readable spanning headers.
 Simple `|` markers and `@{\vrule}` / `!{\vline}`-style hooks in multicolumn
 specs also survive as row-scoped cell-level vertical rule metadata and emit
 renderer-visible rule rectangles.
-Simple visible `>{...}` / `<{...}` hooks in multicolumn specs now survive as
-cell-level prefix/suffix metadata and decorate display-list cell text.
+Simple visible `>{...}` / `<{...}` hooks and non-rule `@{...}` / `!{...}`
+separator hooks in multicolumn specs now survive as cell-level prefix/suffix
+metadata and decorate display-list cell text.
 Simple `l` / `c` / `r` / paragraph-style table
 preamble columns now survive as `TableColumnSpec` metadata, bounded `*{n}{...}`
 repeated specs expand before IR construction, and those specs drive coarse
@@ -617,8 +618,9 @@ Implemented first slice:
 - simple `|` markers and `@{\vrule}` / `!{\vline}` hooks in `\multicolumn`
   specs survive as cell-level vertical rule counts and emit row-scoped
   display-list rule rectangles.
-- simple visible `>{...}` / `<{...}` hooks in `\multicolumn` specs survive as
-  cell-level display-list prefix/suffix metadata.
+- simple visible `>{...}` / `<{...}` hooks and non-rule `@{...}` / `!{...}`
+  separator hooks in `\multicolumn` specs survive as cell-level display-list
+  prefix/suffix metadata.
 - `multirow` / `multirowcell` commands now preserve visible cell text and simple
   `row_span` metadata in the table fallback.
 - continuation rows below a simple multirow cell now insert a blank placeholder
@@ -788,7 +790,8 @@ Status:
 - simple `\multicolumn` specs preserve coarse cell-level alignment intent;
 - simple `\multicolumn` vertical rule specs and vrule/vline hooks emit
   row-scoped display-list rule ops;
-- simple `\multicolumn` visible cell hooks decorate display-list cell text;
+- simple `\multicolumn` visible cell and separator hooks decorate display-list
+  cell text;
 - diagonal table header helpers normalize to readable cell text;
 - table-cell box wrappers hide layout arguments while preserving visible text;
 - table-cell overlap wrappers preserve visible text;

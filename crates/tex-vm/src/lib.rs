@@ -9935,6 +9935,9 @@ impl<'i> Vm<'i> {
                                                                 !modifier_ch.is_whitespace()
                                                             })
                                                             .collect::<String>();
+                                                        let is_rule_modifier = compact
+                                                            .contains("\\vrule")
+                                                            || compact.contains("\\vline");
                                                         let visible_modifier =
                                                             normalize_latex_text_with_inline_placeholders(
                                                                 modifier,
@@ -9973,12 +9976,45 @@ impl<'i> Vm<'i> {
                                                                         ),
                                                                     )
                                                                 }
+                                                                '@' | '!' if !is_rule_modifier => {
+                                                                    if saw_alignment_token {
+                                                                        cell_suffix = Some(
+                                                                            cell_suffix
+                                                                                .map_or_else(
+                                                                                    || {
+                                                                                        visible_modifier
+                                                                                            .clone()
+                                                                                    },
+                                                                                    |mut suffix| {
+                                                                                        suffix.push_str(
+                                                                                            &visible_modifier,
+                                                                                        );
+                                                                                        suffix
+                                                                                    },
+                                                                                ),
+                                                                        );
+                                                                    } else {
+                                                                        cell_prefix = Some(
+                                                                            cell_prefix
+                                                                                .map_or_else(
+                                                                                    || {
+                                                                                        visible_modifier
+                                                                                            .clone()
+                                                                                    },
+                                                                                    |mut prefix| {
+                                                                                        prefix.push_str(
+                                                                                            &visible_modifier,
+                                                                                        );
+                                                                                        prefix
+                                                                                    },
+                                                                                ),
+                                                                        );
+                                                                    }
+                                                                }
                                                                 _ => {}
                                                             }
                                                         }
-                                                        if compact.contains("\\vrule")
-                                                            || compact.contains("\\vline")
-                                                        {
+                                                        if is_rule_modifier {
                                                             if saw_alignment_token {
                                                                 rule_after_count = rule_after_count
                                                                     .saturating_add(1);
