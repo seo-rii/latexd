@@ -96,8 +96,10 @@ The next implementation step has started with a narrow display-list spike:
   Poppler is available, asserting that title text and citation placeholders are
   extractable without leaking raw citation keys;
 - the same capture can write `legacy-output.txt`, `events.json`,
-  `document-ir.json`, `page-display-list.json`, `display-list-page-{n}.svg`,
-  and `display-list.pdf` into a debug artifact directory;
+  `document-ir.json`, `page-display-list.json`,
+  `display-list-page-{page_id}.svg`, and `display-list.pdf` into a debug
+  artifact directory, where `{page_id}` comes from the corresponding
+  `PageDisplayList.page_id`;
 - ignored local arXiv oracle reports now persist official PDF text, internal
   extracted text, internal PDFs, first-page official/internal PNG rasters, page
   counts, and raster dimensions/non-white bounding boxes under the configured
@@ -1418,7 +1420,8 @@ Acceptance:
 - event/IR/display-list/PDF artifacts can be written for debugging;
 - compact smoke fixture has event, IR, and display-list goldens.
 - debug artifact writing covers legacy text, event JSON, IR JSON, display-list
-  JSON, per-page display-list SVG, and text-only display-list PDF bytes.
+  JSON, `PageDisplayList.page_id` keyed per-page display-list SVG, and
+  text-only display-list PDF bytes.
 
 ## Recommended Compact Fixture
 

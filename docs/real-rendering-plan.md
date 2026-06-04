@@ -120,8 +120,10 @@ route exposes the `render-ir/` JSON/TXT artifacts for inspection, and the
 preview snapshot advertises those debug artifact URLs when the revision contains
 them. `latexd serve --compiler-bin internal` now uses matching render-IR
 display-list SVG pages as the default preview SVG path when the debug SVG page
-count matches the internal compiler page count, while retaining the legacy page
-PDF fallback artifacts. Production PDF/SVG vector embedding remains deferred.
+count matches the internal compiler page count, naming those SVG artifacts from
+`PageDisplayList.page_id` rather than absolute page index while retaining the
+legacy page PDF fallback artifacts. Production PDF/SVG vector embedding remains
+deferred.
 The `tex-pdf` display-list renderer now has an explicit converted-asset hook:
 callers can resolve an original external asset and provide converted PNG/JPEG
 bytes for PDF/EPS-style inputs without making the renderer depend directly on
@@ -729,7 +731,8 @@ Status:
   compiler revision has written the debug artifact bundle;
 - `latexd serve --compiler-bin internal` now uses render-IR display-list SVG page
   images by default when the debug SVG page count matches the internal compiler
-  page count, while keeping legacy page PDFs as fallback artifacts;
+  page count, deriving those SVG URLs from `PageDisplayList.page_id` in
+  `page-display-list.json` while keeping legacy page PDFs as fallback artifacts;
 - `tex-pdf` can now consume caller-supplied converted PNG/JPEG bytes for
   resolved PDF/EPS-style display-list image assets, which keeps the renderer
   independent from the eventual Ghostscript/Poppler conversion layer;
