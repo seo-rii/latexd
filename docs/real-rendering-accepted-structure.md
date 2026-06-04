@@ -99,7 +99,7 @@ The next implementation step has started with a narrow display-list spike:
   `document-ir.json`, `page-display-list.json`,
   `display-list-page-{page_id}.svg`, and `display-list.pdf` into a debug
   artifact directory, where `{page_id}` comes from the corresponding
-  `PageDisplayList.page_id`;
+  `PageDisplayList.page_id` after filename-safe escaping;
 - ignored local arXiv oracle reports now persist official PDF text, internal
   extracted text, internal PDFs, first-page official/internal PNG rasters, page
   counts, and raster dimensions/non-white bounding boxes under the configured

@@ -100,7 +100,23 @@ pub struct InternalRenderArtifactPaths {
 }
 
 pub(crate) fn render_ir_display_list_svg_file_name(page_id: &str) -> String {
-    format!("display-list-page-{page_id}.svg")
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+
+    let mut escaped_page_id = String::with_capacity(page_id.len());
+    for byte in page_id.bytes() {
+        match byte {
+            b'0'..=b'9' | b'A'..=b'Z' | b'a'..=b'z' | b'-' | b'_' => {
+                escaped_page_id.push(byte as char);
+            }
+            _ => {
+                escaped_page_id.push('_');
+                escaped_page_id.push(HEX[(byte >> 4) as usize] as char);
+                escaped_page_id.push(HEX[(byte & 0x0f) as usize] as char);
+            }
+        }
+    }
+
+    format!("display-list-page-{escaped_page_id}.svg")
 }
 
 impl InternalRenderIrCapture {
@@ -3607,6 +3623,18 @@ mod tests {
         replay_checkpoint_from_stored, save_source_texts, select_shipout_replay_plan,
         select_shipout_replay_plan_with_spans, shift_shipout_source_offset,
     };
+
+    #[test]
+    fn render_ir_display_list_svg_file_names_escape_path_unsafe_page_ids() {
+        assert_eq!(
+            render_ir_display_list_svg_file_name("page/../evil id"),
+            "display-list-page-page_2f_2e_2e_2fevil_20id.svg"
+        );
+        assert_eq!(
+            render_ir_display_list_svg_file_name("abc-XYZ_09"),
+            "display-list-page-abc-XYZ_09.svg"
+        );
+    }
 
     #[test]
     fn internal_render_ir_capture_builds_events_and_ir_without_pdf_path() {
