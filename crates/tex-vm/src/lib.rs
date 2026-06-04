@@ -8882,6 +8882,38 @@ impl<'i> Vm<'i> {
                             column.width_pt_milli = Some(width_pt_milli);
                         }
                     }
+                    unknown if unknown.is_ascii_alphabetic() => {
+                        let alignment = pending_alignment_hint
+                            .take()
+                            .unwrap_or(TableColumnAlignment::Unknown);
+                        table_columns.push(TableColumnSpec {
+                            alignment,
+                            rule_before: pending_rule_before_count > 0,
+                            rule_before_count: pending_rule_before_count,
+                            rule_after: false,
+                            rule_after_count: 0,
+                            separator_after: None,
+                            width_pt_milli: None,
+                            cell_prefix: pending_cell_prefix.take(),
+                            cell_suffix: None,
+                        });
+                        pending_rule_before_count = 0;
+                        spec_index += unknown.len_utf8();
+                        for _ in 0..4 {
+                            spec_index = skip_ascii_whitespace(column_spec, spec_index);
+                            if let Some((_, _, _, after_argument)) =
+                                read_bracket_source_argument(column_spec, spec_index)
+                            {
+                                spec_index = after_argument;
+                            } else if let Some((_, _, _, after_argument)) =
+                                read_braced_source_argument(column_spec, spec_index)
+                            {
+                                spec_index = after_argument;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
                     '*' => {
                         let count_index =
                             skip_ascii_whitespace(column_spec, spec_index + ch.len_utf8());
@@ -9105,6 +9137,47 @@ impl<'i> Vm<'i> {
                                                         table_columns.get_mut(pushed_column_index)
                                                 {
                                                     column.width_pt_milli = Some(width_pt_milli);
+                                                }
+                                            }
+                                            unknown if unknown.is_ascii_alphabetic() => {
+                                                let alignment = pending_alignment_hint
+                                                    .take()
+                                                    .unwrap_or(TableColumnAlignment::Unknown);
+                                                table_columns.push(TableColumnSpec {
+                                                    alignment,
+                                                    rule_before: pending_rule_before_count > 0,
+                                                    rule_before_count: pending_rule_before_count,
+                                                    rule_after: false,
+                                                    rule_after_count: 0,
+                                                    separator_after: None,
+                                                    width_pt_milli: None,
+                                                    cell_prefix: pending_cell_prefix.take(),
+                                                    cell_suffix: None,
+                                                });
+                                                pending_rule_before_count = 0;
+                                                repeated_spec_index += unknown.len_utf8();
+                                                for _ in 0..4 {
+                                                    repeated_spec_index = skip_ascii_whitespace(
+                                                        repeated_spec,
+                                                        repeated_spec_index,
+                                                    );
+                                                    if let Some((_, _, _, after_argument)) =
+                                                        read_bracket_source_argument(
+                                                            repeated_spec,
+                                                            repeated_spec_index,
+                                                        )
+                                                    {
+                                                        repeated_spec_index = after_argument;
+                                                    } else if let Some((_, _, _, after_argument)) =
+                                                        read_braced_source_argument(
+                                                            repeated_spec,
+                                                            repeated_spec_index,
+                                                        )
+                                                    {
+                                                        repeated_spec_index = after_argument;
+                                                    } else {
+                                                        break;
+                                                    }
                                                 }
                                             }
                                             '@' | '!' | '>' | '<' => {
@@ -24651,6 +24724,46 @@ Fallback text.
         assert_eq!(
             visible.normalized_visible_text.as_deref(),
             Some("1.2 | 3.4")
+        );
+    }
+
+    #[test]
+    fn render_event_capture_preserves_unknown_custom_table_column_specs() {
+        let source = r"\begin{document}\begin{tabular}{L{2cm}Y[foo]{bar}r}A & B & C\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible.table_columns.len(), 3);
+        assert_eq!(
+            visible.table_columns[0].alignment,
+            TableColumnAlignment::Unknown
+        );
+        assert_eq!(
+            visible.table_columns[1].alignment,
+            TableColumnAlignment::Unknown
+        );
+        assert_eq!(
+            visible.table_columns[2].alignment,
+            TableColumnAlignment::Right
+        );
+        assert_eq!(
+            visible.normalized_visible_text.as_deref(),
+            Some("A | B | C")
         );
     }
 

@@ -12723,6 +12723,51 @@ fn tabular_numeric_column_specs_survive_ir_and_align_display_list_text() {
 }
 
 #[test]
+fn tabular_unknown_custom_column_specs_preserve_column_count() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{L{2cm}Y[foo]{bar}r}A & B & 9 \\ Longer & Wide & 10\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.columns.len(), 3);
+    assert_eq!(table.columns[0].alignment, TableColumnAlignment::Unknown);
+    assert_eq!(table.columns[1].alignment, TableColumnAlignment::Unknown);
+    assert_eq!(table.columns[2].alignment, TableColumnAlignment::Right);
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(!extracted_text.contains("2cm"), "{extracted_text}");
+    assert!(!extracted_text.contains("foo"), "{extracted_text}");
+    assert!(!extracted_text.contains("bar"), "{extracted_text}");
+
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        table_lines.contains(&"A      | B    |  9"),
+        "{table_lines:?}"
+    );
+    assert!(
+        table_lines.contains(&"Longer | Wide | 10"),
+        "{table_lines:?}"
+    );
+}
+
+#[test]
 fn tabular_vertical_column_rules_emit_display_list_rules() {
     let capture = capture_internal_render_ir(
         "main.tex",

@@ -70,8 +70,10 @@ Simple `@{...}` /
 separator in display-list text, simple visible `>{...}` / `<{...}` cell hooks
 now decorate display-list cell text, and common `>{\raggedleft}`,
 `>{\centering}`, and `>{\raggedright}` alignment hooks now drive the following
-column's coarse alignment while otherwise staying non-visible. Simple column
-border markers and simple `@{\vrule}` /
+column's coarse alignment while otherwise staying non-visible, and unknown
+alphabetic custom column specs preserve column count as `Unknown` columns while
+skipping bounded option/argument payloads. Simple column border markers and
+simple `@{\vrule}` /
 `@{\vline}` / `!{\vrule}` / `!{\vline}` array hooks also emit coarse vertical
 `PageDisplayList::Rule` rectangles at the monospaced fallback boundary
 positions, including repeated `||` rule-count approximations; when those
@@ -569,6 +571,9 @@ Implemented first slice:
   `>{\raggedright}` hooks preserve coarse alignment intent; simple
   `@{\vrule}` / `@{\vline}` / `!{\vrule}` / `!{\vline}` hooks preserve coarse
   vertical rule metadata.
+- unknown alphabetic custom column specs such as `L{...}` / `Y[...]` preserve
+  column count as `Unknown` columns and skip their bounded option/argument
+  payloads instead of parsing those payloads as extra columns.
 - simple `tabu`/`longtabu` preambles, including `longtabu to ... {cols}` and
   `X[...]` options, are normalized into the same table column metadata.
 - common numeric `siunitx` `S[...]` and `dcolumn` `D{...}{...}{...}` columns
@@ -747,6 +752,7 @@ Status:
 - array-package hook/intercolumn modifiers are ignored as non-column material
   while preserving the following real columns, and common alignment hooks
   preserve coarse column alignment intent;
+- unknown custom column specs preserve coarse column count as `Unknown`;
 - `siunitx` `S` and `dcolumn` `D` numeric columns preserve coarse decimal
   alignment intent;
 - figure asset identity/caption propagation exists, and resolver-provided
