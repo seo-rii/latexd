@@ -24710,6 +24710,69 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_normalizes_array_fallback_text_and_rules() {
+        let source = r"\begin{document}\begin{array}{|c|r|}\hline A & 1 \\\cline{1-2} B & 22\end{array}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("array") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("array fallback visible text");
+
+        assert_eq!(
+            visible.normalized_visible_text.as_deref(),
+            Some("A | 1 ; B | 22")
+        );
+        assert_eq!(visible.table_columns.len(), 2);
+        assert_eq!(
+            visible.table_columns[0].alignment,
+            TableColumnAlignment::Center
+        );
+        assert!(visible.table_columns[0].rule_before);
+        assert!(visible.table_columns[0].rule_after);
+        assert_eq!(
+            visible.table_columns[1].alignment,
+            TableColumnAlignment::Right
+        );
+        assert!(visible.table_columns[1].rule_after);
+        assert_eq!(
+            visible.table_rules,
+            vec![
+                TableRuleEvent {
+                    row_index: 0,
+                    position: TableRulePosition::Above,
+                    column_span: None,
+                },
+                TableRuleEvent {
+                    row_index: 0,
+                    position: TableRulePosition::Below,
+                    column_span: Some(TableRuleSpan {
+                        start_column: 0,
+                        end_column: 1,
+                        trim_start: false,
+                        trim_end: false,
+                    }),
+                },
+            ]
+        );
+        let visible_text = visible.normalized_visible_text.as_deref().unwrap_or("");
+        assert!(!visible_text.contains("&"));
+        assert!(!visible_text.contains("hline"));
+        assert!(!visible_text.contains("cline"));
+    }
+
+    #[test]
     fn render_event_capture_records_partial_table_rules() {
         let source = r"\begin{document}\begin{tabular}{lll}A & B & C \\\cline{2-3} D & E & F \\\cmidrule(lr){1-2}\end{tabular}\end{document}";
         let mut interner = ControlSequenceInterner::new();

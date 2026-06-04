@@ -571,6 +571,8 @@ Implemented first slice:
 
 - `tabular`, `tabular*`, `tabularx`, `array`, `longtable`, `tabu`, and
   `longtabu` emit bounded table-fallback events instead of raw body text;
+- `array` environment fallback now has dedicated VM and integration coverage for
+  column metadata, partial rules, and display-list rule ops;
 - `DocumentIrBuilder` promotes those events into `Table` IR with rows, cells,
   caption, and label-preserving source provenance;
 - the text-only display-list path renders table caption and rows with a

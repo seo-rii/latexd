@@ -12477,6 +12477,89 @@ fn tabular_display_list_aligns_columns_by_cell_width() {
 }
 
 #[test]
+fn array_environment_capture_builds_table_ir_and_display_list_rules() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{array}{|c|r|}\hline A & 1 \\\cline{1-2} B & 22\end{array}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "array" => Some(table),
+            _ => None,
+        })
+        .expect("array table");
+
+    assert_eq!(table.columns.len(), 2);
+    assert_eq!(table.columns[0].alignment, TableColumnAlignment::Center);
+    assert!(table.columns[0].rule_before);
+    assert!(table.columns[0].rule_after);
+    assert_eq!(table.columns[1].alignment, TableColumnAlignment::Right);
+    assert!(table.columns[1].rule_after);
+    assert_eq!(table.rows.len(), 2);
+    assert_eq!(table.rows[0].cells[0].text, "A");
+    assert_eq!(table.rows[0].cells[1].text, "1");
+    assert_eq!(table.rows[1].cells[0].text, "B");
+    assert_eq!(table.rows[1].cells[1].text, "22");
+    assert!(table.rows[0].rule_above);
+    assert_eq!(
+        table.rows[0].partial_rules_below,
+        vec![TableRuleSpan {
+            start_column: 0,
+            end_column: 1,
+            trim_start: false,
+            trim_end: false,
+        }]
+    );
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("A | 1"));
+    assert!(extracted_text.contains("B | 22"));
+    for hidden in ["array", "hline", "cline", "&"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let horizontal_rules = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter(|op| matches!(op, DrawOp::Rule(rect) if rect.width > rect.height))
+        .count();
+    let vertical_rules = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::Rule(rect) if rect.height > rect.width => Some(rect),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(display_list_text.contains("A"), "{display_list_text}");
+    assert!(display_list_text.contains("B"), "{display_list_text}");
+    assert!(display_list_text.contains("22"), "{display_list_text}");
+    for hidden in ["array", "hline", "cline", "&", "|"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+    assert_eq!(horizontal_rules, 2);
+    assert_eq!(vertical_rules.len(), 3, "{vertical_rules:?}");
+    assert!(
+        vertical_rules.iter().all(|rule| rule.height > 40.0),
+        "{vertical_rules:?}"
+    );
+}
+
+#[test]
 fn tabular_column_specs_survive_ir_and_align_display_list_text() {
     let capture = capture_internal_render_ir(
         "main.tex",
