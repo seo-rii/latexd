@@ -12884,7 +12884,11 @@ fn tabular_partial_rules_survive_ir_and_display_list() {
         "{table_lines:?}"
     );
     assert!(
-        table_lines.contains(&".......------------"),
+        table_lines.contains(&"       ------------"),
+        "{table_lines:?}"
+    );
+    assert!(
+        !table_lines.iter().any(|line| line.contains(".......")),
         "{table_lines:?}"
     );
     assert!(table_lines.contains(&"A    | B     | C"), "{table_lines:?}");

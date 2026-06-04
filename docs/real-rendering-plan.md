@@ -537,7 +537,8 @@ Implemented first slice:
 - the text-only display-list path renders table caption and rows with a
   monospaced font request;
 - full and partial horizontal rules now also emit `PageDisplayList::Rule`
-  rectangles for renderer-visible table separators.
+  rectangles for renderer-visible table separators, and partial-rule gaps stay
+  whitespace rather than visible filler text.
 - simple `l` / `c` / `r` / paragraph-style table preamble columns and bounded
   `*{n}{...}` repeated specs now survive into IR and drive coarse display-list
   text alignment.

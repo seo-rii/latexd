@@ -604,9 +604,7 @@ pub fn build_page_display_lists(
                             end_offset += 3;
                         }
                     }
-                    // Leading spaces are trimmed by line wrapping, so use visible filler
-                    // for non-spanned columns in this readable table fallback.
-                    let mut chars = vec!['.'; rule_width.max(3)];
+                    let mut chars = vec![' '; rule_width.max(3)];
                     for index in start_offset..end_offset.min(chars.len()) {
                         chars[index] = '-';
                     }
@@ -2476,7 +2474,11 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(lines.contains(&"Head | Value | Tail"), "{lines:?}");
-        assert!(lines.contains(&".......------------"), "{lines:?}");
+        assert!(lines.contains(&"       ------------"), "{lines:?}");
+        assert!(
+            !lines.iter().any(|line| line.contains(".......")),
+            "{lines:?}"
+        );
         assert!(lines.contains(&"A    | B     | C"), "{lines:?}");
         let rules = display_lists[0]
             .ops
