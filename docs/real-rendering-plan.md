@@ -607,7 +607,9 @@ Implemented first slice:
   `PageDisplayList::Rule` rectangles at the readable table fallback's column
   boundaries, including repeated `||` rule-count approximations; when those
   borders are rendered as rule ops, the corresponding display-list text
-  separator is whitespace rather than a searchable `|` glyph.
+  separator is whitespace rather than a searchable `|` glyph. Adjacent
+  same-position vertical rule rects from consecutive table rows are merged into
+  longer display-list rule ops.
 - common `booktabs` spacing and rule-control commands such as optional-width
   `\toprule` / `\midrule` / `\bottomrule`, `\addlinespace`,
   `\morecmidrules`, and `\specialrule` are suppressed from visible table text

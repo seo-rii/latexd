@@ -1552,7 +1552,26 @@ pub fn build_page_display_lists(
                                 "table_vertical_rule:{:.3}:{:.3}:{:.3}:{:.3}",
                                 rect.x, rect.y, rect.width, rect.height
                             ));
-                            pending.ops.push(DrawOp::Rule(rect));
+                            let mut merged = false;
+                            for op in pending.ops.iter_mut().rev() {
+                                let DrawOp::Rule(previous) = op else {
+                                    continue;
+                                };
+                                if previous.height <= previous.width {
+                                    continue;
+                                }
+                                if (previous.x - rect.x).abs() <= 0.01
+                                    && (previous.width - rect.width).abs() <= 0.01
+                                    && (previous.y + previous.height - rect.y).abs() <= 0.01
+                                {
+                                    previous.height += rect.height;
+                                    merged = true;
+                                    break;
+                                }
+                            }
+                            if !merged {
+                                pending.ops.push(DrawOp::Rule(rect));
+                            }
                         }
                         x += advance;
                     }
@@ -2905,7 +2924,13 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(vertical_rules.len(), 6, "{vertical_rules:?}");
+        assert_eq!(vertical_rules.len(), 3, "{vertical_rules:?}");
+        assert!(
+            vertical_rules
+                .iter()
+                .all(|rule| (rule.height - 28.0).abs() < 0.001),
+            "{vertical_rules:?}"
+        );
         assert!(lines.contains(&"A    1"), "{lines:?}");
         assert!(lines.contains(&"B   22"), "{lines:?}");
         assert!(!lines.iter().any(|line| line.contains('|')), "{lines:?}");

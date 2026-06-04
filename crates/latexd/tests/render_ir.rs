@@ -12543,7 +12543,14 @@ fn tabular_array_column_hooks_do_not_hide_real_columns() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(vertical_rules.len(), 2, "{vertical_rules:?}");
+    assert_eq!(vertical_rules.len(), 1, "{vertical_rules:?}");
+    assert!(
+        matches!(
+            vertical_rules[0],
+            DrawOp::Rule(rule) if (rule.height - 28.0).abs() < 0.001
+        ),
+        "{vertical_rules:?}"
+    );
     assert!(table_lines.contains(&"Alpha        1"), "{table_lines:?}");
     assert!(table_lines.contains(&"Beta        22"), "{table_lines:?}");
     assert!(
@@ -13076,7 +13083,13 @@ fn tabular_vertical_column_rules_emit_display_list_rules() {
         })
         .collect::<Vec<_>>();
 
-    assert_eq!(vertical_rules.len(), 6, "{vertical_rules:?}");
+    assert_eq!(vertical_rules.len(), 3, "{vertical_rules:?}");
+    assert!(
+        vertical_rules
+            .iter()
+            .all(|rule| (rule.height - 28.0).abs() < 0.001),
+        "{vertical_rules:?}"
+    );
     assert!(table_lines.contains(&"A    1"), "{table_lines:?}");
     assert!(table_lines.contains(&"B   22"), "{table_lines:?}");
     assert!(
