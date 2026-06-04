@@ -9726,6 +9726,8 @@ impl<'i> Vm<'i> {
                                                 spans.push(TableRuleSpan {
                                                     start_column,
                                                     end_column: column_index - 1,
+                                                    trim_start: false,
+                                                    trim_end: false,
                                                 });
                                             }
                                             column_index += 1;
@@ -9740,6 +9742,8 @@ impl<'i> Vm<'i> {
                                     spans.push(TableRuleSpan {
                                         start_column,
                                         end_column: column_index - 1,
+                                        trim_start: false,
+                                        trim_end: false,
                                     });
                                 }
 
@@ -10301,6 +10305,8 @@ impl<'i> Vm<'i> {
                         }
                         "cline" | "cmidrule" | "Xcline" => {
                             table_index = command_end;
+                            let mut trim_start = false;
+                            let mut trim_end = false;
                             if let Some((_, _, _, after)) =
                                 read_bracket_source_argument(table_body, table_index)
                             {
@@ -10312,6 +10318,10 @@ impl<'i> Vm<'i> {
                                     if let Some(close_relative) =
                                         table_body[table_index + 1..].find(')')
                                     {
+                                        let trim_options = &table_body
+                                            [table_index + 1..table_index + 1 + close_relative];
+                                        trim_start = trim_options.contains('l');
+                                        trim_end = trim_options.contains('r');
                                         table_index += close_relative + 2;
                                     }
                                 }
@@ -10330,6 +10340,8 @@ impl<'i> Vm<'i> {
                                             Some(TableRuleSpan {
                                                 start_column: start - 1,
                                                 end_column: end - 1,
+                                                trim_start,
+                                                trim_end,
                                             })
                                         }
                                         _ => None,
@@ -24644,6 +24656,8 @@ Fallback text.
                     column_span: Some(TableRuleSpan {
                         start_column: 1,
                         end_column: 2,
+                        trim_start: false,
+                        trim_end: false,
                     }),
                 },
                 TableRuleEvent {
@@ -24652,6 +24666,8 @@ Fallback text.
                     column_span: Some(TableRuleSpan {
                         start_column: 0,
                         end_column: 1,
+                        trim_start: true,
+                        trim_end: true,
                     }),
                 },
             ]
@@ -24696,6 +24712,8 @@ Fallback text.
                 == Some(TableRuleSpan {
                     start_column: 0,
                     end_column: 1,
+                    trim_start: true,
+                    trim_end: true,
                 })),
             "{:?}",
             visible.table_rules
@@ -24743,6 +24761,8 @@ Fallback text.
                     == Some(TableRuleSpan {
                         start_column: 1,
                         end_column: 2,
+                        trim_start: false,
+                        trim_end: false,
                     })
         }));
     }
@@ -24825,6 +24845,8 @@ Fallback text.
                     column_span: Some(TableRuleSpan {
                         start_column: 0,
                         end_column: 0,
+                        trim_start: false,
+                        trim_end: false,
                     }),
                 },
                 TableRuleEvent {
@@ -24833,6 +24855,8 @@ Fallback text.
                     column_span: Some(TableRuleSpan {
                         start_column: 2,
                         end_column: 2,
+                        trim_start: false,
+                        trim_end: false,
                     }),
                 },
             ]

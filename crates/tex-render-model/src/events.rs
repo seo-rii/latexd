@@ -416,6 +416,10 @@ pub enum TableRulePosition {
 pub struct TableRuleSpan {
     pub start_column: usize,
     pub end_column: usize,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub trim_start: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub trim_end: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -471,6 +475,10 @@ pub enum TableColumnAlignment {
 
 fn is_zero_u8(value: &u8) -> bool {
     *value == 0
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

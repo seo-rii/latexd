@@ -743,6 +743,12 @@ pub fn build_page_display_lists(
                             end_offset += separator_width(column, column + 1);
                         }
                     }
+                    if span.trim_start && start_offset < end_offset {
+                        start_offset += 1;
+                    }
+                    if span.trim_end && end_offset > start_offset {
+                        end_offset -= 1;
+                    }
                     let mut chars = vec![' '; rule_width.max(3)];
                     for index in start_offset..end_offset.min(chars.len()) {
                         chars[index] = '-';
@@ -3136,6 +3142,8 @@ mod tests {
                         partial_rules_below: vec![TableRuleSpan {
                             start_column: 1,
                             end_column: 2,
+                            trim_start: false,
+                            trim_end: false,
                         }],
                     },
                     TableRow {

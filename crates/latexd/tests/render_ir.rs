@@ -13451,6 +13451,8 @@ fn tabular_partial_rules_survive_ir_and_display_list() {
         vec![TableRuleSpan {
             start_column: 1,
             end_column: 2,
+            trim_start: false,
+            trim_end: false,
         }]
     );
     let table_lines = capture.page_display_lists[0]
@@ -13528,6 +13530,62 @@ fn tabular_partial_rule_rects_use_visible_separator_widths() {
         "rule {:?}, row_run {:?}, expected_width {expected_width}",
         table_rules[0],
         row_run
+    );
+}
+
+#[test]
+fn booktabs_cmidrule_trim_options_shorten_partial_rule_rects() {
+    let untrimmed = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{lll}A & B & C \\\cline{1-2} D & E & F\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let trimmed = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{booktabs}\begin{document}\begin{tabular}{lll}A & B & C \\\cmidrule(lr){1-2} D & E & F\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = trimmed
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("trimmed table");
+    let span = table.rows[0]
+        .partial_rules_below
+        .first()
+        .expect("cmidrule span");
+
+    assert!(span.trim_start);
+    assert!(span.trim_end);
+
+    let untrimmed_rule = untrimmed.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Rule(rect) if rect.width > rect.height => Some(rect),
+            _ => None,
+        })
+        .expect("untrimmed rule");
+    let trimmed_rule = trimmed.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Rule(rect) if rect.width > rect.height => Some(rect),
+            _ => None,
+        })
+        .expect("trimmed rule");
+
+    assert!(
+        trimmed_rule.x > untrimmed_rule.x,
+        "{trimmed_rule:?} {untrimmed_rule:?}"
+    );
+    assert!(
+        trimmed_rule.width < untrimmed_rule.width,
+        "{trimmed_rule:?} {untrimmed_rule:?}"
     );
 }
 
@@ -13612,6 +13670,8 @@ fn makecell_xrule_commands_do_not_leak_into_table_text() {
         vec![TableRuleSpan {
             start_column: 1,
             end_column: 2,
+            trim_start: false,
+            trim_end: false,
         }]
     );
     let extracted_text = capture.document_ir.extracted_text();
@@ -13700,10 +13760,14 @@ fn hhline_partial_pattern_survives_ir_and_display_list() {
             TableRuleSpan {
                 start_column: 0,
                 end_column: 0,
+                trim_start: false,
+                trim_end: false,
             },
             TableRuleSpan {
                 start_column: 2,
                 end_column: 2,
+                trim_start: false,
+                trim_end: false,
             },
         ]
     );

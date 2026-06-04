@@ -58,6 +58,8 @@ readable display-list fallback. Simple `\cline{a-b}` / `\cmidrule(...){a-b}`
 spans are carried as zero-based inclusive column ranges with whitespace outside
 the covered columns and matching partial rule rectangles, using the same visible
 separator widths as table row text when trimming the rule span. Simple
+`booktabs` `\cmidrule(l/r/lr){...}` trim options also survive as rule-span trim
+metadata and shorten the renderer-visible partial rule rectangles. Simple
 `\multicolumn{n}{...}{text}` cells are also normalized to visible cell text plus
 `TableCell.column_span` metadata so the display-list fallback can occupy the
 combined monospaced column width, and simple `l` / `c` / `r` multicolumn specs
@@ -571,7 +573,9 @@ Implemented first slice:
   whitespace rather than visible filler text. Horizontal rule rows no longer
   emit separate `TextRun` operations, keeping rule strokes out of searchable PDF
   text. Partial horizontal rule rectangles use the same visible separator
-  widths as table row text instead of assuming fixed-width default separators.
+  widths as table row text instead of assuming fixed-width default separators,
+  and simple `booktabs` `\cmidrule(l/r/lr){...}` trim options shorten those
+  partial rule rectangles.
 - simple `l` / `c` / `r` / paragraph-style table preamble columns and bounded
   `*{n}{...}` repeated specs now survive into IR and drive coarse display-list
   text alignment.
