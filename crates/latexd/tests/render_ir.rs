@@ -12906,6 +12906,57 @@ fn tabular_style_only_column_hooks_do_not_leak() {
 }
 
 #[test]
+fn tabular_collectcell_column_hooks_do_not_leak() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{collcell}\newcommand{\fmt}[1]{#1}\begin{document}\begin{tabular}{>{\collectcell\fmt}l<{\endcollectcell}r}A & 1 \\ B & 22\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.columns.len(), 2);
+    assert_eq!(table.columns[0].cell_prefix, None);
+    assert_eq!(table.columns[0].cell_suffix, None);
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("A | 1"));
+    assert!(extracted_text.contains("B | 22"));
+    for hidden in ["collectcell", "endcollectcell", "fmt"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+    }
+    assert!(
+        !capture.events.events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Diagnostic(diagnostic) if diagnostic.message.contains("collcell.sty")
+        )),
+        "collcell shim should be recognized without a missing-package diagnostic"
+    );
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(display_list_text.contains("A |  1"), "{display_list_text}");
+    assert!(display_list_text.contains("B | 22"), "{display_list_text}");
+    for hidden in ["collectcell", "endcollectcell", "fmt"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn tabular_column_alignment_hooks_drive_display_list_text() {
     let capture = capture_internal_render_ir(
         "main.tex",
