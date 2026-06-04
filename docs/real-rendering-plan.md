@@ -596,7 +596,9 @@ Implemented first slice:
   cell text; common `>{\raggedleft}`, `>{\centering}`, and
   `>{\raggedright}` hooks preserve coarse alignment intent; simple
   `@{\vrule}` / `@{\vline}` / `!{\vrule}` / `!{\vline}` hooks preserve coarse
-  vertical rule metadata.
+  vertical rule metadata; non-visible spacing hooks such as
+  `@{\extracolsep{\fill}}` are suppressed instead of becoming display-list
+  separators.
 - unknown alphabetic custom column specs such as `L{...}` / `Y[...]` preserve
   column count as `Unknown` columns and skip their bounded option/argument
   payloads instead of parsing those payloads as extra columns.

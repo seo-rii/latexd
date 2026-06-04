@@ -8766,6 +8766,7 @@ impl<'i> Vm<'i> {
                     || compact.contains("\\rowcolor")
                     || compact.contains("\\columncolor")
                     || compact.contains("\\arrayrulecolor")
+                    || compact.contains("\\extracolsep")
                 {
                     return String::new();
                 }
@@ -8970,7 +8971,10 @@ impl<'i> Vm<'i> {
                         }
                         *pending_rule_before_count = (*pending_rule_before_count).saturating_add(1);
                     } else if let Some(column) = table_columns.last_mut() {
-                        column.separator_after = Some(normalize_modifier_text(modifier_text));
+                        let separator = normalize_modifier_text(modifier_text);
+                        if !separator.is_empty() || modifier_text.trim().is_empty() {
+                            column.separator_after = Some(separator);
+                        }
                     }
                 };
             while spec_index < column_spec.len() {
@@ -25604,6 +25608,39 @@ Fallback text.
         );
         assert!(!visible.table_columns[0].rule_after);
         assert!(!visible.table_columns[1].rule_before);
+    }
+
+    #[test]
+    fn render_event_capture_omits_array_extracolsep_hooks() {
+        let source = r"\begin{document}\begin{tabular}{l@{\extracolsep{\fill}}r}A & 1 \\ B & 22\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        let visible_text = visible
+            .normalized_visible_text
+            .as_deref()
+            .expect("visible table text");
+
+        assert_eq!(visible.table_columns.len(), 2);
+        assert_eq!(visible.table_columns[0].separator_after, None);
+        assert!(visible_text.contains("A | 1"));
+        assert!(visible_text.contains("B | 22"));
+        assert!(!visible_text.contains("extracolsep"));
+        assert!(!visible_text.contains("fill"));
     }
 
     #[test]
