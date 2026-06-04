@@ -25672,6 +25672,41 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_omits_style_only_array_column_hooks() {
+        let source = r"\begin{document}\begin{tabular}{>{\bfseries\itshape}l<{\normalfont}r}A & 1 \\ B & 22\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        let visible_text = visible
+            .normalized_visible_text
+            .as_deref()
+            .expect("visible table text");
+
+        assert_eq!(visible.table_columns.len(), 2);
+        assert_eq!(visible.table_columns[0].cell_prefix, None);
+        assert_eq!(visible.table_columns[0].cell_suffix, None);
+        assert!(visible_text.contains("A | 1"));
+        assert!(visible_text.contains("B | 22"));
+        for hidden in ["bfseries", "itshape", "normalfont"] {
+            assert!(!visible_text.contains(hidden), "{visible_text}");
+        }
+    }
+
+    #[test]
     fn render_event_capture_records_paragraph_table_column_widths() {
         let source = r"\begin{document}\begin{tabular}{p{2cm}m{10pt}b{1in}}A & B & C\end{tabular}\end{document>";
         let mut interner = ControlSequenceInterner::new();

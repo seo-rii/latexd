@@ -598,7 +598,8 @@ Implemented first slice:
   `@{\vrule}` / `@{\vline}` / `!{\vrule}` / `!{\vline}` hooks preserve coarse
   vertical rule metadata; non-visible spacing hooks such as
   `@{\extracolsep{\fill}}` are suppressed instead of becoming display-list
-  separators.
+  separators; style-only declaration hooks such as `>{\bfseries\itshape}` and
+  `<{\normalfont}` are ignored without leaking command names into table text.
 - unknown alphabetic custom column specs such as `L{...}` / `Y[...]` preserve
   column count as `Unknown` columns and skip their bounded option/argument
   payloads instead of parsing those payloads as extra columns.

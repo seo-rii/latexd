@@ -12686,6 +12686,46 @@ fn tabular_column_visible_cell_hooks_drive_display_list_text() {
 }
 
 #[test]
+fn tabular_style_only_column_hooks_do_not_leak() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{>{\bfseries\itshape}l<{\normalfont}r}A & 1 \\ B & 22\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.columns.len(), 2);
+    assert_eq!(table.columns[0].cell_prefix, None);
+    assert_eq!(table.columns[0].cell_suffix, None);
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("A | 1"));
+    assert!(extracted_text.contains("B | 22"));
+    for hidden in ["bfseries", "itshape", "normalfont"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+    }
+
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(table_lines.contains(&"A |  1"), "{table_lines:?}");
+    assert!(table_lines.contains(&"B | 22"), "{table_lines:?}");
+}
+
+#[test]
 fn tabular_column_alignment_hooks_drive_display_list_text() {
     let capture = capture_internal_render_ir(
         "main.tex",
