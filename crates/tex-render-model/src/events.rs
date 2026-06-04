@@ -427,7 +427,7 @@ pub struct TableCellSpanEvent {
     pub row_span: Option<usize>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TableColumnSpec {
     pub alignment: TableColumnAlignment,
     #[serde(default)]
@@ -438,6 +438,8 @@ pub struct TableColumnSpec {
     pub rule_after: bool,
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub rule_after_count: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub separator_after: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

@@ -62,13 +62,14 @@ the covered columns and matching partial rule rectangles. Simple
 combined monospaced column width. Simple `l` / `c` / `r` / paragraph-style table
 preamble columns now survive as `TableColumnSpec` metadata, bounded `*{n}{...}`
 repeated specs expand before IR construction, and those specs drive coarse
-left/center/right padding in the display-list text fallback. Simple column
-border markers and simple `@{\vrule}` / `@{\vline}` / `!{\vrule}` /
-`!{\vline}` array hooks also emit coarse vertical `PageDisplayList::Rule`
-rectangles at the monospaced fallback boundary positions, including repeated
-`||` rule-count approximations; when those borders are emitted as rule ops, the
-corresponding display-list text separator is whitespace rather than a searchable
-`|` glyph.
+left/center/right padding in the display-list text fallback. Simple `@{...}` /
+`!{...}` intercolumn visible separators now replace the default fallback
+separator in display-list text. Simple column border markers and simple
+`@{\vrule}` / `@{\vline}` / `!{\vrule}` / `!{\vline}` array hooks also emit
+coarse vertical `PageDisplayList::Rule` rectangles at the monospaced fallback
+boundary positions, including repeated `||` rule-count approximations; when
+those borders are emitted as rule ops, the corresponding display-list text
+separator is whitespace rather than a searchable `|` glyph.
 `multirow` commands now preserve their visible cell text, but simple
 `\multirow` / `\multirowcell` row counts also survive as
 `TableCell.row_span` metadata. Multirow geometry is still not
@@ -553,8 +554,10 @@ Implemented first slice:
   fallback columns without applying exact TeX widths.
 - array-package hook and intercolumn modifiers `>{...}`, `<{...}`, `@{...}`,
   and `!{...}` are skipped as non-column material so the following real columns
-  still drive fallback alignment, while simple `@{\vrule}` / `@{\vline}` /
-  `!{\vrule}` / `!{\vline}` hooks preserve coarse vertical rule metadata.
+  still drive fallback alignment. Simple visible `@{...}` / `!{...}`
+  intercolumn material now survives as display-list separator text, while
+  simple `@{\vrule}` / `@{\vline}` / `!{\vrule}` / `!{\vline}` hooks preserve
+  coarse vertical rule metadata.
 - simple `tabu`/`longtabu` preambles, including `longtabu to ... {cols}` and
   `X[...]` options, are normalized into the same table column metadata.
 - common numeric `siunitx` `S[...]` and `dcolumn` `D{...}{...}{...}` columns

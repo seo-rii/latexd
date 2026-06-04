@@ -715,6 +715,12 @@ pub fn build_page_display_lists(
                                 .max(column_rule_before_count(column_index));
                             if rule_count > 0 {
                                 row_text.push_str("   ");
+                            } else if let Some(separator) = block
+                                .columns
+                                .get(previous_column_index)
+                                .and_then(|column| column.separator_after.as_deref())
+                            {
+                                row_text.push_str(separator);
                             } else {
                                 row_text.push_str(" | ");
                             }
@@ -2093,6 +2099,7 @@ mod tests {
                         rule_before_count: 0,
                         rule_after: false,
                         rule_after_count: 0,
+                        separator_after: None,
                     },
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Center,
@@ -2100,6 +2107,7 @@ mod tests {
                         rule_before_count: 0,
                         rule_after: false,
                         rule_after_count: 0,
+                        separator_after: None,
                     },
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Right,
@@ -2107,6 +2115,7 @@ mod tests {
                         rule_before_count: 0,
                         rule_after: false,
                         rule_after_count: 0,
+                        separator_after: None,
                     },
                 ],
                 rows: vec![
@@ -2177,6 +2186,88 @@ mod tests {
     }
 
     #[test]
+    fn table_display_list_text_uses_intercolumn_separators() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                columns: vec![
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Left,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: false,
+                        rule_after_count: 0,
+                        separator_after: Some("--".to_string()),
+                    },
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Right,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: false,
+                        rule_after_count: 0,
+                        separator_after: None,
+                    },
+                ],
+                rows: vec![
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "A".to_string(),
+                                column_span: None,
+                                row_span: None,
+                            },
+                            TableCell {
+                                text: "1".to_string(),
+                                column_span: None,
+                                row_span: None,
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    },
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "B".to_string(),
+                                column_span: None,
+                                row_span: None,
+                            },
+                            TableCell {
+                                text: "2".to_string(),
+                                column_span: None,
+                                row_span: None,
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    },
+                ],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let lines = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(lines.contains(&"A--1"), "{lines:?}");
+        assert!(lines.contains(&"B--2"), "{lines:?}");
+        assert!(!lines.iter().any(|line| line.contains(" | ")), "{lines:?}");
+    }
+
+    #[test]
     fn table_display_list_emits_vertical_rule_ops_from_column_specs() {
         let source = SourceProvenance::file("main.tex", 0, 64);
         let display_lists = build_page_display_lists(
@@ -2189,6 +2280,7 @@ mod tests {
                         rule_before_count: 1,
                         rule_after: true,
                         rule_after_count: 1,
+                        separator_after: None,
                     },
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Right,
@@ -2196,6 +2288,7 @@ mod tests {
                         rule_before_count: 0,
                         rule_after: true,
                         rule_after_count: 1,
+                        separator_after: None,
                     },
                 ],
                 rows: vec![
@@ -2278,6 +2371,7 @@ mod tests {
                         rule_before_count: 2,
                         rule_after: true,
                         rule_after_count: 2,
+                        separator_after: None,
                     },
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Right,
@@ -2285,6 +2379,7 @@ mod tests {
                         rule_before_count: 2,
                         rule_after: true,
                         rule_after_count: 2,
+                        separator_after: None,
                     },
                 ],
                 rows: vec![TableRow {

@@ -8653,6 +8653,33 @@ impl<'i> Vm<'i> {
         {
             let mut spec_index = 0usize;
             let mut pending_rule_before_count = 0u8;
+            let apply_intercolumn_modifier =
+                |table_columns: &mut Vec<TableColumnSpec>,
+                 pending_rule_before_count: &mut u8,
+                 modifier_text: &str| {
+                    if modifier_text.contains("\\vrule") || modifier_text.contains("\\vline") {
+                        if let Some(column) = table_columns.last_mut() {
+                            column.rule_after = true;
+                            column.rule_after_count = column.rule_after_count.saturating_add(1);
+                        }
+                        *pending_rule_before_count = (*pending_rule_before_count).saturating_add(1);
+                    } else if let Some(column) = table_columns.last_mut() {
+                        let mut separator =
+                            normalize_latex_text_with_inline_placeholders(modifier_text);
+                        if separator.is_empty() {
+                            let compact = modifier_text
+                                .chars()
+                                .filter(|ch| !ch.is_whitespace())
+                                .collect::<String>();
+                            if compact.contains("\\qquad") {
+                                separator = "    ".to_string();
+                            } else if compact.contains("\\quad") {
+                                separator = "  ".to_string();
+                            }
+                        }
+                        column.separator_after = Some(separator);
+                    }
+                };
             while spec_index < column_spec.len() {
                 let ch = column_spec[spec_index..]
                     .chars()
@@ -8682,6 +8709,7 @@ impl<'i> Vm<'i> {
                             rule_before_count: pending_rule_before_count,
                             rule_after: false,
                             rule_after_count: 0,
+                            separator_after: None,
                         });
                         pending_rule_before_count = 0;
                         spec_index = after_spec;
@@ -8704,6 +8732,7 @@ impl<'i> Vm<'i> {
                             rule_before_count: pending_rule_before_count,
                             rule_after: false,
                             rule_after_count: 0,
+                            separator_after: None,
                         });
                         pending_rule_before_count = 0;
                         spec_index = after_spec;
@@ -8736,6 +8765,7 @@ impl<'i> Vm<'i> {
                             rule_before_count: pending_rule_before_count,
                             rule_after: false,
                             rule_after_count: 0,
+                            separator_after: None,
                         });
                         pending_rule_before_count = 0;
                         spec_index = after_spec;
@@ -8754,6 +8784,7 @@ impl<'i> Vm<'i> {
                             rule_before_count: pending_rule_before_count,
                             rule_after: false,
                             rule_after_count: 0,
+                            separator_after: None,
                         });
                         pending_rule_before_count = 0;
                         spec_index += ch.len_utf8();
@@ -8824,6 +8855,7 @@ impl<'i> Vm<'i> {
                                                     rule_before_count: pending_rule_before_count,
                                                     rule_after: false,
                                                     rule_after_count: 0,
+                                                    separator_after: None,
                                                 });
                                                 pending_rule_before_count = 0;
                                                 repeated_spec_index = after_spec;
@@ -8853,6 +8885,7 @@ impl<'i> Vm<'i> {
                                                     rule_before_count: pending_rule_before_count,
                                                     rule_after: false,
                                                     rule_after_count: 0,
+                                                    separator_after: None,
                                                 });
                                                 pending_rule_before_count = 0;
                                                 repeated_spec_index = after_spec;
@@ -8904,6 +8937,7 @@ impl<'i> Vm<'i> {
                                                     rule_before_count: pending_rule_before_count,
                                                     rule_after: false,
                                                     rule_after_count: 0,
+                                                    separator_after: None,
                                                 });
                                                 pending_rule_before_count = 0;
                                                 repeated_spec_index = after_spec;
@@ -8924,6 +8958,7 @@ impl<'i> Vm<'i> {
                                                     rule_before_count: pending_rule_before_count,
                                                     rule_after: false,
                                                     rule_after_count: 0,
+                                                    separator_after: None,
                                                 });
                                                 pending_rule_before_count = 0;
                                                 repeated_spec_index += repeated_ch.len_utf8();
@@ -8967,21 +9002,12 @@ impl<'i> Vm<'i> {
                                                         argument_index,
                                                     )
                                                 {
-                                                    if matches!(repeated_ch, '@' | '!')
-                                                        && (modifier_text.contains("\\vrule")
-                                                            || modifier_text.contains("\\vline"))
-                                                    {
-                                                        if let Some(column) =
-                                                            table_columns.last_mut()
-                                                        {
-                                                            column.rule_after = true;
-                                                            column.rule_after_count = column
-                                                                .rule_after_count
-                                                                .saturating_add(1);
-                                                        }
-                                                        pending_rule_before_count =
-                                                            pending_rule_before_count
-                                                                .saturating_add(1);
+                                                    if matches!(repeated_ch, '@' | '!') {
+                                                        apply_intercolumn_modifier(
+                                                            &mut table_columns,
+                                                            &mut pending_rule_before_count,
+                                                            modifier_text,
+                                                        );
                                                     }
                                                     repeated_spec_index = after_argument;
                                                 }
@@ -9006,17 +9032,12 @@ impl<'i> Vm<'i> {
                         if let Some((modifier_text, _, _, after_argument)) =
                             read_braced_source_argument(column_spec, argument_index)
                         {
-                            if matches!(ch, '@' | '!')
-                                && (modifier_text.contains("\\vrule")
-                                    || modifier_text.contains("\\vline"))
-                            {
-                                if let Some(column) = table_columns.last_mut() {
-                                    column.rule_after = true;
-                                    column.rule_after_count =
-                                        column.rule_after_count.saturating_add(1);
-                                }
-                                pending_rule_before_count =
-                                    pending_rule_before_count.saturating_add(1);
+                            if matches!(ch, '@' | '!') {
+                                apply_intercolumn_modifier(
+                                    &mut table_columns,
+                                    &mut pending_rule_before_count,
+                                    modifier_text,
+                                );
                             }
                             spec_index = after_argument;
                         }
@@ -24140,6 +24161,7 @@ Fallback text.
                     rule_before_count: 1,
                     rule_after: true,
                     rule_after_count: 1,
+                    separator_after: None,
                 },
                 TableColumnSpec {
                     alignment: TableColumnAlignment::Center,
@@ -24147,6 +24169,7 @@ Fallback text.
                     rule_before_count: 1,
                     rule_after: true,
                     rule_after_count: 1,
+                    separator_after: None,
                 },
                 TableColumnSpec {
                     alignment: TableColumnAlignment::Right,
@@ -24154,6 +24177,7 @@ Fallback text.
                     rule_before_count: 1,
                     rule_after: true,
                     rule_after_count: 1,
+                    separator_after: None,
                 },
                 TableColumnSpec {
                     alignment: TableColumnAlignment::Paragraph,
@@ -24161,6 +24185,7 @@ Fallback text.
                     rule_before_count: 1,
                     rule_after: true,
                     rule_after_count: 1,
+                    separator_after: None,
                 },
             ]
         );
@@ -24311,6 +24336,37 @@ Fallback text.
         assert_eq!(visible.table_columns[0].rule_after_count, 1);
         assert!(visible.table_columns[1].rule_before);
         assert_eq!(visible.table_columns[1].rule_before_count, 1);
+    }
+
+    #[test]
+    fn render_event_capture_preserves_array_intercolumn_visible_separators() {
+        let source =
+            r"\begin{document}\begin{tabular}{l@{--}r}A & 1 \\ B & 2\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible.table_columns.len(), 2);
+        assert_eq!(
+            visible.table_columns[0].separator_after.as_deref(),
+            Some("--")
+        );
+        assert!(!visible.table_columns[0].rule_after);
+        assert!(!visible.table_columns[1].rule_before);
     }
 
     #[test]
