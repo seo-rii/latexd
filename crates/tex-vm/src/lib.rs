@@ -24894,6 +24894,71 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_expands_repeated_hhline_patterns() {
+        let source = r"\documentclass{article}\usepackage{hhline}\begin{document}\begin{tabular}{lllll}A & B & C & D & E \\\hhline{*{2}{=~}=} V & W & X & Y & Z\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        let visible_text = visible
+            .normalized_visible_text
+            .as_deref()
+            .expect("visible table text");
+
+        assert_eq!(visible_text, "A | B | C | D | E ; V | W | X | Y | Z");
+        assert!(!visible_text.contains("hhline"));
+        assert!(!visible_text.contains("*{2}{=~}"));
+        assert_eq!(
+            visible.table_rules,
+            vec![
+                TableRuleEvent {
+                    row_index: 0,
+                    position: TableRulePosition::Below,
+                    column_span: Some(TableRuleSpan {
+                        start_column: 0,
+                        end_column: 0,
+                        trim_start: false,
+                        trim_end: false,
+                    }),
+                },
+                TableRuleEvent {
+                    row_index: 0,
+                    position: TableRulePosition::Below,
+                    column_span: Some(TableRuleSpan {
+                        start_column: 2,
+                        end_column: 2,
+                        trim_start: false,
+                        trim_end: false,
+                    }),
+                },
+                TableRuleEvent {
+                    row_index: 0,
+                    position: TableRulePosition::Below,
+                    column_span: Some(TableRuleSpan {
+                        start_column: 4,
+                        end_column: 4,
+                        trim_start: false,
+                        trim_end: false,
+                    }),
+                },
+            ]
+        );
+    }
+
+    #[test]
     fn render_event_capture_omits_table_color_commands() {
         let source = r"\documentclass{article}\usepackage{colortbl}\begin{document}\begin{tabular}{|l|r|}\rowcolor{gray!20} A & \cellcolor[gray]{0.9}1 \\ \arrayrulecolor{red}\hline B & 22\end{tabular}\end{document}";
         let mut interner = ControlSequenceInterner::new();

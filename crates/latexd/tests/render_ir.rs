@@ -13979,6 +13979,64 @@ fn hhline_partial_pattern_survives_ir_and_display_list() {
 }
 
 #[test]
+fn hhline_repeated_partial_pattern_survives_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{hhline}\begin{document}\begin{tabular}{lllll}A & B & C & D & E \\\hhline{*{2}{=~}=} V & W & X & Y & Z\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(
+        table.rows[0].partial_rules_below,
+        vec![
+            TableRuleSpan {
+                start_column: 0,
+                end_column: 0,
+                trim_start: false,
+                trim_end: false,
+            },
+            TableRuleSpan {
+                start_column: 2,
+                end_column: 2,
+                trim_start: false,
+                trim_end: false,
+            },
+            TableRuleSpan {
+                start_column: 4,
+                end_column: 4,
+                trim_start: false,
+                trim_end: false,
+            },
+        ]
+    );
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("A | B | C | D | E"));
+    assert!(extracted_text.contains("V | W | X | Y | Z"));
+    assert!(!extracted_text.contains("hhline"));
+    assert!(!extracted_text.contains("*{2}{=~}"));
+
+    let rule_ops = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::Rule(rect) if rect.width > rect.height => Some(rect),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(rule_ops.len(), 3, "{rule_ops:?}");
+}
+
+#[test]
 fn table_color_commands_do_not_leak_into_table_text() {
     let capture = capture_internal_render_ir(
         "main.tex",
