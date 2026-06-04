@@ -986,7 +986,89 @@ pub fn render_display_list_svg_with_converted_assets(
                                     embedded_decode_failure = true;
                                     return None;
                                 }
-                                ("image/svg+xml;charset=utf-8", None, bytes)
+                                let natural_size =
+                                    std::str::from_utf8(&bytes).ok().and_then(|text| {
+                                        let tag_start = text.find("<svg")?;
+                                        let tag_tail = &text[tag_start..];
+                                        let tag_end = tag_tail.find('>')?;
+                                        let tag = &tag_tail[..tag_end];
+                                        let attr_value = |name: &str| -> Option<&str> {
+                                            let mut offset = 0usize;
+                                            while let Some(relative) = tag[offset..].find(name) {
+                                                let index = offset + relative;
+                                                let before = tag[..index].chars().next_back();
+                                                if before.is_some_and(|ch| {
+                                                    !(ch.is_whitespace()
+                                                        || matches!(ch, '<' | '/' | '\'' | '"'))
+                                                }) {
+                                                    offset = index + name.len();
+                                                    continue;
+                                                }
+                                                let after = tag[index + name.len()..].trim_start();
+                                                let after = after.strip_prefix('=')?.trim_start();
+                                                let quote = after.chars().next()?;
+                                                if quote != '"' && quote != '\'' {
+                                                    return None;
+                                                }
+                                                let value_start = quote.len_utf8();
+                                                let value_end =
+                                                    after[value_start..].find(quote)? + value_start;
+                                                return Some(&after[value_start..value_end]);
+                                            }
+                                            None
+                                        };
+                                        let parse_length = |raw: &str| -> Option<f32> {
+                                            let raw = raw.trim();
+                                            if raw.ends_with('%') {
+                                                return None;
+                                            }
+                                            let split_at = raw
+                                                .find(|ch: char| {
+                                                    !(ch.is_ascii_digit()
+                                                        || matches!(ch, '.' | '+' | '-'))
+                                                })
+                                                .unwrap_or(raw.len());
+                                            let value = raw[..split_at].parse::<f32>().ok()?;
+                                            let unit = raw[split_at..].trim();
+                                            let multiplier = match unit {
+                                                "" | "px" => 72.0 / 96.0,
+                                                "pt" | "bp" => 1.0,
+                                                "in" => 72.0,
+                                                "cm" => 72.0 / 2.54,
+                                                "mm" => 72.0 / 25.4,
+                                                "pc" => 12.0,
+                                                _ => return None,
+                                            };
+                                            Some(value * multiplier)
+                                        };
+                                        let width = attr_value("width").and_then(parse_length);
+                                        let height = attr_value("height").and_then(parse_length);
+                                        if let (Some(width), Some(height)) = (width, height)
+                                            && width.is_finite()
+                                            && height.is_finite()
+                                            && width > 0.0
+                                            && height > 0.0
+                                        {
+                                            return Some((width, height));
+                                        }
+                                        let view_box = attr_value("viewBox")
+                                            .or_else(|| attr_value("viewbox"))?;
+                                        let values = view_box
+                                            .split(|ch: char| ch.is_whitespace() || ch == ',')
+                                            .filter_map(|part| part.parse::<f32>().ok())
+                                            .collect::<Vec<_>>();
+                                        if values.len() >= 4
+                                            && values[2].is_finite()
+                                            && values[3].is_finite()
+                                            && values[2] > 0.0
+                                            && values[3] > 0.0
+                                        {
+                                            Some((values[2] * 72.0 / 96.0, values[3] * 72.0 / 96.0))
+                                        } else {
+                                            None
+                                        }
+                                    });
+                                ("image/svg+xml;charset=utf-8", natural_size, bytes)
                             }
                             Some(GraphicAssetFormat::Png) => {
                                 let Some(image) = image::load_from_memory(&bytes).ok() else {
@@ -2116,6 +2198,53 @@ mod tests {
         assert!(svg.contains("<image x=\"-28\" y=\"72\" width=\"200\" height=\"100\""));
         assert!(svg.contains("href=\"data:image/png,%89PNG"));
         assert!(!svg.contains("[image: figures/tiny.png]"));
+    }
+
+    #[test]
+    fn renders_clip_enabled_svg_crop_with_svg_clipping() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 72.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                asset_ref: "figures/vector.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                asset_hash: Some("blake3:vector".to_string()),
+                crop: Some(ImageCrop {
+                    trim: None,
+                    viewport: Some(ImageViewport {
+                        llx_pt: 50.0,
+                        lly_pt: 25.0,
+                        urx_pt: 150.0,
+                        ury_pt: 75.0,
+                    }),
+                    clip: true,
+                }),
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            (asset_ref == "figures/vector.svg")
+                .then(|| br#"<svg width="200pt" height="100pt" viewBox="0 0 200 100"><rect width="200" height="100"/></svg>"#.to_vec())
+        });
+
+        assert!(svg.contains("<clipPath id=\"image-clip-0\"><rect x=\"72\" y=\"72\" width=\"100\" height=\"50\"/></clipPath>"));
+        assert!(svg.contains("clip-path=\"url(#image-clip-0)\""));
+        assert!(svg.contains("data-image-crop-rendered=\"true\""));
+        assert!(svg.contains("<image x=\"22\" y=\"47\" width=\"200\" height=\"100\""));
+        assert!(svg.contains("href=\"data:image/svg+xml;charset=utf-8,%3Csvg"));
+        assert!(!svg.contains("[image: figures/vector.svg]"));
     }
 
     #[test]

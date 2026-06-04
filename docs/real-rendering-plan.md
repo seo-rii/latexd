@@ -133,10 +133,11 @@ unsupported placeholders instead of generic image placeholders.
 artifacts, with a Poppler `pdftoppm` fallback for PDF assets, so resolved
 PDF/EPS graphic assets can be converted to PNG for display-list PDF/SVG
 artifacts when the relevant local tool is available. Driver-accurate crop/clip
-rendering for non-bitmap assets, TeX-exact rotated-box reflow, programmable
-table preamble hooks, exact vertical border trimming, exact table rule trimming,
-actual multirow geometry, nested table constructs, and full TeX alignment policy
-are still deferred. Rotation intent is no longer dropped: `angle` /
+rendering for PDF/EPS vector assets, production PDF/SVG output, and raster
+backends, TeX-exact rotated-box reflow, programmable table preamble hooks, exact
+vertical border trimming, exact table rule trimming, actual multirow geometry,
+nested table constructs, and full TeX alignment policy are still deferred.
+Rotation intent is no longer dropped: `angle` /
 `origin` options and simple `\rotatebox` wrappers are preserved as
 renderer-neutral `ImageRotation` metadata. The display-list PDF path applies
 that metadata to embedded bitmap XObjects and unresolved-image placeholders,
@@ -452,7 +453,8 @@ Implemented first slice:
   the display-list PDF artifact path;
 - project-root display-list SVG debug artifacts can embed resolver-provided SVG
   and PNG/JPEG bitmap assets as data-URI `<image>` elements, with clip-enabled
-  bitmap crop metadata reflected in the debug SVG;
+  crop metadata reflected in the debug SVG for bitmap assets and simple SVG
+  assets with parseable natural dimensions;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
   display-list PDF and debug SVG artifacts;
 - missing or undecodable assets still render as bounded placeholders in both
@@ -464,7 +466,8 @@ Remaining figure work:
 - broader option-aware sizing and driver-exact bounding-box behavior;
 - fuller wrapper sizing semantics for nested boxes and TeX-exact wrapper
   reflow;
-- trim/viewport/clip rendering parity for non-bitmap assets and raster backends;
+- trim/viewport/clip rendering parity for PDF/EPS vector assets, production
+  PDF/SVG output, and raster backends;
 - TeX-exact rotated-box dimensions, page reflow, and non-debug raster parity;
 - external PDF/EPS conversion and production SVG/PDF vector embedding or raster
   insertion;
@@ -718,7 +721,8 @@ Status:
 - project-root render-IR debug capture can feed real image files into the
   display-list PDF artifact;
 - project-root display-list SVG debug artifacts can embed resolver-backed SVG
-  and PNG/JPEG bitmap assets, including clip-enabled bitmap crop visualization;
+  and PNG/JPEG bitmap assets, including clip-enabled crop visualization for
+  bitmap assets and simple SVG assets with parseable natural dimensions;
 - `latexd render-ir --root ... --input ... --output-dir ...` exposes the
   event/IR/display-list artifact pipeline without replacing the serve preview
   path;
