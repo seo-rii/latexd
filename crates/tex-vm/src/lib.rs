@@ -8653,6 +8653,22 @@ impl<'i> Vm<'i> {
         {
             let mut spec_index = 0usize;
             let mut pending_rule_before_count = 0u8;
+            let mut pending_cell_prefix: Option<String> = None;
+            let normalize_modifier_text = |modifier_text: &str| -> String {
+                let mut normalized = normalize_latex_text_with_inline_placeholders(modifier_text);
+                if normalized.is_empty() {
+                    let compact = modifier_text
+                        .chars()
+                        .filter(|ch| !ch.is_whitespace())
+                        .collect::<String>();
+                    if compact.contains("\\qquad") {
+                        normalized = "    ".to_string();
+                    } else if compact.contains("\\quad") {
+                        normalized = "  ".to_string();
+                    }
+                }
+                normalized
+            };
             let apply_intercolumn_modifier =
                 |table_columns: &mut Vec<TableColumnSpec>,
                  pending_rule_before_count: &mut u8,
@@ -8664,20 +8680,7 @@ impl<'i> Vm<'i> {
                         }
                         *pending_rule_before_count = (*pending_rule_before_count).saturating_add(1);
                     } else if let Some(column) = table_columns.last_mut() {
-                        let mut separator =
-                            normalize_latex_text_with_inline_placeholders(modifier_text);
-                        if separator.is_empty() {
-                            let compact = modifier_text
-                                .chars()
-                                .filter(|ch| !ch.is_whitespace())
-                                .collect::<String>();
-                            if compact.contains("\\qquad") {
-                                separator = "    ".to_string();
-                            } else if compact.contains("\\quad") {
-                                separator = "  ".to_string();
-                            }
-                        }
-                        column.separator_after = Some(separator);
+                        column.separator_after = Some(normalize_modifier_text(modifier_text));
                     }
                 };
             while spec_index < column_spec.len() {
@@ -8710,6 +8713,8 @@ impl<'i> Vm<'i> {
                             rule_after: false,
                             rule_after_count: 0,
                             separator_after: None,
+                            cell_prefix: pending_cell_prefix.take(),
+                            cell_suffix: None,
                         });
                         pending_rule_before_count = 0;
                         spec_index = after_spec;
@@ -8733,6 +8738,8 @@ impl<'i> Vm<'i> {
                             rule_after: false,
                             rule_after_count: 0,
                             separator_after: None,
+                            cell_prefix: pending_cell_prefix.take(),
+                            cell_suffix: None,
                         });
                         pending_rule_before_count = 0;
                         spec_index = after_spec;
@@ -8766,6 +8773,8 @@ impl<'i> Vm<'i> {
                             rule_after: false,
                             rule_after_count: 0,
                             separator_after: None,
+                            cell_prefix: pending_cell_prefix.take(),
+                            cell_suffix: None,
                         });
                         pending_rule_before_count = 0;
                         spec_index = after_spec;
@@ -8785,6 +8794,8 @@ impl<'i> Vm<'i> {
                             rule_after: false,
                             rule_after_count: 0,
                             separator_after: None,
+                            cell_prefix: pending_cell_prefix.take(),
+                            cell_suffix: None,
                         });
                         pending_rule_before_count = 0;
                         spec_index += ch.len_utf8();
@@ -8856,6 +8867,8 @@ impl<'i> Vm<'i> {
                                                     rule_after: false,
                                                     rule_after_count: 0,
                                                     separator_after: None,
+                                                    cell_prefix: pending_cell_prefix.take(),
+                                                    cell_suffix: None,
                                                 });
                                                 pending_rule_before_count = 0;
                                                 repeated_spec_index = after_spec;
@@ -8886,6 +8899,8 @@ impl<'i> Vm<'i> {
                                                     rule_after: false,
                                                     rule_after_count: 0,
                                                     separator_after: None,
+                                                    cell_prefix: pending_cell_prefix.take(),
+                                                    cell_suffix: None,
                                                 });
                                                 pending_rule_before_count = 0;
                                                 repeated_spec_index = after_spec;
@@ -8938,6 +8953,8 @@ impl<'i> Vm<'i> {
                                                     rule_after: false,
                                                     rule_after_count: 0,
                                                     separator_after: None,
+                                                    cell_prefix: pending_cell_prefix.take(),
+                                                    cell_suffix: None,
                                                 });
                                                 pending_rule_before_count = 0;
                                                 repeated_spec_index = after_spec;
@@ -8959,6 +8976,8 @@ impl<'i> Vm<'i> {
                                                     rule_after: false,
                                                     rule_after_count: 0,
                                                     separator_after: None,
+                                                    cell_prefix: pending_cell_prefix.take(),
+                                                    cell_suffix: None,
                                                 });
                                                 pending_rule_before_count = 0;
                                                 repeated_spec_index += repeated_ch.len_utf8();
@@ -9008,6 +9027,37 @@ impl<'i> Vm<'i> {
                                                             &mut pending_rule_before_count,
                                                             modifier_text,
                                                         );
+                                                    } else if repeated_ch == '>' {
+                                                        let prefix =
+                                                            normalize_modifier_text(modifier_text);
+                                                        if !prefix.is_empty() {
+                                                            pending_cell_prefix = Some(
+                                                                pending_cell_prefix.take().map_or(
+                                                                    prefix.clone(),
+                                                                    |mut existing| {
+                                                                        existing.push_str(&prefix);
+                                                                        existing
+                                                                    },
+                                                                ),
+                                                            );
+                                                        }
+                                                    } else if repeated_ch == '<' {
+                                                        let suffix =
+                                                            normalize_modifier_text(modifier_text);
+                                                        if !suffix.is_empty()
+                                                            && let Some(column) =
+                                                                table_columns.last_mut()
+                                                        {
+                                                            column.cell_suffix = Some(
+                                                                column.cell_suffix.take().map_or(
+                                                                    suffix.clone(),
+                                                                    |mut existing| {
+                                                                        existing.push_str(&suffix);
+                                                                        existing
+                                                                    },
+                                                                ),
+                                                            );
+                                                        }
                                                     }
                                                     repeated_spec_index = after_argument;
                                                 }
@@ -9038,6 +9088,30 @@ impl<'i> Vm<'i> {
                                     &mut pending_rule_before_count,
                                     modifier_text,
                                 );
+                            } else if ch == '>' {
+                                let prefix = normalize_modifier_text(modifier_text);
+                                if !prefix.is_empty() {
+                                    pending_cell_prefix = Some(pending_cell_prefix.take().map_or(
+                                        prefix.clone(),
+                                        |mut existing| {
+                                            existing.push_str(&prefix);
+                                            existing
+                                        },
+                                    ));
+                                }
+                            } else if ch == '<' {
+                                let suffix = normalize_modifier_text(modifier_text);
+                                if !suffix.is_empty()
+                                    && let Some(column) = table_columns.last_mut()
+                                {
+                                    column.cell_suffix = Some(column.cell_suffix.take().map_or(
+                                        suffix.clone(),
+                                        |mut existing| {
+                                            existing.push_str(&suffix);
+                                            existing
+                                        },
+                                    ));
+                                }
                             }
                             spec_index = after_argument;
                         }
@@ -24162,6 +24236,8 @@ Fallback text.
                     rule_after: true,
                     rule_after_count: 1,
                     separator_after: None,
+                    cell_prefix: None,
+                    cell_suffix: None,
                 },
                 TableColumnSpec {
                     alignment: TableColumnAlignment::Center,
@@ -24170,6 +24246,8 @@ Fallback text.
                     rule_after: true,
                     rule_after_count: 1,
                     separator_after: None,
+                    cell_prefix: None,
+                    cell_suffix: None,
                 },
                 TableColumnSpec {
                     alignment: TableColumnAlignment::Right,
@@ -24178,6 +24256,8 @@ Fallback text.
                     rule_after: true,
                     rule_after_count: 1,
                     separator_after: None,
+                    cell_prefix: None,
+                    cell_suffix: None,
                 },
                 TableColumnSpec {
                     alignment: TableColumnAlignment::Paragraph,
@@ -24186,6 +24266,8 @@ Fallback text.
                     rule_after: true,
                     rule_after_count: 1,
                     separator_after: None,
+                    cell_prefix: None,
+                    cell_suffix: None,
                 },
             ]
         );
@@ -24367,6 +24449,34 @@ Fallback text.
         );
         assert!(!visible.table_columns[0].rule_after);
         assert!(!visible.table_columns[1].rule_before);
+    }
+
+    #[test]
+    fn render_event_capture_preserves_array_column_visible_cell_hooks() {
+        let source = r"\begin{document}\begin{tabular}{>{+}l<{!}r}A & 1\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible.table_columns.len(), 2);
+        assert_eq!(visible.table_columns[0].cell_prefix.as_deref(), Some("+"));
+        assert_eq!(visible.table_columns[0].cell_suffix.as_deref(), Some("!"));
+        assert_eq!(visible.table_columns[1].cell_prefix, None);
+        assert_eq!(visible.table_columns[1].cell_suffix, None);
     }
 
     #[test]

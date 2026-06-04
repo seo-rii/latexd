@@ -440,6 +440,10 @@ pub struct TableColumnSpec {
     pub rule_after_count: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub separator_after: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell_prefix: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell_suffix: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

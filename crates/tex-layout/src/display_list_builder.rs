@@ -539,8 +539,24 @@ pub fn build_page_display_lists(
                                 active_row_spans[column] = active_row_spans[column].max(row_span);
                             }
                         }
+                        let mut text = String::new();
+                        if let Some(prefix) = block
+                            .columns
+                            .get(column_index)
+                            .and_then(|column| column.cell_prefix.as_deref())
+                        {
+                            text.push_str(prefix);
+                        }
+                        text.push_str(&cell.text);
+                        if let Some(suffix) = block
+                            .columns
+                            .get(column_index)
+                            .and_then(|column| column.cell_suffix.as_deref())
+                        {
+                            text.push_str(suffix);
+                        }
                         rendered_cells.push(RenderedTableCell {
-                            text: cell.text.clone(),
+                            text,
                             column_span,
                             column_index,
                         });
@@ -2100,6 +2116,8 @@ mod tests {
                         rule_after: false,
                         rule_after_count: 0,
                         separator_after: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
                     },
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Center,
@@ -2108,6 +2126,8 @@ mod tests {
                         rule_after: false,
                         rule_after_count: 0,
                         separator_after: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
                     },
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Right,
@@ -2116,6 +2136,8 @@ mod tests {
                         rule_after: false,
                         rule_after_count: 0,
                         separator_after: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
                     },
                 ],
                 rows: vec![
@@ -2199,6 +2221,8 @@ mod tests {
                         rule_after: false,
                         rule_after_count: 0,
                         separator_after: Some("--".to_string()),
+                        cell_prefix: None,
+                        cell_suffix: None,
                     },
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Right,
@@ -2207,6 +2231,8 @@ mod tests {
                         rule_after: false,
                         rule_after_count: 0,
                         separator_after: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
                     },
                 ],
                 rows: vec![
@@ -2268,6 +2294,70 @@ mod tests {
     }
 
     #[test]
+    fn table_display_list_text_uses_column_cell_hooks() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                columns: vec![
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Left,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: false,
+                        rule_after_count: 0,
+                        separator_after: None,
+                        cell_prefix: Some("+".to_string()),
+                        cell_suffix: Some("!".to_string()),
+                    },
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Right,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: false,
+                        rule_after_count: 0,
+                        separator_after: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                ],
+                rows: vec![TableRow {
+                    rule_above: false,
+                    partial_rules_above: Vec::new(),
+                    cells: vec![
+                        TableCell {
+                            text: "A".to_string(),
+                            column_span: None,
+                            row_span: None,
+                        },
+                        TableCell {
+                            text: "1".to_string(),
+                            column_span: None,
+                            row_span: None,
+                        },
+                    ],
+                    rule_below: false,
+                    partial_rules_below: Vec::new(),
+                }],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let lines = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(lines.contains(&"+A! | 1"), "{lines:?}");
+    }
+
+    #[test]
     fn table_display_list_emits_vertical_rule_ops_from_column_specs() {
         let source = SourceProvenance::file("main.tex", 0, 64);
         let display_lists = build_page_display_lists(
@@ -2281,6 +2371,8 @@ mod tests {
                         rule_after: true,
                         rule_after_count: 1,
                         separator_after: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
                     },
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Right,
@@ -2289,6 +2381,8 @@ mod tests {
                         rule_after: true,
                         rule_after_count: 1,
                         separator_after: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
                     },
                 ],
                 rows: vec![
@@ -2372,6 +2466,8 @@ mod tests {
                         rule_after: true,
                         rule_after_count: 2,
                         separator_after: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
                     },
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Right,
@@ -2380,6 +2476,8 @@ mod tests {
                         rule_after: true,
                         rule_after_count: 2,
                         separator_after: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
                     },
                 ],
                 rows: vec![TableRow {
