@@ -13590,6 +13590,79 @@ fn booktabs_cmidrule_trim_options_shorten_partial_rule_rects() {
 }
 
 #[test]
+fn booktabs_cmidrule_single_sided_trim_options_are_directional() {
+    let untrimmed = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{lll}A & B & C \\\cline{1-2} D & E & F\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let left_trimmed = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{booktabs}\begin{document}\begin{tabular}{lll}A & B & C \\\cmidrule(l){1-2} D & E & F\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let right_trimmed = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{booktabs}\begin{document}\begin{tabular}{lll}A & B & C \\\cmidrule(r){1-2} D & E & F\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table_span = |capture: &InternalRenderIrCapture| {
+        capture
+            .document_ir
+            .blocks
+            .iter()
+            .find_map(|block| match block {
+                IrBlock::Table(table) if table.environment == "tabular" => {
+                    table.rows[0].partial_rules_below.first()
+                }
+                _ => None,
+            })
+            .expect("cmidrule span")
+            .to_owned()
+    };
+    let horizontal_rule = |capture: &InternalRenderIrCapture| {
+        capture.page_display_lists[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::Rule(rect) if rect.width > rect.height => Some(rect),
+                _ => None,
+            })
+            .expect("horizontal rule")
+            .to_owned()
+    };
+
+    assert!(table_span(&left_trimmed).trim_start);
+    assert!(!table_span(&left_trimmed).trim_end);
+    assert!(!table_span(&right_trimmed).trim_start);
+    assert!(table_span(&right_trimmed).trim_end);
+
+    let untrimmed_rule = horizontal_rule(&untrimmed);
+    let left_rule = horizontal_rule(&left_trimmed);
+    let right_rule = horizontal_rule(&right_trimmed);
+    let untrimmed_end = untrimmed_rule.x + untrimmed_rule.width;
+    let left_end = left_rule.x + left_rule.width;
+    let right_end = right_rule.x + right_rule.width;
+
+    assert!(
+        left_rule.x > untrimmed_rule.x,
+        "{left_rule:?} {untrimmed_rule:?}"
+    );
+    assert!(
+        (left_end - untrimmed_end).abs() <= 0.01,
+        "{left_rule:?} {untrimmed_rule:?}"
+    );
+    assert!(
+        (right_rule.x - untrimmed_rule.x).abs() <= 0.01,
+        "{right_rule:?} {untrimmed_rule:?}"
+    );
+    assert!(
+        right_end < untrimmed_end,
+        "{right_rule:?} {untrimmed_rule:?}"
+    );
+}
+
+#[test]
 fn booktabs_spacing_commands_do_not_leak_into_table_text() {
     let capture = capture_internal_render_ir(
         "main.tex",
