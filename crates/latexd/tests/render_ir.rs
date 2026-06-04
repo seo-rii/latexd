@@ -14215,6 +14215,96 @@ fn booktabs_cmidrule_single_sided_trim_options_are_directional() {
 }
 
 #[test]
+fn booktabs_cmidrule_trim_length_units_do_not_change_trim_side() {
+    let untrimmed = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{lll}A & B & C \\\cline{1-2} D & E & F \\\cline{2-3} G & H & I\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let trimmed = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{booktabs}\begin{document}\begin{tabular}{lll}A & B & C \\\cmidrule(l{1truept}){1-2} D & E & F \\\cmidrule(r{1truept}){2-3} G & H & I\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = trimmed
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("trimmed table");
+
+    assert_eq!(
+        table.rows[0].partial_rules_below,
+        vec![TableRuleSpan {
+            start_column: 0,
+            end_column: 1,
+            trim_start: true,
+            trim_end: false,
+        }]
+    );
+    assert_eq!(
+        table.rows[1].partial_rules_below,
+        vec![TableRuleSpan {
+            start_column: 1,
+            end_column: 2,
+            trim_start: false,
+            trim_end: true,
+        }]
+    );
+
+    let horizontal_rules = |capture: &InternalRenderIrCapture| {
+        capture.page_display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Rule(rect) if rect.width > rect.height => Some(rect),
+                _ => None,
+            })
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let untrimmed_rules = horizontal_rules(&untrimmed);
+    let trimmed_rules = horizontal_rules(&trimmed);
+
+    assert_eq!(untrimmed_rules.len(), 2, "{untrimmed_rules:?}");
+    assert_eq!(trimmed_rules.len(), 2, "{trimmed_rules:?}");
+    let untrimmed_left_end = untrimmed_rules[0].x + untrimmed_rules[0].width;
+    let trimmed_left_end = trimmed_rules[0].x + trimmed_rules[0].width;
+    let untrimmed_right_end = untrimmed_rules[1].x + untrimmed_rules[1].width;
+    let trimmed_right_end = trimmed_rules[1].x + trimmed_rules[1].width;
+
+    assert!(
+        trimmed_rules[0].x > untrimmed_rules[0].x,
+        "{trimmed_rules:?} {untrimmed_rules:?}"
+    );
+    assert!(
+        (trimmed_left_end - untrimmed_left_end).abs() <= 0.01,
+        "{trimmed_rules:?} {untrimmed_rules:?}"
+    );
+    assert!(
+        (trimmed_rules[1].x - untrimmed_rules[1].x).abs() <= 0.01,
+        "{trimmed_rules:?} {untrimmed_rules:?}"
+    );
+    assert!(
+        trimmed_right_end < untrimmed_right_end,
+        "{trimmed_rules:?} {untrimmed_rules:?}"
+    );
+    let display_list_text = trimmed.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(!display_list_text.contains("truept"), "{display_list_text}");
+}
+
+#[test]
 fn booktabs_spacing_commands_do_not_leak_into_table_text() {
     let capture = capture_internal_render_ir(
         "main.tex",

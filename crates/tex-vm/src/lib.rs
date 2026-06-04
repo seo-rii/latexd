@@ -10406,8 +10406,48 @@ impl<'i> Vm<'i> {
                                     {
                                         let trim_options = &table_body
                                             [table_index + 1..table_index + 1 + close_relative];
-                                        trim_start = trim_options.contains('l');
-                                        trim_end = trim_options.contains('r');
+                                        let mut trim_option_index = 0usize;
+                                        while trim_option_index < trim_options.len() {
+                                            let Some(ch) =
+                                                trim_options[trim_option_index..].chars().next()
+                                            else {
+                                                break;
+                                            };
+                                            match ch {
+                                                'l' => {
+                                                    trim_start = true;
+                                                    trim_option_index += ch.len_utf8();
+                                                }
+                                                'r' => {
+                                                    trim_end = true;
+                                                    trim_option_index += ch.len_utf8();
+                                                }
+                                                '{' => {
+                                                    let mut depth = 1usize;
+                                                    trim_option_index += ch.len_utf8();
+                                                    while trim_option_index < trim_options.len()
+                                                        && depth > 0
+                                                    {
+                                                        let Some(nested_ch) = trim_options
+                                                            [trim_option_index..]
+                                                            .chars()
+                                                            .next()
+                                                        else {
+                                                            break;
+                                                        };
+                                                        trim_option_index += nested_ch.len_utf8();
+                                                        match nested_ch {
+                                                            '{' => depth += 1,
+                                                            '}' => depth = depth.saturating_sub(1),
+                                                            _ => {}
+                                                        }
+                                                    }
+                                                }
+                                                _ => {
+                                                    trim_option_index += ch.len_utf8();
+                                                }
+                                            }
+                                        }
                                         table_index += close_relative + 2;
                                     }
                                 }
@@ -24822,6 +24862,60 @@ Fallback text.
                 },
             ]
         );
+    }
+
+    #[test]
+    fn render_event_capture_ignores_cmidrule_trim_unit_letters() {
+        let source = r"\documentclass{article}\usepackage{booktabs}\begin{document}\begin{tabular}{lll}A & B & C \\\cmidrule(l{1truept}){1-2} D & E & F \\\cmidrule(r{1truept}){2-3} G & H & I\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(
+            visible.normalized_visible_text.as_deref(),
+            Some("A | B | C ; D | E | F ; G | H | I")
+        );
+        assert_eq!(
+            visible.table_rules,
+            vec![
+                TableRuleEvent {
+                    row_index: 0,
+                    position: TableRulePosition::Below,
+                    column_span: Some(TableRuleSpan {
+                        start_column: 0,
+                        end_column: 1,
+                        trim_start: true,
+                        trim_end: false,
+                    }),
+                },
+                TableRuleEvent {
+                    row_index: 1,
+                    position: TableRulePosition::Below,
+                    column_span: Some(TableRuleSpan {
+                        start_column: 1,
+                        end_column: 2,
+                        trim_start: false,
+                        trim_end: true,
+                    }),
+                },
+            ]
+        );
+        let visible_text = visible.normalized_visible_text.as_deref().unwrap_or("");
+        assert!(!visible_text.contains("truept"));
     }
 
     #[test]

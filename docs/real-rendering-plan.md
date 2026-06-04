@@ -583,8 +583,9 @@ Implemented first slice:
   emit separate `TextRun` operations, keeping rule strokes out of searchable PDF
   text. Partial horizontal rule rectangles use the same visible separator
   widths as table row text instead of assuming fixed-width default separators,
-  and simple `booktabs` `\cmidrule(l/r/lr){...}` trim options shorten those
-  partial rule rectangles.
+  and simple `booktabs` `\cmidrule(l/r/lr){...}` trim options, including
+  `l{...}` / `r{...}` trim length payloads, shorten the requested side of those
+  partial rule rectangles without letting unit names affect the trim direction.
 - simple `l` / `c` / `r` / paragraph-style table preamble columns and bounded
   `*{n}{...}` repeated specs now survive into IR and drive coarse display-list
   text alignment.
