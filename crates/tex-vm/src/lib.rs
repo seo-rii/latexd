@@ -9933,6 +9933,18 @@ impl<'i> Vm<'i> {
                                                                 !modifier_ch.is_whitespace()
                                                             })
                                                             .collect::<String>();
+                                                        if compact.contains("\\vrule")
+                                                            || compact.contains("\\vline")
+                                                        {
+                                                            if saw_alignment_token {
+                                                                rule_after_count = rule_after_count
+                                                                    .saturating_add(1);
+                                                            } else {
+                                                                rule_before_count =
+                                                                    rule_before_count
+                                                                        .saturating_add(1);
+                                                            }
+                                                        }
                                                         if compact.contains("\\raggedleft")
                                                             || compact.contains("\\RaggedLeft")
                                                             || compact.contains("\\flushright")

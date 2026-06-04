@@ -12768,6 +12768,59 @@ fn tabular_multicolumn_vertical_rules_emit_row_scoped_rule_ops() {
 }
 
 #[test]
+fn tabular_multicolumn_vrule_hooks_emit_row_scoped_rule_ops() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{lll}\multicolumn{2}{@{\vrule}c!{\vline}}{Hdr} & Z \\ Alpha & Beta & Y\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].column_span, Some(2));
+    assert_eq!(
+        table.rows[0].cells[0].alignment,
+        Some(TableColumnAlignment::Center)
+    );
+    assert_eq!(table.rows[0].cells[0].rule_before_count, 1);
+    assert_eq!(table.rows[0].cells[0].rule_after_count, 1);
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let header_line = table_lines
+        .iter()
+        .find(|line| line.contains("Hdr"))
+        .expect("header row");
+
+    assert!(!header_line.contains('|'), "{table_lines:?}");
+    let vertical_rules = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter(|op| {
+            matches!(
+                op,
+                DrawOp::Rule(rule)
+                    if rule.height > rule.width && (rule.width - 0.8).abs() < 0.001
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(vertical_rules.len(), 2, "{vertical_rules:?}");
+}
+
+#[test]
 fn tabular_numeric_column_specs_survive_ir_and_align_display_list_text() {
     let capture = capture_internal_render_ir(
         "main.tex",
