@@ -25164,6 +25164,47 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_hides_multirow_optional_arguments() {
+        let source = r"\begin{document}\begin{tabular}{ll}\multirow[t]{2}[1]{*}[.5ex]{Span} & A \\ B & C\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(
+            visible.normalized_visible_text.as_deref(),
+            Some("Span | A ; B | C")
+        );
+        assert_eq!(
+            visible.table_cell_spans,
+            vec![TableCellSpanEvent {
+                row_index: 0,
+                column_index: 0,
+                column_span: 1,
+                row_span: Some(2),
+                alignment: None,
+                rule_before_count: 0,
+                rule_after_count: 0,
+                cell_prefix: None,
+                cell_suffix: None,
+            }]
+        );
+    }
+
+    #[test]
     fn render_event_capture_does_not_treat_negative_multirow_as_downward_span() {
         let source = r"\begin{document}\begin{tabular}{ll}A & B \\ \multirow{-2}{*}{Span} & C \\ D & E\end{tabular}\end{document}";
         let mut interner = ControlSequenceInterner::new();

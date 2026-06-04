@@ -13226,6 +13226,42 @@ fn tabular_multirow_visible_text_survives_ir_and_display_list() {
 }
 
 #[test]
+fn tabular_multirow_optional_arguments_do_not_leak() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{multirow}\begin{document}\begin{tabular}{ll}\multirow[t]{2}[1]{*}[.5ex]{Span} & A \\ B & C\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "Span");
+    assert_eq!(table.rows[0].cells[0].row_span, Some(2));
+    let extracted_text = capture.document_ir.extracted_text();
+    for hidden in ["multirow", ".5ex"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(table_lines.contains(&"Span | A"), "{table_lines:?}");
+    assert!(table_lines.contains(&"B    | C"), "{table_lines:?}");
+}
+
+#[test]
 fn tabular_multirow_display_list_offsets_omitted_spanned_cells() {
     let capture = capture_internal_render_ir(
         "main.tex",

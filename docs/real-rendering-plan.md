@@ -639,6 +639,8 @@ Implemented first slice:
   prefix/suffix metadata.
 - `multirow` / `multirowcell` commands now preserve visible cell text and simple
   `row_span` metadata in the table fallback.
+- common `multirow` positioning, bigstrut, and vertical-move optional arguments
+  are consumed without leaking layout hints into visible fallback text.
 - continuation rows below a simple multirow cell now insert a blank placeholder
   column when the spanned column is omitted, so following cells are placed under
   the next table column in the readable fallback.
