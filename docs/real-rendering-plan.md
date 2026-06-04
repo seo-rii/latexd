@@ -67,9 +67,11 @@ left/center/right padding in the display-list text fallback. Absolute
 survive as point-sized hints and set minimum monospaced fallback column widths.
 Simple `@{...}` /
 `!{...}` intercolumn visible separators now replace the default fallback
-separator in display-list text, and simple visible `>{...}` / `<{...}` cell
-hooks now decorate display-list cell text while non-visible formatting hooks
-remain suppressed. Simple column border markers and simple `@{\vrule}` /
+separator in display-list text, simple visible `>{...}` / `<{...}` cell hooks
+now decorate display-list cell text, and common `>{\raggedleft}`,
+`>{\centering}`, and `>{\raggedright}` alignment hooks now drive the following
+column's coarse alignment while otherwise staying non-visible. Simple column
+border markers and simple `@{\vrule}` /
 `@{\vline}` / `!{\vrule}` / `!{\vline}` array hooks also emit coarse vertical
 `PageDisplayList::Rule` rectangles at the monospaced fallback boundary
 positions, including repeated `||` rule-count approximations; when those
@@ -563,8 +565,10 @@ Implemented first slice:
   still drive fallback alignment. Simple visible `@{...}` / `!{...}`
   intercolumn material now survives as display-list separator text, while
   simple visible `>{...}` / `<{...}` cell material now decorates display-list
-  cell text; simple `@{\vrule}` / `@{\vline}` / `!{\vrule}` / `!{\vline}`
-  hooks preserve coarse vertical rule metadata.
+  cell text; common `>{\raggedleft}`, `>{\centering}`, and
+  `>{\raggedright}` hooks preserve coarse alignment intent; simple
+  `@{\vrule}` / `@{\vline}` / `!{\vrule}` / `!{\vline}` hooks preserve coarse
+  vertical rule metadata.
 - simple `tabu`/`longtabu` preambles, including `longtabu to ... {cols}` and
   `X[...]` options, are normalized into the same table column metadata.
 - common numeric `siunitx` `S[...]` and `dcolumn` `D{...}{...}{...}` columns
@@ -741,7 +745,8 @@ Status:
   table IR/display-list fallback path;
 - array-package `w` / `W` fixed-width columns preserve coarse alignment intent;
 - array-package hook/intercolumn modifiers are ignored as non-column material
-  while preserving the following real columns;
+  while preserving the following real columns, and common alignment hooks
+  preserve coarse column alignment intent;
 - `siunitx` `S` and `dcolumn` `D` numeric columns preserve coarse decimal
   alignment intent;
 - figure asset identity/caption propagation exists, and resolver-provided

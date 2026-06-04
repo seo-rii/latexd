@@ -8653,6 +8653,7 @@ impl<'i> Vm<'i> {
         {
             let mut spec_index = 0usize;
             let mut pending_rule_before_count = 0u8;
+            let mut pending_alignment_hint: Option<TableColumnAlignment> = None;
             let mut pending_cell_prefix: Option<String> = None;
             let parse_table_column_width_pt_milli = |width_text: &str| -> Option<u32> {
                 let normalized = normalize_latex_text(width_text);
@@ -8696,6 +8697,27 @@ impl<'i> Vm<'i> {
                 }
                 normalized
             };
+            let modifier_alignment_hint = |modifier_text: &str| -> Option<TableColumnAlignment> {
+                let compact = modifier_text
+                    .chars()
+                    .filter(|ch| !ch.is_whitespace())
+                    .collect::<String>();
+                if compact.contains("\\raggedleft")
+                    || compact.contains("\\RaggedLeft")
+                    || compact.contains("\\flushright")
+                {
+                    Some(TableColumnAlignment::Right)
+                } else if compact.contains("\\centering") || compact.contains("\\Centering") {
+                    Some(TableColumnAlignment::Center)
+                } else if compact.contains("\\raggedright")
+                    || compact.contains("\\RaggedRight")
+                    || compact.contains("\\flushleft")
+                {
+                    Some(TableColumnAlignment::Left)
+                } else {
+                    None
+                }
+            };
             let apply_intercolumn_modifier =
                 |table_columns: &mut Vec<TableColumnSpec>,
                  pending_rule_before_count: &mut u8,
@@ -8733,6 +8755,7 @@ impl<'i> Vm<'i> {
                         {
                             after_spec = after_option;
                         }
+                        pending_alignment_hint = None;
                         table_columns.push(TableColumnSpec {
                             alignment: TableColumnAlignment::Decimal,
                             rule_before: pending_rule_before_count > 0,
@@ -8759,6 +8782,7 @@ impl<'i> Vm<'i> {
                                 break;
                             }
                         }
+                        pending_alignment_hint = None;
                         table_columns.push(TableColumnSpec {
                             alignment: TableColumnAlignment::Decimal,
                             rule_before: pending_rule_before_count > 0,
@@ -8797,6 +8821,7 @@ impl<'i> Vm<'i> {
                                 after_spec = after_width;
                             }
                         }
+                        pending_alignment_hint = None;
                         table_columns.push(TableColumnSpec {
                             alignment,
                             rule_before: pending_rule_before_count > 0,
@@ -8819,6 +8844,7 @@ impl<'i> Vm<'i> {
                             'p' | 'm' | 'b' | 'X' => TableColumnAlignment::Paragraph,
                             _ => TableColumnAlignment::Unknown,
                         };
+                        let alignment = pending_alignment_hint.take().unwrap_or(alignment);
                         let mut width_pt_milli = None;
                         table_columns.push(TableColumnSpec {
                             alignment,
@@ -8901,6 +8927,7 @@ impl<'i> Vm<'i> {
                                                 {
                                                     after_spec = after_option;
                                                 }
+                                                pending_alignment_hint = None;
                                                 table_columns.push(TableColumnSpec {
                                                     alignment: TableColumnAlignment::Decimal,
                                                     rule_before: pending_rule_before_count > 0,
@@ -8934,6 +8961,7 @@ impl<'i> Vm<'i> {
                                                         break;
                                                     }
                                                 }
+                                                pending_alignment_hint = None;
                                                 table_columns.push(TableColumnSpec {
                                                     alignment: TableColumnAlignment::Decimal,
                                                     rule_before: pending_rule_before_count > 0,
@@ -8994,6 +9022,7 @@ impl<'i> Vm<'i> {
                                                         after_spec = after_width;
                                                     }
                                                 }
+                                                pending_alignment_hint = None;
                                                 table_columns.push(TableColumnSpec {
                                                     alignment,
                                                     rule_before: pending_rule_before_count > 0,
@@ -9018,6 +9047,9 @@ impl<'i> Vm<'i> {
                                                     }
                                                     _ => TableColumnAlignment::Unknown,
                                                 };
+                                                let alignment = pending_alignment_hint
+                                                    .take()
+                                                    .unwrap_or(alignment);
                                                 let mut width_pt_milli = None;
                                                 table_columns.push(TableColumnSpec {
                                                     alignment,
@@ -9094,6 +9126,12 @@ impl<'i> Vm<'i> {
                                                             modifier_text,
                                                         );
                                                     } else if repeated_ch == '>' {
+                                                        if let Some(alignment_hint) =
+                                                            modifier_alignment_hint(modifier_text)
+                                                        {
+                                                            pending_alignment_hint =
+                                                                Some(alignment_hint);
+                                                        }
                                                         let prefix =
                                                             normalize_modifier_text(modifier_text);
                                                         if !prefix.is_empty() {
@@ -9155,6 +9193,10 @@ impl<'i> Vm<'i> {
                                     modifier_text,
                                 );
                             } else if ch == '>' {
+                                if let Some(alignment_hint) = modifier_alignment_hint(modifier_text)
+                                {
+                                    pending_alignment_hint = Some(alignment_hint);
+                                }
                                 let prefix = normalize_modifier_text(modifier_text);
                                 if !prefix.is_empty() {
                                     pending_cell_prefix = Some(pending_cell_prefix.take().map_or(
@@ -24402,7 +24444,7 @@ Fallback text.
         assert_eq!(visible.table_columns.len(), 2);
         assert_eq!(
             visible.table_columns[0].alignment,
-            TableColumnAlignment::Paragraph
+            TableColumnAlignment::Left
         );
         assert_eq!(
             visible.table_columns[1].alignment,

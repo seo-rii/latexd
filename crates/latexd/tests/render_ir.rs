@@ -12509,7 +12509,7 @@ fn tabular_array_column_hooks_do_not_hide_real_columns() {
         .expect("tabular table");
 
     assert_eq!(table.columns.len(), 2);
-    assert_eq!(table.columns[0].alignment, TableColumnAlignment::Paragraph);
+    assert_eq!(table.columns[0].alignment, TableColumnAlignment::Left);
     assert_eq!(table.columns[1].alignment, TableColumnAlignment::Right);
     assert_eq!(table.columns[0].width_pt_milli, Some(56_693));
     assert!(table.columns[0].rule_after);
@@ -12631,6 +12631,51 @@ fn tabular_column_visible_cell_hooks_drive_display_list_text() {
 
     assert!(table_lines.contains(&"+A! | 1"), "{table_lines:?}");
     assert!(table_lines.contains(&"+B! | 2"), "{table_lines:?}");
+}
+
+#[test]
+fn tabular_column_alignment_hooks_drive_display_list_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{>{\raggedleft\arraybackslash}l>{\centering\arraybackslash}l>{\raggedright\arraybackslash}l}A & B & C \\ Longer & Wide & Tail\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.columns.len(), 3);
+    assert_eq!(table.columns[0].alignment, TableColumnAlignment::Right);
+    assert_eq!(table.columns[1].alignment, TableColumnAlignment::Center);
+    assert_eq!(table.columns[2].alignment, TableColumnAlignment::Left);
+    let extracted_text = capture.document_ir.extracted_text();
+    for hidden in ["raggedleft", "centering", "raggedright", "arraybackslash"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+    }
+
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        table_lines.contains(&"     A |  B   | C"),
+        "{table_lines:?}"
+    );
+    assert!(
+        table_lines.contains(&"Longer | Wide | Tail"),
+        "{table_lines:?}"
+    );
 }
 
 #[test]
