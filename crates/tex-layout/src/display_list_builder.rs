@@ -3751,6 +3751,8 @@ mod tests {
 
         assert!((image.rect.width - 144.0).abs() < 0.01);
         assert!((image.rect.height - 72.0).abs() < 0.01);
+        assert_eq!(image.natural_width_pt, Some(144.0));
+        assert_eq!(image.natural_height_pt, Some(72.0));
     }
 
     #[test]
