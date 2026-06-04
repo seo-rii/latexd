@@ -13267,6 +13267,39 @@ fn tabular_multirow_multicolumn_offsets_omitted_spanned_columns() {
 }
 
 #[test]
+fn tabular_multirowcell_multicolumn_offsets_omitted_spanned_columns() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{makecell}\begin{document}\begin{tabular}{lll}\multirowcell{2}{\multicolumn{2}{c}{Span}} & Tail \\ A\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "Span");
+    assert_eq!(table.rows[0].cells[0].column_span, Some(2));
+    assert_eq!(table.rows[0].cells[0].row_span, Some(2));
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(table_lines.contains(&"Span | Tail"), "{table_lines:?}");
+    assert!(table_lines.contains(&" |   | A"), "{table_lines:?}");
+}
+
+#[test]
 fn tabular_starred_makecell_helpers_do_not_leak_commands() {
     let capture = capture_internal_render_ir(
         "main.tex",

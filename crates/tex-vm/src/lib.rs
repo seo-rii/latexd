@@ -9732,6 +9732,47 @@ impl<'i> Vm<'i> {
                 cell_suffix,
             )
         };
+        let parse_nested_multicolumn_cell = |content: &str| {
+            let mut column_span = 1usize;
+            let mut alignment = None;
+            let mut rule_before_count = 0u8;
+            let mut rule_after_count = 0u8;
+            let mut cell_prefix: Option<String> = None;
+            let mut cell_suffix: Option<String> = None;
+            let mut visible_content = content.to_string();
+            let trimmed_content = content.trim_start();
+            if trimmed_content.starts_with("\\multicolumn") {
+                let mut nested_index = "\\multicolumn".len();
+                nested_index = skip_ascii_whitespace(trimmed_content, nested_index);
+                if let Some((span_text, _, _, after_span)) =
+                    read_braced_source_argument(trimmed_content, nested_index)
+                    && let Some((alignment_spec, _, _, after_alignment)) =
+                        read_braced_source_argument(trimmed_content, after_span)
+                    && let Some((nested_content, _, _, after_nested)) =
+                        read_braced_source_argument(trimmed_content, after_alignment)
+                    && skip_ascii_whitespace(trimmed_content, after_nested) == trimmed_content.len()
+                {
+                    column_span = span_text.trim().parse::<usize>().unwrap_or(1).max(1);
+                    (
+                        alignment,
+                        rule_before_count,
+                        rule_after_count,
+                        cell_prefix,
+                        cell_suffix,
+                    ) = parse_multicolumn_alignment(alignment_spec);
+                    visible_content = nested_content.to_string();
+                }
+            }
+            (
+                visible_content,
+                column_span,
+                alignment,
+                rule_before_count,
+                rule_after_count,
+                cell_prefix,
+                cell_suffix,
+            )
+        };
         while table_index < table_body.len() {
             let byte = table_body.as_bytes()[table_index];
             match byte {
@@ -10149,55 +10190,15 @@ impl<'i> Vm<'i> {
                                             .ok()
                                             .filter(|value| *value > 1)
                                             .map(|value| value as usize);
-                                        let mut column_span = 1usize;
-                                        let mut alignment = None;
-                                        let mut rule_before_count = 0u8;
-                                        let mut rule_after_count = 0u8;
-                                        let mut cell_prefix: Option<String> = None;
-                                        let mut cell_suffix: Option<String> = None;
-                                        let mut visible_content = content;
-                                        let trimmed_content = content.trim_start();
-                                        if trimmed_content.starts_with("\\multicolumn") {
-                                            let mut nested_index = "\\multicolumn".len();
-                                            nested_index = skip_ascii_whitespace(
-                                                trimmed_content,
-                                                nested_index,
-                                            );
-                                            if let Some((span_text, _, _, after_span)) =
-                                                read_braced_source_argument(
-                                                    trimmed_content,
-                                                    nested_index,
-                                                )
-                                                && let Some((alignment_spec, _, _, after_alignment)) =
-                                                    read_braced_source_argument(
-                                                        trimmed_content,
-                                                        after_span,
-                                                    )
-                                                && let Some((nested_content, _, _, after_nested)) =
-                                                    read_braced_source_argument(
-                                                        trimmed_content,
-                                                        after_alignment,
-                                                    )
-                                                && skip_ascii_whitespace(
-                                                    trimmed_content,
-                                                    after_nested,
-                                                ) == trimmed_content.len()
-                                            {
-                                                column_span = span_text
-                                                    .trim()
-                                                    .parse::<usize>()
-                                                    .unwrap_or(1)
-                                                    .max(1);
-                                                (
-                                                    alignment,
-                                                    rule_before_count,
-                                                    rule_after_count,
-                                                    cell_prefix,
-                                                    cell_suffix,
-                                                ) = parse_multicolumn_alignment(alignment_spec);
-                                                visible_content = nested_content;
-                                            }
-                                        }
+                                        let (
+                                            visible_content,
+                                            column_span,
+                                            alignment,
+                                            rule_before_count,
+                                            rule_after_count,
+                                            cell_prefix,
+                                            cell_suffix,
+                                        ) = parse_nested_multicolumn_cell(content);
                                         if row_span.is_some()
                                             || column_span > 1
                                             || alignment.is_some()
@@ -10221,7 +10222,7 @@ impl<'i> Vm<'i> {
                                         if column_span > 1 {
                                             current_column_index += column_span - 1;
                                         }
-                                        rewritten.push_str(visible_content);
+                                        rewritten.push_str(&visible_content);
                                         row_has_visible_content = true;
                                         table_index = after_content;
                                         parsed = true;
@@ -10266,20 +10267,39 @@ impl<'i> Vm<'i> {
                                         .ok()
                                         .filter(|value| *value > 1)
                                         .map(|value| value as usize);
-                                    if let Some(row_span) = row_span {
+                                    let (
+                                        visible_content,
+                                        column_span,
+                                        alignment,
+                                        rule_before_count,
+                                        rule_after_count,
+                                        cell_prefix,
+                                        cell_suffix,
+                                    ) = parse_nested_multicolumn_cell(content);
+                                    if row_span.is_some()
+                                        || column_span > 1
+                                        || alignment.is_some()
+                                        || rule_before_count > 0
+                                        || rule_after_count > 0
+                                        || cell_prefix.is_some()
+                                        || cell_suffix.is_some()
+                                    {
                                         table_cell_spans.push(TableCellSpanEvent {
                                             row_index: current_row_index,
                                             column_index: current_column_index,
-                                            column_span: 1,
-                                            row_span: Some(row_span),
-                                            alignment: None,
-                                            rule_before_count: 0,
-                                            rule_after_count: 0,
-                                            cell_prefix: None,
-                                            cell_suffix: None,
+                                            column_span,
+                                            row_span,
+                                            alignment,
+                                            rule_before_count,
+                                            rule_after_count,
+                                            cell_prefix,
+                                            cell_suffix,
                                         });
                                     }
-                                    rewritten.push_str(content);
+                                    if column_span > 1 {
+                                        current_column_index += column_span - 1;
+                                    }
+                                    rewritten.push_str(&visible_content);
                                     row_has_visible_content = true;
                                     table_index = after_content;
                                     parsed = true;
@@ -25066,6 +25086,47 @@ Fallback text.
                 alignment: Some(TableColumnAlignment::Center),
                 rule_before_count: 1,
                 rule_after_count: 1,
+                cell_prefix: None,
+                cell_suffix: None,
+            }]
+        );
+    }
+
+    #[test]
+    fn render_event_capture_preserves_multicolumn_inside_multirowcell() {
+        let source = r"\begin{document}\begin{tabular}{lll}\multirowcell{2}{\multicolumn{2}{c}{Span}} & Tail \\ A\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(
+            visible.normalized_visible_text.as_deref(),
+            Some("Span | Tail ; A")
+        );
+        assert_eq!(
+            visible.table_cell_spans,
+            vec![TableCellSpanEvent {
+                row_index: 0,
+                column_index: 0,
+                column_span: 2,
+                row_span: Some(2),
+                alignment: Some(TableColumnAlignment::Center),
+                rule_before_count: 0,
+                rule_after_count: 0,
                 cell_prefix: None,
                 cell_suffix: None,
             }]
