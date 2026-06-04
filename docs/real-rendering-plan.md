@@ -632,6 +632,8 @@ Implemented first slice:
 - continuation rows below a simple multirow cell now insert a blank placeholder
   column when the spanned column is omitted, so following cells are placed under
   the next table column in the readable fallback.
+- negative `\multirow{-n}` counts are treated as upward-span approximations and
+  do not create downward continuation placeholders in later rows.
 - starred `makecell` helpers such as `\makecell*{...}` and `\thead*{...}` are
   normalized to visible cell text without leaking helper command names.
 - `makecell` / `thead` / `shortstack` internal line breaks are consumed inside

@@ -13197,6 +13197,39 @@ fn tabular_multirow_display_list_offsets_omitted_spanned_cells() {
 }
 
 #[test]
+fn tabular_negative_multirow_does_not_offset_following_rows() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{multirow}\begin{document}\begin{tabular}{ll}A & B \\ \multirow{-2}{*}{Span} & C \\ D & E\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[1].cells[0].text, "Span");
+    assert_eq!(table.rows[1].cells[0].row_span, None);
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(table_lines.contains(&"A    | B"), "{table_lines:?}");
+    assert!(table_lines.contains(&"Span | C"), "{table_lines:?}");
+    assert!(table_lines.contains(&"D    | E"), "{table_lines:?}");
+}
+
+#[test]
 fn tabular_starred_makecell_helpers_do_not_leak_commands() {
     let capture = capture_internal_render_ir(
         "main.tex",

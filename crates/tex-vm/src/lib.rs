@@ -10194,10 +10194,9 @@ impl<'i> Vm<'i> {
                                             .trim_start_matches('+')
                                             .parse::<isize>()
                                             .ok()
-                                            .map(|value| value.unsigned_abs())
-                                            .unwrap_or(1)
-                                            .max(1);
-                                        if row_span > 1 {
+                                            .filter(|value| *value > 1)
+                                            .map(|value| value as usize);
+                                        if let Some(row_span) = row_span {
                                             table_cell_spans.push(TableCellSpanEvent {
                                                 row_index: current_row_index,
                                                 column_index: current_column_index,
@@ -10253,10 +10252,9 @@ impl<'i> Vm<'i> {
                                         .trim_start_matches('+')
                                         .parse::<isize>()
                                         .ok()
-                                        .map(|value| value.unsigned_abs())
-                                        .unwrap_or(1)
-                                        .max(1);
-                                    if row_span > 1 {
+                                        .filter(|value| *value > 1)
+                                        .map(|value| value as usize);
+                                    if let Some(row_span) = row_span {
                                         table_cell_spans.push(TableCellSpanEvent {
                                             row_index: current_row_index,
                                             column_index: current_column_index,
@@ -24991,6 +24989,34 @@ Fallback text.
                 cell_suffix: None,
             }]
         );
+    }
+
+    #[test]
+    fn render_event_capture_does_not_treat_negative_multirow_as_downward_span() {
+        let source = r"\begin{document}\begin{tabular}{ll}A & B \\ \multirow{-2}{*}{Span} & C \\ D & E\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(
+            visible.normalized_visible_text.as_deref(),
+            Some("A | B ; Span | C ; D | E")
+        );
+        assert_eq!(visible.table_cell_spans, Vec::new());
     }
 
     #[test]
