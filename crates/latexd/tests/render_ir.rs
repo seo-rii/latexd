@@ -12655,7 +12655,7 @@ fn tabular_numeric_column_specs_survive_ir_and_align_display_list_text() {
         table
             .columns
             .iter()
-            .all(|column| column.alignment == TableColumnAlignment::Right)
+            .all(|column| column.alignment == TableColumnAlignment::Decimal)
     );
     assert!(
         !capture.events.events.iter().any(|event| matches!(
@@ -12674,7 +12674,7 @@ fn tabular_numeric_column_specs_survive_ir_and_align_display_list_text() {
         .collect::<Vec<_>>();
 
     assert!(table_lines.contains(&" 1.2 | 3.4"), "{table_lines:?}");
-    assert!(table_lines.contains(&"22.0 |   5"), "{table_lines:?}");
+    assert!(table_lines.contains(&"22.0 | 5  "), "{table_lines:?}");
 }
 
 #[test]

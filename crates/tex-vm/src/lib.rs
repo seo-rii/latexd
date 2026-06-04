@@ -8734,7 +8734,7 @@ impl<'i> Vm<'i> {
                             after_spec = after_option;
                         }
                         table_columns.push(TableColumnSpec {
-                            alignment: TableColumnAlignment::Right,
+                            alignment: TableColumnAlignment::Decimal,
                             rule_before: pending_rule_before_count > 0,
                             rule_before_count: pending_rule_before_count,
                             rule_after: false,
@@ -8760,7 +8760,7 @@ impl<'i> Vm<'i> {
                             }
                         }
                         table_columns.push(TableColumnSpec {
-                            alignment: TableColumnAlignment::Right,
+                            alignment: TableColumnAlignment::Decimal,
                             rule_before: pending_rule_before_count > 0,
                             rule_before_count: pending_rule_before_count,
                             rule_after: false,
@@ -8902,7 +8902,7 @@ impl<'i> Vm<'i> {
                                                     after_spec = after_option;
                                                 }
                                                 table_columns.push(TableColumnSpec {
-                                                    alignment: TableColumnAlignment::Right,
+                                                    alignment: TableColumnAlignment::Decimal,
                                                     rule_before: pending_rule_before_count > 0,
                                                     rule_before_count: pending_rule_before_count,
                                                     rule_after: false,
@@ -8935,7 +8935,7 @@ impl<'i> Vm<'i> {
                                                     }
                                                 }
                                                 table_columns.push(TableColumnSpec {
-                                                    alignment: TableColumnAlignment::Right,
+                                                    alignment: TableColumnAlignment::Decimal,
                                                     rule_before: pending_rule_before_count > 0,
                                                     rule_before_count: pending_rule_before_count,
                                                     rule_after: false,
@@ -24604,7 +24604,7 @@ Fallback text.
             visible
                 .table_columns
                 .iter()
-                .all(|column| column.alignment == TableColumnAlignment::Right)
+                .all(|column| column.alignment == TableColumnAlignment::Decimal)
         );
         assert_eq!(
             visible.normalized_visible_text.as_deref(),

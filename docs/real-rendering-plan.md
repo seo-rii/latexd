@@ -568,7 +568,7 @@ Implemented first slice:
 - simple `tabu`/`longtabu` preambles, including `longtabu to ... {cols}` and
   `X[...]` options, are normalized into the same table column metadata.
 - common numeric `siunitx` `S[...]` and `dcolumn` `D{...}{...}{...}` columns
-  are treated as right-aligned fallback columns without decimal alignment.
+  are treated as decimal-aligned fallback columns with coarse separator alignment.
 - simple vertical border markers and simple `@{\vrule}` / `@{\vline}` /
   `!{\vrule}` / `!{\vline}` array hooks now emit coarse
   `PageDisplayList::Rule` rectangles at the readable table fallback's column
@@ -742,8 +742,8 @@ Status:
 - array-package `w` / `W` fixed-width columns preserve coarse alignment intent;
 - array-package hook/intercolumn modifiers are ignored as non-column material
   while preserving the following real columns;
-- `siunitx` `S` and `dcolumn` `D` numeric columns preserve coarse right-aligned
-  intent;
+- `siunitx` `S` and `dcolumn` `D` numeric columns preserve coarse decimal
+  alignment intent;
 - figure asset identity/caption propagation exists, and resolver-provided
   PNG/JPEG bytes can be embedded by `tex-pdf`;
 - project-root render-IR debug capture can feed real image files into the

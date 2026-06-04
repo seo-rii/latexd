@@ -582,6 +582,50 @@ pub fn build_page_display_lists(
                         }
                     }
                 }
+                let mut decimal_left_widths = vec![0usize; column_widths.len()];
+                let mut decimal_right_widths = vec![0usize; column_widths.len()];
+                for row in &rendered_rows {
+                    for cell in row {
+                        let column_index = cell.column_index;
+                        if cell.column_span != 1 {
+                            continue;
+                        }
+                        let Some(column) = block.columns.get(column_index) else {
+                            continue;
+                        };
+                        if !matches!(column.alignment, TableColumnAlignment::Decimal) {
+                            continue;
+                        }
+                        while column_index >= decimal_left_widths.len() {
+                            decimal_left_widths.push(0usize);
+                            decimal_right_widths.push(0usize);
+                        }
+                        let (left_width, right_width) = if let Some(dot_index) = cell.text.find('.')
+                        {
+                            (
+                                cell.text[..dot_index].chars().count(),
+                                cell.text[dot_index + 1..].chars().count(),
+                            )
+                        } else {
+                            (cell.text.chars().count(), 0)
+                        };
+                        decimal_left_widths[column_index] =
+                            decimal_left_widths[column_index].max(left_width);
+                        decimal_right_widths[column_index] =
+                            decimal_right_widths[column_index].max(right_width);
+                    }
+                }
+                for column_index in 0..column_widths.len() {
+                    if !block.columns.get(column_index).is_some_and(|column| {
+                        matches!(column.alignment, TableColumnAlignment::Decimal)
+                    }) {
+                        continue;
+                    }
+                    let right_width = decimal_right_widths.get(column_index).copied().unwrap_or(0);
+                    let decimal_width = decimal_left_widths.get(column_index).copied().unwrap_or(0)
+                        + if right_width > 0 { 1 + right_width } else { 0 };
+                    column_widths[column_index] = column_widths[column_index].max(decimal_width);
+                }
                 for row in &rendered_rows {
                     for cell in row {
                         let column_index = cell.column_index;
@@ -771,6 +815,26 @@ pub fn build_page_display_lists(
                             .map(|column| column.alignment)
                             .unwrap_or(TableColumnAlignment::Left);
                         let (left_padding, right_padding) = if column_span == 1
+                            && matches!(alignment, TableColumnAlignment::Decimal)
+                        {
+                            let (left_width, _) = if let Some(dot_index) = cell.text.find('.') {
+                                (
+                                    cell.text[..dot_index].chars().count(),
+                                    cell.text[dot_index + 1..].chars().count(),
+                                )
+                            } else {
+                                (text_width, 0)
+                            };
+                            let left_padding = decimal_left_widths
+                                .get(column_index)
+                                .copied()
+                                .unwrap_or(0)
+                                .saturating_sub(left_width);
+                            (
+                                left_padding,
+                                spanned_width.saturating_sub(left_padding + text_width),
+                            )
+                        } else if column_span == 1
                             && matches!(alignment, TableColumnAlignment::Right)
                         {
                             (available_padding, 0)
@@ -788,7 +852,9 @@ pub fn build_page_display_lists(
                             row_text.push(' ');
                         }
                         row_text.push_str(&cell.text);
-                        if cell_index + 1 < rendered_cells.len() {
+                        if cell_index + 1 < rendered_cells.len()
+                            || matches!(alignment, TableColumnAlignment::Decimal)
+                        {
                             for _ in 0..right_padding {
                                 row_text.push(' ');
                             }
@@ -2221,6 +2287,112 @@ mod tests {
 
         assert!(lines.contains(&"A    |  B   | Long"), "{lines:?}");
         assert!(lines.contains(&"Left | Wide |    9"), "{lines:?}");
+    }
+
+    #[test]
+    fn table_display_list_text_aligns_decimal_columns() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                columns: vec![
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Left,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: false,
+                        rule_after_count: 0,
+                        separator_after: None,
+                        width_pt_milli: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Decimal,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: false,
+                        rule_after_count: 0,
+                        separator_after: None,
+                        width_pt_milli: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                ],
+                rows: vec![
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "A".to_string(),
+                                column_span: None,
+                                row_span: None,
+                            },
+                            TableCell {
+                                text: "3.4".to_string(),
+                                column_span: None,
+                                row_span: None,
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    },
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "B".to_string(),
+                                column_span: None,
+                                row_span: None,
+                            },
+                            TableCell {
+                                text: "12".to_string(),
+                                column_span: None,
+                                row_span: None,
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    },
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "C".to_string(),
+                                column_span: None,
+                                row_span: None,
+                            },
+                            TableCell {
+                                text: "0.25".to_string(),
+                                column_span: None,
+                                row_span: None,
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    },
+                ],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let lines = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(lines.contains(&"A |  3.4 "), "{lines:?}");
+        assert!(lines.contains(&"B | 12   "), "{lines:?}");
+        assert!(lines.contains(&"C |  0.25"), "{lines:?}");
     }
 
     #[test]

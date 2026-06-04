@@ -454,6 +454,7 @@ pub enum TableColumnAlignment {
     Left,
     Center,
     Right,
+    Decimal,
     Paragraph,
     Unknown,
 }
