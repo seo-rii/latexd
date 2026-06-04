@@ -13058,6 +13058,44 @@ fn tabular_cell_linebreak_helpers_stay_inside_cells() {
 }
 
 #[test]
+fn tabular_box_wrappers_hide_layout_arguments() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{llll}\rotatebox[origin=c]{90}{Rotated} & \scalebox{.8}[1.2]{Scaled} & \resizebox{2cm}{!}{Sized} & \reflectbox{Reflected}\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "Rotated");
+    assert_eq!(table.rows[0].cells[1].text, "Scaled");
+    assert_eq!(table.rows[0].cells[2].text, "Sized");
+    assert_eq!(table.rows[0].cells[3].text, "Reflected");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Rotated | Scaled | Sized | Reflected"));
+    for hidden in [
+        "rotatebox",
+        "scalebox",
+        "resizebox",
+        "reflectbox",
+        "origin",
+        "90",
+        ".8",
+        "1.2",
+        "2cm",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+}
+
+#[test]
 fn resizebox_wrapped_tabular_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",

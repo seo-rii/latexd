@@ -19092,6 +19092,86 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 continue;
             }
         }
+        if command == "rotatebox" {
+            let mut angle_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, after_option)) = read_bracket_source_argument(source, angle_index)
+            {
+                angle_index = skip_ascii_whitespace(source, after_option);
+            }
+            if let Some((_, _, _, after_angle)) = read_braced_source_argument(source, angle_index) {
+                let text_index = skip_ascii_whitespace(source, after_angle);
+                if let Some((visible_text, _, _, command_after)) =
+                    read_braced_source_argument(source, text_index)
+                {
+                    append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                    let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                    append_text(&mut text, &visible_text);
+                    found_structured_inline = true;
+                    chunk_start = command_after;
+                    scan_index = command_after;
+                    continue;
+                }
+            }
+        }
+        if command == "scalebox" {
+            let scale_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, after_scale)) = read_braced_source_argument(source, scale_index) {
+                let mut text_index = skip_ascii_whitespace(source, after_scale);
+                if let Some((_, _, _, after_option)) =
+                    read_bracket_source_argument(source, text_index)
+                {
+                    text_index = skip_ascii_whitespace(source, after_option);
+                }
+                if let Some((visible_text, _, _, command_after)) =
+                    read_braced_source_argument(source, text_index)
+                {
+                    append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                    let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                    append_text(&mut text, &visible_text);
+                    found_structured_inline = true;
+                    chunk_start = command_after;
+                    scan_index = command_after;
+                    continue;
+                }
+            }
+        }
+        if command == "resizebox" {
+            let width_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, after_width)) = read_braced_source_argument(source, width_index) {
+                let height_index = skip_ascii_whitespace(source, after_width);
+                if let Some((_, _, _, after_height)) =
+                    read_braced_source_argument(source, height_index)
+                {
+                    let text_index = skip_ascii_whitespace(source, after_height);
+                    if let Some((visible_text, _, _, command_after)) =
+                        read_braced_source_argument(source, text_index)
+                    {
+                        append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                        let visible_text =
+                            normalize_latex_text_with_inline_placeholders(visible_text);
+                        append_text(&mut text, &visible_text);
+                        found_structured_inline = true;
+                        chunk_start = command_after;
+                        scan_index = command_after;
+                        continue;
+                    }
+                }
+            }
+        }
+        if command == "reflectbox" {
+            let text_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((visible_text, _, _, command_after)) =
+                read_braced_source_argument(source, text_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                append_text(&mut text, &visible_text);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
         if command == "raisebox" {
             let lift_index = skip_ascii_whitespace(source, command_name_end);
             if let Some((_, _, _, after_lift)) = read_braced_source_argument(source, lift_index) {
@@ -31399,6 +31479,43 @@ Fallback text.
         assert!(!visible_text.contains("thead"));
         assert!(!visible_text.contains("slashbox"));
         assert!(!visible_text.contains("backslashbox"));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_table_cell_box_wrappers() {
+        let source = r"\begin{document}\begin{tabular}{llll}\rotatebox[origin=c]{90}{Rotated} & \scalebox{.8}[1.2]{Scaled} & \resizebox{2cm}{!}{Sized} & \reflectbox{Reflected}\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible_text, "Rotated | Scaled | Sized | Reflected");
+        for hidden in [
+            "rotatebox",
+            "scalebox",
+            "resizebox",
+            "reflectbox",
+            "origin",
+            "90",
+            ".8",
+            "1.2",
+            "2cm",
+        ] {
+            assert!(!visible_text.contains(hidden), "{visible_text:?}");
+        }
     }
 
     #[test]
