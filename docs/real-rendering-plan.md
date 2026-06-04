@@ -83,7 +83,9 @@ is whitespace rather than a searchable `|` glyph.
 `multirow` commands now preserve their visible cell text, but simple
 `\multirow` / `\multirowcell` row counts also survive as
 `TableCell.row_span` metadata. Multirow geometry is still not
-modeled. The first figure slice is also implemented at
+modeled. Diagonal table header helpers such as `\diagbox`, `\slashbox`, and
+`\backslashbox` normalize to readable `A/B` cell text without leaking helper
+command names. The first figure slice is also implemented at
 the renderer boundary: resolver-provided PNG/JPEG bytes can be decoded into PDF
 `/Image` XObjects by `tex-pdf`, and project-root render-IR capture can now write
 debug PDFs with those embedded assets. Image display-list boxes also honor the
@@ -610,6 +612,8 @@ Implemented first slice:
   the current cell and rendered as spaces in the readable fallback.
 - `makecell` rule helpers `\Xhline{...}` and `\Xcline{...}{...}` are
   normalized to full/partial table rule metadata without leaking rule widths.
+- diagonal table header helpers `\diagbox`, `\slashbox`, and `\backslashbox`
+  normalize to readable two-label cell text.
 - table environments inside box wrappers such as `\resizebox{...}{...}{...}`
   are still captured as table IR instead of being swallowed by wrapper handling.
 - `adjustbox` environments hide their option argument and allow nested tables to
@@ -759,6 +763,7 @@ Status:
 - unknown custom column specs preserve coarse column count as `Unknown`;
 - simple `\newcolumntype` replacements can drive coarse custom-column alignment
   and width metadata;
+- diagonal table header helpers normalize to readable cell text;
 - `siunitx` `S` and `dcolumn` `D` numeric columns preserve coarse decimal
   alignment intent;
 - figure asset identity/caption propagation exists, and resolver-provided

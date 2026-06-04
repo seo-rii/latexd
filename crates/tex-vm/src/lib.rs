@@ -170,6 +170,8 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\subfloat}[2][]{#2}
 \providecommand{\subcaptionbox}[2]{#2}
 \providecommand{\diagbox}[3][]{#2/#3}
+\providecommand{\slashbox}[2]{#1/#2}
+\providecommand{\backslashbox}[2]{#1/#2}
 \providecommand{\makecell}[2][]{#2}
 \providecommand{\thead}[2][]{#2}
 \providecommand{\multirow}[4][]{#4}
@@ -270,6 +272,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "sidecap.sty",
     "siunitx.sty",
     "silence.sty",
+    "slashbox.sty",
     "soul.sty",
     "stfloats.sty",
     "subcaption.sty",
@@ -18818,7 +18821,7 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 continue;
             }
         }
-        if command == "diagbox" {
+        if matches!(command, "diagbox" | "slashbox" | "backslashbox") {
             let mut argument_index = skip_ascii_whitespace(source, command_name_end);
             loop {
                 argument_index = skip_ascii_whitespace(source, argument_index);
@@ -31332,7 +31335,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_loads_table_helper_package_shims() {
-        let source = r"\documentclass{article}\usepackage{subeqnarray}\usepackage{diagbox}\usepackage{makecell}\usepackage{multirow}\begin{document}\begin{tabular}{ccc}\diagbox{Rows}{Cols} & \makecell*{Cell \cite{key}} & \multirow{2}{*}{Span} \\\thead*{Head} & \multirowcell{2}{Body} & Tail\end{tabular}\end{document}";
+        let source = r"\documentclass{article}\usepackage{subeqnarray}\usepackage{diagbox}\usepackage{slashbox}\usepackage{makecell}\usepackage{multirow}\begin{document}\begin{tabular}{cccc}\diagbox{Rows}{Cols} & \backslashbox{Old}{New} & \makecell*{Cell \cite{key}} & \multirow{2}{*}{Span} \\\thead*{Head} & \slashbox{Left}{Right} & \multirowcell{2}{Body} & Tail\end{tabular}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -31342,6 +31345,7 @@ Fallback text.
         for package in [
             "subeqnarray.sty",
             "diagbox.sty",
+            "slashbox.sty",
             "makecell.sty",
             "multirow.sty",
         ] {
@@ -31355,7 +31359,13 @@ Fallback text.
             diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
                 && matches!(
                     diagnostic.detail.as_str(),
-                    "diagbox" | "makecell" | "thead" | "multirow" | "multirowcell"
+                    "diagbox"
+                        | "slashbox"
+                        | "backslashbox"
+                        | "makecell"
+                        | "thead"
+                        | "multirow"
+                        | "multirowcell"
                 )
         }));
         let visible_text = outcome
@@ -31370,7 +31380,16 @@ Fallback text.
                 _ => None,
             })
             .expect("tabular fallback visible text");
-        for visible in ["Rows/Cols", "Cell [?]", "Span", "Head", "Body", "Tail"] {
+        for visible in [
+            "Rows/Cols",
+            "Old/New",
+            "Left/Right",
+            "Cell [?]",
+            "Span",
+            "Head",
+            "Body",
+            "Tail",
+        ] {
             assert!(
                 visible_text.contains(visible),
                 "visible text missing {visible:?}: {visible_text:?}"
@@ -31378,6 +31397,8 @@ Fallback text.
         }
         assert!(!visible_text.contains("makecell"));
         assert!(!visible_text.contains("thead"));
+        assert!(!visible_text.contains("slashbox"));
+        assert!(!visible_text.contains("backslashbox"));
     }
 
     #[test]

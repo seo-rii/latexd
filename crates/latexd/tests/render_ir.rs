@@ -12995,6 +12995,39 @@ fn tabular_starred_makecell_helpers_do_not_leak_commands() {
 }
 
 #[test]
+fn tabular_slashbox_helpers_render_readable_cell_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{slashbox}\begin{document}\begin{tabular}{ll}\backslashbox{Rows}{Cols} & Value \\ \slashbox{Left}{Right} & Tail\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "Rows/Cols");
+    assert_eq!(table.rows[1].cells[0].text, "Left/Right");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Rows/Cols | Value"));
+    assert!(extracted_text.contains("Left/Right | Tail"));
+    assert!(!extracted_text.contains("slashbox"));
+    assert!(!extracted_text.contains("backslashbox"));
+    assert!(
+        !capture.events.events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Diagnostic(diagnostic) if diagnostic.message.contains("slashbox.sty")
+        )),
+        "slashbox shim should be recognized without a missing-package diagnostic"
+    );
+}
+
+#[test]
 fn tabular_cell_linebreak_helpers_stay_inside_cells() {
     let capture = capture_internal_render_ir(
         "main.tex",
