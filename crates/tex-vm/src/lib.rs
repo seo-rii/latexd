@@ -8740,12 +8740,19 @@ impl<'i> Vm<'i> {
                 Some((value * factor * 1000.0).round().max(1.0) as u32)
             };
             let normalize_modifier_text = |modifier_text: &str| -> String {
+                let compact = modifier_text
+                    .chars()
+                    .filter(|ch| !ch.is_whitespace())
+                    .collect::<String>();
+                if compact.contains("\\cellcolor")
+                    || compact.contains("\\rowcolor")
+                    || compact.contains("\\columncolor")
+                    || compact.contains("\\arrayrulecolor")
+                {
+                    return String::new();
+                }
                 let mut normalized = normalize_latex_text_with_inline_placeholders(modifier_text);
                 if normalized.is_empty() {
-                    let compact = modifier_text
-                        .chars()
-                        .filter(|ch| !ch.is_whitespace())
-                        .collect::<String>();
                     if compact.contains("\\qquad") {
                         normalized = "    ".to_string();
                     } else if compact.contains("\\quad") {
@@ -9595,8 +9602,15 @@ impl<'i> Vm<'i> {
                                 .collect::<String>();
                             let is_rule_modifier =
                                 compact.contains("\\vrule") || compact.contains("\\vline");
-                            let visible_modifier =
-                                normalize_latex_text_with_inline_placeholders(modifier);
+                            let hides_visible_modifier = compact.contains("\\cellcolor")
+                                || compact.contains("\\rowcolor")
+                                || compact.contains("\\columncolor")
+                                || compact.contains("\\arrayrulecolor");
+                            let visible_modifier = if hides_visible_modifier {
+                                String::new()
+                            } else {
+                                normalize_latex_text_with_inline_placeholders(modifier)
+                            };
                             if !visible_modifier.is_empty() {
                                 match ch {
                                     '>' => {
@@ -25000,6 +25014,37 @@ Fallback text.
         assert!(!visible_text.contains("gray"));
         assert!(!visible_text.contains("red"));
         assert!(visible.table_rules.len() >= 1, "{:?}", visible.table_rules);
+    }
+
+    #[test]
+    fn render_event_capture_omits_table_color_column_hooks() {
+        let source = r"\documentclass{article}\usepackage{colortbl}\begin{document}\begin{tabular}{>{\columncolor{gray!20}}l<{\cellcolor{red}}r}\multicolumn{1}{>{\columncolor{blue}}c}{A} & B\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        let visible_text = visible
+            .normalized_visible_text
+            .as_deref()
+            .expect("visible table text");
+
+        assert_eq!(visible_text, "A | B");
+        for hidden in ["columncolor", "cellcolor", "gray", "red", "blue"] {
+            assert!(!visible_text.contains(hidden), "{visible_text:?}");
+        }
     }
 
     #[test]

@@ -14092,6 +14092,47 @@ fn table_color_commands_do_not_leak_into_table_text() {
 }
 
 #[test]
+fn table_color_column_hooks_do_not_leak_into_table_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{colortbl}\begin{document}\begin{tabular}{>{\columncolor{gray!20}}l<{\cellcolor{red}}r}\multicolumn{1}{>{\columncolor{blue}}c}{A} & B\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "A");
+    assert_eq!(table.rows[0].cells[1].text, "B");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("A | B"));
+    for hidden in ["columncolor", "cellcolor", "gray", "red", "blue"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(display_list_text.contains("A | B"), "{display_list_text:?}");
+    for hidden in ["columncolor", "cellcolor", "gray", "red", "blue"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
+    }
+}
+
+#[test]
 fn tabular_multicolumn_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",

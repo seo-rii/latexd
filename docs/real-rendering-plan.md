@@ -619,8 +619,9 @@ Implemented first slice:
   bounded `*{n}{...}` repeated patterns preserved as partial rule spans; exact
   pattern semantics are deferred.
 - common `colortbl` table color commands such as `\rowcolor`, `\cellcolor`,
-  `\columncolor`, and `\arrayrulecolor` are suppressed from visible table text;
-  color styling is not rendered yet.
+  `\columncolor`, and `\arrayrulecolor` are suppressed from visible table text,
+  including color-only column and multicolumn hooks; color styling is not
+  rendered yet.
 - simple `\multicolumn` alignment specs survive as `TableCell.alignment` and
   drive readable display-list padding for spanning cells.
 - simple `|` markers and `@{\vrule}` / `!{\vline}` hooks in `\multicolumn`
