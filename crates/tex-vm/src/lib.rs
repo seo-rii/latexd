@@ -8654,6 +8654,33 @@ impl<'i> Vm<'i> {
             let mut spec_index = 0usize;
             let mut pending_rule_before_count = 0u8;
             let mut pending_cell_prefix: Option<String> = None;
+            let parse_table_column_width_pt_milli = |width_text: &str| -> Option<u32> {
+                let normalized = normalize_latex_text(width_text);
+                let trimmed = normalized.trim();
+                if trimmed.is_empty() {
+                    return None;
+                }
+                let number_end = trimmed
+                    .char_indices()
+                    .take_while(|(_, ch)| ch.is_ascii_digit() || matches!(ch, '.' | '+' | '-'))
+                    .map(|(index, ch)| index + ch.len_utf8())
+                    .last()?;
+                let value = trimmed[..number_end].parse::<f32>().ok()?;
+                if !value.is_finite() || value <= 0.0 {
+                    return None;
+                }
+                let unit = trimmed[number_end..].trim();
+                let factor = match unit {
+                    "" | "pt" => 1.0,
+                    "bp" => 72.0 / 72.27,
+                    "in" => 72.0,
+                    "cm" => 72.0 / 2.54,
+                    "mm" => 72.0 / 25.4,
+                    "pc" => 12.0,
+                    _ => return None,
+                };
+                Some((value * factor * 1000.0).round().max(1.0) as u32)
+            };
             let normalize_modifier_text = |modifier_text: &str| -> String {
                 let mut normalized = normalize_latex_text_with_inline_placeholders(modifier_text);
                 if normalized.is_empty() {
@@ -8713,6 +8740,7 @@ impl<'i> Vm<'i> {
                             rule_after: false,
                             rule_after_count: 0,
                             separator_after: None,
+                            width_pt_milli: None,
                             cell_prefix: pending_cell_prefix.take(),
                             cell_suffix: None,
                         });
@@ -8738,6 +8766,7 @@ impl<'i> Vm<'i> {
                             rule_after: false,
                             rule_after_count: 0,
                             separator_after: None,
+                            width_pt_milli: None,
                             cell_prefix: pending_cell_prefix.take(),
                             cell_suffix: None,
                         });
@@ -8748,6 +8777,7 @@ impl<'i> Vm<'i> {
                         let alignment_index =
                             skip_ascii_whitespace(column_spec, spec_index + ch.len_utf8());
                         let mut alignment = TableColumnAlignment::Paragraph;
+                        let mut width_pt_milli = None;
                         let mut after_spec = spec_index + ch.len_utf8();
                         if let Some((alignment_text, _, _, after_alignment)) =
                             read_braced_source_argument(column_spec, alignment_index)
@@ -8760,9 +8790,10 @@ impl<'i> Vm<'i> {
                             };
                             after_spec = after_alignment;
                             let width_index = skip_ascii_whitespace(column_spec, after_alignment);
-                            if let Some((_, _, _, after_width)) =
+                            if let Some((width_text, _, _, after_width)) =
                                 read_braced_source_argument(column_spec, width_index)
                             {
+                                width_pt_milli = parse_table_column_width_pt_milli(width_text);
                                 after_spec = after_width;
                             }
                         }
@@ -8773,6 +8804,7 @@ impl<'i> Vm<'i> {
                             rule_after: false,
                             rule_after_count: 0,
                             separator_after: None,
+                            width_pt_milli,
                             cell_prefix: pending_cell_prefix.take(),
                             cell_suffix: None,
                         });
@@ -8787,6 +8819,7 @@ impl<'i> Vm<'i> {
                             'p' | 'm' | 'b' | 'X' => TableColumnAlignment::Paragraph,
                             _ => TableColumnAlignment::Unknown,
                         };
+                        let mut width_pt_milli = None;
                         table_columns.push(TableColumnSpec {
                             alignment,
                             rule_before: pending_rule_before_count > 0,
@@ -8794,16 +8827,19 @@ impl<'i> Vm<'i> {
                             rule_after: false,
                             rule_after_count: 0,
                             separator_after: None,
+                            width_pt_milli: None,
                             cell_prefix: pending_cell_prefix.take(),
                             cell_suffix: None,
                         });
+                        let pushed_column_index = table_columns.len().saturating_sub(1);
                         pending_rule_before_count = 0;
                         spec_index += ch.len_utf8();
                         if matches!(ch, 'p' | 'm' | 'b') {
                             let argument_index = skip_ascii_whitespace(column_spec, spec_index);
-                            if let Some((_, _, _, after_argument)) =
+                            if let Some((width_text, _, _, after_argument)) =
                                 read_braced_source_argument(column_spec, argument_index)
                             {
+                                width_pt_milli = parse_table_column_width_pt_milli(width_text);
                                 spec_index = after_argument;
                             }
                         } else if ch == 'X' {
@@ -8813,6 +8849,11 @@ impl<'i> Vm<'i> {
                             {
                                 spec_index = after_option;
                             }
+                        }
+                        if let Some(width_pt_milli) = width_pt_milli
+                            && let Some(column) = table_columns.get_mut(pushed_column_index)
+                        {
+                            column.width_pt_milli = Some(width_pt_milli);
                         }
                     }
                     '*' => {
@@ -8867,6 +8908,7 @@ impl<'i> Vm<'i> {
                                                     rule_after: false,
                                                     rule_after_count: 0,
                                                     separator_after: None,
+                                                    width_pt_milli: None,
                                                     cell_prefix: pending_cell_prefix.take(),
                                                     cell_suffix: None,
                                                 });
@@ -8899,6 +8941,7 @@ impl<'i> Vm<'i> {
                                                     rule_after: false,
                                                     rule_after_count: 0,
                                                     separator_after: None,
+                                                    width_pt_milli: None,
                                                     cell_prefix: pending_cell_prefix.take(),
                                                     cell_suffix: None,
                                                 });
@@ -8911,6 +8954,7 @@ impl<'i> Vm<'i> {
                                                     repeated_spec_index + repeated_ch.len_utf8(),
                                                 );
                                                 let mut alignment = TableColumnAlignment::Paragraph;
+                                                let mut width_pt_milli = None;
                                                 let mut after_spec =
                                                     repeated_spec_index + repeated_ch.len_utf8();
                                                 if let Some((
@@ -8937,12 +8981,16 @@ impl<'i> Vm<'i> {
                                                         repeated_spec,
                                                         after_alignment,
                                                     );
-                                                    if let Some((_, _, _, after_width)) =
+                                                    if let Some((width_text, _, _, after_width)) =
                                                         read_braced_source_argument(
                                                             repeated_spec,
                                                             width_index,
                                                         )
                                                     {
+                                                        width_pt_milli =
+                                                            parse_table_column_width_pt_milli(
+                                                                width_text,
+                                                            );
                                                         after_spec = after_width;
                                                     }
                                                 }
@@ -8953,6 +9001,7 @@ impl<'i> Vm<'i> {
                                                     rule_after: false,
                                                     rule_after_count: 0,
                                                     separator_after: None,
+                                                    width_pt_milli,
                                                     cell_prefix: pending_cell_prefix.take(),
                                                     cell_suffix: None,
                                                 });
@@ -8969,6 +9018,7 @@ impl<'i> Vm<'i> {
                                                     }
                                                     _ => TableColumnAlignment::Unknown,
                                                 };
+                                                let mut width_pt_milli = None;
                                                 table_columns.push(TableColumnSpec {
                                                     alignment,
                                                     rule_before: pending_rule_before_count > 0,
@@ -8976,9 +9026,12 @@ impl<'i> Vm<'i> {
                                                     rule_after: false,
                                                     rule_after_count: 0,
                                                     separator_after: None,
+                                                    width_pt_milli: None,
                                                     cell_prefix: pending_cell_prefix.take(),
                                                     cell_suffix: None,
                                                 });
+                                                let pushed_column_index =
+                                                    table_columns.len().saturating_sub(1);
                                                 pending_rule_before_count = 0;
                                                 repeated_spec_index += repeated_ch.len_utf8();
                                                 if matches!(repeated_ch, 'p' | 'm' | 'b') {
@@ -8986,12 +9039,19 @@ impl<'i> Vm<'i> {
                                                         repeated_spec,
                                                         repeated_spec_index,
                                                     );
-                                                    if let Some((_, _, _, after_argument)) =
-                                                        read_braced_source_argument(
-                                                            repeated_spec,
-                                                            argument_index,
-                                                        )
-                                                    {
+                                                    if let Some((
+                                                        width_text,
+                                                        _,
+                                                        _,
+                                                        after_argument,
+                                                    )) = read_braced_source_argument(
+                                                        repeated_spec,
+                                                        argument_index,
+                                                    ) {
+                                                        width_pt_milli =
+                                                            parse_table_column_width_pt_milli(
+                                                                width_text,
+                                                            );
                                                         repeated_spec_index = after_argument;
                                                     }
                                                 } else if repeated_ch == 'X' {
@@ -9007,6 +9067,12 @@ impl<'i> Vm<'i> {
                                                     {
                                                         repeated_spec_index = after_option;
                                                     }
+                                                }
+                                                if let Some(width_pt_milli) = width_pt_milli
+                                                    && let Some(column) =
+                                                        table_columns.get_mut(pushed_column_index)
+                                                {
+                                                    column.width_pt_milli = Some(width_pt_milli);
                                                 }
                                             }
                                             '@' | '!' | '>' | '<' => {
@@ -24236,6 +24302,7 @@ Fallback text.
                     rule_after: true,
                     rule_after_count: 1,
                     separator_after: None,
+                    width_pt_milli: None,
                     cell_prefix: None,
                     cell_suffix: None,
                 },
@@ -24246,6 +24313,7 @@ Fallback text.
                     rule_after: true,
                     rule_after_count: 1,
                     separator_after: None,
+                    width_pt_milli: None,
                     cell_prefix: None,
                     cell_suffix: None,
                 },
@@ -24256,6 +24324,7 @@ Fallback text.
                     rule_after: true,
                     rule_after_count: 1,
                     separator_after: None,
+                    width_pt_milli: None,
                     cell_prefix: None,
                     cell_suffix: None,
                 },
@@ -24266,6 +24335,7 @@ Fallback text.
                     rule_after: true,
                     rule_after_count: 1,
                     separator_after: None,
+                    width_pt_milli: Some(56_693),
                     cell_prefix: None,
                     cell_suffix: None,
                 },
@@ -24304,6 +24374,8 @@ Fallback text.
             visible.table_columns[1].alignment,
             TableColumnAlignment::Center
         );
+        assert_eq!(visible.table_columns[0].width_pt_milli, Some(56_693));
+        assert_eq!(visible.table_columns[1].width_pt_milli, Some(28_346));
     }
 
     #[test]
@@ -24477,6 +24549,33 @@ Fallback text.
         assert_eq!(visible.table_columns[0].cell_suffix.as_deref(), Some("!"));
         assert_eq!(visible.table_columns[1].cell_prefix, None);
         assert_eq!(visible.table_columns[1].cell_suffix, None);
+    }
+
+    #[test]
+    fn render_event_capture_records_paragraph_table_column_widths() {
+        let source = r"\begin{document}\begin{tabular}{p{2cm}m{10pt}b{1in}}A & B & C\end{tabular}\end{document>";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible.table_columns.len(), 3);
+        assert_eq!(visible.table_columns[0].width_pt_milli, Some(56_693));
+        assert_eq!(visible.table_columns[1].width_pt_milli, Some(10_000));
+        assert_eq!(visible.table_columns[2].width_pt_milli, Some(72_000));
     }
 
     #[test]

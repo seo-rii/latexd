@@ -597,6 +597,19 @@ pub fn build_page_display_lists(
                         }
                     }
                 }
+                let table_glyph_width_pt = (options.body_font_size_pt * 0.6).max(1.0);
+                for (column_index, column) in block.columns.iter().enumerate() {
+                    if let Some(width_pt_milli) = column.width_pt_milli {
+                        while column_index >= column_widths.len() {
+                            column_widths.push(0usize);
+                        }
+                        let min_chars = (((width_pt_milli as f32 / 1000.0) / table_glyph_width_pt)
+                            - 0.001)
+                            .ceil()
+                            .max(1.0) as usize;
+                        column_widths[column_index] = column_widths[column_index].max(min_chars);
+                    }
+                }
                 let rule_width =
                     column_widths.iter().sum::<usize>() + column_widths.len().saturating_sub(1) * 3;
                 let rule_text = "-".repeat(rule_width.max(3));
@@ -2116,6 +2129,7 @@ mod tests {
                         rule_after: false,
                         rule_after_count: 0,
                         separator_after: None,
+                        width_pt_milli: None,
                         cell_prefix: None,
                         cell_suffix: None,
                     },
@@ -2126,6 +2140,7 @@ mod tests {
                         rule_after: false,
                         rule_after_count: 0,
                         separator_after: None,
+                        width_pt_milli: None,
                         cell_prefix: None,
                         cell_suffix: None,
                     },
@@ -2136,6 +2151,7 @@ mod tests {
                         rule_after: false,
                         rule_after_count: 0,
                         separator_after: None,
+                        width_pt_milli: None,
                         cell_prefix: None,
                         cell_suffix: None,
                     },
@@ -2221,6 +2237,7 @@ mod tests {
                         rule_after: false,
                         rule_after_count: 0,
                         separator_after: Some("--".to_string()),
+                        width_pt_milli: None,
                         cell_prefix: None,
                         cell_suffix: None,
                     },
@@ -2231,6 +2248,7 @@ mod tests {
                         rule_after: false,
                         rule_after_count: 0,
                         separator_after: None,
+                        width_pt_milli: None,
                         cell_prefix: None,
                         cell_suffix: None,
                     },
@@ -2307,6 +2325,7 @@ mod tests {
                         rule_after: false,
                         rule_after_count: 0,
                         separator_after: None,
+                        width_pt_milli: None,
                         cell_prefix: Some("+".to_string()),
                         cell_suffix: Some("!".to_string()),
                     },
@@ -2317,6 +2336,7 @@ mod tests {
                         rule_after: false,
                         rule_after_count: 0,
                         separator_after: None,
+                        width_pt_milli: None,
                         cell_prefix: None,
                         cell_suffix: None,
                     },
@@ -2358,6 +2378,72 @@ mod tests {
     }
 
     #[test]
+    fn table_display_list_text_uses_fixed_width_column_hints() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                columns: vec![
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Left,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: false,
+                        rule_after_count: 0,
+                        separator_after: None,
+                        width_pt_milli: Some(66_000),
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Right,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: false,
+                        rule_after_count: 0,
+                        separator_after: None,
+                        width_pt_milli: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                ],
+                rows: vec![TableRow {
+                    rule_above: false,
+                    partial_rules_above: Vec::new(),
+                    cells: vec![
+                        TableCell {
+                            text: "A".to_string(),
+                            column_span: None,
+                            row_span: None,
+                        },
+                        TableCell {
+                            text: "1".to_string(),
+                            column_span: None,
+                            row_span: None,
+                        },
+                    ],
+                    rule_below: false,
+                    partial_rules_below: Vec::new(),
+                }],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let lines = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(lines.contains(&"A          | 1"), "{lines:?}");
+    }
+
+    #[test]
     fn table_display_list_emits_vertical_rule_ops_from_column_specs() {
         let source = SourceProvenance::file("main.tex", 0, 64);
         let display_lists = build_page_display_lists(
@@ -2371,6 +2457,7 @@ mod tests {
                         rule_after: true,
                         rule_after_count: 1,
                         separator_after: None,
+                        width_pt_milli: None,
                         cell_prefix: None,
                         cell_suffix: None,
                     },
@@ -2381,6 +2468,7 @@ mod tests {
                         rule_after: true,
                         rule_after_count: 1,
                         separator_after: None,
+                        width_pt_milli: None,
                         cell_prefix: None,
                         cell_suffix: None,
                     },
@@ -2466,6 +2554,7 @@ mod tests {
                         rule_after: true,
                         rule_after_count: 2,
                         separator_after: None,
+                        width_pt_milli: None,
                         cell_prefix: None,
                         cell_suffix: None,
                     },
@@ -2476,6 +2565,7 @@ mod tests {
                         rule_after: true,
                         rule_after_count: 2,
                         separator_after: None,
+                        width_pt_milli: None,
                         cell_prefix: None,
                         cell_suffix: None,
                     },

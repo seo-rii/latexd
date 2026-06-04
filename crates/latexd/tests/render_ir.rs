@@ -12476,6 +12476,8 @@ fn tabular_fixed_width_column_specs_survive_ir_and_align_display_list_text() {
     assert_eq!(table.columns.len(), 2);
     assert_eq!(table.columns[0].alignment, TableColumnAlignment::Right);
     assert_eq!(table.columns[1].alignment, TableColumnAlignment::Center);
+    assert_eq!(table.columns[0].width_pt_milli, Some(56_693));
+    assert_eq!(table.columns[1].width_pt_milli, Some(28_346));
     let table_lines = capture.page_display_lists[0]
         .ops
         .iter()
@@ -12485,8 +12487,8 @@ fn tabular_fixed_width_column_specs_survive_ir_and_align_display_list_text() {
         })
         .collect::<Vec<_>>();
 
-    assert!(table_lines.contains(&"   A | B"), "{table_lines:?}");
-    assert!(table_lines.contains(&"Long | Z"), "{table_lines:?}");
+    assert!(table_lines.contains(&"        A |   B"), "{table_lines:?}");
+    assert!(table_lines.contains(&"     Long |   Z"), "{table_lines:?}");
 }
 
 #[test]
@@ -12509,6 +12511,7 @@ fn tabular_array_column_hooks_do_not_hide_real_columns() {
     assert_eq!(table.columns.len(), 2);
     assert_eq!(table.columns[0].alignment, TableColumnAlignment::Paragraph);
     assert_eq!(table.columns[1].alignment, TableColumnAlignment::Right);
+    assert_eq!(table.columns[0].width_pt_milli, Some(56_693));
     assert!(table.columns[0].rule_after);
     assert_eq!(table.columns[0].rule_after_count, 1);
     assert!(table.columns[1].rule_before);
@@ -12541,8 +12544,8 @@ fn tabular_array_column_hooks_do_not_hide_real_columns() {
         .collect::<Vec<_>>();
 
     assert_eq!(vertical_rules.len(), 2, "{vertical_rules:?}");
-    assert!(table_lines.contains(&"Alpha    1"), "{table_lines:?}");
-    assert!(table_lines.contains(&"Beta    22"), "{table_lines:?}");
+    assert!(table_lines.contains(&"Alpha        1"), "{table_lines:?}");
+    assert!(table_lines.contains(&"Beta        22"), "{table_lines:?}");
     assert!(
         !table_lines.iter().any(|line| line.contains('|')),
         "{table_lines:?}"

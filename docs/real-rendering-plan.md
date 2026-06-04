@@ -62,7 +62,10 @@ the covered columns and matching partial rule rectangles. Simple
 combined monospaced column width. Simple `l` / `c` / `r` / paragraph-style table
 preamble columns now survive as `TableColumnSpec` metadata, bounded `*{n}{...}`
 repeated specs expand before IR construction, and those specs drive coarse
-left/center/right padding in the display-list text fallback. Simple `@{...}` /
+left/center/right padding in the display-list text fallback. Absolute
+`p{...}` / `m{...}` / `b{...}` and array-package `w` / `W` column widths now
+survive as point-sized hints and set minimum monospaced fallback column widths.
+Simple `@{...}` /
 `!{...}` intercolumn visible separators now replace the default fallback
 separator in display-list text, and simple visible `>{...}` / `<{...}` cell
 hooks now decorate display-list cell text while non-visible formatting hooks
@@ -553,7 +556,8 @@ Implemented first slice:
   text alignment.
 - `tabularx` `X` columns and array-package `w{align}{width}` /
   `W{align}{width}` columns are treated as paragraph/aligned fixed-width
-  fallback columns without applying exact TeX widths.
+  fallback columns; absolute `p` / `m` / `b` / `w` / `W` widths now survive as
+  point-sized hints and drive coarse minimum display-list fallback widths.
 - array-package hook and intercolumn modifiers `>{...}`, `<{...}`, `@{...}`,
   and `!{...}` are skipped as non-column material so the following real columns
   still drive fallback alignment. Simple visible `@{...}` / `!{...}`
