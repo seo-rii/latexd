@@ -720,6 +720,99 @@ pub fn build_page_display_lists(
                         column_widths[column_index] = column_widths[column_index].max(min_chars);
                     }
                 }
+                if let Some(width_spec) = block.width_spec.as_deref() {
+                    let content_width_pt =
+                        (options.page_width_pt - options.margin_left_pt * 2.0).max(1.0);
+                    let normalized_width = width_spec
+                        .trim()
+                        .trim_matches(|ch| ch == '{' || ch == '}')
+                        .chars()
+                        .filter(|ch| !ch.is_whitespace())
+                        .collect::<String>();
+                    let table_width_pt = [
+                        ("\\hsize", content_width_pt),
+                        ("\\linewidth", content_width_pt),
+                        ("\\textwidth", content_width_pt),
+                        ("\\columnwidth", content_width_pt),
+                        ("\\paperwidth", options.page_width_pt),
+                        ("\\pagewidth", options.page_width_pt),
+                    ]
+                    .into_iter()
+                    .find_map(|(name, reference_pt)| {
+                        if normalized_width == name {
+                            return Some(reference_pt);
+                        }
+                        normalized_width.strip_suffix(name).and_then(|prefix| {
+                            let factor = prefix.strip_suffix('*').unwrap_or(prefix);
+                            let factor = if factor.is_empty() {
+                                Some(1.0)
+                            } else {
+                                factor.parse::<f32>().ok()
+                            }?;
+                            let dimension = reference_pt * factor;
+                            dimension.is_finite().then_some(dimension)
+                        })
+                    })
+                    .or_else(|| {
+                        for (unit, multiplier) in [
+                            ("truept", 1.0),
+                            ("bp", 1.0),
+                            ("pt", 1.0),
+                            ("in", 72.0),
+                            ("cm", 72.0 / 2.54),
+                            ("mm", 72.0 / 25.4),
+                            ("pc", 12.0),
+                            ("em", options.body_font_size_pt),
+                            ("ex", options.body_font_size_pt * 0.5),
+                        ] {
+                            if let Some(number) = normalized_width.strip_suffix(unit) {
+                                let dimension = number.parse::<f32>().ok()? * multiplier;
+                                if dimension.is_finite() && dimension > 0.0 {
+                                    return Some(dimension);
+                                }
+                            }
+                        }
+                        let dimension = normalized_width.parse::<f32>().ok()?;
+                        (dimension.is_finite() && dimension > 0.0).then_some(dimension)
+                    });
+                    if let Some(table_width_pt) = table_width_pt
+                        && !column_widths.is_empty()
+                    {
+                        let target_chars =
+                            ((table_width_pt / table_glyph_width_pt) - 0.001).ceil() as usize;
+                        let current_chars = column_widths.iter().sum::<usize>()
+                            + spanned_separator_width(0, column_widths.len());
+                        if target_chars > current_chars {
+                            let mut stretch_columns = block
+                                .columns
+                                .iter()
+                                .enumerate()
+                                .filter_map(|(index, column)| {
+                                    (index < column_widths.len()
+                                        && matches!(
+                                            column.alignment,
+                                            TableColumnAlignment::Paragraph
+                                        )
+                                        && column.width_pt_milli.is_none())
+                                    .then_some(index)
+                                })
+                                .collect::<Vec<_>>();
+                            if stretch_columns.is_empty() {
+                                stretch_columns.push(column_widths.len() - 1);
+                            }
+                            let extra_chars = target_chars - current_chars;
+                            let base_extra = extra_chars / stretch_columns.len();
+                            let mut remainder = extra_chars % stretch_columns.len();
+                            for column_index in stretch_columns {
+                                column_widths[column_index] += base_extra;
+                                if remainder > 0 {
+                                    column_widths[column_index] += 1;
+                                    remainder -= 1;
+                                }
+                            }
+                        }
+                    }
+                }
                 let rule_width = column_widths.iter().sum::<usize>()
                     + spanned_separator_width(0, column_widths.len());
                 let rule_text = "-".repeat(rule_width.max(3));
@@ -906,6 +999,7 @@ pub fn build_page_display_lists(
                         }
                         row_text.push_str(&cell.text);
                         if cell_index + 1 < rendered_cells.len()
+                            || block.width_spec.is_some()
                             || matches!(alignment, TableColumnAlignment::Decimal)
                         {
                             for _ in 0..right_padding {
@@ -2201,6 +2295,7 @@ mod tests {
         let display_lists = build_page_display_lists(
             &DocumentIr::new(vec![IrBlock::Table(TableBlock {
                 environment: "tabular".to_string(),
+                width_spec: None,
                 columns: Vec::new(),
                 rows: vec![
                     TableRow {
@@ -2285,6 +2380,7 @@ mod tests {
         let display_lists = build_page_display_lists(
             &DocumentIr::new(vec![IrBlock::Table(TableBlock {
                 environment: "tabular".to_string(),
+                width_spec: None,
                 columns: vec![
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Left,
@@ -2423,6 +2519,7 @@ mod tests {
         let display_lists = build_page_display_lists(
             &DocumentIr::new(vec![IrBlock::Table(TableBlock {
                 environment: "tabular".to_string(),
+                width_spec: None,
                 columns: vec![
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Left,
@@ -2559,6 +2656,7 @@ mod tests {
         let display_lists = build_page_display_lists(
             &DocumentIr::new(vec![IrBlock::Table(TableBlock {
                 environment: "tabular".to_string(),
+                width_spec: None,
                 columns: vec![
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Left,
@@ -2667,6 +2765,7 @@ mod tests {
         let display_lists = build_page_display_lists(
             &DocumentIr::new(vec![IrBlock::Table(TableBlock {
                 environment: "tabular".to_string(),
+                width_spec: None,
                 columns: vec![
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Left,
@@ -2743,6 +2842,7 @@ mod tests {
         let display_lists = build_page_display_lists(
             &DocumentIr::new(vec![IrBlock::Table(TableBlock {
                 environment: "tabular".to_string(),
+                width_spec: None,
                 columns: vec![
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Left,
@@ -2814,11 +2914,90 @@ mod tests {
     }
 
     #[test]
+    fn table_display_list_text_stretches_flexible_columns_to_table_width_spec() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabularx".to_string(),
+                width_spec: Some("\\textwidth".to_string()),
+                columns: vec![
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Left,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: false,
+                        rule_after_count: 0,
+                        separator_after: None,
+                        width_pt_milli: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Paragraph,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: false,
+                        rule_after_count: 0,
+                        separator_after: None,
+                        width_pt_milli: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                ],
+                rows: vec![TableRow {
+                    rule_above: false,
+                    partial_rules_above: Vec::new(),
+                    cells: vec![
+                        TableCell {
+                            text: "Alpha".to_string(),
+                            column_span: None,
+                            row_span: None,
+                            alignment: None,
+                            rule_before_count: 0,
+                            rule_after_count: 0,
+                            cell_prefix: None,
+                            cell_suffix: None,
+                        },
+                        TableCell {
+                            text: "Beta".to_string(),
+                            column_span: None,
+                            row_span: None,
+                            alignment: None,
+                            rule_before_count: 0,
+                            rule_after_count: 0,
+                            cell_prefix: None,
+                            cell_suffix: None,
+                        },
+                    ],
+                    rule_below: false,
+                    partial_rules_below: Vec::new(),
+                }],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let line = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .find(|line| line.starts_with("Alpha") && line.contains("Beta"))
+            .expect("stretched table row");
+
+        assert!(line.chars().count() > "Alpha | Beta".chars().count());
+    }
+
+    #[test]
     fn table_display_list_emits_vertical_rule_ops_from_column_specs() {
         let source = SourceProvenance::file("main.tex", 0, 64);
         let display_lists = build_page_display_lists(
             &DocumentIr::new(vec![IrBlock::Table(TableBlock {
                 environment: "tabular".to_string(),
+                width_spec: None,
                 columns: vec![
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Left,
@@ -2942,6 +3121,7 @@ mod tests {
         let display_lists = build_page_display_lists(
             &DocumentIr::new(vec![IrBlock::Table(TableBlock {
                 environment: "tabular".to_string(),
+                width_spec: None,
                 columns: vec![
                     TableColumnSpec {
                         alignment: TableColumnAlignment::Left,
@@ -3028,6 +3208,7 @@ mod tests {
         let display_lists = build_page_display_lists(
             &DocumentIr::new(vec![IrBlock::Table(TableBlock {
                 environment: "tabular".to_string(),
+                width_spec: None,
                 columns: Vec::new(),
                 rows: vec![
                     TableRow {
@@ -3126,6 +3307,7 @@ mod tests {
         let display_lists = build_page_display_lists(
             &DocumentIr::new(vec![IrBlock::Table(TableBlock {
                 environment: "tabular".to_string(),
+                width_spec: None,
                 columns: Vec::new(),
                 rows: vec![
                     TableRow {
@@ -3251,6 +3433,7 @@ mod tests {
         let display_lists = build_page_display_lists(
             &DocumentIr::new(vec![IrBlock::Table(TableBlock {
                 environment: "tabular".to_string(),
+                width_spec: None,
                 columns: Vec::new(),
                 rows: vec![
                     TableRow {
@@ -3345,6 +3528,7 @@ mod tests {
         let display_lists = build_page_display_lists(
             &DocumentIr::new(vec![IrBlock::Table(TableBlock {
                 environment: "tabular".to_string(),
+                width_spec: None,
                 columns: Vec::new(),
                 rows: vec![
                     TableRow {

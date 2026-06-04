@@ -14233,6 +14233,7 @@ fn tabularx_capture_builds_table_ir() {
         .expect("tabularx table");
 
     assert_eq!(table.columns.len(), 2);
+    assert_eq!(table.width_spec.as_deref(), Some(r"\textwidth"));
     assert_eq!(table.columns[0].alignment, TableColumnAlignment::Left);
     assert_eq!(table.columns[1].alignment, TableColumnAlignment::Paragraph);
     assert_eq!(table.rows.len(), 2);
@@ -14240,18 +14241,25 @@ fn tabularx_capture_builds_table_ir() {
     assert_eq!(table.rows[0].cells[1].text, "Beta");
     assert_eq!(table.rows[1].cells[0].text, "Gamma");
     assert_eq!(table.rows[1].cells[1].text, "Delta");
-    let display_list_text = capture.page_display_lists[0]
+    let table_lines = capture.page_display_lists[0]
         .ops
         .iter()
         .filter_map(|op| match op {
             DrawOp::TextRun(run) => Some(run.text.as_str()),
             _ => None,
         })
-        .collect::<Vec<_>>()
-        .join("\n");
+        .collect::<Vec<_>>();
+    let alpha_line = table_lines
+        .iter()
+        .find(|line| line.starts_with("Alpha") && line.contains("Beta"))
+        .expect("tabularx Alpha/Beta line");
+    let gamma_line = table_lines
+        .iter()
+        .find(|line| line.starts_with("Gamma") && line.contains("Delta"))
+        .expect("tabularx Gamma/Delta line");
 
-    assert!(display_list_text.contains("Alpha | Beta"));
-    assert!(display_list_text.contains("Gamma | Delta"));
+    assert!(alpha_line.chars().count() > "Alpha | Beta".chars().count());
+    assert!(gamma_line.chars().count() > "Gamma | Delta".chars().count());
 }
 
 #[test]
@@ -14281,16 +14289,21 @@ fn tabu_capture_builds_table_ir() {
         .expect("longtabu table");
 
     assert_eq!(tabu.columns.len(), 2);
+    assert_eq!(tabu.width_spec, None);
     assert_eq!(tabu.columns[0].alignment, TableColumnAlignment::Paragraph);
     assert_eq!(tabu.columns[1].alignment, TableColumnAlignment::Right);
     assert_eq!(tabu.rows[0].cells[0].text, "Alpha");
     assert_eq!(longtabu.columns.len(), 2);
+    assert_eq!(longtabu.width_spec.as_deref(), Some(r"\linewidth"));
     assert_eq!(
         longtabu.columns[0].alignment,
         TableColumnAlignment::Paragraph
     );
     assert_eq!(longtabu.columns[1].alignment, TableColumnAlignment::Right);
     assert_eq!(longtabu.rows[0].cells[0].text, "Long");
+    assert_eq!(longtabu.rows[0].cells[1].text, "3");
+    assert_eq!(longtabu.rows[1].cells[0].text, "Tail");
+    assert_eq!(longtabu.rows[1].cells[1].text, "44");
     let table_lines = capture.page_display_lists[0]
         .ops
         .iter()
@@ -14302,8 +14315,16 @@ fn tabu_capture_builds_table_ir() {
 
     assert!(table_lines.contains(&"Alpha |  1"), "{table_lines:?}");
     assert!(table_lines.contains(&"Beta  | 22"), "{table_lines:?}");
-    assert!(table_lines.contains(&"Long |  3"), "{table_lines:?}");
-    assert!(table_lines.contains(&"Tail | 44"), "{table_lines:?}");
+    let long_line = table_lines
+        .iter()
+        .find(|line| line.starts_with("Long"))
+        .expect("longtabu Long line");
+    let tail_line = table_lines
+        .iter()
+        .find(|line| line.starts_with("Tail"))
+        .expect("longtabu Tail line");
+    assert!(long_line.chars().count() > "Long".chars().count());
+    assert!(tail_line.chars().count() > "Tail".chars().count());
 }
 
 #[test]

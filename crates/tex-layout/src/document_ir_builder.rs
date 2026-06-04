@@ -196,6 +196,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         {
                             self.blocks.push(IrBlock::Table(TableBlock {
                                 environment: "table".to_string(),
+                                width_spec: None,
                                 columns: Vec::new(),
                                 rows: Vec::new(),
                                 caption: Some(caption),
@@ -517,6 +518,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                 .environment
                                 .clone()
                                 .unwrap_or_else(|| "tabular".to_string()),
+                            width_spec: event.table_width_spec.clone(),
                             columns: event.table_columns.clone(),
                             rows,
                             caption,
@@ -992,6 +994,7 @@ mod tests {
                     table_rules: Vec::new(),
                     table_cell_spans: Vec::new(),
                     table_columns: Vec::new(),
+                    table_width_spec: None,
                     truncated: true,
                 }),
                 SourceProvenance::file("main.tex", 0, 48),

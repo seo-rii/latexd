@@ -349,6 +349,8 @@ pub struct GraphicBlock {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TableBlock {
     pub environment: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width_spec: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub columns: Vec<TableColumnSpec>,
     pub rows: Vec<TableRow>,

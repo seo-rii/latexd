@@ -3561,6 +3561,7 @@ impl<'i> Vm<'i> {
                                             table_rules: Vec::new(),
                                             table_cell_spans: Vec::new(),
                                             table_columns: Vec::new(),
+                                            table_width_spec: None,
                                             truncated,
                                         }),
                                         SourceProvenance::file(
@@ -8614,10 +8615,15 @@ impl<'i> Vm<'i> {
         environment: &str,
     ) -> Option<usize> {
         let mut table_body_start = skip_ascii_whitespace(body_source, 0);
+        let mut table_width_spec = None;
         if matches!(environment, "tabular*" | "tabularx") {
-            if let Some((_, _, _, after)) =
+            if let Some((width_spec, _, _, after)) =
                 read_braced_source_argument(body_source, table_body_start)
             {
+                let width_spec = width_spec.trim();
+                if !width_spec.is_empty() {
+                    table_width_spec = Some(width_spec.to_string());
+                }
                 table_body_start = after;
             }
             table_body_start = skip_ascii_whitespace(body_source, table_body_start);
@@ -8634,6 +8640,7 @@ impl<'i> Vm<'i> {
             if let Some(keyword) = keyword {
                 let mut dimension_index =
                     skip_ascii_whitespace(body_source, keyword_index + keyword.len());
+                let dimension_start = dimension_index;
                 while dimension_index < body_source.len()
                     && body_source.as_bytes()[dimension_index] != b'{'
                 {
@@ -8642,6 +8649,10 @@ impl<'i> Vm<'i> {
                         .next()
                         .expect("tabu dimension char");
                     dimension_index += ch.len_utf8();
+                }
+                let width_spec = body_source[dimension_start..dimension_index].trim();
+                if !width_spec.is_empty() {
+                    table_width_spec = Some(width_spec.to_string());
                 }
                 table_body_start = skip_ascii_whitespace(body_source, dimension_index);
             }
@@ -10468,6 +10479,7 @@ impl<'i> Vm<'i> {
                 table_rules,
                 table_cell_spans,
                 table_columns,
+                table_width_spec,
                 truncated,
             }),
             SourceProvenance::file(source_path.to_owned(), command_start as u32, raw_end as u32),
@@ -25791,6 +25803,7 @@ Fallback text.
             visible.table_columns[1].alignment,
             TableColumnAlignment::Paragraph
         );
+        assert_eq!(visible.table_width_spec.as_deref(), Some(r"\textwidth"));
     }
 
     #[test]
@@ -25800,15 +25813,17 @@ Fallback text.
                 r"\documentclass{article}\usepackage{tabu}\begin{document}\begin{tabu}{X[l]r}Alpha & 1 \\ Beta & 22\end{tabu}\end{document}",
                 "tabu",
                 "Alpha | 1 ; Beta | 22",
+                None,
             ),
             (
                 r"\documentclass{article}\usepackage{tabu}\begin{document}\begin{longtabu} to \linewidth {Xr}Alpha & 1 \\ Beta & 22\end{longtabu}\end{document}",
                 "longtabu",
                 "Alpha | 1 ; Beta | 22",
+                Some(r"\linewidth"),
             ),
         ];
 
-        for (source, environment, expected) in cases {
+        for (source, environment, expected, expected_width_spec) in cases {
             let mut interner = ControlSequenceInterner::new();
             let mut vm = Vm::new(&mut interner);
             vm.set_entry_source_path("main.tex");
@@ -25828,6 +25843,7 @@ Fallback text.
                 .expect("tabu fallback visible text");
 
             assert_eq!(visible.normalized_visible_text.as_deref(), Some(expected));
+            assert_eq!(visible.table_width_spec.as_deref(), expected_width_spec);
             assert_eq!(visible.table_columns.len(), 2);
             assert_eq!(
                 visible.table_columns[0].alignment,

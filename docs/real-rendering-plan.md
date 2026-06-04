@@ -583,6 +583,11 @@ Implemented first slice:
   `W{align}{width}` columns are treated as paragraph/aligned fixed-width
   fallback columns; absolute `p` / `m` / `b` / `w` / `W` widths now survive as
   point-sized hints and drive coarse minimum display-list fallback widths.
+- `tabular*` / `tabularx` target-width arguments and simple `tabu` /
+  `longtabu` `to` / `spread` width specs now survive as table-level width
+  metadata; the readable display-list fallback resolves common specs such as
+  `\textwidth` / `\linewidth` and stretches flexible paragraph-style columns
+  toward that target width.
 - array-package hook and intercolumn modifiers `>{...}`, `<{...}`, `@{...}`,
   and `!{...}` are skipped as non-column material so the following real columns
   still drive fallback alignment. Simple visible `@{...}` / `!{...}`

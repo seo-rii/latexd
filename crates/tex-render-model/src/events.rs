@@ -393,6 +393,8 @@ pub struct RawFallbackEvent {
     pub table_cell_spans: Vec<TableCellSpanEvent>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub table_columns: Vec<TableColumnSpec>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub table_width_spec: Option<String>,
     #[serde(default)]
     pub truncated: bool,
 }
@@ -598,6 +600,7 @@ mod tests {
                 table_rules: Vec::new(),
                 table_cell_spans: Vec::new(),
                 table_columns: Vec::new(),
+                table_width_spec: None,
                 truncated: false,
             }),
             SourceProvenance::file("main.tex", 0, 35),
@@ -802,6 +805,7 @@ mod tests {
                 table_rules: Vec::new(),
                 table_cell_spans: Vec::new(),
                 table_columns: Vec::new(),
+                table_width_spec: None,
                 truncated: false,
             }),
             SourceProvenance::file("main.tex", 420, 455),
