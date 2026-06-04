@@ -3637,6 +3637,32 @@ mod tests {
     }
 
     #[test]
+    fn internal_render_ir_artifacts_escape_path_unsafe_display_list_page_ids() {
+        let mut capture = capture_internal_render_ir(
+            "main.tex",
+            r"\begin{document}Hello world.\end{document}",
+            &SemanticAux::default(),
+        );
+        capture.page_display_lists[0].page_id = "page/../evil id".to_string();
+        let tempdir = tempdir().expect("tempdir");
+        let output_dir =
+            Utf8PathBuf::from_path_buf(tempdir.path().join("render-ir")).expect("utf8 tempdir");
+
+        let paths = capture
+            .write_debug_artifacts(&output_dir)
+            .expect("write render-ir artifacts");
+        let expected_svg_file = "display-list-page-page_2f_2e_2e_2fevil_20id.svg";
+
+        assert_eq!(
+            paths.display_list_svgs,
+            vec![output_dir.join(expected_svg_file)]
+        );
+        assert!(output_dir.join(expected_svg_file).exists());
+        assert!(!output_dir.join("display-list-page-page").exists());
+        assert!(!output_dir.join("evil id.svg").exists());
+    }
+
+    #[test]
     fn internal_render_ir_capture_builds_events_and_ir_without_pdf_path() {
         let capture = capture_internal_render_ir(
             "main.tex",
