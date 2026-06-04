@@ -59,7 +59,12 @@ spans are carried as zero-based inclusive column ranges with whitespace outside
 the covered columns and matching partial rule rectangles, using the same visible
 separator widths as table row text when trimming the rule span. Simple
 `booktabs` `\cmidrule(l/r/lr){...}` trim options also survive as rule-span trim
-metadata and shorten the renderer-visible partial rule rectangles. Simple
+metadata and shorten the renderer-visible partial rule rectangles. A default-CI
+table readability gate now checks that representative tables keep cell text in
+display-list/PDF text while rendering horizontal and vertical separators as
+`Rule` operations rather than searchable filler glyphs, with optional
+`pdftotext` and Ghostscript raster gross checks when those tools are available.
+Simple
 `\multicolumn{n}{...}{text}` cells are also normalized to visible cell text plus
 `TableCell.column_span` metadata so the display-list fallback can occupy the
 combined monospaced column width, and simple `l` / `c` / `r` multicolumn specs
@@ -680,7 +685,7 @@ Remaining table work:
   geometry rendering approximations;
 - exact vertical border trimming and exact rule trimming in `PageDisplayList`;
 - stronger booktabs/array-package compatibility on corpus fixtures;
-- raster-oriented table readability gates.
+- broader raster-oriented table readability gates on corpus fixtures.
 
 ### G. Math Rendering
 

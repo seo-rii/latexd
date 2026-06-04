@@ -12360,6 +12360,103 @@ fn tabular_capture_builds_table_ir() {
 }
 
 #[test]
+fn tabular_display_list_pdf_readability_gate_preserves_text_and_rules() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{|l|r|}\hline Alpha & 1 \\\cline{1-2} Beta & 22 \\\hline\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let horizontal_rules = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter(|op| matches!(op, DrawOp::Rule(rect) if rect.width > rect.height))
+        .count();
+    let vertical_rules = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter(|op| matches!(op, DrawOp::Rule(rect) if rect.height > rect.width))
+        .count();
+
+    assert!(display_list_text.contains("Alpha"), "{display_list_text}");
+    assert!(display_list_text.contains("Beta"), "{display_list_text}");
+    assert!(display_list_text.contains("22"), "{display_list_text}");
+    for hidden in ["hline", "cline", "-------------", "|"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+    assert!(horizontal_rules >= 3, "{horizontal_rules}");
+    assert!(vertical_rules >= 3, "{vertical_rules}");
+
+    let display_list_pdf = String::from_utf8_lossy(&capture.display_list_pdf);
+    assert!(display_list_pdf.contains("(Alpha"));
+    assert!(display_list_pdf.contains("(Beta"));
+    assert!(display_list_pdf.contains(" re f Q "));
+    assert!(!display_list_pdf.contains("hline"));
+    assert!(!display_list_pdf.contains("cline"));
+    assert!(!display_list_pdf.contains("-------------"));
+
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let pdf_path = tempdir.path().join("table-display-list.pdf");
+    fs::write(&pdf_path, &capture.display_list_pdf).expect("write display-list pdf");
+
+    if let Ok(pdftotext) = which::which("pdftotext") {
+        let output = Command::new(pdftotext)
+            .args(["-layout", "-enc", "UTF-8"])
+            .arg(&pdf_path)
+            .arg("-")
+            .output()
+            .expect("run pdftotext");
+
+        assert!(
+            output.status.success(),
+            "pdftotext failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let extracted_text = String::from_utf8_lossy(&output.stdout);
+        assert!(extracted_text.contains("Alpha"), "{extracted_text}");
+        assert!(extracted_text.contains("Beta"), "{extracted_text}");
+        assert!(extracted_text.contains("22"), "{extracted_text}");
+        for hidden in ["hline", "cline", "-------------", "|"] {
+            assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        }
+    }
+
+    if let Ok(gs) = which::which("gs") {
+        let png_path = tempdir.path().join("table-display-list.png");
+        let output_file = format!("-sOutputFile={}", png_path.display());
+        let output = Command::new(gs)
+            .args(["-dSAFER", "-dBATCH", "-dNOPAUSE", "-sDEVICE=png16m", "-r72"])
+            .arg(output_file)
+            .arg(&pdf_path)
+            .output()
+            .expect("run ghostscript");
+
+        assert!(
+            output.status.success(),
+            "ghostscript failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let raster = image::load_from_memory(&fs::read(&png_path).expect("read table raster"))
+            .expect("decode table raster")
+            .to_rgb8();
+        let dark_pixels = raster
+            .pixels()
+            .filter(|pixel| pixel.0.iter().any(|channel| *channel < 245))
+            .count();
+
+        assert!(dark_pixels > 100, "{dark_pixels}");
+    }
+}
+
+#[test]
 fn tabular_display_list_aligns_columns_by_cell_width() {
     let capture = capture_internal_render_ir(
         "main.tex",
