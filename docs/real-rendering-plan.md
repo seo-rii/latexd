@@ -641,7 +641,9 @@ Implemented first slice:
   display-list rule rectangles.
 - simple visible `>{...}` / `<{...}` hooks and non-rule `@{...}` / `!{...}`
   separator hooks in `\multicolumn` specs survive as cell-level display-list
-  prefix/suffix metadata.
+  prefix/suffix metadata; style-only and non-visible spacing hooks in
+  `\multicolumn` specs are ignored without leaking command names or spacing
+  payloads into table text.
 - `multirow` / `multirowcell` commands now preserve visible cell text and simple
   `row_span` metadata in the table fallback.
 - common `multirow` positioning, bigstrut, and vertical-move optional arguments

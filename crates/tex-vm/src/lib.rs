@@ -25167,6 +25167,78 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_omits_style_only_multicolumn_hooks() {
+        let source = r"\begin{document}\begin{tabular}{lll}\multicolumn{2}{>{\bfseries}c<{\normalfont}}{Hdr} & Z \\ A & B & C\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        let visible_text = visible
+            .normalized_visible_text
+            .as_deref()
+            .expect("visible table text");
+
+        assert_eq!(visible.table_cell_spans.len(), 1);
+        assert_eq!(visible.table_cell_spans[0].cell_prefix, None);
+        assert_eq!(visible.table_cell_spans[0].cell_suffix, None);
+        assert_eq!(
+            visible.table_cell_spans[0].alignment,
+            Some(TableColumnAlignment::Center)
+        );
+        assert!(visible_text.contains("Hdr | Z"));
+        for hidden in ["bfseries", "normalfont"] {
+            assert!(!visible_text.contains(hidden), "{visible_text}");
+        }
+    }
+
+    #[test]
+    fn render_event_capture_omits_extracolsep_multicolumn_hooks() {
+        let source = r"\begin{document}\begin{tabular}{lll}\multicolumn{2}{@{\extracolsep{\fill}}c}{Hdr} & Z \\ A & B & C\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        let visible_text = visible
+            .normalized_visible_text
+            .as_deref()
+            .expect("visible table text");
+
+        assert_eq!(visible.table_cell_spans.len(), 1);
+        assert_eq!(visible.table_cell_spans[0].cell_prefix, None);
+        assert_eq!(visible.table_cell_spans[0].cell_suffix, None);
+        assert!(visible_text.contains("Hdr | Z"));
+        for hidden in ["extracolsep", "fill"] {
+            assert!(!visible_text.contains(hidden), "{visible_text}");
+        }
+    }
+
+    #[test]
     fn render_event_capture_records_multirow_table_spans() {
         let source = r"\begin{document}\begin{tabular}{ll}\multirow{2}{*}{Span} & A \\ B & C\end{tabular}\end{document}";
         let mut interner = ControlSequenceInterner::new();
