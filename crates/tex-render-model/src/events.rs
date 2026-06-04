@@ -427,6 +427,10 @@ pub struct TableCellSpanEvent {
     pub row_span: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alignment: Option<TableColumnAlignment>,
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub rule_before_count: u8,
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub rule_after_count: u8,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

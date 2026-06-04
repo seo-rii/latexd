@@ -9895,6 +9895,9 @@ impl<'i> Vm<'i> {
                                         let column_span =
                                             span_text.trim().parse::<usize>().unwrap_or(1).max(1);
                                         let mut alignment = None;
+                                        let mut saw_alignment_token = false;
+                                        let mut rule_before_count = 0u8;
+                                        let mut rule_after_count = 0u8;
                                         let mut alignment_index = 0usize;
                                         while alignment_index < alignment_spec.len() {
                                             let ch = alignment_spec[alignment_index..]
@@ -9902,6 +9905,16 @@ impl<'i> Vm<'i> {
                                                 .next()
                                                 .expect("multicolumn alignment spec char");
                                             match ch {
+                                                '|' => {
+                                                    if saw_alignment_token {
+                                                        rule_after_count =
+                                                            rule_after_count.saturating_add(1);
+                                                    } else {
+                                                        rule_before_count =
+                                                            rule_before_count.saturating_add(1);
+                                                    }
+                                                    alignment_index += ch.len_utf8();
+                                                }
                                                 '@' | '!' | '>' | '<' => {
                                                     alignment_index += ch.len_utf8();
                                                     alignment_index = skip_ascii_whitespace(
@@ -9926,54 +9939,108 @@ impl<'i> Vm<'i> {
                                                         {
                                                             alignment =
                                                                 Some(TableColumnAlignment::Right);
+                                                            saw_alignment_token = true;
                                                         } else if compact.contains("\\centering")
                                                             || compact.contains("\\Centering")
                                                         {
                                                             alignment =
                                                                 Some(TableColumnAlignment::Center);
+                                                            saw_alignment_token = true;
                                                         } else if compact.contains("\\raggedright")
                                                             || compact.contains("\\RaggedRight")
                                                             || compact.contains("\\flushleft")
                                                         {
                                                             alignment =
                                                                 Some(TableColumnAlignment::Left);
+                                                            saw_alignment_token = true;
                                                         }
                                                         alignment_index = after_modifier;
                                                     }
                                                 }
                                                 'l' => {
                                                     alignment = Some(TableColumnAlignment::Left);
+                                                    saw_alignment_token = true;
                                                     alignment_index += ch.len_utf8();
                                                 }
                                                 'c' => {
                                                     alignment = Some(TableColumnAlignment::Center);
+                                                    saw_alignment_token = true;
                                                     alignment_index += ch.len_utf8();
                                                 }
                                                 'r' => {
                                                     alignment = Some(TableColumnAlignment::Right);
+                                                    saw_alignment_token = true;
                                                     alignment_index += ch.len_utf8();
                                                 }
                                                 'p' | 'm' | 'b' | 'X' => {
                                                     alignment =
                                                         Some(TableColumnAlignment::Paragraph);
+                                                    saw_alignment_token = true;
                                                     alignment_index += ch.len_utf8();
+                                                    if matches!(ch, 'p' | 'm' | 'b') {
+                                                        let width_index = skip_ascii_whitespace(
+                                                            alignment_spec,
+                                                            alignment_index,
+                                                        );
+                                                        if let Some((_, _, _, after_width)) =
+                                                            read_braced_source_argument(
+                                                                alignment_spec,
+                                                                width_index,
+                                                            )
+                                                        {
+                                                            alignment_index = after_width;
+                                                        }
+                                                    }
                                                 }
                                                 'S' | 'D' => {
                                                     alignment = Some(TableColumnAlignment::Decimal);
+                                                    saw_alignment_token = true;
                                                     alignment_index += ch.len_utf8();
+                                                    if ch == 'S' {
+                                                        if let Some((_, _, _, after_option)) =
+                                                            read_bracket_source_argument(
+                                                                alignment_spec,
+                                                                alignment_index,
+                                                            )
+                                                        {
+                                                            alignment_index = after_option;
+                                                        }
+                                                    } else {
+                                                        for _ in 0..3 {
+                                                            alignment_index = skip_ascii_whitespace(
+                                                                alignment_spec,
+                                                                alignment_index,
+                                                            );
+                                                            let Some((_, _, _, after_argument)) =
+                                                                read_braced_source_argument(
+                                                                    alignment_spec,
+                                                                    alignment_index,
+                                                                )
+                                                            else {
+                                                                break;
+                                                            };
+                                                            alignment_index = after_argument;
+                                                        }
+                                                    }
                                                 }
                                                 _ => {
                                                     alignment_index += ch.len_utf8();
                                                 }
                                             }
                                         }
-                                        if column_span > 1 || alignment.is_some() {
+                                        if column_span > 1
+                                            || alignment.is_some()
+                                            || rule_before_count > 0
+                                            || rule_after_count > 0
+                                        {
                                             table_cell_spans.push(TableCellSpanEvent {
                                                 row_index: current_row_index,
                                                 column_index: current_column_index,
                                                 column_span,
                                                 row_span: None,
                                                 alignment,
+                                                rule_before_count,
+                                                rule_after_count,
                                             });
                                         }
                                         if column_span > 1 {
@@ -10038,6 +10105,8 @@ impl<'i> Vm<'i> {
                                                 column_span: 1,
                                                 row_span: Some(row_span),
                                                 alignment: None,
+                                                rule_before_count: 0,
+                                                rule_after_count: 0,
                                             });
                                         }
                                         rewritten.push_str(content);
@@ -10093,6 +10162,8 @@ impl<'i> Vm<'i> {
                                             column_span: 1,
                                             row_span: Some(row_span),
                                             alignment: None,
+                                            rule_before_count: 0,
+                                            rule_after_count: 0,
                                         });
                                     }
                                     rewritten.push_str(content);
@@ -24715,7 +24786,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_multicolumn_table_spans() {
-        let source = r"\begin{document}\begin{tabular}{lll}\multicolumn{2}{c}{Wide} & Tail \\ A & B & C\end{tabular}\end{document}";
+        let source = r"\begin{document}\begin{tabular}{lll}\multicolumn{2}{|c|}{Wide} & Tail \\ A & B & C\end{tabular}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -24746,12 +24817,14 @@ Fallback text.
                 column_span: 2,
                 row_span: None,
                 alignment: Some(TableColumnAlignment::Center),
+                rule_before_count: 1,
+                rule_after_count: 1,
             }]
         );
         let visible_text = visible.normalized_visible_text.as_deref().unwrap_or("");
         assert!(!visible_text.contains("multicolumn"));
         assert!(!visible_text.contains("{2}"));
-        assert!(!visible_text.contains("{c}"));
+        assert!(!visible_text.contains("{|c|}"));
     }
 
     #[test]
@@ -24787,6 +24860,8 @@ Fallback text.
                 column_span: 1,
                 row_span: Some(2),
                 alignment: None,
+                rule_before_count: 0,
+                rule_after_count: 0,
             }]
         );
     }

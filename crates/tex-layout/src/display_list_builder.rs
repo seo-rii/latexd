@@ -495,6 +495,8 @@ pub fn build_page_display_lists(
                     column_span: usize,
                     column_index: usize,
                     alignment: Option<TableColumnAlignment>,
+                    rule_before_count: u8,
+                    rule_after_count: u8,
                 }
 
                 let row_column_count = |row: &TableRow| {
@@ -527,6 +529,8 @@ pub fn build_page_display_lists(
                                     column_span: 1,
                                     column_index,
                                     alignment: None,
+                                    rule_before_count: 0,
+                                    rule_after_count: 0,
                                 });
                                 column_index += 1;
                             }
@@ -562,6 +566,8 @@ pub fn build_page_display_lists(
                             column_span,
                             column_index,
                             alignment: cell.alignment,
+                            rule_before_count: cell.rule_before_count,
+                            rule_after_count: cell.rule_after_count,
                         });
                         column_index += column_span;
                     }
@@ -778,7 +784,12 @@ pub fn build_page_display_lists(
                     let mut row_text = String::new();
                     let mut row_vertical_rule_offsets = Vec::new();
                     let mut column_index = 0usize;
-                    let left_rule_count = column_rule_before_count(0);
+                    let left_rule_count = column_rule_before_count(0).max(
+                        rendered_cells
+                            .first()
+                            .map(|cell| cell.rule_before_count)
+                            .unwrap_or(0),
+                    );
                     if left_rule_count > 0 {
                         row_vertical_rule_offsets.push((0, left_rule_count));
                     }
@@ -787,8 +798,14 @@ pub fn build_page_display_lists(
                         if cell_index > 0 {
                             let separator_start = row_text.chars().count();
                             let previous_column_index = column_index.saturating_sub(1);
+                            let previous_cell_rule_after = rendered_cells
+                                .get(cell_index.saturating_sub(1))
+                                .map(|cell| cell.rule_after_count)
+                                .unwrap_or(0);
                             let rule_count = column_rule_after_count(previous_column_index)
-                                .max(column_rule_before_count(column_index));
+                                .max(column_rule_before_count(column_index))
+                                .max(previous_cell_rule_after)
+                                .max(cell.rule_before_count);
                             if rule_count > 0 {
                                 row_text.push_str("   ");
                             } else if let Some(separator) = block
@@ -864,7 +881,13 @@ pub fn build_page_display_lists(
                         }
                         column_index += column_span;
                     }
-                    let right_rule_count = column_rule_after_count(column_index.saturating_sub(1));
+                    let right_rule_count = column_rule_after_count(column_index.saturating_sub(1))
+                        .max(
+                            rendered_cells
+                                .last()
+                                .map(|cell| cell.rule_after_count)
+                                .unwrap_or(0),
+                        );
                     if right_rule_count > 0 {
                         row_vertical_rule_offsets
                             .push((row_text.chars().count(), right_rule_count));
@@ -2137,12 +2160,16 @@ mod tests {
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "Longer".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                         ],
                         rule_below: false,
@@ -2157,12 +2184,16 @@ mod tests {
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                         ],
                         rule_below: false,
@@ -2239,18 +2270,24 @@ mod tests {
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "Long".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                         ],
                         rule_below: false,
@@ -2265,18 +2302,24 @@ mod tests {
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "Wide".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "9".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                         ],
                         rule_below: false,
@@ -2342,12 +2385,16 @@ mod tests {
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "3.4".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                         ],
                         rule_below: false,
@@ -2362,12 +2409,16 @@ mod tests {
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "12".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                         ],
                         rule_below: false,
@@ -2382,12 +2433,16 @@ mod tests {
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "0.25".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                         ],
                         rule_below: false,
@@ -2454,12 +2509,16 @@ mod tests {
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "1".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                         ],
                         rule_below: false,
@@ -2474,12 +2533,16 @@ mod tests {
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "2".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                         ],
                         rule_below: false,
@@ -2545,12 +2608,16 @@ mod tests {
                             column_span: None,
                             row_span: None,
                             alignment: None,
+                            rule_before_count: 0,
+                            rule_after_count: 0,
                         },
                         TableCell {
                             text: "1".to_string(),
                             column_span: None,
                             row_span: None,
                             alignment: None,
+                            rule_before_count: 0,
+                            rule_after_count: 0,
                         },
                     ],
                     rule_below: false,
@@ -2613,12 +2680,16 @@ mod tests {
                             column_span: None,
                             row_span: None,
                             alignment: None,
+                            rule_before_count: 0,
+                            rule_after_count: 0,
                         },
                         TableCell {
                             text: "1".to_string(),
                             column_span: None,
                             row_span: None,
                             alignment: None,
+                            rule_before_count: 0,
+                            rule_after_count: 0,
                         },
                     ],
                     rule_below: false,
@@ -2682,12 +2753,16 @@ mod tests {
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "1".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                         ],
                         rule_below: false,
@@ -2702,12 +2777,16 @@ mod tests {
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "22".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                         ],
                         rule_below: false,
@@ -2782,12 +2861,16 @@ mod tests {
                             column_span: None,
                             row_span: None,
                             alignment: None,
+                            rule_before_count: 0,
+                            rule_after_count: 0,
                         },
                         TableCell {
                             text: "1".to_string(),
                             column_span: None,
                             row_span: None,
                             alignment: None,
+                            rule_before_count: 0,
+                            rule_after_count: 0,
                         },
                     ],
                     rule_below: false,
@@ -2838,12 +2921,16 @@ mod tests {
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "Value".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                         ],
                         rule_below: true,
@@ -2858,12 +2945,16 @@ mod tests {
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                         ],
                         rule_below: true,
@@ -2920,18 +3011,24 @@ mod tests {
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "Value".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "Tail".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                         ],
                         rule_below: false,
@@ -2949,18 +3046,24 @@ mod tests {
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "C".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                         ],
                         rule_below: false,
@@ -3019,12 +3122,16 @@ mod tests {
                                 column_span: Some(2),
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "Tail".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                         ],
                         rule_below: false,
@@ -3039,18 +3146,24 @@ mod tests {
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "C".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                         ],
                         rule_below: false,
@@ -3093,12 +3206,16 @@ mod tests {
                                 column_span: None,
                                 row_span: Some(2),
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                             TableCell {
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
                                 alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
                             },
                         ],
                         rule_below: false,
@@ -3112,6 +3229,8 @@ mod tests {
                             column_span: None,
                             row_span: None,
                             alignment: None,
+                            rule_before_count: 0,
+                            rule_after_count: 0,
                         }],
                         rule_below: false,
                         partial_rules_below: Vec::new(),

@@ -414,6 +414,8 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                         column_span: None,
                                         row_span: None,
                                         alignment: None,
+                                        rule_before_count: 0,
+                                        rule_after_count: 0,
                                     })
                                     .collect::<Vec<_>>();
                                 (!cells.is_empty()).then_some(TableRow {
@@ -495,6 +497,10 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                     if let Some(alignment) = cell_span.alignment {
                                         cell.alignment = Some(alignment);
                                     }
+                                    cell.rule_before_count =
+                                        cell.rule_before_count.max(cell_span.rule_before_count);
+                                    cell.rule_after_count =
+                                        cell.rule_after_count.max(cell_span.rule_after_count);
                                 }
                             }
                         }

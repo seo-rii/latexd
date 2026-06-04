@@ -403,6 +403,14 @@ pub struct TableCell {
     pub row_span: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alignment: Option<TableColumnAlignment>,
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub rule_before_count: u8,
+    #[serde(default, skip_serializing_if = "is_zero_u8")]
+    pub rule_after_count: u8,
+}
+
+fn is_zero_u8(value: &u8) -> bool {
+    *value == 0
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
