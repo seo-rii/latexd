@@ -24277,6 +24277,43 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_preserves_simple_array_column_vline_hooks() {
+        let source =
+            r"\begin{document}\begin{tabular}{l@{\vline}r}Left & 1\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible.table_columns.len(), 2);
+        assert_eq!(
+            visible.table_columns[0].alignment,
+            TableColumnAlignment::Left
+        );
+        assert_eq!(
+            visible.table_columns[1].alignment,
+            TableColumnAlignment::Right
+        );
+        assert!(visible.table_columns[0].rule_after);
+        assert_eq!(visible.table_columns[0].rule_after_count, 1);
+        assert!(visible.table_columns[1].rule_before);
+        assert_eq!(visible.table_columns[1].rule_before_count, 1);
+    }
+
+    #[test]
     fn render_event_capture_records_numeric_table_column_specs() {
         let source = r"\begin{document}\begin{tabular}{S[table-format=1.2]D{.}{.}{-1}}1.2 & 3.4\end{tabular}\end{document}";
         let mut interner = ControlSequenceInterner::new();
