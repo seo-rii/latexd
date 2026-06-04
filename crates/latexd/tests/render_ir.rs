@@ -13096,6 +13096,34 @@ fn tabular_box_wrappers_hide_layout_arguments() {
 }
 
 #[test]
+fn tabular_overlap_wrappers_preserve_visible_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{llll}\rlap{Right} & \llap{Left} & \clap{Center} & \smash{Flat}\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "Right");
+    assert_eq!(table.rows[0].cells[1].text, "Left");
+    assert_eq!(table.rows[0].cells[2].text, "Center");
+    assert_eq!(table.rows[0].cells[3].text, "Flat");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Right | Left | Center | Flat"));
+    for hidden in ["rlap", "llap", "clap", "smash"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+}
+
+#[test]
 fn resizebox_wrapped_tabular_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",

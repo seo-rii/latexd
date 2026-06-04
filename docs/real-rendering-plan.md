@@ -87,7 +87,9 @@ modeled. Diagonal table header helpers such as `\diagbox`, `\slashbox`, and
 `\backslashbox` normalize to readable `A/B` cell text without leaking helper
 command names. Table-cell box wrappers such as `\rotatebox`, `\scalebox`,
 `\resizebox`, and `\reflectbox` preserve visible body text while hiding
-layout-only arguments. The first figure slice is also implemented at
+layout-only arguments, and overlap/height helpers such as `\rlap`, `\llap`,
+`\clap`, and `\smash` preserve their visible body text. The first figure slice
+is also implemented at
 the renderer boundary: resolver-provided PNG/JPEG bytes can be decoded into PDF
 `/Image` XObjects by `tex-pdf`, and project-root render-IR capture can now write
 debug PDFs with those embedded assets. Image display-list boxes also honor the
@@ -618,6 +620,8 @@ Implemented first slice:
   normalize to readable two-label cell text.
 - table-cell box wrappers such as `\rotatebox`, `\scalebox`, `\resizebox`, and
   `\reflectbox` normalize to visible body text without leaking layout arguments.
+- table-cell overlap/height helpers such as `\rlap`, `\llap`, `\clap`, and
+  `\smash` normalize to their visible body text.
 - table environments inside box wrappers such as `\resizebox{...}{...}{...}`
   are still captured as table IR instead of being swallowed by wrapper handling.
 - `adjustbox` environments hide their option argument and allow nested tables to
@@ -769,6 +773,7 @@ Status:
   and width metadata;
 - diagonal table header helpers normalize to readable cell text;
 - table-cell box wrappers hide layout arguments while preserving visible text;
+- table-cell overlap wrappers preserve visible text;
 - `siunitx` `S` and `dcolumn` `D` numeric columns preserve coarse decimal
   alignment intent;
 - figure asset identity/caption propagation exists, and resolver-provided

@@ -19051,6 +19051,10 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 | "fbox"
                 | "framebox"
                 | "makebox"
+                | "rlap"
+                | "llap"
+                | "clap"
+                | "smash"
                 | "texttt"
                 | "textsf"
                 | "textsc"
@@ -31514,6 +31518,33 @@ Fallback text.
             "1.2",
             "2cm",
         ] {
+            assert!(!visible_text.contains(hidden), "{visible_text:?}");
+        }
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_table_cell_overlap_wrappers() {
+        let source = r"\begin{document}\begin{tabular}{llll}\rlap{Right} & \llap{Left} & \clap{Center} & \smash{Flat}\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible_text, "Right | Left | Center | Flat");
+        for hidden in ["rlap", "llap", "clap", "smash"] {
             assert!(!visible_text.contains(hidden), "{visible_text:?}");
         }
     }
