@@ -1210,25 +1210,29 @@ pub fn build_page_display_lists(
                         y = options.margin_top_pt;
                     }
 
-                    if !pending.text.is_empty() {
-                        pending.text.push('\n');
-                        pending.hash_input.push('\n');
-                    }
-                    pending.hash_input.push_str(&format!(
-                        "\u{1e}text_run:{line_x:.3}:{y:.3}:{:?}:{:.3}\u{1f}",
-                        logical.font, logical.size_pt
-                    ));
                     let destination_source = line_segments
                         .first()
                         .map(|segment| &segment.source)
                         .unwrap_or(&logical.source);
                     emit_due_destinations(destination_source, Point { x: line_x, y }, &mut pending);
-                    let line_text = line_segments
+                    let visible_line_text = line_segments
                         .iter()
+                        .filter(|segment| !segment.table_rule)
                         .map(|segment| segment.text.as_str())
                         .collect::<String>();
-                    pending.text.push_str(&line_text);
-                    pending.hash_input.push_str(&line_text);
+                    let line_has_text = !visible_line_text.is_empty() || line_segments.is_empty();
+                    if line_has_text {
+                        if !pending.text.is_empty() {
+                            pending.text.push('\n');
+                            pending.hash_input.push('\n');
+                        }
+                        pending.hash_input.push_str(&format!(
+                            "\u{1e}text_run:{line_x:.3}:{y:.3}:{:?}:{:.3}\u{1f}",
+                            logical.font, logical.size_pt
+                        ));
+                        pending.text.push_str(&visible_line_text);
+                        pending.hash_input.push_str(&visible_line_text);
+                    }
 
                     if line_segments.is_empty() {
                         record_source_spans(&logical.source, &mut pending.source_spans);
@@ -1333,40 +1337,42 @@ pub fn build_page_display_lists(
                                 });
                             }
                         }
-                        pending.hash_input.push('\u{1f}');
-                        pending.hash_input.push_str(&format!(
-                            "text_segment:{x:.3}:{advance:.3}:{}",
-                            segment.text
-                        ));
-                        let clusters = approximate_text_clusters(&segment.text);
-                        let source = segment.source;
-                        pending.ops.push(DrawOp::TextRun(PositionedTextRun {
-                            origin: Point { x, y },
-                            text: segment.text,
-                            font: logical.font.clone(),
-                            size_pt: logical.size_pt,
-                            approximate_advance_pt: advance,
-                            glyphs: None,
-                            clusters,
-                            source: source.clone(),
-                        }));
-                        if let Some(target) = segment.link_target {
-                            let rect = Rect {
-                                x,
-                                y: (y - logical.size_pt).max(0.0),
-                                width: advance,
-                                height: options.line_height_pt,
-                            };
+                        if !segment.table_rule {
                             pending.hash_input.push('\u{1f}');
                             pending.hash_input.push_str(&format!(
-                                "link:{target}:{:.3}:{:.3}:{:.3}:{:.3}",
-                                rect.x, rect.y, rect.width, rect.height
+                                "text_segment:{x:.3}:{advance:.3}:{}",
+                                segment.text
                             ));
-                            pending.ops.push(DrawOp::LinkAnnotation(LinkAnnotation {
-                                rect,
-                                target,
-                                source,
+                            let clusters = approximate_text_clusters(&segment.text);
+                            let source = segment.source;
+                            pending.ops.push(DrawOp::TextRun(PositionedTextRun {
+                                origin: Point { x, y },
+                                text: segment.text,
+                                font: logical.font.clone(),
+                                size_pt: logical.size_pt,
+                                approximate_advance_pt: advance,
+                                glyphs: None,
+                                clusters,
+                                source: source.clone(),
                             }));
+                            if let Some(target) = segment.link_target {
+                                let rect = Rect {
+                                    x,
+                                    y: (y - logical.size_pt).max(0.0),
+                                    width: advance,
+                                    height: options.line_height_pt,
+                                };
+                                pending.hash_input.push('\u{1f}');
+                                pending.hash_input.push_str(&format!(
+                                    "link:{target}:{:.3}:{:.3}:{:.3}:{:.3}",
+                                    rect.x, rect.y, rect.width, rect.height
+                                ));
+                                pending.ops.push(DrawOp::LinkAnnotation(LinkAnnotation {
+                                    rect,
+                                    target,
+                                    source,
+                                }));
+                            }
                         }
                         for rect in table_rule_rects {
                             pending.hash_input.push('\u{1f}');
@@ -2381,9 +2387,8 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(
-            lines.iter().filter(|line| **line == "------------").count(),
-            3,
+        assert!(
+            !lines.iter().any(|line| line.contains("------------")),
             "{lines:?}"
         );
         assert!(lines.contains(&"Head | Value"), "{lines:?}");
@@ -2474,9 +2479,10 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert!(lines.contains(&"Head | Value | Tail"), "{lines:?}");
-        assert!(lines.contains(&"       ------------"), "{lines:?}");
         assert!(
-            !lines.iter().any(|line| line.contains(".......")),
+            !lines
+                .iter()
+                .any(|line| line.contains(".......") || line.contains("------------")),
             "{lines:?}"
         );
         assert!(lines.contains(&"A    | B     | C"), "{lines:?}");

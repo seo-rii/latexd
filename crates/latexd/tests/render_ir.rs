@@ -12344,9 +12344,19 @@ fn tabular_capture_builds_table_ir() {
         .join("\n");
     assert!(display_list_text.contains("Alpha | Beta"));
     assert!(display_list_text.contains("Gamma | Delta"));
-    assert!(display_list_text.contains("-------------"));
     assert!(!display_list_text.contains("&"));
     assert!(!display_list_text.contains("hline"));
+    let display_list_pdf = String::from_utf8_lossy(&capture.display_list_pdf);
+    assert!(!display_list_pdf.contains("-------------"));
+    let rule_ops = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::Rule(rect) => Some(rect),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(rule_ops.len(), 1, "{rule_ops:?}");
 }
 
 #[test]
@@ -12884,11 +12894,9 @@ fn tabular_partial_rules_survive_ir_and_display_list() {
         "{table_lines:?}"
     );
     assert!(
-        table_lines.contains(&"       ------------"),
-        "{table_lines:?}"
-    );
-    assert!(
-        !table_lines.iter().any(|line| line.contains(".......")),
+        !table_lines
+            .iter()
+            .any(|line| line.contains(".......") || line.contains("------------")),
         "{table_lines:?}"
     );
     assert!(table_lines.contains(&"A    | B     | C"), "{table_lines:?}");

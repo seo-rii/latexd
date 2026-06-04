@@ -538,7 +538,9 @@ Implemented first slice:
   monospaced font request;
 - full and partial horizontal rules now also emit `PageDisplayList::Rule`
   rectangles for renderer-visible table separators, and partial-rule gaps stay
-  whitespace rather than visible filler text.
+  whitespace rather than visible filler text. Horizontal rule rows no longer
+  emit separate `TextRun` operations, keeping rule strokes out of searchable PDF
+  text.
 - simple `l` / `c` / `r` / paragraph-style table preamble columns and bounded
   `*{n}{...}` repeated specs now survive into IR and drive coarse display-list
   text alignment.
