@@ -641,63 +641,6 @@ pub fn build_page_display_lists(
                         + if right_width > 0 { 1 + right_width } else { 0 };
                     column_widths[column_index] = column_widths[column_index].max(decimal_width);
                 }
-                for row in &rendered_rows {
-                    for cell in row {
-                        let column_index = cell.column_index;
-                        let column_span = cell.column_span;
-                        let end_column = (column_index + column_span).min(column_widths.len());
-                        let mut spanned_width = column_widths[column_index..end_column]
-                            .iter()
-                            .sum::<usize>();
-                        spanned_width += end_column.saturating_sub(column_index + 1) * 3;
-                        let text_width = cell.text.chars().count();
-                        if column_span > 1 && text_width > spanned_width && end_column > 0 {
-                            column_widths[end_column - 1] += text_width - spanned_width;
-                        }
-                    }
-                }
-                let table_glyph_width_pt = (options.body_font_size_pt * 0.6).max(1.0);
-                for (column_index, column) in block.columns.iter().enumerate() {
-                    if let Some(width_pt_milli) = column.width_pt_milli {
-                        while column_index >= column_widths.len() {
-                            column_widths.push(0usize);
-                        }
-                        let min_chars = (((width_pt_milli as f32 / 1000.0) / table_glyph_width_pt)
-                            - 0.001)
-                            .ceil()
-                            .max(1.0) as usize;
-                        column_widths[column_index] = column_widths[column_index].max(min_chars);
-                    }
-                }
-                let rule_width =
-                    column_widths.iter().sum::<usize>() + column_widths.len().saturating_sub(1) * 3;
-                let rule_text = "-".repeat(rule_width.max(3));
-                let partial_rule_text = |span: &TableRuleSpan| {
-                    if column_widths.is_empty() {
-                        return rule_text.clone();
-                    }
-                    let start_column = span.start_column.min(column_widths.len().saturating_sub(1));
-                    let end_column = span.end_column.min(column_widths.len().saturating_sub(1));
-                    if end_column < start_column {
-                        return rule_text.clone();
-                    }
-                    let mut start_offset = 0usize;
-                    for width in &column_widths[..start_column] {
-                        start_offset += *width + 3;
-                    }
-                    let mut end_offset = start_offset;
-                    for column in start_column..=end_column {
-                        end_offset += column_widths[column];
-                        if column < end_column {
-                            end_offset += 3;
-                        }
-                    }
-                    let mut chars = vec![' '; rule_width.max(3)];
-                    for index in start_offset..end_offset.min(chars.len()) {
-                        chars[index] = '-';
-                    }
-                    chars.into_iter().collect::<String>()
-                };
                 let column_rule_before_count = |column_index: usize| -> u8 {
                     block
                         .columns
@@ -727,6 +670,84 @@ pub fn build_page_display_lists(
                             }
                         })
                         .unwrap_or(0)
+                };
+                let separator_width =
+                    |previous_column_index: usize, column_index: usize| -> usize {
+                        let rule_count = column_rule_after_count(previous_column_index)
+                            .max(column_rule_before_count(column_index));
+                        if rule_count > 0 {
+                            3
+                        } else if let Some(separator) = block
+                            .columns
+                            .get(previous_column_index)
+                            .and_then(|column| column.separator_after.as_deref())
+                        {
+                            separator.chars().count()
+                        } else {
+                            3
+                        }
+                    };
+                let spanned_separator_width = |start_column: usize, end_column: usize| -> usize {
+                    (start_column + 1..end_column)
+                        .map(|column| separator_width(column - 1, column))
+                        .sum()
+                };
+                for row in &rendered_rows {
+                    for cell in row {
+                        let column_index = cell.column_index;
+                        let column_span = cell.column_span;
+                        let end_column = (column_index + column_span).min(column_widths.len());
+                        let mut spanned_width = column_widths[column_index..end_column]
+                            .iter()
+                            .sum::<usize>();
+                        spanned_width += spanned_separator_width(column_index, end_column);
+                        let text_width = cell.text.chars().count();
+                        if column_span > 1 && text_width > spanned_width && end_column > 0 {
+                            column_widths[end_column - 1] += text_width - spanned_width;
+                        }
+                    }
+                }
+                let table_glyph_width_pt = (options.body_font_size_pt * 0.6).max(1.0);
+                for (column_index, column) in block.columns.iter().enumerate() {
+                    if let Some(width_pt_milli) = column.width_pt_milli {
+                        while column_index >= column_widths.len() {
+                            column_widths.push(0usize);
+                        }
+                        let min_chars = (((width_pt_milli as f32 / 1000.0) / table_glyph_width_pt)
+                            - 0.001)
+                            .ceil()
+                            .max(1.0) as usize;
+                        column_widths[column_index] = column_widths[column_index].max(min_chars);
+                    }
+                }
+                let rule_width = column_widths.iter().sum::<usize>()
+                    + spanned_separator_width(0, column_widths.len());
+                let rule_text = "-".repeat(rule_width.max(3));
+                let partial_rule_text = |span: &TableRuleSpan| {
+                    if column_widths.is_empty() {
+                        return rule_text.clone();
+                    }
+                    let start_column = span.start_column.min(column_widths.len().saturating_sub(1));
+                    let end_column = span.end_column.min(column_widths.len().saturating_sub(1));
+                    if end_column < start_column {
+                        return rule_text.clone();
+                    }
+                    let mut start_offset = 0usize;
+                    for column in 0..start_column {
+                        start_offset += column_widths[column] + separator_width(column, column + 1);
+                    }
+                    let mut end_offset = start_offset;
+                    for column in start_column..=end_column {
+                        end_offset += column_widths[column];
+                        if column < end_column {
+                            end_offset += separator_width(column, column + 1);
+                        }
+                    }
+                    let mut chars = vec![' '; rule_width.max(3)];
+                    for index in start_offset..end_offset.min(chars.len()) {
+                        chars[index] = '-';
+                    }
+                    chars.into_iter().collect::<String>()
                 };
                 if let Some(caption) = &block.caption {
                     let source = block

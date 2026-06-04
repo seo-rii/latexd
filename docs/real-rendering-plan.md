@@ -56,7 +56,8 @@ booktabs commands are preserved as row rule flags and now emit renderer-visible
 `PageDisplayList::Rule` rectangles while preserving dashed separators in the
 readable display-list fallback. Simple `\cline{a-b}` / `\cmidrule(...){a-b}`
 spans are carried as zero-based inclusive column ranges with whitespace outside
-the covered columns and matching partial rule rectangles. Simple
+the covered columns and matching partial rule rectangles, using the same visible
+separator widths as table row text when trimming the rule span. Simple
 `\multicolumn{n}{...}{text}` cells are also normalized to visible cell text plus
 `TableCell.column_span` metadata so the display-list fallback can occupy the
 combined monospaced column width, and simple `l` / `c` / `r` multicolumn specs
@@ -569,7 +570,8 @@ Implemented first slice:
   rectangles for renderer-visible table separators, and partial-rule gaps stay
   whitespace rather than visible filler text. Horizontal rule rows no longer
   emit separate `TextRun` operations, keeping rule strokes out of searchable PDF
-  text.
+  text. Partial horizontal rule rectangles use the same visible separator
+  widths as table row text instead of assuming fixed-width default separators.
 - simple `l` / `c` / `r` / paragraph-style table preamble columns and bounded
   `*{n}{...}` repeated specs now survive into IR and drive coarse display-list
   text alignment.

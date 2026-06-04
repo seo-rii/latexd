@@ -13489,6 +13489,49 @@ fn tabular_partial_rules_survive_ir_and_display_list() {
 }
 
 #[test]
+fn tabular_partial_rule_rects_use_visible_separator_widths() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{l@{--}r@{+++}l}A & B & C \\\cline{2-3} D & E & F\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let row_run = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "A--B+++C" => Some(run),
+            _ => None,
+        })
+        .expect("first table row text");
+    let table_rules = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::Rule(rect) if rect.width > rect.height => Some(rect),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(table_rules.len(), 1, "{table_rules:?}");
+    let glyph_width = row_run.approximate_advance_pt / row_run.text.chars().count() as f32;
+    let expected_start_x = row_run.origin.x + glyph_width * "A--".chars().count() as f32;
+    let expected_width = glyph_width * "B+++C".chars().count() as f32;
+
+    assert!(
+        (table_rules[0].x - expected_start_x).abs() <= glyph_width * 0.1,
+        "rule {:?}, row_run {:?}, expected_start_x {expected_start_x}",
+        table_rules[0],
+        row_run
+    );
+    assert!(
+        (table_rules[0].width - expected_width).abs() <= glyph_width * 0.1,
+        "rule {:?}, row_run {:?}, expected_width {expected_width}",
+        table_rules[0],
+        row_run
+    );
+}
+
+#[test]
 fn booktabs_spacing_commands_do_not_leak_into_table_text() {
     let capture = capture_internal_render_ir(
         "main.tex",
