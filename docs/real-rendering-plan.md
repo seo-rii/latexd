@@ -55,18 +55,19 @@ padding for uneven rows. Horizontal table rules from `\hline` and common
 booktabs commands are preserved as row rule flags and now emit renderer-visible
 `PageDisplayList::Rule` rectangles while preserving dashed separators in the
 readable display-list fallback. Simple `\cline{a-b}` / `\cmidrule(...){a-b}`
-spans are carried as zero-based inclusive column ranges with visible `.` filler
-outside the covered columns and matching partial rule rectangles. Simple
+spans are carried as zero-based inclusive column ranges with whitespace outside
+the covered columns and matching partial rule rectangles. Simple
 `\multicolumn{n}{...}{text}` cells are also normalized to visible cell text plus
 `TableCell.column_span` metadata so the display-list fallback can occupy the
 combined monospaced column width. Simple `l` / `c` / `r` / paragraph-style table
 preamble columns now survive as `TableColumnSpec` metadata, bounded `*{n}{...}`
 repeated specs expand before IR construction, and those specs drive coarse
 left/center/right padding in the display-list text fallback. Simple column
-border markers also emit coarse vertical `PageDisplayList::Rule` rectangles at
-the monospaced fallback boundary positions, including repeated `||` rule-count
-approximations; when those borders are emitted as rule ops, the corresponding
-display-list text separator is whitespace rather than a searchable `|` glyph.
+border markers and simple `@{\vrule}` / `!{\vrule}` array hooks also emit
+coarse vertical `PageDisplayList::Rule` rectangles at the monospaced fallback
+boundary positions, including repeated `||` rule-count approximations; when
+those borders are emitted as rule ops, the corresponding display-list text
+separator is whitespace rather than a searchable `|` glyph.
 `multirow` commands now preserve their visible cell text, but simple
 `\multirow` / `\multirowcell` row counts also survive as
 `TableCell.row_span` metadata. Multirow geometry is still not
@@ -551,16 +552,17 @@ Implemented first slice:
   fallback columns without applying exact TeX widths.
 - array-package hook and intercolumn modifiers `>{...}`, `<{...}`, `@{...}`,
   and `!{...}` are skipped as non-column material so the following real columns
-  still drive fallback alignment.
+  still drive fallback alignment, while simple `@{\vrule}` / `!{\vrule}`
+  hooks preserve coarse vertical rule metadata.
 - simple `tabu`/`longtabu` preambles, including `longtabu to ... {cols}` and
   `X[...]` options, are normalized into the same table column metadata.
 - common numeric `siunitx` `S[...]` and `dcolumn` `D{...}{...}{...}` columns
   are treated as right-aligned fallback columns without decimal alignment.
-- simple vertical border markers now emit coarse `PageDisplayList::Rule`
-  rectangles at the readable table fallback's column boundaries, including
-  repeated `||` rule-count approximations; when those borders are rendered as
-  rule ops, the corresponding display-list text separator is whitespace rather
-  than a searchable `|` glyph.
+- simple vertical border markers and simple `@{\vrule}` / `!{\vrule}` array
+  hooks now emit coarse `PageDisplayList::Rule` rectangles at the readable
+  table fallback's column boundaries, including repeated `||` rule-count
+  approximations; when those borders are rendered as rule ops, the corresponding
+  display-list text separator is whitespace rather than a searchable `|` glyph.
 - common `booktabs` spacing and rule-control commands such as optional-width
   `\toprule` / `\midrule` / `\bottomrule`, `\addlinespace`,
   `\morecmidrules`, and `\specialrule` are suppressed from visible table text

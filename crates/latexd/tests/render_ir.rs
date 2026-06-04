@@ -12509,6 +12509,10 @@ fn tabular_array_column_hooks_do_not_hide_real_columns() {
     assert_eq!(table.columns.len(), 2);
     assert_eq!(table.columns[0].alignment, TableColumnAlignment::Paragraph);
     assert_eq!(table.columns[1].alignment, TableColumnAlignment::Right);
+    assert!(table.columns[0].rule_after);
+    assert_eq!(table.columns[0].rule_after_count, 1);
+    assert!(table.columns[1].rule_before);
+    assert_eq!(table.columns[1].rule_before_count, 1);
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("Alpha | 1"));
     assert!(extracted_text.contains("Beta | 22"));
@@ -12524,8 +12528,25 @@ fn tabular_array_column_hooks_do_not_hide_real_columns() {
         })
         .collect::<Vec<_>>();
 
-    assert!(table_lines.contains(&"Alpha |  1"), "{table_lines:?}");
-    assert!(table_lines.contains(&"Beta  | 22"), "{table_lines:?}");
+    let vertical_rules = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter(|op| {
+            matches!(
+                op,
+                DrawOp::Rule(rule)
+                    if rule.height > rule.width && (rule.width - 0.8).abs() < 0.001
+            )
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(vertical_rules.len(), 2, "{vertical_rules:?}");
+    assert!(table_lines.contains(&"Alpha    1"), "{table_lines:?}");
+    assert!(table_lines.contains(&"Beta    22"), "{table_lines:?}");
+    assert!(
+        !table_lines.iter().any(|line| line.contains('|')),
+        "{table_lines:?}"
+    );
 }
 
 #[test]
