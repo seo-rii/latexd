@@ -620,7 +620,9 @@ Implemented first slice:
 - common `booktabs` spacing and rule-control commands such as optional-width
   `\toprule` / `\midrule` / `\bottomrule`, `\addlinespace`,
   `\morecmidrules`, and `\specialrule` are suppressed from visible table text
-  while preserving renderer-visible rule metadata where appropriate.
+  while preserving renderer-visible rule metadata where appropriate; table
+  `\noalign{...}` spacing bodies are also consumed without becoming visible
+  fallback text.
 - common `hhline` rule commands are suppressed from visible table text and
   treated as coarse full-width table rules, with simple `~` blank-column and
   bounded `*{n}{...}` repeated patterns preserved as partial rule spans; exact

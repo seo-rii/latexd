@@ -13690,6 +13690,38 @@ fn tabular_partial_rules_survive_ir_and_display_list() {
 }
 
 #[test]
+fn tabular_noalign_spacing_does_not_leak_into_ir_or_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{ll}A & B \\\hline\noalign{\smallskip} C & D\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("A | B"), "{extracted_text}");
+    assert!(extracted_text.contains("C | D"), "{extracted_text}");
+    for hidden in ["noalign", "smallskip"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+    }
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let table_rules = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter(|op| matches!(op, DrawOp::Rule(rect) if rect.width > rect.height))
+        .count();
+
+    assert!(table_lines.contains(&"A | B"), "{table_lines:?}");
+    assert!(table_lines.contains(&"C | D"), "{table_lines:?}");
+    assert_eq!(table_rules, 1);
+}
+
+#[test]
 fn tabular_partial_rule_rects_use_visible_separator_widths() {
     let capture = capture_internal_render_ir(
         "main.tex",

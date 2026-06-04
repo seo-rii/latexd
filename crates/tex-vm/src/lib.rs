@@ -9905,6 +9905,15 @@ impl<'i> Vm<'i> {
                         "morecmidrules" => {
                             table_index = command_end;
                         }
+                        "noalign" => {
+                            table_index = command_end;
+                            table_index = skip_ascii_whitespace(table_body, table_index);
+                            if let Some((_, _, _, after)) =
+                                read_braced_source_argument(table_body, table_index)
+                            {
+                                table_index = after;
+                            }
+                        }
                         "hhline" => {
                             let (row_index, position) = if row_has_visible_content {
                                 (current_row_index, TableRulePosition::Below)
@@ -24792,6 +24801,37 @@ Fallback text.
             "{:?}",
             visible.table_rules
         );
+    }
+
+    #[test]
+    fn render_event_capture_omits_table_noalign_spacing() {
+        let source = r"\begin{document}\begin{tabular}{ll}A & B \\\hline\noalign{\smallskip} C & D\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        let visible_text = visible
+            .normalized_visible_text
+            .as_deref()
+            .expect("visible table text");
+
+        assert!(visible_text.contains("A | B"));
+        assert!(visible_text.contains("C | D"));
+        assert!(!visible_text.contains("noalign"));
+        assert!(!visible_text.contains("smallskip"));
     }
 
     #[test]
