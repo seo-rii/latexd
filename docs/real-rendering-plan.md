@@ -634,6 +634,9 @@ Implemented first slice:
   the next table column in the readable fallback.
 - negative `\multirow{-n}` counts are treated as upward-span approximations and
   do not create downward continuation placeholders in later rows.
+- `\multirow{...}{...}{\multicolumn{...}{...}{...}}` now preserves the nested
+  multicolumn's simple span/alignment/rule metadata so continuation-row
+  placeholders cover the approximated spanned columns.
 - starred `makecell` helpers such as `\makecell*{...}` and `\thead*{...}` are
   normalized to visible cell text without leaking helper command names.
 - `makecell` / `thead` / `shortstack` internal line breaks are consumed inside

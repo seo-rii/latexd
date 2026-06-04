@@ -9561,6 +9561,177 @@ impl<'i> Vm<'i> {
         let mut current_column_index = 0usize;
         let mut row_has_visible_content = false;
         let mut table_index = 0usize;
+        let parse_multicolumn_alignment = |alignment_spec: &str| {
+            let mut alignment = None;
+            let mut saw_alignment_token = false;
+            let mut rule_before_count = 0u8;
+            let mut rule_after_count = 0u8;
+            let mut cell_prefix: Option<String> = None;
+            let mut cell_suffix: Option<String> = None;
+            let mut alignment_index = 0usize;
+            while alignment_index < alignment_spec.len() {
+                let ch = alignment_spec[alignment_index..]
+                    .chars()
+                    .next()
+                    .expect("multicolumn alignment spec char");
+                match ch {
+                    '|' => {
+                        if saw_alignment_token {
+                            rule_after_count = rule_after_count.saturating_add(1);
+                        } else {
+                            rule_before_count = rule_before_count.saturating_add(1);
+                        }
+                        alignment_index += ch.len_utf8();
+                    }
+                    '@' | '!' | '>' | '<' => {
+                        alignment_index += ch.len_utf8();
+                        alignment_index = skip_ascii_whitespace(alignment_spec, alignment_index);
+                        if let Some((modifier, _, _, after_modifier)) =
+                            read_braced_source_argument(alignment_spec, alignment_index)
+                        {
+                            let compact = modifier
+                                .chars()
+                                .filter(|modifier_ch| !modifier_ch.is_whitespace())
+                                .collect::<String>();
+                            let is_rule_modifier =
+                                compact.contains("\\vrule") || compact.contains("\\vline");
+                            let visible_modifier =
+                                normalize_latex_text_with_inline_placeholders(modifier);
+                            if !visible_modifier.is_empty() {
+                                match ch {
+                                    '>' => {
+                                        cell_prefix = Some(cell_prefix.map_or_else(
+                                            || visible_modifier.clone(),
+                                            |mut prefix| {
+                                                prefix.push_str(&visible_modifier);
+                                                prefix
+                                            },
+                                        ))
+                                    }
+                                    '<' => {
+                                        cell_suffix = Some(cell_suffix.map_or_else(
+                                            || visible_modifier.clone(),
+                                            |mut suffix| {
+                                                suffix.push_str(&visible_modifier);
+                                                suffix
+                                            },
+                                        ))
+                                    }
+                                    '@' | '!' if !is_rule_modifier => {
+                                        if saw_alignment_token {
+                                            cell_suffix = Some(cell_suffix.map_or_else(
+                                                || visible_modifier.clone(),
+                                                |mut suffix| {
+                                                    suffix.push_str(&visible_modifier);
+                                                    suffix
+                                                },
+                                            ));
+                                        } else {
+                                            cell_prefix = Some(cell_prefix.map_or_else(
+                                                || visible_modifier.clone(),
+                                                |mut prefix| {
+                                                    prefix.push_str(&visible_modifier);
+                                                    prefix
+                                                },
+                                            ));
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            if is_rule_modifier {
+                                if saw_alignment_token {
+                                    rule_after_count = rule_after_count.saturating_add(1);
+                                } else {
+                                    rule_before_count = rule_before_count.saturating_add(1);
+                                }
+                            }
+                            if compact.contains("\\raggedleft")
+                                || compact.contains("\\RaggedLeft")
+                                || compact.contains("\\flushright")
+                            {
+                                alignment = Some(TableColumnAlignment::Right);
+                                saw_alignment_token = true;
+                            } else if compact.contains("\\centering")
+                                || compact.contains("\\Centering")
+                            {
+                                alignment = Some(TableColumnAlignment::Center);
+                                saw_alignment_token = true;
+                            } else if compact.contains("\\raggedright")
+                                || compact.contains("\\RaggedRight")
+                                || compact.contains("\\flushleft")
+                            {
+                                alignment = Some(TableColumnAlignment::Left);
+                                saw_alignment_token = true;
+                            }
+                            alignment_index = after_modifier;
+                        }
+                    }
+                    'l' => {
+                        alignment = Some(TableColumnAlignment::Left);
+                        saw_alignment_token = true;
+                        alignment_index += ch.len_utf8();
+                    }
+                    'c' => {
+                        alignment = Some(TableColumnAlignment::Center);
+                        saw_alignment_token = true;
+                        alignment_index += ch.len_utf8();
+                    }
+                    'r' => {
+                        alignment = Some(TableColumnAlignment::Right);
+                        saw_alignment_token = true;
+                        alignment_index += ch.len_utf8();
+                    }
+                    'p' | 'm' | 'b' | 'X' => {
+                        alignment = Some(TableColumnAlignment::Paragraph);
+                        saw_alignment_token = true;
+                        alignment_index += ch.len_utf8();
+                        if matches!(ch, 'p' | 'm' | 'b') {
+                            let width_index =
+                                skip_ascii_whitespace(alignment_spec, alignment_index);
+                            if let Some((_, _, _, after_width)) =
+                                read_braced_source_argument(alignment_spec, width_index)
+                            {
+                                alignment_index = after_width;
+                            }
+                        }
+                    }
+                    'S' | 'D' => {
+                        alignment = Some(TableColumnAlignment::Decimal);
+                        saw_alignment_token = true;
+                        alignment_index += ch.len_utf8();
+                        if ch == 'S' {
+                            if let Some((_, _, _, after_option)) =
+                                read_bracket_source_argument(alignment_spec, alignment_index)
+                            {
+                                alignment_index = after_option;
+                            }
+                        } else {
+                            for _ in 0..3 {
+                                alignment_index =
+                                    skip_ascii_whitespace(alignment_spec, alignment_index);
+                                let Some((_, _, _, after_argument)) =
+                                    read_braced_source_argument(alignment_spec, alignment_index)
+                                else {
+                                    break;
+                                };
+                                alignment_index = after_argument;
+                            }
+                        }
+                    }
+                    _ => {
+                        alignment_index += ch.len_utf8();
+                    }
+                }
+            }
+            (
+                alignment,
+                rule_before_count,
+                rule_after_count,
+                cell_prefix,
+                cell_suffix,
+            )
+        };
         while table_index < table_body.len() {
             let byte = table_body.as_bytes()[table_index];
             match byte {
@@ -9898,231 +10069,13 @@ impl<'i> Vm<'i> {
                                     {
                                         let column_span =
                                             span_text.trim().parse::<usize>().unwrap_or(1).max(1);
-                                        let mut alignment = None;
-                                        let mut saw_alignment_token = false;
-                                        let mut rule_before_count = 0u8;
-                                        let mut rule_after_count = 0u8;
-                                        let mut cell_prefix: Option<String> = None;
-                                        let mut cell_suffix: Option<String> = None;
-                                        let mut alignment_index = 0usize;
-                                        while alignment_index < alignment_spec.len() {
-                                            let ch = alignment_spec[alignment_index..]
-                                                .chars()
-                                                .next()
-                                                .expect("multicolumn alignment spec char");
-                                            match ch {
-                                                '|' => {
-                                                    if saw_alignment_token {
-                                                        rule_after_count =
-                                                            rule_after_count.saturating_add(1);
-                                                    } else {
-                                                        rule_before_count =
-                                                            rule_before_count.saturating_add(1);
-                                                    }
-                                                    alignment_index += ch.len_utf8();
-                                                }
-                                                '@' | '!' | '>' | '<' => {
-                                                    alignment_index += ch.len_utf8();
-                                                    alignment_index = skip_ascii_whitespace(
-                                                        alignment_spec,
-                                                        alignment_index,
-                                                    );
-                                                    if let Some((modifier, _, _, after_modifier)) =
-                                                        read_braced_source_argument(
-                                                            alignment_spec,
-                                                            alignment_index,
-                                                        )
-                                                    {
-                                                        let compact = modifier
-                                                            .chars()
-                                                            .filter(|modifier_ch| {
-                                                                !modifier_ch.is_whitespace()
-                                                            })
-                                                            .collect::<String>();
-                                                        let is_rule_modifier = compact
-                                                            .contains("\\vrule")
-                                                            || compact.contains("\\vline");
-                                                        let visible_modifier =
-                                                            normalize_latex_text_with_inline_placeholders(
-                                                                modifier,
-                                                            );
-                                                        if !visible_modifier.is_empty() {
-                                                            match ch {
-                                                                '>' => {
-                                                                    cell_prefix = Some(
-                                                                        cell_prefix.map_or_else(
-                                                                            || {
-                                                                                visible_modifier
-                                                                                    .clone()
-                                                                            },
-                                                                            |mut prefix| {
-                                                                                prefix.push_str(
-                                                                                &visible_modifier,
-                                                                            );
-                                                                                prefix
-                                                                            },
-                                                                        ),
-                                                                    )
-                                                                }
-                                                                '<' => {
-                                                                    cell_suffix = Some(
-                                                                        cell_suffix.map_or_else(
-                                                                            || {
-                                                                                visible_modifier
-                                                                                    .clone()
-                                                                            },
-                                                                            |mut suffix| {
-                                                                                suffix.push_str(
-                                                                                &visible_modifier,
-                                                                            );
-                                                                                suffix
-                                                                            },
-                                                                        ),
-                                                                    )
-                                                                }
-                                                                '@' | '!' if !is_rule_modifier => {
-                                                                    if saw_alignment_token {
-                                                                        cell_suffix = Some(
-                                                                            cell_suffix
-                                                                                .map_or_else(
-                                                                                    || {
-                                                                                        visible_modifier
-                                                                                            .clone()
-                                                                                    },
-                                                                                    |mut suffix| {
-                                                                                        suffix.push_str(
-                                                                                            &visible_modifier,
-                                                                                        );
-                                                                                        suffix
-                                                                                    },
-                                                                                ),
-                                                                        );
-                                                                    } else {
-                                                                        cell_prefix = Some(
-                                                                            cell_prefix
-                                                                                .map_or_else(
-                                                                                    || {
-                                                                                        visible_modifier
-                                                                                            .clone()
-                                                                                    },
-                                                                                    |mut prefix| {
-                                                                                        prefix.push_str(
-                                                                                            &visible_modifier,
-                                                                                        );
-                                                                                        prefix
-                                                                                    },
-                                                                                ),
-                                                                        );
-                                                                    }
-                                                                }
-                                                                _ => {}
-                                                            }
-                                                        }
-                                                        if is_rule_modifier {
-                                                            if saw_alignment_token {
-                                                                rule_after_count = rule_after_count
-                                                                    .saturating_add(1);
-                                                            } else {
-                                                                rule_before_count =
-                                                                    rule_before_count
-                                                                        .saturating_add(1);
-                                                            }
-                                                        }
-                                                        if compact.contains("\\raggedleft")
-                                                            || compact.contains("\\RaggedLeft")
-                                                            || compact.contains("\\flushright")
-                                                        {
-                                                            alignment =
-                                                                Some(TableColumnAlignment::Right);
-                                                            saw_alignment_token = true;
-                                                        } else if compact.contains("\\centering")
-                                                            || compact.contains("\\Centering")
-                                                        {
-                                                            alignment =
-                                                                Some(TableColumnAlignment::Center);
-                                                            saw_alignment_token = true;
-                                                        } else if compact.contains("\\raggedright")
-                                                            || compact.contains("\\RaggedRight")
-                                                            || compact.contains("\\flushleft")
-                                                        {
-                                                            alignment =
-                                                                Some(TableColumnAlignment::Left);
-                                                            saw_alignment_token = true;
-                                                        }
-                                                        alignment_index = after_modifier;
-                                                    }
-                                                }
-                                                'l' => {
-                                                    alignment = Some(TableColumnAlignment::Left);
-                                                    saw_alignment_token = true;
-                                                    alignment_index += ch.len_utf8();
-                                                }
-                                                'c' => {
-                                                    alignment = Some(TableColumnAlignment::Center);
-                                                    saw_alignment_token = true;
-                                                    alignment_index += ch.len_utf8();
-                                                }
-                                                'r' => {
-                                                    alignment = Some(TableColumnAlignment::Right);
-                                                    saw_alignment_token = true;
-                                                    alignment_index += ch.len_utf8();
-                                                }
-                                                'p' | 'm' | 'b' | 'X' => {
-                                                    alignment =
-                                                        Some(TableColumnAlignment::Paragraph);
-                                                    saw_alignment_token = true;
-                                                    alignment_index += ch.len_utf8();
-                                                    if matches!(ch, 'p' | 'm' | 'b') {
-                                                        let width_index = skip_ascii_whitespace(
-                                                            alignment_spec,
-                                                            alignment_index,
-                                                        );
-                                                        if let Some((_, _, _, after_width)) =
-                                                            read_braced_source_argument(
-                                                                alignment_spec,
-                                                                width_index,
-                                                            )
-                                                        {
-                                                            alignment_index = after_width;
-                                                        }
-                                                    }
-                                                }
-                                                'S' | 'D' => {
-                                                    alignment = Some(TableColumnAlignment::Decimal);
-                                                    saw_alignment_token = true;
-                                                    alignment_index += ch.len_utf8();
-                                                    if ch == 'S' {
-                                                        if let Some((_, _, _, after_option)) =
-                                                            read_bracket_source_argument(
-                                                                alignment_spec,
-                                                                alignment_index,
-                                                            )
-                                                        {
-                                                            alignment_index = after_option;
-                                                        }
-                                                    } else {
-                                                        for _ in 0..3 {
-                                                            alignment_index = skip_ascii_whitespace(
-                                                                alignment_spec,
-                                                                alignment_index,
-                                                            );
-                                                            let Some((_, _, _, after_argument)) =
-                                                                read_braced_source_argument(
-                                                                    alignment_spec,
-                                                                    alignment_index,
-                                                                )
-                                                            else {
-                                                                break;
-                                                            };
-                                                            alignment_index = after_argument;
-                                                        }
-                                                    }
-                                                }
-                                                _ => {
-                                                    alignment_index += ch.len_utf8();
-                                                }
-                                            }
-                                        }
+                                        let (
+                                            alignment,
+                                            rule_before_count,
+                                            rule_after_count,
+                                            cell_prefix,
+                                            cell_suffix,
+                                        ) = parse_multicolumn_alignment(alignment_spec);
                                         if column_span > 1
                                             || alignment.is_some()
                                             || rule_before_count > 0
@@ -10196,20 +10149,79 @@ impl<'i> Vm<'i> {
                                             .ok()
                                             .filter(|value| *value > 1)
                                             .map(|value| value as usize);
-                                        if let Some(row_span) = row_span {
+                                        let mut column_span = 1usize;
+                                        let mut alignment = None;
+                                        let mut rule_before_count = 0u8;
+                                        let mut rule_after_count = 0u8;
+                                        let mut cell_prefix: Option<String> = None;
+                                        let mut cell_suffix: Option<String> = None;
+                                        let mut visible_content = content;
+                                        let trimmed_content = content.trim_start();
+                                        if trimmed_content.starts_with("\\multicolumn") {
+                                            let mut nested_index = "\\multicolumn".len();
+                                            nested_index = skip_ascii_whitespace(
+                                                trimmed_content,
+                                                nested_index,
+                                            );
+                                            if let Some((span_text, _, _, after_span)) =
+                                                read_braced_source_argument(
+                                                    trimmed_content,
+                                                    nested_index,
+                                                )
+                                                && let Some((alignment_spec, _, _, after_alignment)) =
+                                                    read_braced_source_argument(
+                                                        trimmed_content,
+                                                        after_span,
+                                                    )
+                                                && let Some((nested_content, _, _, after_nested)) =
+                                                    read_braced_source_argument(
+                                                        trimmed_content,
+                                                        after_alignment,
+                                                    )
+                                                && skip_ascii_whitespace(
+                                                    trimmed_content,
+                                                    after_nested,
+                                                ) == trimmed_content.len()
+                                            {
+                                                column_span = span_text
+                                                    .trim()
+                                                    .parse::<usize>()
+                                                    .unwrap_or(1)
+                                                    .max(1);
+                                                (
+                                                    alignment,
+                                                    rule_before_count,
+                                                    rule_after_count,
+                                                    cell_prefix,
+                                                    cell_suffix,
+                                                ) = parse_multicolumn_alignment(alignment_spec);
+                                                visible_content = nested_content;
+                                            }
+                                        }
+                                        if row_span.is_some()
+                                            || column_span > 1
+                                            || alignment.is_some()
+                                            || rule_before_count > 0
+                                            || rule_after_count > 0
+                                            || cell_prefix.is_some()
+                                            || cell_suffix.is_some()
+                                        {
                                             table_cell_spans.push(TableCellSpanEvent {
                                                 row_index: current_row_index,
                                                 column_index: current_column_index,
-                                                column_span: 1,
-                                                row_span: Some(row_span),
-                                                alignment: None,
-                                                rule_before_count: 0,
-                                                rule_after_count: 0,
-                                                cell_prefix: None,
-                                                cell_suffix: None,
+                                                column_span,
+                                                row_span,
+                                                alignment,
+                                                rule_before_count,
+                                                rule_after_count,
+                                                cell_prefix,
+                                                cell_suffix,
                                             });
                                         }
-                                        rewritten.push_str(content);
+                                        if column_span > 1 {
+                                            current_column_index += column_span - 1;
+                                        }
+                                        rewritten.push_str(visible_content);
                                         row_has_visible_content = true;
                                         table_index = after_content;
                                         parsed = true;
@@ -25017,6 +25029,47 @@ Fallback text.
             Some("A | B ; Span | C ; D | E")
         );
         assert_eq!(visible.table_cell_spans, Vec::new());
+    }
+
+    #[test]
+    fn render_event_capture_preserves_multicolumn_inside_multirow() {
+        let source = r"\begin{document}\begin{tabular}{lll}\multirow{2}{*}{\multicolumn{2}{|c|}{Span}} & Tail \\ A\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(
+            visible.normalized_visible_text.as_deref(),
+            Some("Span | Tail ; A")
+        );
+        assert_eq!(
+            visible.table_cell_spans,
+            vec![TableCellSpanEvent {
+                row_index: 0,
+                column_index: 0,
+                column_span: 2,
+                row_span: Some(2),
+                alignment: Some(TableColumnAlignment::Center),
+                rule_before_count: 1,
+                rule_after_count: 1,
+                cell_prefix: None,
+                cell_suffix: None,
+            }]
+        );
     }
 
     #[test]
