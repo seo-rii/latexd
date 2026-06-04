@@ -12611,8 +12611,12 @@ fn tabular_vertical_column_rules_emit_display_list_rules() {
         .collect::<Vec<_>>();
 
     assert_eq!(vertical_rules.len(), 6, "{vertical_rules:?}");
-    assert!(table_lines.contains(&"A |  1"), "{table_lines:?}");
-    assert!(table_lines.contains(&"B | 22"), "{table_lines:?}");
+    assert!(table_lines.contains(&"A    1"), "{table_lines:?}");
+    assert!(table_lines.contains(&"B   22"), "{table_lines:?}");
+    assert!(
+        !table_lines.iter().any(|line| line.contains('|')),
+        "{table_lines:?}"
+    );
 }
 
 #[test]
@@ -12655,7 +12659,11 @@ fn tabular_repeated_vertical_column_rules_emit_multiple_display_list_rules() {
         .collect::<Vec<_>>();
 
     assert_eq!(vertical_rules.len(), 6, "{vertical_rules:?}");
-    assert!(table_lines.contains(&"A | 1"), "{table_lines:?}");
+    assert!(table_lines.contains(&"A   1"), "{table_lines:?}");
+    assert!(
+        !table_lines.iter().any(|line| line.contains('|')),
+        "{table_lines:?}"
+    );
 }
 
 #[test]
@@ -13156,8 +13164,12 @@ fn table_color_commands_do_not_leak_into_table_text() {
         })
         .collect::<Vec<_>>();
 
-    assert!(table_lines.contains(&"A |  1"), "{table_lines:?}");
-    assert!(table_lines.contains(&"B | 22"), "{table_lines:?}");
+    assert!(table_lines.contains(&"A    1"), "{table_lines:?}");
+    assert!(table_lines.contains(&"B   22"), "{table_lines:?}");
+    assert!(
+        !table_lines.iter().any(|line| line.contains('|')),
+        "{table_lines:?}"
+    );
 }
 
 #[test]

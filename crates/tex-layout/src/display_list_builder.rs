@@ -710,10 +710,14 @@ pub fn build_page_display_lists(
                         column_index = cell.column_index;
                         if cell_index > 0 {
                             let separator_start = row_text.chars().count();
-                            row_text.push_str(" | ");
                             let previous_column_index = column_index.saturating_sub(1);
                             let rule_count = column_rule_after_count(previous_column_index)
                                 .max(column_rule_before_count(column_index));
+                            if rule_count > 0 {
+                                row_text.push_str("   ");
+                            } else {
+                                row_text.push_str(" | ");
+                            }
                             if rule_count > 0 {
                                 row_vertical_rule_offsets.push((separator_start + 1, rule_count));
                             }
@@ -2256,8 +2260,9 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(vertical_rules.len(), 6, "{vertical_rules:?}");
-        assert!(lines.contains(&"A |  1"), "{lines:?}");
-        assert!(lines.contains(&"B | 22"), "{lines:?}");
+        assert!(lines.contains(&"A    1"), "{lines:?}");
+        assert!(lines.contains(&"B   22"), "{lines:?}");
+        assert!(!lines.iter().any(|line| line.contains('|')), "{lines:?}");
     }
 
     #[test]
@@ -2324,7 +2329,8 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(vertical_rules.len(), 6, "{vertical_rules:?}");
-        assert!(lines.contains(&"A | 1"), "{lines:?}");
+        assert!(lines.contains(&"A   1"), "{lines:?}");
+        assert!(!lines.iter().any(|line| line.contains('|')), "{lines:?}");
     }
 
     #[test]

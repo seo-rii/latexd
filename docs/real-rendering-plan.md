@@ -65,8 +65,10 @@ repeated specs expand before IR construction, and those specs drive coarse
 left/center/right padding in the display-list text fallback. Simple column
 border markers also emit coarse vertical `PageDisplayList::Rule` rectangles at
 the monospaced fallback boundary positions, including repeated `||` rule-count
-approximations. `multirow` commands now preserve their visible cell text, but
-simple `\multirow` / `\multirowcell` row counts also survive as
+approximations; when those borders are emitted as rule ops, the corresponding
+display-list text separator is whitespace rather than a searchable `|` glyph.
+`multirow` commands now preserve their visible cell text, but simple
+`\multirow` / `\multirowcell` row counts also survive as
 `TableCell.row_span` metadata. Multirow geometry is still not
 modeled. The first figure slice is also implemented at
 the renderer boundary: resolver-provided PNG/JPEG bytes can be decoded into PDF
@@ -556,7 +558,9 @@ Implemented first slice:
   are treated as right-aligned fallback columns without decimal alignment.
 - simple vertical border markers now emit coarse `PageDisplayList::Rule`
   rectangles at the readable table fallback's column boundaries, including
-  repeated `||` rule-count approximations.
+  repeated `||` rule-count approximations; when those borders are rendered as
+  rule ops, the corresponding display-list text separator is whitespace rather
+  than a searchable `|` glyph.
 - common `booktabs` spacing and rule-control commands such as optional-width
   `\toprule` / `\midrule` / `\bottomrule`, `\addlinespace`,
   `\morecmidrules`, and `\specialrule` are suppressed from visible table text
