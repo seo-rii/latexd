@@ -80,6 +80,10 @@ pub struct PositionedImage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asset_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub natural_width_pt: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub natural_height_pt: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub crop: Option<ImageCrop>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub scale: Option<ImageScale>,

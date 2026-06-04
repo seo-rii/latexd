@@ -1189,6 +1189,12 @@ pub struct PositionedImage {
     pub asset_ref: String,
     pub asset_format: Option<GraphicAssetFormat>,
     pub asset_hash: Option<String>,
+    pub natural_width_pt: Option<f32>,
+    pub natural_height_pt: Option<f32>,
+    pub crop: Option<ImageCrop>,
+    pub scale: Option<ImageScale>,
+    pub rotation: Option<ImageRotation>,
+    pub diagnostic: Option<String>,
     pub source: SourceProvenance,
 }
 

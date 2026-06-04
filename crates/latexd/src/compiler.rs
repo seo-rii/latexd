@@ -3702,6 +3702,8 @@ mod tests {
                 asset_ref: asset_ref.to_string(),
                 asset_format: None,
                 asset_hash: None,
+                natural_width_pt: None,
+                natural_height_pt: None,
                 crop: None,
                 scale: None,
                 rotation: None,

@@ -113,6 +113,10 @@ unsupported-image placeholders, while resolved PDF/EPS assets can be converted
 to PNG for debug display-list PDF/SVG artifacts through Ghostscript or Poppler.
 Resolver-backed SVG and PNG/JPEG bitmap assets are embedded as data-URI
 `<image>` elements in project-root display-list SVG debug artifacts. The
+display-list image op now carries the resolved natural point size separately
+from the destination rectangle, so PDF/SVG debug crop placement uses the
+original asset coordinate space even when a PDF/EPS asset is rendered through a
+converted PNG/JPEG. The
 internal compiler still writes legacy page PDFs for preview and also exports
 revision-local `rev-N/render-ir/` event, IR, display-list, PDF, SVG, and
 legacy-text debug artifacts for the real-rendering path; the revision artifact
@@ -132,9 +136,11 @@ unsupported placeholders instead of generic image placeholders.
 `latexd` now wires that hook to Ghostscript CLI conversion for render-IR debug
 artifacts, with a Poppler `pdftoppm` fallback for PDF assets, so resolved
 PDF/EPS graphic assets can be converted to PNG for display-list PDF/SVG
-artifacts when the relevant local tool is available. Driver-accurate crop/clip
-rendering for PDF/EPS vector assets, production PDF/SVG output, and raster
-backends, TeX-exact rotated-box reflow, programmable table preamble hooks, exact
+artifacts when the relevant local tool is available. Converted debug artifacts
+reuse the display-list natural point size for crop/clip placement rather than
+the converted bitmap pixel size. Driver-accurate crop/clip rendering for
+production PDF/SVG vector output and raster backends, TeX-exact rotated-box
+reflow, programmable table preamble hooks, exact
 vertical border trimming, exact table rule trimming, actual multirow geometry,
 nested table constructs, and full TeX alignment policy are still deferred.
 Rotation intent is no longer dropped: `angle` /
@@ -453,8 +459,9 @@ Implemented first slice:
   the display-list PDF artifact path;
 - project-root display-list SVG debug artifacts can embed resolver-provided SVG
   and PNG/JPEG bitmap assets as data-URI `<image>` elements, with clip-enabled
-  crop metadata reflected in the debug SVG for bitmap assets and simple SVG
-  assets with parseable natural dimensions;
+  crop metadata reflected in the debug SVG for bitmap assets, simple SVG
+  assets with parseable natural dimensions, and converted PDF/EPS debug assets
+  whose display-list ops carry resolved natural point dimensions;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
   display-list PDF and debug SVG artifacts;
 - missing or undecodable assets still render as bounded placeholders in both
@@ -466,8 +473,8 @@ Remaining figure work:
 - broader option-aware sizing and driver-exact bounding-box behavior;
 - fuller wrapper sizing semantics for nested boxes and TeX-exact wrapper
   reflow;
-- trim/viewport/clip rendering parity for PDF/EPS vector assets, production
-  PDF/SVG output, and raster backends;
+- trim/viewport/clip rendering parity for production PDF/SVG vector output and
+  raster backends;
 - TeX-exact rotated-box dimensions, page reflow, and non-debug raster parity;
 - external PDF/EPS conversion and production SVG/PDF vector embedding or raster
   insertion;
@@ -745,6 +752,8 @@ Status:
   PDF/EPS render-IR graphic assets in debug display-list PDF/SVG artifacts when
   `gs` is installed, and falls back to Poppler `pdftoppm` for PDF assets when
   Ghostscript is unavailable or cannot convert the asset;
+- converted PDF/EPS debug assets use the original display-list natural point
+  size for crop/clip placement instead of the converted bitmap pixel size;
 - resolved but unconverted PDF/EPS assets surface as unsupported placeholders in
   display-list PDF/SVG output instead of falling back to generic image labels;
 - `\includegraphics` option control sequences such as `\textwidth` /

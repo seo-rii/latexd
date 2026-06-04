@@ -289,6 +289,11 @@ pub fn render_display_list_pdf_with_converted_assets(
                             })
                         });
                         if let Some(decoded) = decoded {
+                            let (natural_width, natural_height) = image_natural_size_or_fallback(
+                                image,
+                                decoded.width as f32,
+                                decoded.height as f32,
+                            );
                             let object_id = next_extra_object_id;
                             next_extra_object_id += 1;
                             let resource_name = format!("Im{next_page_image_index}");
@@ -305,8 +310,8 @@ pub fn render_display_list_pdf_with_converted_assets(
                                     height: image.rect.height,
                                 },
                                 image.crop,
-                                decoded.width as f32,
-                                decoded.height as f32,
+                                natural_width,
+                                natural_height,
                                 false,
                             );
                             let rotated =
@@ -437,6 +442,21 @@ struct DecodedPdfImage {
 struct ImageDrawPlacement {
     rect: Rect,
     clip_to_dest: bool,
+}
+
+fn image_natural_size_pt(image: &PositionedImage) -> Option<(f32, f32)> {
+    let width = image.natural_width_pt?;
+    let height = image.natural_height_pt?;
+    (width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0)
+        .then_some((width, height))
+}
+
+fn image_natural_size_or_fallback(
+    image: &PositionedImage,
+    fallback_width: f32,
+    fallback_height: f32,
+) -> (f32, f32) {
+    image_natural_size_pt(image).unwrap_or((fallback_width, fallback_height))
 }
 
 fn image_draw_placement(
@@ -986,7 +1006,7 @@ pub fn render_display_list_svg_with_converted_assets(
                                     embedded_decode_failure = true;
                                     return None;
                                 }
-                                let natural_size =
+                                let parsed_natural_size =
                                     std::str::from_utf8(&bytes).ok().and_then(|text| {
                                         let tag_start = text.find("<svg")?;
                                         let tag_tail = &text[tag_start..];
@@ -1068,29 +1088,42 @@ pub fn render_display_list_svg_with_converted_assets(
                                             None
                                         }
                                     });
+                                let natural_size = parsed_natural_size
+                                    .map(|(natural_width, natural_height)| {
+                                        image_natural_size_or_fallback(
+                                            image,
+                                            natural_width,
+                                            natural_height,
+                                        )
+                                    })
+                                    .or_else(|| image_natural_size_pt(image));
                                 ("image/svg+xml;charset=utf-8", natural_size, bytes)
                             }
                             Some(GraphicAssetFormat::Png) => {
-                                let Some(image) = image::load_from_memory(&bytes).ok() else {
+                                let Some(decoded_image) = image::load_from_memory(&bytes).ok()
+                                else {
                                     embedded_decode_failure = true;
                                     return None;
                                 };
-                                (
-                                    "image/png",
-                                    Some((image.width() as f32, image.height() as f32)),
-                                    bytes,
-                                )
+                                let natural_size = image_natural_size_or_fallback(
+                                    image,
+                                    decoded_image.width() as f32,
+                                    decoded_image.height() as f32,
+                                );
+                                ("image/png", Some(natural_size), bytes)
                             }
                             Some(GraphicAssetFormat::Jpeg) => {
-                                let Some(image) = image::load_from_memory(&bytes).ok() else {
+                                let Some(decoded_image) = image::load_from_memory(&bytes).ok()
+                                else {
                                     embedded_decode_failure = true;
                                     return None;
                                 };
-                                (
-                                    "image/jpeg",
-                                    Some((image.width() as f32, image.height() as f32)),
-                                    bytes,
-                                )
+                                let natural_size = image_natural_size_or_fallback(
+                                    image,
+                                    decoded_image.width() as f32,
+                                    decoded_image.height() as f32,
+                                );
+                                ("image/jpeg", Some(natural_size), bytes)
                             }
                             Some(GraphicAssetFormat::Pdf | GraphicAssetFormat::Eps) => {
                                 let Some(converted) = convert_asset(image, &bytes) else {
@@ -1100,30 +1133,32 @@ pub fn render_display_list_svg_with_converted_assets(
                                 converted_format = Some(converted.format);
                                 match converted.format {
                                     GraphicAssetFormat::Png => {
-                                        let Some(image) =
+                                        let Some(decoded_image) =
                                             image::load_from_memory(&converted.bytes).ok()
                                         else {
                                             embedded_decode_failure = true;
                                             return None;
                                         };
-                                        (
-                                            "image/png",
-                                            Some((image.width() as f32, image.height() as f32)),
-                                            converted.bytes,
-                                        )
+                                        let natural_size = image_natural_size_or_fallback(
+                                            image,
+                                            decoded_image.width() as f32,
+                                            decoded_image.height() as f32,
+                                        );
+                                        ("image/png", Some(natural_size), converted.bytes)
                                     }
                                     GraphicAssetFormat::Jpeg => {
-                                        let Some(image) =
+                                        let Some(decoded_image) =
                                             image::load_from_memory(&converted.bytes).ok()
                                         else {
                                             embedded_decode_failure = true;
                                             return None;
                                         };
-                                        (
-                                            "image/jpeg",
-                                            Some((image.width() as f32, image.height() as f32)),
-                                            converted.bytes,
-                                        )
+                                        let natural_size = image_natural_size_or_fallback(
+                                            image,
+                                            decoded_image.width() as f32,
+                                            decoded_image.height() as f32,
+                                        );
+                                        ("image/jpeg", Some(natural_size), converted.bytes)
                                     }
                                     _ => {
                                         embedded_decode_failure = true;
@@ -1914,6 +1949,8 @@ mod tests {
                 asset_ref: "figures/a(b)&c.pdf".to_string(),
                 asset_format: Some(GraphicAssetFormat::Pdf),
                 asset_hash: Some("blake3:asset-hash".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
                 crop: Some(ImageCrop {
                     trim: Some(ImageTrim {
                         left_pt: 1.0,
@@ -1990,6 +2027,8 @@ mod tests {
                 asset_ref: "figures/vector.svg".to_string(),
                 asset_format: Some(GraphicAssetFormat::Svg),
                 asset_hash: Some("blake3:vector".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
                 crop: None,
                 scale: None,
                 rotation: None,
@@ -2030,6 +2069,8 @@ mod tests {
                 asset_ref: "figures/tiny.png".to_string(),
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: Some("blake3:tiny".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
                 crop: None,
                 scale: None,
                 rotation: None,
@@ -2069,6 +2110,8 @@ mod tests {
                 asset_ref: "figures/vector.pdf".to_string(),
                 asset_format: Some(GraphicAssetFormat::Pdf),
                 asset_hash: Some("blake3:vector-pdf".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
                 crop: None,
                 scale: None,
                 rotation: None,
@@ -2115,6 +2158,79 @@ mod tests {
     }
 
     #[test]
+    fn renders_converted_pdf_crop_with_original_natural_size() {
+        let source = SourceProvenance::file("main.tex", 0, 10);
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 72.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                asset_ref: "figures/vector.pdf".to_string(),
+                asset_format: Some(GraphicAssetFormat::Pdf),
+                asset_hash: Some("blake3:vector-pdf".to_string()),
+                natural_width_pt: Some(200.0),
+                natural_height_pt: Some(100.0),
+                crop: Some(ImageCrop {
+                    trim: None,
+                    viewport: Some(ImageViewport {
+                        llx_pt: 50.0,
+                        lly_pt: 25.0,
+                        urx_pt: 150.0,
+                        ury_pt: 75.0,
+                    }),
+                    clip: true,
+                }),
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source,
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_converted_assets(
+            &[page.clone()],
+            |asset_ref| (asset_ref == "figures/vector.pdf").then(|| b"%PDF-1.4".to_vec()),
+            |image, bytes| {
+                (image.asset_ref == "figures/vector.pdf" && bytes.starts_with(b"%PDF")).then(|| {
+                    ConvertedImageAsset {
+                        bytes: tiny_png_bytes(),
+                        format: GraphicAssetFormat::Png,
+                    }
+                })
+            },
+        );
+        let pdf_text = String::from_utf8_lossy(&pdf);
+        let svg = render_display_list_svg_with_converted_assets(
+            &page,
+            |asset_ref| (asset_ref == "figures/vector.pdf").then(|| b"%PDF-1.4".to_vec()),
+            |image, bytes| {
+                (image.asset_ref == "figures/vector.pdf" && bytes.starts_with(b"%PDF")).then(|| {
+                    ConvertedImageAsset {
+                        bytes: tiny_png_bytes(),
+                        format: GraphicAssetFormat::Png,
+                    }
+                })
+            },
+        );
+
+        assert!(pdf_text.contains("q 72 670 100 50 re W n q 200 0 0 100 22 645 cm /Im1 Do Q Q"));
+        assert!(pdf_text.contains("/Width 2"));
+        assert!(pdf_text.contains("/Height 2"));
+        assert!(svg.contains("<clipPath id=\"image-clip-0\"><rect x=\"72\" y=\"72\" width=\"100\" height=\"50\"/></clipPath>"));
+        assert!(svg.contains("data-image-converted-format=\"png\""));
+        assert!(svg.contains("data-image-crop-rendered=\"true\""));
+        assert!(svg.contains("<image x=\"22\" y=\"47\" width=\"200\" height=\"100\""));
+        assert!(!svg.contains("[unsupported image: figures/vector.pdf]"));
+    }
+
+    #[test]
     fn resolved_unconverted_pdf_assets_surface_unsupported_placeholder() {
         let source = SourceProvenance::file("main.tex", 0, 10);
         let page = PageDisplayList {
@@ -2131,6 +2247,8 @@ mod tests {
                 asset_ref: "figures/vector.pdf".to_string(),
                 asset_format: Some(GraphicAssetFormat::Pdf),
                 asset_hash: Some("blake3:vector-pdf".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
                 crop: None,
                 scale: None,
                 rotation: None,
@@ -2170,6 +2288,8 @@ mod tests {
                 asset_ref: "figures/tiny.png".to_string(),
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: Some("blake3:tiny".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
                 crop: Some(ImageCrop {
                     trim: Some(ImageTrim {
                         left_pt: 1.0,
@@ -2216,6 +2336,8 @@ mod tests {
                 asset_ref: "figures/vector.svg".to_string(),
                 asset_format: Some(GraphicAssetFormat::Svg),
                 asset_hash: Some("blake3:vector".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
                 crop: Some(ImageCrop {
                     trim: None,
                     viewport: Some(ImageViewport {
@@ -2264,6 +2386,8 @@ mod tests {
                 asset_ref: "figures/tiny.png".to_string(),
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: Some("blake3:tiny".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
                 crop: None,
                 scale: None,
                 rotation: None,
@@ -2304,6 +2428,8 @@ mod tests {
                 asset_ref: "figures/photo.jpg".to_string(),
                 asset_format: Some(GraphicAssetFormat::Jpeg),
                 asset_hash: Some("blake3:photo".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
                 crop: None,
                 scale: None,
                 rotation: None,
@@ -2348,6 +2474,8 @@ mod tests {
                 asset_ref: "figures/tiny.png".to_string(),
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: Some("blake3:tiny".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
                 crop: None,
                 scale: None,
                 rotation: Some(ImageRotation {
@@ -2387,6 +2515,8 @@ mod tests {
                 asset_ref: "figures/tiny.png".to_string(),
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: Some("blake3:tiny".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
                 crop: Some(ImageCrop {
                     trim: Some(ImageTrim {
                         left_pt: 1.0,
@@ -2432,6 +2562,8 @@ mod tests {
                 asset_ref: "figures/bad.png".to_string(),
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: Some("blake3:bad".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
                 crop: None,
                 scale: None,
                 rotation: None,
@@ -2473,6 +2605,8 @@ mod tests {
                 asset_ref: "figures/missing.png".to_string(),
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: None,
+                natural_width_pt: None,
+                natural_height_pt: None,
                 crop: None,
                 scale: None,
                 rotation: None,

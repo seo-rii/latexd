@@ -1805,6 +1805,8 @@ pub fn build_page_display_lists(
                     asset_ref: logical.path.clone(),
                     asset_format: logical.asset_format,
                     asset_hash: logical.asset_hash.clone(),
+                    natural_width_pt: Some(natural_image_width),
+                    natural_height_pt: Some(natural_image_height),
                     crop,
                     scale,
                     rotation,
