@@ -416,6 +416,8 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                         alignment: None,
                                         rule_before_count: 0,
                                         rule_after_count: 0,
+                                        cell_prefix: None,
+                                        cell_suffix: None,
                                     })
                                     .collect::<Vec<_>>();
                                 (!cells.is_empty()).then_some(TableRow {
@@ -501,6 +503,12 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                         cell.rule_before_count.max(cell_span.rule_before_count);
                                     cell.rule_after_count =
                                         cell.rule_after_count.max(cell_span.rule_after_count);
+                                    if let Some(prefix) = &cell_span.cell_prefix {
+                                        cell.cell_prefix = Some(prefix.clone());
+                                    }
+                                    if let Some(suffix) = &cell_span.cell_suffix {
+                                        cell.cell_suffix = Some(suffix.clone());
+                                    }
                                 }
                             }
                         }

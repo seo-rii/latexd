@@ -9898,6 +9898,8 @@ impl<'i> Vm<'i> {
                                         let mut saw_alignment_token = false;
                                         let mut rule_before_count = 0u8;
                                         let mut rule_after_count = 0u8;
+                                        let mut cell_prefix: Option<String> = None;
+                                        let mut cell_suffix: Option<String> = None;
                                         let mut alignment_index = 0usize;
                                         while alignment_index < alignment_spec.len() {
                                             let ch = alignment_spec[alignment_index..]
@@ -9933,6 +9935,47 @@ impl<'i> Vm<'i> {
                                                                 !modifier_ch.is_whitespace()
                                                             })
                                                             .collect::<String>();
+                                                        let visible_modifier =
+                                                            normalize_latex_text_with_inline_placeholders(
+                                                                modifier,
+                                                            );
+                                                        if !visible_modifier.is_empty() {
+                                                            match ch {
+                                                                '>' => {
+                                                                    cell_prefix = Some(
+                                                                        cell_prefix.map_or_else(
+                                                                            || {
+                                                                                visible_modifier
+                                                                                    .clone()
+                                                                            },
+                                                                            |mut prefix| {
+                                                                                prefix.push_str(
+                                                                                &visible_modifier,
+                                                                            );
+                                                                                prefix
+                                                                            },
+                                                                        ),
+                                                                    )
+                                                                }
+                                                                '<' => {
+                                                                    cell_suffix = Some(
+                                                                        cell_suffix.map_or_else(
+                                                                            || {
+                                                                                visible_modifier
+                                                                                    .clone()
+                                                                            },
+                                                                            |mut suffix| {
+                                                                                suffix.push_str(
+                                                                                &visible_modifier,
+                                                                            );
+                                                                                suffix
+                                                                            },
+                                                                        ),
+                                                                    )
+                                                                }
+                                                                _ => {}
+                                                            }
+                                                        }
                                                         if compact.contains("\\vrule")
                                                             || compact.contains("\\vline")
                                                         {
@@ -10044,6 +10087,8 @@ impl<'i> Vm<'i> {
                                             || alignment.is_some()
                                             || rule_before_count > 0
                                             || rule_after_count > 0
+                                            || cell_prefix.is_some()
+                                            || cell_suffix.is_some()
                                         {
                                             table_cell_spans.push(TableCellSpanEvent {
                                                 row_index: current_row_index,
@@ -10053,6 +10098,8 @@ impl<'i> Vm<'i> {
                                                 alignment,
                                                 rule_before_count,
                                                 rule_after_count,
+                                                cell_prefix,
+                                                cell_suffix,
                                             });
                                         }
                                         if column_span > 1 {
@@ -10119,6 +10166,8 @@ impl<'i> Vm<'i> {
                                                 alignment: None,
                                                 rule_before_count: 0,
                                                 rule_after_count: 0,
+                                                cell_prefix: None,
+                                                cell_suffix: None,
                                             });
                                         }
                                         rewritten.push_str(content);
@@ -10176,6 +10225,8 @@ impl<'i> Vm<'i> {
                                             alignment: None,
                                             rule_before_count: 0,
                                             rule_after_count: 0,
+                                            cell_prefix: None,
+                                            cell_suffix: None,
                                         });
                                     }
                                     rewritten.push_str(content);
@@ -24831,6 +24882,8 @@ Fallback text.
                 alignment: Some(TableColumnAlignment::Center),
                 rule_before_count: 1,
                 rule_after_count: 1,
+                cell_prefix: None,
+                cell_suffix: None,
             }]
         );
         let visible_text = visible.normalized_visible_text.as_deref().unwrap_or("");
@@ -24874,6 +24927,8 @@ Fallback text.
                 alignment: None,
                 rule_before_count: 0,
                 rule_after_count: 0,
+                cell_prefix: None,
+                cell_suffix: None,
             }]
         );
     }

@@ -407,6 +407,10 @@ pub struct TableCell {
     pub rule_before_count: u8,
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub rule_after_count: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell_prefix: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell_suffix: Option<String>,
 }
 
 fn is_zero_u8(value: &u8) -> bool {

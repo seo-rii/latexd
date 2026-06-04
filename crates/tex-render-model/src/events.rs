@@ -418,7 +418,7 @@ pub struct TableRuleSpan {
     pub end_column: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TableCellSpanEvent {
     pub row_index: usize,
     pub column_index: usize,
@@ -431,6 +431,10 @@ pub struct TableCellSpanEvent {
     pub rule_before_count: u8,
     #[serde(default, skip_serializing_if = "is_zero_u8")]
     pub rule_after_count: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell_prefix: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell_suffix: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
