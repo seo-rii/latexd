@@ -494,6 +494,7 @@ pub fn build_page_display_lists(
                     text: String,
                     column_span: usize,
                     column_index: usize,
+                    alignment: Option<TableColumnAlignment>,
                 }
 
                 let row_column_count = |row: &TableRow| {
@@ -525,6 +526,7 @@ pub fn build_page_display_lists(
                                     text: String::new(),
                                     column_span: 1,
                                     column_index,
+                                    alignment: None,
                                 });
                                 column_index += 1;
                             }
@@ -559,6 +561,7 @@ pub fn build_page_display_lists(
                             text,
                             column_span,
                             column_index,
+                            alignment: cell.alignment,
                         });
                         column_index += column_span;
                     }
@@ -809,10 +812,14 @@ pub fn build_page_display_lists(
                         spanned_width += end_column.saturating_sub(column_index + 1) * 3;
                         let text_width = cell.text.chars().count();
                         let available_padding = spanned_width.saturating_sub(text_width);
-                        let alignment = block
-                            .columns
-                            .get(column_index)
-                            .map(|column| column.alignment)
+                        let alignment = cell
+                            .alignment
+                            .or_else(|| {
+                                block
+                                    .columns
+                                    .get(column_index)
+                                    .map(|column| column.alignment)
+                            })
                             .unwrap_or(TableColumnAlignment::Left);
                         let (left_padding, right_padding) = if column_span == 1
                             && matches!(alignment, TableColumnAlignment::Decimal)
@@ -834,13 +841,9 @@ pub fn build_page_display_lists(
                                 left_padding,
                                 spanned_width.saturating_sub(left_padding + text_width),
                             )
-                        } else if column_span == 1
-                            && matches!(alignment, TableColumnAlignment::Right)
-                        {
+                        } else if matches!(alignment, TableColumnAlignment::Right) {
                             (available_padding, 0)
-                        } else if column_span == 1
-                            && matches!(alignment, TableColumnAlignment::Center)
-                        {
+                        } else if matches!(alignment, TableColumnAlignment::Center) {
                             (
                                 available_padding / 2,
                                 available_padding - available_padding / 2,
@@ -2133,11 +2136,13 @@ mod tests {
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "Longer".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                         ],
                         rule_below: false,
@@ -2151,11 +2156,13 @@ mod tests {
                                 text: "Alpha".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                         ],
                         rule_below: false,
@@ -2231,16 +2238,19 @@ mod tests {
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "Long".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                         ],
                         rule_below: false,
@@ -2254,16 +2264,19 @@ mod tests {
                                 text: "Left".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "Wide".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "9".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                         ],
                         rule_below: false,
@@ -2328,11 +2341,13 @@ mod tests {
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "3.4".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                         ],
                         rule_below: false,
@@ -2346,11 +2361,13 @@ mod tests {
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "12".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                         ],
                         rule_below: false,
@@ -2364,11 +2381,13 @@ mod tests {
                                 text: "C".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "0.25".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                         ],
                         rule_below: false,
@@ -2434,11 +2453,13 @@ mod tests {
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "1".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                         ],
                         rule_below: false,
@@ -2452,11 +2473,13 @@ mod tests {
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "2".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                         ],
                         rule_below: false,
@@ -2521,11 +2544,13 @@ mod tests {
                             text: "A".to_string(),
                             column_span: None,
                             row_span: None,
+                            alignment: None,
                         },
                         TableCell {
                             text: "1".to_string(),
                             column_span: None,
                             row_span: None,
+                            alignment: None,
                         },
                     ],
                     rule_below: false,
@@ -2587,11 +2612,13 @@ mod tests {
                             text: "A".to_string(),
                             column_span: None,
                             row_span: None,
+                            alignment: None,
                         },
                         TableCell {
                             text: "1".to_string(),
                             column_span: None,
                             row_span: None,
+                            alignment: None,
                         },
                     ],
                     rule_below: false,
@@ -2654,11 +2681,13 @@ mod tests {
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "1".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                         ],
                         rule_below: false,
@@ -2672,11 +2701,13 @@ mod tests {
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "22".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                         ],
                         rule_below: false,
@@ -2750,11 +2781,13 @@ mod tests {
                             text: "A".to_string(),
                             column_span: None,
                             row_span: None,
+                            alignment: None,
                         },
                         TableCell {
                             text: "1".to_string(),
                             column_span: None,
                             row_span: None,
+                            alignment: None,
                         },
                     ],
                     rule_below: false,
@@ -2804,11 +2837,13 @@ mod tests {
                                 text: "Head".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "Value".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                         ],
                         rule_below: true,
@@ -2822,11 +2857,13 @@ mod tests {
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                         ],
                         rule_below: true,
@@ -2882,16 +2919,19 @@ mod tests {
                                 text: "Head".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "Value".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "Tail".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                         ],
                         rule_below: false,
@@ -2908,16 +2948,19 @@ mod tests {
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "C".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                         ],
                         rule_below: false,
@@ -2975,11 +3018,13 @@ mod tests {
                                 text: "Wide".to_string(),
                                 column_span: Some(2),
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "Tail".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                         ],
                         rule_below: false,
@@ -2993,16 +3038,19 @@ mod tests {
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "B".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                             TableCell {
                                 text: "C".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                         ],
                         rule_below: false,
@@ -3044,11 +3092,13 @@ mod tests {
                                 text: "Span".to_string(),
                                 column_span: None,
                                 row_span: Some(2),
+                                alignment: None,
                             },
                             TableCell {
                                 text: "A".to_string(),
                                 column_span: None,
                                 row_span: None,
+                                alignment: None,
                             },
                         ],
                         rule_below: false,
@@ -3061,6 +3111,7 @@ mod tests {
                             text: "B".to_string(),
                             column_span: None,
                             row_span: None,
+                            alignment: None,
                         }],
                         rule_below: false,
                         partial_rules_below: Vec::new(),

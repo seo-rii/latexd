@@ -59,7 +59,9 @@ spans are carried as zero-based inclusive column ranges with whitespace outside
 the covered columns and matching partial rule rectangles. Simple
 `\multicolumn{n}{...}{text}` cells are also normalized to visible cell text plus
 `TableCell.column_span` metadata so the display-list fallback can occupy the
-combined monospaced column width. Simple `l` / `c` / `r` / paragraph-style table
+combined monospaced column width, and simple `l` / `c` / `r` multicolumn specs
+now survive as `TableCell.alignment` overrides for readable spanning headers.
+Simple `l` / `c` / `r` / paragraph-style table
 preamble columns now survive as `TableColumnSpec` metadata, bounded `*{n}{...}`
 repeated specs expand before IR construction, and those specs drive coarse
 left/center/right padding in the display-list text fallback. Absolute
@@ -605,6 +607,8 @@ Implemented first slice:
 - common `colortbl` table color commands such as `\rowcolor`, `\cellcolor`,
   `\columncolor`, and `\arrayrulecolor` are suppressed from visible table text;
   color styling is not rendered yet.
+- simple `\multicolumn` alignment specs survive as `TableCell.alignment` and
+  drive readable display-list padding for spanning cells.
 - `multirow` / `multirowcell` commands now preserve visible cell text and simple
   `row_span` metadata in the table fallback.
 - continuation rows below a simple multirow cell now insert a blank placeholder
@@ -771,6 +775,7 @@ Status:
 - unknown custom column specs preserve coarse column count as `Unknown`;
 - simple `\newcolumntype` replacements can drive coarse custom-column alignment
   and width metadata;
+- simple `\multicolumn` specs preserve coarse cell-level alignment intent;
 - diagonal table header helpers normalize to readable cell text;
 - table-cell box wrappers hide layout arguments while preserving visible text;
 - table-cell overlap wrappers preserve visible text;

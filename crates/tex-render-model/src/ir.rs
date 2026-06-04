@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     CitationStyleHint, GraphicAssetDimensions, GraphicAssetFormat, ListKind, RawFallbackEvent,
-    SourceProvenance, TableColumnSpec, TableRuleSpan,
+    SourceProvenance, TableColumnAlignment, TableColumnSpec, TableRuleSpan,
 };
 
 pub const DOCUMENT_IR_SCHEMA_VERSION: u32 = 1;
@@ -401,6 +401,8 @@ pub struct TableCell {
     pub column_span: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub row_span: Option<usize>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alignment: Option<TableColumnAlignment>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

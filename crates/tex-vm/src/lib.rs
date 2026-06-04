@@ -9886,7 +9886,7 @@ impl<'i> Vm<'i> {
                             if let Some((span_text, _, _, after_span)) =
                                 read_braced_source_argument(table_body, command_end)
                             {
-                                if let Some((_, _, _, after_alignment)) =
+                                if let Some((alignment_spec, _, _, after_alignment)) =
                                     read_braced_source_argument(table_body, after_span)
                                 {
                                     if let Some((content, _, _, after_content)) =
@@ -9894,13 +9894,89 @@ impl<'i> Vm<'i> {
                                     {
                                         let column_span =
                                             span_text.trim().parse::<usize>().unwrap_or(1).max(1);
-                                        if column_span > 1 {
+                                        let mut alignment = None;
+                                        let mut alignment_index = 0usize;
+                                        while alignment_index < alignment_spec.len() {
+                                            let ch = alignment_spec[alignment_index..]
+                                                .chars()
+                                                .next()
+                                                .expect("multicolumn alignment spec char");
+                                            match ch {
+                                                '@' | '!' | '>' | '<' => {
+                                                    alignment_index += ch.len_utf8();
+                                                    alignment_index = skip_ascii_whitespace(
+                                                        alignment_spec,
+                                                        alignment_index,
+                                                    );
+                                                    if let Some((modifier, _, _, after_modifier)) =
+                                                        read_braced_source_argument(
+                                                            alignment_spec,
+                                                            alignment_index,
+                                                        )
+                                                    {
+                                                        let compact = modifier
+                                                            .chars()
+                                                            .filter(|modifier_ch| {
+                                                                !modifier_ch.is_whitespace()
+                                                            })
+                                                            .collect::<String>();
+                                                        if compact.contains("\\raggedleft")
+                                                            || compact.contains("\\RaggedLeft")
+                                                            || compact.contains("\\flushright")
+                                                        {
+                                                            alignment =
+                                                                Some(TableColumnAlignment::Right);
+                                                        } else if compact.contains("\\centering")
+                                                            || compact.contains("\\Centering")
+                                                        {
+                                                            alignment =
+                                                                Some(TableColumnAlignment::Center);
+                                                        } else if compact.contains("\\raggedright")
+                                                            || compact.contains("\\RaggedRight")
+                                                            || compact.contains("\\flushleft")
+                                                        {
+                                                            alignment =
+                                                                Some(TableColumnAlignment::Left);
+                                                        }
+                                                        alignment_index = after_modifier;
+                                                    }
+                                                }
+                                                'l' => {
+                                                    alignment = Some(TableColumnAlignment::Left);
+                                                    alignment_index += ch.len_utf8();
+                                                }
+                                                'c' => {
+                                                    alignment = Some(TableColumnAlignment::Center);
+                                                    alignment_index += ch.len_utf8();
+                                                }
+                                                'r' => {
+                                                    alignment = Some(TableColumnAlignment::Right);
+                                                    alignment_index += ch.len_utf8();
+                                                }
+                                                'p' | 'm' | 'b' | 'X' => {
+                                                    alignment =
+                                                        Some(TableColumnAlignment::Paragraph);
+                                                    alignment_index += ch.len_utf8();
+                                                }
+                                                'S' | 'D' => {
+                                                    alignment = Some(TableColumnAlignment::Decimal);
+                                                    alignment_index += ch.len_utf8();
+                                                }
+                                                _ => {
+                                                    alignment_index += ch.len_utf8();
+                                                }
+                                            }
+                                        }
+                                        if column_span > 1 || alignment.is_some() {
                                             table_cell_spans.push(TableCellSpanEvent {
                                                 row_index: current_row_index,
                                                 column_index: current_column_index,
                                                 column_span,
                                                 row_span: None,
+                                                alignment,
                                             });
+                                        }
+                                        if column_span > 1 {
                                             current_column_index += column_span - 1;
                                         }
                                         rewritten.push_str(content);
@@ -9961,6 +10037,7 @@ impl<'i> Vm<'i> {
                                                 column_index: current_column_index,
                                                 column_span: 1,
                                                 row_span: Some(row_span),
+                                                alignment: None,
                                             });
                                         }
                                         rewritten.push_str(content);
@@ -10015,6 +10092,7 @@ impl<'i> Vm<'i> {
                                             column_index: current_column_index,
                                             column_span: 1,
                                             row_span: Some(row_span),
+                                            alignment: None,
                                         });
                                     }
                                     rewritten.push_str(content);
@@ -24667,6 +24745,7 @@ Fallback text.
                 column_index: 0,
                 column_span: 2,
                 row_span: None,
+                alignment: Some(TableColumnAlignment::Center),
             }]
         );
         let visible_text = visible.normalized_visible_text.as_deref().unwrap_or("");
@@ -24707,6 +24786,7 @@ Fallback text.
                 column_index: 0,
                 column_span: 1,
                 row_span: Some(2),
+                alignment: None,
             }]
         );
     }

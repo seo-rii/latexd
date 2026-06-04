@@ -413,6 +413,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                         text: text.to_string(),
                                         column_span: None,
                                         row_span: None,
+                                        alignment: None,
                                     })
                                     .collect::<Vec<_>>();
                                 (!cells.is_empty()).then_some(TableRow {
@@ -490,6 +491,9 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                         && row_span > 1
                                     {
                                         cell.row_span = Some(row_span);
+                                    }
+                                    if let Some(alignment) = cell_span.alignment {
+                                        cell.alignment = Some(alignment);
                                     }
                                 }
                             }
