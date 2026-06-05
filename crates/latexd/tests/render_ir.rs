@@ -14433,6 +14433,62 @@ fn booktabs_cmidrule_trim_length_units_do_not_change_trim_side() {
 }
 
 #[test]
+fn booktabs_cmidrule_optional_width_does_not_leak_into_table_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{booktabs}\begin{document}\begin{tabular}{lll}A & B & C \\\cmidrule[0.4pt](lr){1-2} D & E & F\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(
+        table.rows[0].partial_rules_below,
+        vec![TableRuleSpan {
+            start_column: 0,
+            end_column: 1,
+            trim_start: true,
+            trim_end: true,
+            trim_start_pt_milli: None,
+            trim_end_pt_milli: None,
+        }]
+    );
+    assert!(capture.document_ir.extracted_text().contains("A | B | C"));
+    assert!(capture.document_ir.extracted_text().contains("D | E | F"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    for hidden in ["cmidrule", "0.4pt"] {
+        assert!(!capture.document_ir.extracted_text().contains(hidden));
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+
+    let horizontal_rules = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::Rule(rect) if rect.width > rect.height => Some(rect),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(horizontal_rules.len(), 1, "{horizontal_rules:?}");
+}
+
+#[test]
 fn booktabs_spacing_commands_do_not_leak_into_table_text() {
     let capture = capture_internal_render_ir(
         "main.tex",

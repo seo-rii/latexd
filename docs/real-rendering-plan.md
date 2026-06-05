@@ -58,9 +58,10 @@ readable display-list fallback. Simple `\cline{a-b}` / `\cmidrule(...){a-b}`
 spans are carried as zero-based inclusive column ranges with whitespace outside
 the covered columns and matching partial rule rectangles, using the same visible
 separator widths as table row text when trimming the rule span. Simple
-`booktabs` `\cmidrule(l/r/lr){...}` trim options also survive as rule-span trim
-metadata; `l{...}` / `r{...}` length payloads are preserved as point-sized trim
-hints and shorten the renderer-visible partial rule rectangle x/width directly.
+`booktabs` `\cmidrule[...](l/r/lr){...}` optional rule widths and trim options
+also survive without leaking control payloads into table text; `l{...}` /
+`r{...}` length payloads are preserved as point-sized trim hints and shorten the
+renderer-visible partial rule rectangle x/width directly.
 A default-CI table readability gate now checks that representative tables keep
 cell text in display-list/PDF text while rendering horizontal and vertical
 separators as `Rule` operations rather than searchable filler glyphs, with
@@ -600,10 +601,10 @@ Implemented first slice:
   emit separate `TextRun` operations, keeping rule strokes out of searchable PDF
   text. Partial horizontal rule rectangles use the same visible separator
   widths as table row text instead of assuming fixed-width default separators,
-  and simple `booktabs` `\cmidrule(l/r/lr){...}` trim options, including
-  `l{...}` / `r{...}` trim length payloads, shorten the requested side of those
-  partial rule rectangles in point units without letting unit names affect the
-  trim direction.
+  and simple `booktabs` `\cmidrule[...](l/r/lr){...}` optional rule widths and
+  trim options, including `l{...}` / `r{...}` trim length payloads, shorten the
+  requested side of those partial rule rectangles in point units without letting
+  rule-width payloads or trim unit names affect visible table text.
 - display-list padding for `\multicolumn` spanning cells uses the visible
   separator widths from the covered columns, instead of assuming fixed-width
   default separators.
