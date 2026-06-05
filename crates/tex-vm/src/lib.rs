@@ -25277,6 +25277,52 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_omits_hhline_modifiers_and_preserves_dash_spans() {
+        let source = r"\documentclass{article}\usepackage{hhline}\begin{document}\begin{tabular}{lll}A & B & C \\\hhline{>{\arrayrulecolor{red}}--~} D & E & F\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        let visible_text = visible
+            .normalized_visible_text
+            .as_deref()
+            .expect("visible table text");
+
+        assert_eq!(visible_text, "A | B | C ; D | E | F");
+        for hidden in ["hhline", "arrayrulecolor", "red", "--~"] {
+            assert!(!visible_text.contains(hidden), "{visible_text}");
+        }
+        assert_eq!(
+            visible.table_rules,
+            vec![TableRuleEvent {
+                row_index: 0,
+                position: TableRulePosition::Below,
+                column_span: Some(TableRuleSpan {
+                    start_column: 0,
+                    end_column: 1,
+                    trim_start: false,
+                    trim_end: false,
+                    trim_start_pt_milli: None,
+                    trim_end_pt_milli: None,
+                }),
+            }]
+        );
+    }
+
+    #[test]
     fn render_event_capture_omits_table_color_commands() {
         let source = r"\documentclass{article}\usepackage{colortbl}\begin{document}\begin{tabular}{|l|r|}\rowcolor{gray!20} A & \cellcolor[gray]{0.9}1 \\ \arrayrulecolor{red}\hline B & 22\end{tabular}\end{document}";
         let mut interner = ControlSequenceInterner::new();

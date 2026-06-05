@@ -665,9 +665,10 @@ Implemented first slice:
   `\noalign{...}` spacing bodies are also consumed without becoming visible
   fallback text.
 - common `hhline` rule commands are suppressed from visible table text and
-  treated as coarse full-width table rules, with simple `~` blank-column and
-  bounded `*{n}{...}` repeated patterns preserved as partial rule spans; exact
-  pattern semantics are deferred.
+  treated as coarse full-width table rules, with simple `-` / `=` / `#` rule
+  columns, `~` blank columns, `>{...}` modifiers, and bounded `*{n}{...}`
+  repeated patterns preserved as partial rule spans without leaking pattern
+  payloads; exact pattern semantics are deferred.
 - common `colortbl` table color commands such as `\rowcolor`, `\cellcolor`,
   `\columncolor`, and `\arrayrulecolor` are suppressed from visible table text,
   including color-only column and multicolumn hooks; color styling is not
@@ -926,8 +927,8 @@ Status:
   display-list rule ops, including repeated `||` approximations;
 - common `booktabs` spacing/rule-control commands are normalized without
   leaking command names or rule dimensions into table text;
-- common `hhline` rule commands are normalized without leaking command names or
-  pattern strings into table text;
+- common `hhline` rule commands are normalized without leaking command names,
+  pattern strings, or simple modifier payloads into table text;
 - common `colortbl` table color commands are normalized without leaking command
   names or color arguments into table text;
 - simple multirow row counts survive into `TableCell.row_span` metadata;
