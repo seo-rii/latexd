@@ -91,7 +91,9 @@ Simple table target-width expressions such as
 `\dimexpr\textwidth-36pt\relax` and `\dimexpr\textwidth-2\tabcolsep\relax`
 are also interpreted narrowly in the display-list fallback so `tabularx` /
 `tabu` stretching can remain close to the requested target without promoting the
-raw expression into visible text.
+raw expression into visible text. If a target-width table has no flexible
+paragraph-style column, the fallback stretches intercolumn separators instead of
+adding trailing padding to the last column.
 Simple `@{...}` /
 `!{...}` intercolumn visible separators now replace the default fallback
 separator in display-list text, simple visible `>{...}` / `<{...}` cell hooks
@@ -613,7 +615,8 @@ Implemented first slice:
   metadata; the readable display-list fallback resolves common specs such as
   `\textwidth` / `\linewidth`, plus simple `\dimexpr` addition/subtraction
   forms, and stretches flexible paragraph-style columns toward that target
-  width.
+  width. If no flexible column is available, the fallback stretches separators
+  rather than padding the final column.
 - array-package hook and intercolumn modifiers `>{...}`, `<{...}`, `@{...}`,
   and `!{...}` are skipped as non-column material so the following real columns
   still drive fallback alignment. Simple visible `@{...}` / `!{...}`

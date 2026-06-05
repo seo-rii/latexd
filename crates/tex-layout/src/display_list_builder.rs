@@ -807,7 +807,7 @@ pub fn build_page_display_lists(
                         })
                         .unwrap_or(0)
                 };
-                let separator_width =
+                let base_separator_width =
                     |previous_column_index: usize, column_index: usize| -> usize {
                         let rule_count = column_rule_after_count(previous_column_index)
                             .max(column_rule_before_count(column_index));
@@ -823,11 +823,12 @@ pub fn build_page_display_lists(
                             3
                         }
                     };
-                let spanned_separator_width = |start_column: usize, end_column: usize| -> usize {
-                    (start_column + 1..end_column)
-                        .map(|column| separator_width(column - 1, column))
-                        .sum()
-                };
+                let base_spanned_separator_width =
+                    |start_column: usize, end_column: usize| -> usize {
+                        (start_column + 1..end_column)
+                            .map(|column| base_separator_width(column - 1, column))
+                            .sum()
+                    };
                 for row in &rendered_rows {
                     for cell in row {
                         let column_index = cell.column_index;
@@ -836,7 +837,7 @@ pub fn build_page_display_lists(
                         let mut spanned_width = column_widths[column_index..end_column]
                             .iter()
                             .sum::<usize>();
-                        spanned_width += spanned_separator_width(column_index, end_column);
+                        spanned_width += base_spanned_separator_width(column_index, end_column);
                         let text_width = cell.text.chars().count();
                         if column_span > 1 && text_width > spanned_width && end_column > 0 {
                             column_widths[end_column - 1] += text_width - spanned_width;
@@ -856,6 +857,8 @@ pub fn build_page_display_lists(
                         column_widths[column_index] = column_widths[column_index].max(min_chars);
                     }
                 }
+                let mut separator_extra_widths =
+                    vec![0usize; column_widths.len().saturating_sub(1)];
                 if let Some(width_spec) = block.width_spec.as_deref() {
                     let content_width_pt =
                         (options.page_width_pt - options.margin_left_pt * 2.0).max(1.0);
@@ -866,9 +869,9 @@ pub fn build_page_display_lists(
                         let target_chars =
                             ((table_width_pt / table_glyph_width_pt) - 0.001).ceil() as usize;
                         let current_chars = column_widths.iter().sum::<usize>()
-                            + spanned_separator_width(0, column_widths.len());
+                            + base_spanned_separator_width(0, column_widths.len());
                         if target_chars > current_chars {
-                            let mut stretch_columns = block
+                            let stretch_columns = block
                                 .columns
                                 .iter()
                                 .enumerate()
@@ -882,22 +885,50 @@ pub fn build_page_display_lists(
                                     .then_some(index)
                                 })
                                 .collect::<Vec<_>>();
-                            if stretch_columns.is_empty() {
-                                stretch_columns.push(column_widths.len() - 1);
-                            }
                             let extra_chars = target_chars - current_chars;
-                            let base_extra = extra_chars / stretch_columns.len();
-                            let mut remainder = extra_chars % stretch_columns.len();
-                            for column_index in stretch_columns {
-                                column_widths[column_index] += base_extra;
-                                if remainder > 0 {
-                                    column_widths[column_index] += 1;
-                                    remainder -= 1;
+                            if !stretch_columns.is_empty() {
+                                let base_extra = extra_chars / stretch_columns.len();
+                                let mut remainder = extra_chars % stretch_columns.len();
+                                for column_index in stretch_columns {
+                                    column_widths[column_index] += base_extra;
+                                    if remainder > 0 {
+                                        column_widths[column_index] += 1;
+                                        remainder -= 1;
+                                    }
                                 }
+                            } else if !separator_extra_widths.is_empty() {
+                                let base_extra = extra_chars / separator_extra_widths.len();
+                                let mut remainder = extra_chars % separator_extra_widths.len();
+                                for extra_width in &mut separator_extra_widths {
+                                    *extra_width += base_extra;
+                                    if remainder > 0 {
+                                        *extra_width += 1;
+                                        remainder -= 1;
+                                    }
+                                }
+                            } else if let Some(last_width) = column_widths.last_mut() {
+                                *last_width += extra_chars;
                             }
                         }
                     }
                 }
+                let separator_width =
+                    |previous_column_index: usize, column_index: usize| -> usize {
+                        let extra_width = if column_index == previous_column_index + 1 {
+                            separator_extra_widths
+                                .get(previous_column_index)
+                                .copied()
+                                .unwrap_or(0)
+                        } else {
+                            0
+                        };
+                        base_separator_width(previous_column_index, column_index) + extra_width
+                    };
+                let spanned_separator_width = |start_column: usize, end_column: usize| -> usize {
+                    (start_column + 1..end_column)
+                        .map(|column| separator_width(column - 1, column))
+                        .sum()
+                };
                 let rule_width = column_widths.iter().sum::<usize>()
                     + spanned_separator_width(0, column_widths.len());
                 let rule_text = "-".repeat(rule_width.max(3));
@@ -1068,19 +1099,32 @@ pub fn build_page_display_lists(
                                 .max(column_rule_before_count(column_index))
                                 .max(previous_cell_rule_after)
                                 .max(cell.rule_before_count);
+                            let target_separator_width =
+                                separator_width(previous_column_index, column_index);
                             if rule_count > 0 {
-                                row_text.push_str("   ");
+                                for _ in 0..target_separator_width {
+                                    row_text.push(' ');
+                                }
                             } else if let Some(separator) = block
                                 .columns
                                 .get(previous_column_index)
                                 .and_then(|column| column.separator_after.as_deref())
                             {
                                 row_text.push_str(separator);
+                                for _ in separator.chars().count()..target_separator_width {
+                                    row_text.push(' ');
+                                }
                             } else {
                                 row_text.push_str(" | ");
+                                for _ in 3..target_separator_width {
+                                    row_text.push(' ');
+                                }
                             }
                             if rule_count > 0 {
-                                row_vertical_rule_offsets.push((separator_start + 1, rule_count));
+                                row_vertical_rule_offsets.push((
+                                    separator_start + target_separator_width / 2,
+                                    rule_count,
+                                ));
                             }
                         }
                         let column_span = cell.column_span;
@@ -3298,6 +3342,86 @@ mod tests {
         assert!(minus_absolute < full, "{minus_absolute} {full}");
         assert!(minus_register > natural, "{natural} {minus_register}");
         assert!(minus_register < full, "{minus_register} {full}");
+    }
+
+    #[test]
+    fn table_display_list_text_stretches_target_width_separators_when_no_flexible_columns() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular*".to_string(),
+                width_spec: Some("120pt".to_string()),
+                columns: vec![
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Left,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: false,
+                        rule_after_count: 0,
+                        separator_after: None,
+                        width_pt_milli: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Right,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: false,
+                        rule_after_count: 0,
+                        separator_after: None,
+                        width_pt_milli: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                ],
+                rows: vec![TableRow {
+                    rule_above: false,
+                    partial_rules_above: Vec::new(),
+                    cells: vec![
+                        TableCell {
+                            text: "Alpha".to_string(),
+                            column_span: None,
+                            row_span: None,
+                            alignment: None,
+                            rule_before_count: 0,
+                            rule_after_count: 0,
+                            cell_prefix: None,
+                            cell_suffix: None,
+                        },
+                        TableCell {
+                            text: "Beta".to_string(),
+                            column_span: None,
+                            row_span: None,
+                            alignment: None,
+                            rule_before_count: 0,
+                            rule_after_count: 0,
+                            cell_prefix: None,
+                            cell_suffix: None,
+                        },
+                    ],
+                    rule_below: false,
+                    partial_rules_below: Vec::new(),
+                }],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let line = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .find(|line| line.starts_with("Alpha"))
+            .expect("table row");
+
+        assert!(line.chars().count() > "Alpha | Beta".chars().count());
+        assert!(line.starts_with("Alpha | "), "{line:?}");
+        assert!(line.ends_with("Beta"), "{line:?}");
     }
 
     #[test]
