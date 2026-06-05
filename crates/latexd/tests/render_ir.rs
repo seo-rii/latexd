@@ -14868,6 +14868,48 @@ fn tabularx_capture_builds_table_ir() {
 }
 
 #[test]
+fn tabularx_dimexpr_width_spec_stretches_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabularx}{\dimexpr\textwidth-36pt\relax}{lX}Alpha & Beta \\ Gamma & Delta\end{tabularx}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabularx" => Some(table),
+            _ => None,
+        })
+        .expect("tabularx table");
+
+    assert_eq!(
+        table.width_spec.as_deref(),
+        Some(r"\dimexpr\textwidth-36pt\relax")
+    );
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let alpha_line = table_lines
+        .iter()
+        .find(|line| line.starts_with("Alpha") && line.contains("Beta"))
+        .expect("tabularx Alpha/Beta line");
+
+    assert!(
+        alpha_line.chars().count() > "Alpha | Beta".chars().count(),
+        "{table_lines:?}"
+    );
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(!extracted_text.contains("dimexpr"), "{extracted_text:?}");
+}
+
+#[test]
 fn tabu_capture_builds_table_ir() {
     let capture = capture_internal_render_ir(
         "main.tex",

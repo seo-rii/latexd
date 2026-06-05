@@ -86,6 +86,11 @@ repeated specs expand before IR construction, and those specs drive coarse
 left/center/right padding in the display-list text fallback. Absolute
 `p{...}` / `m{...}` / `b{...}` and array-package `w` / `W` column widths now
 survive as point-sized hints and set minimum monospaced fallback column widths.
+Simple table target-width expressions such as
+`\dimexpr\textwidth-36pt\relax` and `\dimexpr\textwidth-2\tabcolsep\relax`
+are also interpreted narrowly in the display-list fallback so `tabularx` /
+`tabu` stretching can remain close to the requested target without promoting the
+raw expression into visible text.
 Simple `@{...}` /
 `!{...}` intercolumn visible separators now replace the default fallback
 separator in display-list text, simple visible `>{...}` / `<{...}` cell hooks
@@ -602,8 +607,9 @@ Implemented first slice:
 - `tabular*` / `tabularx` target-width arguments and simple `tabu` /
   `longtabu` `to` / `spread` width specs now survive as table-level width
   metadata; the readable display-list fallback resolves common specs such as
-  `\textwidth` / `\linewidth` and stretches flexible paragraph-style columns
-  toward that target width.
+  `\textwidth` / `\linewidth`, plus simple `\dimexpr` addition/subtraction
+  forms, and stretches flexible paragraph-style columns toward that target
+  width.
 - array-package hook and intercolumn modifiers `>{...}`, `<{...}`, `@{...}`,
   and `!{...}` are skipped as non-column material so the following real columns
   still drive fallback alignment. Simple visible `@{...}` / `!{...}`
@@ -827,7 +833,8 @@ Status:
 
 - table IR and basic monospaced display-list rendering are started;
 - `tabularx` environments are promoted through the same table IR/display-list
-  fallback path, with `X` columns mapped to paragraph-style columns;
+  fallback path, with `X` columns mapped to paragraph-style columns and simple
+  `\dimexpr` target widths resolved during display-list stretching;
 - simple `tabu` and `longtabu` environments are promoted through the same
   table IR/display-list fallback path;
 - array-package `w` / `W` fixed-width columns preserve coarse alignment intent;

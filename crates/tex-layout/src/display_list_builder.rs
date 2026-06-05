@@ -45,6 +45,106 @@ impl Default for PageDisplayListOptions {
     }
 }
 
+fn parse_table_width_spec_pt(
+    width_spec: &str,
+    content_width_pt: f32,
+    options: &PageDisplayListOptions,
+) -> Option<f32> {
+    let normalized_width = width_spec
+        .trim()
+        .trim_matches(|ch| ch == '{' || ch == '}')
+        .chars()
+        .filter(|ch| !ch.is_whitespace())
+        .collect::<String>();
+    let reference_widths = [
+        ("\\hsize", content_width_pt),
+        ("\\linewidth", content_width_pt),
+        ("\\textwidth", content_width_pt),
+        ("\\columnwidth", content_width_pt),
+        ("\\paperwidth", options.page_width_pt),
+        ("\\pagewidth", options.page_width_pt),
+        ("\\tabcolsep", 6.0),
+        ("\\arraycolsep", 5.0),
+    ];
+    let unit_widths = [
+        ("truept", 1.0),
+        ("bp", 1.0),
+        ("pt", 1.0),
+        ("in", 72.0),
+        ("cm", 72.0 / 2.54),
+        ("mm", 72.0 / 25.4),
+        ("pc", 12.0),
+        ("em", options.body_font_size_pt),
+        ("ex", options.body_font_size_pt * 0.5),
+    ];
+    let parse_width_atom = |atom: &str| -> Option<f32> {
+        let atom = atom.trim();
+        if atom.is_empty() {
+            return None;
+        }
+        reference_widths
+            .iter()
+            .find_map(|(name, reference_pt)| {
+                if atom == *name {
+                    return Some(*reference_pt);
+                }
+                atom.strip_suffix(name).and_then(|prefix| {
+                    let factor = prefix.strip_suffix('*').unwrap_or(prefix);
+                    let factor = if factor.is_empty() {
+                        Some(1.0)
+                    } else {
+                        factor.parse::<f32>().ok()
+                    }?;
+                    let dimension = reference_pt * factor;
+                    (dimension.is_finite() && dimension > 0.0).then_some(dimension)
+                })
+            })
+            .or_else(|| {
+                for (unit, multiplier) in unit_widths {
+                    if let Some(number) = atom.strip_suffix(unit) {
+                        let dimension = number.parse::<f32>().ok()? * multiplier;
+                        if dimension.is_finite() && dimension > 0.0 {
+                            return Some(dimension);
+                        }
+                    }
+                }
+                let dimension = atom.parse::<f32>().ok()?;
+                (dimension.is_finite() && dimension > 0.0).then_some(dimension)
+            })
+    };
+    let parse_width_expression = |expression: &str| -> Option<f32> {
+        let mut expression = expression;
+        if let Some(inner) = expression.strip_prefix("\\dimexpr") {
+            expression = inner.strip_suffix("\\relax").unwrap_or(inner);
+        }
+        let mut total = 0.0;
+        let mut sign = 1.0;
+        let mut term_start = 0usize;
+        let mut saw_operator = false;
+        for (index, ch) in expression.char_indices() {
+            if ch != '+' && ch != '-' {
+                continue;
+            }
+            if index == term_start {
+                sign = if ch == '-' { -1.0 } else { 1.0 };
+                term_start = index + ch.len_utf8();
+                continue;
+            }
+            total += sign * parse_width_atom(&expression[term_start..index])?;
+            saw_operator = true;
+            sign = if ch == '-' { -1.0 } else { 1.0 };
+            term_start = index + ch.len_utf8();
+        }
+        if term_start >= expression.len() {
+            return None;
+        }
+        total += sign * parse_width_atom(&expression[term_start..])?;
+        (saw_operator && total.is_finite() && total > 0.0).then_some(total)
+    };
+
+    parse_width_atom(&normalized_width).or_else(|| parse_width_expression(&normalized_width))
+}
+
 struct PendingPage {
     ops: Vec<DrawOp>,
     source_spans: Vec<SourceSpan>,
@@ -759,59 +859,8 @@ pub fn build_page_display_lists(
                 if let Some(width_spec) = block.width_spec.as_deref() {
                     let content_width_pt =
                         (options.page_width_pt - options.margin_left_pt * 2.0).max(1.0);
-                    let normalized_width = width_spec
-                        .trim()
-                        .trim_matches(|ch| ch == '{' || ch == '}')
-                        .chars()
-                        .filter(|ch| !ch.is_whitespace())
-                        .collect::<String>();
-                    let table_width_pt = [
-                        ("\\hsize", content_width_pt),
-                        ("\\linewidth", content_width_pt),
-                        ("\\textwidth", content_width_pt),
-                        ("\\columnwidth", content_width_pt),
-                        ("\\paperwidth", options.page_width_pt),
-                        ("\\pagewidth", options.page_width_pt),
-                    ]
-                    .into_iter()
-                    .find_map(|(name, reference_pt)| {
-                        if normalized_width == name {
-                            return Some(reference_pt);
-                        }
-                        normalized_width.strip_suffix(name).and_then(|prefix| {
-                            let factor = prefix.strip_suffix('*').unwrap_or(prefix);
-                            let factor = if factor.is_empty() {
-                                Some(1.0)
-                            } else {
-                                factor.parse::<f32>().ok()
-                            }?;
-                            let dimension = reference_pt * factor;
-                            dimension.is_finite().then_some(dimension)
-                        })
-                    })
-                    .or_else(|| {
-                        for (unit, multiplier) in [
-                            ("truept", 1.0),
-                            ("bp", 1.0),
-                            ("pt", 1.0),
-                            ("in", 72.0),
-                            ("cm", 72.0 / 2.54),
-                            ("mm", 72.0 / 25.4),
-                            ("pc", 12.0),
-                            ("em", options.body_font_size_pt),
-                            ("ex", options.body_font_size_pt * 0.5),
-                        ] {
-                            if let Some(number) = normalized_width.strip_suffix(unit) {
-                                let dimension = number.parse::<f32>().ok()? * multiplier;
-                                if dimension.is_finite() && dimension > 0.0 {
-                                    return Some(dimension);
-                                }
-                            }
-                        }
-                        let dimension = normalized_width.parse::<f32>().ok()?;
-                        (dimension.is_finite() && dimension > 0.0).then_some(dimension)
-                    });
-                    if let Some(table_width_pt) = table_width_pt
+                    if let Some(table_width_pt) =
+                        parse_table_width_spec_pt(width_spec, content_width_pt, &options)
                         && !column_widths.is_empty()
                     {
                         let target_chars =
@@ -2389,7 +2438,7 @@ mod tests {
         TableColumnAlignment, TableColumnSpec, TableRow, TableRuleSpan, TextCluster, TitleBlock,
     };
 
-    use super::{PageDisplayListOptions, build_page_display_lists};
+    use super::{PageDisplayListOptions, build_page_display_lists, parse_table_width_spec_pt};
 
     #[test]
     fn builds_positioned_text_runs_from_document_ir() {
@@ -3132,6 +3181,123 @@ mod tests {
             .expect("stretched table row");
 
         assert!(line.chars().count() > "Alpha | Beta".chars().count());
+    }
+
+    #[test]
+    fn parses_simple_table_width_dimexpr_specs() {
+        let options = PageDisplayListOptions::default();
+        let content_width_pt = options.page_width_pt - options.margin_left_pt * 2.0;
+
+        assert_eq!(
+            parse_table_width_spec_pt("\\textwidth", content_width_pt, &options),
+            Some(content_width_pt)
+        );
+        assert_eq!(
+            parse_table_width_spec_pt(
+                "\\dimexpr\\textwidth-36pt\\relax",
+                content_width_pt,
+                &options,
+            ),
+            Some(content_width_pt - 36.0)
+        );
+        assert_eq!(
+            parse_table_width_spec_pt(
+                "\\dimexpr\\textwidth-2\\tabcolsep\\relax",
+                content_width_pt,
+                &options,
+            ),
+            Some(content_width_pt - 12.0)
+        );
+    }
+
+    #[test]
+    fn table_display_list_text_stretches_simple_dimexpr_width_specs() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let build_line_len = |width_spec: Option<&str>| -> usize {
+            let display_lists = build_page_display_lists(
+                &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                    environment: "tabularx".to_string(),
+                    width_spec: width_spec.map(ToOwned::to_owned),
+                    columns: vec![
+                        TableColumnSpec {
+                            alignment: TableColumnAlignment::Left,
+                            rule_before: false,
+                            rule_before_count: 0,
+                            rule_after: false,
+                            rule_after_count: 0,
+                            separator_after: None,
+                            width_pt_milli: None,
+                            cell_prefix: None,
+                            cell_suffix: None,
+                        },
+                        TableColumnSpec {
+                            alignment: TableColumnAlignment::Paragraph,
+                            rule_before: false,
+                            rule_before_count: 0,
+                            rule_after: false,
+                            rule_after_count: 0,
+                            separator_after: None,
+                            width_pt_milli: None,
+                            cell_prefix: None,
+                            cell_suffix: None,
+                        },
+                    ],
+                    rows: vec![TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "Alpha".to_string(),
+                                column_span: None,
+                                row_span: None,
+                                alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
+                                cell_prefix: None,
+                                cell_suffix: None,
+                            },
+                            TableCell {
+                                text: "Beta".to_string(),
+                                column_span: None,
+                                row_span: None,
+                                alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
+                                cell_prefix: None,
+                                cell_suffix: None,
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    }],
+                    caption: None,
+                    caption_source: None,
+                    source: source.clone(),
+                })]),
+                PageDisplayListOptions::default(),
+            );
+            display_lists[0]
+                .ops
+                .iter()
+                .filter_map(|op| match op {
+                    DrawOp::TextRun(run) => Some(run.text.as_str()),
+                    _ => None,
+                })
+                .find(|line| line.starts_with("Alpha") && line.contains("Beta"))
+                .expect("table row")
+                .chars()
+                .count()
+        };
+
+        let natural = build_line_len(None);
+        let full = build_line_len(Some("\\textwidth"));
+        let minus_absolute = build_line_len(Some("\\dimexpr\\textwidth-36pt\\relax"));
+        let minus_register = build_line_len(Some("\\dimexpr\\textwidth-20\\tabcolsep\\relax"));
+
+        assert!(minus_absolute > natural, "{natural} {minus_absolute}");
+        assert!(minus_absolute < full, "{minus_absolute} {full}");
+        assert!(minus_register > natural, "{natural} {minus_register}");
+        assert!(minus_register < full, "{minus_register} {full}");
     }
 
     #[test]
