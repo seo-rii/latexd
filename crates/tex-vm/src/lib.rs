@@ -159,6 +159,8 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\cellcolor}[2][]{}
 \providecommand{\rowcolor}[2][]{}
 \providecommand{\rowcolors}[4][]{}
+\providecommand{\hiderowcolors}{}
+\providecommand{\showrowcolors}{}
 \providecommand{\columncolor}[2][]{}
 \providecommand{\arrayrulecolor}[1]{}
 \providecommand{\affil}[2][]{#2}
@@ -3386,6 +3388,9 @@ impl<'i> Vm<'i> {
                                                                     table_body,
                                                                     command_end,
                                                                 );
+                                                        }
+                                                        "hiderowcolors" | "showrowcolors" => {
+                                                            table_index = command_end;
                                                         }
                                                         "cellcolor" | "rowcolor"
                                                         | "columncolor" => {
@@ -10081,6 +10086,9 @@ impl<'i> Vm<'i> {
                         "rowcolors" => {
                             table_index =
                                 consume_rowcolors_source_arguments(table_body, command_end);
+                        }
+                        "hiderowcolors" | "showrowcolors" => {
+                            table_index = command_end;
                         }
                         "cellcolor" | "rowcolor" | "columncolor" => {
                             table_index = command_end;
@@ -25395,7 +25403,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_omits_rowcolors_table_style_command() {
-        let source = r"\documentclass{article}\usepackage[table]{xcolor}\begin{document}\begin{tabular}{lr}\rowcolors[\hiderowcolors]{2}{gray!10}{white} A & 1 \\ B & 22\end{tabular}\end{document}";
+        let source = r"\documentclass{article}\usepackage[table]{xcolor}\begin{document}\begin{tabular}{lr}\rowcolors[\hiderowcolors]{2}{gray!10}{white} A & 1 \\ \hiderowcolors B & 22 \\ \showrowcolors C & 333\end{tabular}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -25427,8 +25435,14 @@ Fallback text.
             .as_deref()
             .expect("visible table text");
 
-        assert_eq!(visible_text, "A | 1 ; B | 22");
-        for hidden in ["rowcolors", "hiderowcolors", "gray", "white"] {
+        assert_eq!(visible_text, "A | 1 ; B | 22 ; C | 333");
+        for hidden in [
+            "rowcolors",
+            "hiderowcolors",
+            "showrowcolors",
+            "gray",
+            "white",
+        ] {
             assert!(!visible_text.contains(hidden), "{visible_text}");
         }
     }

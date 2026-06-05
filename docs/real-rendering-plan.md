@@ -670,9 +670,9 @@ Implemented first slice:
   repeated patterns preserved as partial rule spans without leaking pattern
   payloads; exact pattern semantics are deferred.
 - common `colortbl` / `xcolor` table color commands such as `\rowcolor`,
-  `\rowcolors`, `\cellcolor`, `\columncolor`, and `\arrayrulecolor` are
-  suppressed from visible table text, including color-only column and
-  multicolumn hooks; color styling is not
+  `\rowcolors`, `\hiderowcolors`, `\showrowcolors`, `\cellcolor`,
+  `\columncolor`, and `\arrayrulecolor` are suppressed from visible table text,
+  including color-only column and multicolumn hooks; color styling is not
   rendered yet.
 - simple `\multicolumn` alignment specs survive as `TableCell.alignment` and
   drive readable display-list padding for spanning cells.

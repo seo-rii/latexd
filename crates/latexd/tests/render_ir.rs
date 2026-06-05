@@ -14877,7 +14877,7 @@ fn table_color_commands_do_not_leak_into_table_text() {
 fn table_rowcolors_command_does_not_leak_into_table_text() {
     let capture = capture_internal_render_ir(
         "main.tex",
-        r"\documentclass{article}\usepackage[table]{xcolor}\begin{document}\begin{tabular}{lr}\rowcolors[\hiderowcolors]{2}{gray!10}{white} A & 1 \\ B & 22\end{tabular}\end{document}",
+        r"\documentclass{article}\usepackage[table]{xcolor}\begin{document}\begin{tabular}{lr}\rowcolors[\hiderowcolors]{2}{gray!10}{white} A & 1 \\ \hiderowcolors B & 22 \\ \showrowcolors C & 333\end{tabular}\end{document}",
         &SemanticAux::default(),
     );
     let table = capture
@@ -14890,15 +14890,24 @@ fn table_rowcolors_command_does_not_leak_into_table_text() {
         })
         .expect("tabular table");
 
-    assert_eq!(table.rows.len(), 2);
+    assert_eq!(table.rows.len(), 3);
     assert_eq!(table.rows[0].cells[0].text, "A");
     assert_eq!(table.rows[0].cells[1].text, "1");
     assert_eq!(table.rows[1].cells[0].text, "B");
     assert_eq!(table.rows[1].cells[1].text, "22");
+    assert_eq!(table.rows[2].cells[0].text, "C");
+    assert_eq!(table.rows[2].cells[1].text, "333");
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("A | 1"));
     assert!(extracted_text.contains("B | 22"));
-    for hidden in ["rowcolors", "hiderowcolors", "gray", "white"] {
+    assert!(extracted_text.contains("C | 333"));
+    for hidden in [
+        "rowcolors",
+        "hiderowcolors",
+        "showrowcolors",
+        "gray",
+        "white",
+    ] {
         assert!(!extracted_text.contains(hidden), "{extracted_text}");
     }
     assert!(
@@ -14918,9 +14927,16 @@ fn table_rowcolors_command_does_not_leak_into_table_text() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(display_list_text.contains("A |  1"), "{display_list_text}");
-    assert!(display_list_text.contains("B | 22"), "{display_list_text}");
-    for hidden in ["rowcolors", "hiderowcolors", "gray", "white"] {
+    assert!(display_list_text.contains("A |   1"), "{display_list_text}");
+    assert!(display_list_text.contains("B |  22"), "{display_list_text}");
+    assert!(display_list_text.contains("C | 333"), "{display_list_text}");
+    for hidden in [
+        "rowcolors",
+        "hiderowcolors",
+        "showrowcolors",
+        "gray",
+        "white",
+    ] {
         assert!(!display_list_text.contains(hidden), "{display_list_text}");
     }
 }
