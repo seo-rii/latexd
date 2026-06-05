@@ -158,6 +158,7 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\color}[1]{}
 \providecommand{\cellcolor}[2][]{}
 \providecommand{\rowcolor}[2][]{}
+\providecommand{\rowcolors}[4][]{}
 \providecommand{\columncolor}[2][]{}
 \providecommand{\arrayrulecolor}[1]{}
 \providecommand{\affil}[2][]{#2}
@@ -3378,6 +3379,13 @@ impl<'i> Vm<'i> {
                                                                 };
                                                                 table_index = after;
                                                             }
+                                                        }
+                                                        "rowcolors" => {
+                                                            table_index =
+                                                                consume_rowcolors_source_arguments(
+                                                                    table_body,
+                                                                    command_end,
+                                                                );
                                                         }
                                                         "cellcolor" | "rowcolor"
                                                         | "columncolor" => {
@@ -10069,6 +10077,10 @@ impl<'i> Vm<'i> {
                                 };
                                 table_index = after;
                             }
+                        }
+                        "rowcolors" => {
+                            table_index =
+                                consume_rowcolors_source_arguments(table_body, command_end);
                         }
                         "cellcolor" | "rowcolor" | "columncolor" => {
                             table_index = command_end;
@@ -17967,6 +17979,21 @@ fn skip_ascii_whitespace(source: &str, mut index: usize) -> usize {
     index
 }
 
+fn consume_rowcolors_source_arguments(source: &str, command_end: usize) -> usize {
+    let mut index = skip_ascii_whitespace(source, command_end);
+    if let Some((_, _, _, after)) = read_bracket_source_argument(source, index) {
+        index = after;
+    }
+    for _ in 0..3 {
+        index = skip_ascii_whitespace(source, index);
+        let Some((_, _, _, after)) = read_braced_source_argument(source, index) else {
+            break;
+        };
+        index = after;
+    }
+    index
+}
+
 fn heading_level_from_command_name(command: &str) -> Option<u8> {
     match command {
         "part" | "chapter" => Some(0),
@@ -25364,6 +25391,46 @@ Fallback text.
         assert!(!visible_text.contains("gray"));
         assert!(!visible_text.contains("red"));
         assert!(visible.table_rules.len() >= 1, "{:?}", visible.table_rules);
+    }
+
+    #[test]
+    fn render_event_capture_omits_rowcolors_table_style_command() {
+        let source = r"\documentclass{article}\usepackage[table]{xcolor}\begin{document}\begin{tabular}{lr}\rowcolors[\hiderowcolors]{2}{gray!10}{white} A & 1 \\ B & 22\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile && diagnostic.detail == "xcolor.sty"
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("xcolor.sty"))
+        );
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        let visible_text = visible
+            .normalized_visible_text
+            .as_deref()
+            .expect("visible table text");
+
+        assert_eq!(visible_text, "A | 1 ; B | 22");
+        for hidden in ["rowcolors", "hiderowcolors", "gray", "white"] {
+            assert!(!visible_text.contains(hidden), "{visible_text}");
+        }
     }
 
     #[test]
