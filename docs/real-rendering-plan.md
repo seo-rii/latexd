@@ -75,7 +75,8 @@ Simple `|` markers and `@{\vrule}` / `!{\vline}`-style hooks in multicolumn
 specs also survive as row-scoped cell-level vertical rule metadata and emit
 renderer-visible rule rectangles. Column-level vertical borders now also span
 horizontal rule-only rows so table borders do not break across coarse `\hline`
-or partial-rule display-list rows.
+or partial-rule display-list rows, while top/bottom rule-only rows trim those
+vertical rectangles to the visible horizontal boundary.
 Simple visible `>{...}` / `<{...}` hooks and non-rule `@{...}` / `!{...}`
 separator hooks in multicolumn specs now survive as cell-level prefix/suffix
 metadata and decorate display-list cell text.
@@ -97,9 +98,11 @@ seen before a table can also drive coarse alignment/width metadata for matching
 custom columns. Simple column border markers and simple `@{\vrule}` /
 `@{\vline}` / `!{\vrule}` / `!{\vline}` array hooks also emit coarse vertical
 `PageDisplayList::Rule` rectangles at the monospaced fallback boundary
-positions, including repeated `||` rule-count approximations; when those
-borders are emitted as rule ops, the corresponding display-list text separator
-is whitespace rather than a searchable `|` glyph.
+positions, including repeated `||` rule-count approximations; top/bottom
+horizontal-rule rows trim those vertical rule rectangles to the visible
+horizontal rule boundary so borders no longer protrude above or below a boxed
+table. When those borders are emitted as rule ops, the corresponding
+display-list text separator is whitespace rather than a searchable `|` glyph.
 `multirow` commands now preserve their visible cell text, but simple
 `\multirow` / `\multirowcell` row counts also survive as
 `TableCell.row_span` metadata. Multirow geometry is still not
@@ -693,7 +696,7 @@ Remaining table work:
 
 - exact column width policy, programmable column hooks, and fuller multirow
   geometry rendering approximations;
-- exact vertical border trimming and residual exact rule-trimming edge cases in
+- residual vertical-border and exact rule-trimming edge cases in
   `PageDisplayList`;
 - stronger booktabs/array-package compatibility on corpus fixtures;
 - broader raster-oriented table readability gates on corpus fixtures.

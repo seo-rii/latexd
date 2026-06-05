@@ -1564,6 +1564,14 @@ pub fn build_page_display_lists(
                 if !current_line.is_empty() || wrapped_lines.is_empty() {
                     wrapped_lines.push(current_line);
                 }
+                let first_vertical_rule_line = wrapped_lines.iter().position(|line| {
+                    line.iter()
+                        .any(|segment| !segment.table_vertical_rule_offsets.is_empty())
+                });
+                let last_vertical_rule_line = wrapped_lines.iter().rposition(|line| {
+                    line.iter()
+                        .any(|segment| !segment.table_vertical_rule_offsets.is_empty())
+                });
 
                 for (line_index, line_segments) in wrapped_lines.into_iter().enumerate() {
                     let line_x = options.margin_left_pt
@@ -1704,13 +1712,29 @@ pub fn build_page_display_lists(
                             let first_shift =
                                 -((rule_count.saturating_sub(1) as f32) * rule_spacing) / 2.0;
                             for rule_index in 0..rule_count {
+                                let mut rule_y = (y - logical.size_pt).max(0.0);
+                                let mut rule_bottom = rule_y + options.line_height_pt;
+                                if segment.table_rule {
+                                    let horizontal_rule_y = (y - logical.size_pt * 0.35).max(0.0);
+                                    let horizontal_rule_bottom = horizontal_rule_y + 0.8;
+                                    if Some(line_index) == first_vertical_rule_line {
+                                        rule_y = rule_y.max(horizontal_rule_y);
+                                    }
+                                    if Some(line_index) == last_vertical_rule_line {
+                                        rule_bottom = rule_bottom.min(horizontal_rule_bottom);
+                                    }
+                                }
+                                let rule_height = rule_bottom - rule_y;
+                                if rule_height <= 0.0 {
+                                    continue;
+                                }
                                 table_vertical_rule_rects.push(Rect {
                                     x: x + prefix_advance
                                         + first_shift
                                         + rule_index as f32 * rule_spacing,
-                                    y: (y - logical.size_pt).max(0.0),
+                                    y: rule_y,
                                     width: 0.8,
-                                    height: options.line_height_pt,
+                                    height: rule_height,
                                 });
                             }
                         }
@@ -3326,14 +3350,151 @@ mod tests {
 
         assert_eq!(horizontal_rules.len(), 2, "{horizontal_rules:?}");
         assert_eq!(vertical_rules.len(), 3, "{vertical_rules:?}");
+        let top_rule_y = horizontal_rules
+            .iter()
+            .map(|rule| rule.y)
+            .fold(f32::INFINITY, f32::min);
+        let bottom_rule_bottom = horizontal_rules
+            .iter()
+            .map(|rule| rule.y + rule.height)
+            .fold(0.0, f32::max);
+        assert!(
+            vertical_rules
+                .iter()
+                .all(|rule| (rule.y - top_rule_y).abs() < 0.001
+                    && (rule.y + rule.height - bottom_rule_bottom).abs() < 0.001),
+            "{vertical_rules:?} {horizontal_rules:?}"
+        );
+        assert!(
+            vertical_rules
+                .iter()
+                .all(|rule| rule.height < 42.0 && rule.height > 28.0),
+            "{vertical_rules:?}"
+        );
+        assert!(lines.contains(&"A   1"), "{lines:?}");
+        assert!(!lines.iter().any(|line| line.contains('|')), "{lines:?}");
+    }
+
+    #[test]
+    fn table_display_list_vertical_rules_keep_internal_horizontal_rule_connections() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                width_spec: None,
+                columns: vec![
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Left,
+                        rule_before: true,
+                        rule_before_count: 1,
+                        rule_after: true,
+                        rule_after_count: 1,
+                        separator_after: None,
+                        width_pt_milli: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Right,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: true,
+                        rule_after_count: 1,
+                        separator_after: None,
+                        width_pt_milli: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                ],
+                rows: vec![
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "A".to_string(),
+                                column_span: None,
+                                row_span: None,
+                                alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
+                                cell_prefix: None,
+                                cell_suffix: None,
+                            },
+                            TableCell {
+                                text: "1".to_string(),
+                                column_span: None,
+                                row_span: None,
+                                alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
+                                cell_prefix: None,
+                                cell_suffix: None,
+                            },
+                        ],
+                        rule_below: true,
+                        partial_rules_below: Vec::new(),
+                    },
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "B".to_string(),
+                                column_span: None,
+                                row_span: None,
+                                alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
+                                cell_prefix: None,
+                                cell_suffix: None,
+                            },
+                            TableCell {
+                                text: "22".to_string(),
+                                column_span: None,
+                                row_span: None,
+                                alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
+                                cell_prefix: None,
+                                cell_suffix: None,
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    },
+                ],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let vertical_rules = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Rule(rect) if rect.height > rect.width => Some(rect),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let horizontal_rules = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Rule(rect) if rect.width > rect.height => Some(rect),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(horizontal_rules.len(), 1, "{horizontal_rules:?}");
+        assert_eq!(vertical_rules.len(), 3, "{vertical_rules:?}");
         assert!(
             vertical_rules
                 .iter()
                 .all(|rule| (rule.height - 42.0).abs() < 0.001),
             "{vertical_rules:?}"
         );
-        assert!(lines.contains(&"A   1"), "{lines:?}");
-        assert!(!lines.iter().any(|line| line.contains('|')), "{lines:?}");
     }
 
     #[test]
