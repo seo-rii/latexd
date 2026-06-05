@@ -12931,6 +12931,59 @@ fn tabular_style_only_column_hooks_do_not_leak() {
 }
 
 #[test]
+fn font_declarations_do_not_leak_into_body_or_table_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\small Intro. \begin{tabular}{ll}\scriptsize A & \fontsize{8}{9}\selectfont B \\ \footnotesize C & \normalfont D\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows.len(), 2);
+    assert_eq!(table.rows[0].cells[0].text, "A");
+    assert_eq!(table.rows[0].cells[1].text, "B");
+    assert_eq!(table.rows[1].cells[0].text, "C");
+    assert_eq!(table.rows[1].cells[1].text, "D");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Intro."), "{extracted_text}");
+    assert!(extracted_text.contains("A | B"), "{extracted_text}");
+    assert!(extracted_text.contains("C | D"), "{extracted_text}");
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("Intro."), "{display_list_text}");
+    assert!(display_list_text.contains("A | B"), "{display_list_text}");
+    assert!(display_list_text.contains("C | D"), "{display_list_text}");
+
+    for hidden in [
+        "small",
+        "scriptsize",
+        "fontsize",
+        "selectfont",
+        "footnotesize",
+        "normalfont",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn tabular_collectcell_column_hooks_do_not_leak() {
     let capture = capture_internal_render_ir(
         "main.tex",

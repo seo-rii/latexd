@@ -684,6 +684,9 @@ Implemented first slice:
   prefix/suffix metadata; style-only and non-visible spacing hooks in
   `\multicolumn` specs are ignored without leaking command names or spacing
   payloads into table text.
+- common font declaration commands such as `\small`, `\scriptsize`,
+  `\footnotesize`, `\fontsize{...}{...}`, and `\selectfont` are suppressed from
+  body and table fallback text; font styling is not rendered yet.
 - `multirow` / `multirowcell` commands now preserve visible cell text and simple
   `row_span` metadata in the table fallback.
 - common `multirow` positioning, bigstrut, and vertical-move optional arguments
@@ -933,6 +936,8 @@ Status:
 - common `colortbl` / `xcolor` table color commands and color-definition
   commands are normalized without leaking command names or color arguments into
   table text;
+- common font declaration commands are normalized without leaking command names
+  or font-size arguments into body/table text;
 - simple multirow row counts survive into `TableCell.row_span` metadata;
 - production SVG/PDF vector embedding remains pending.
 

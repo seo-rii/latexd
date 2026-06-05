@@ -154,6 +154,28 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\ActivateWarningFilters}{}
 \providecommand{\UrlFont}{}
 \providecommand{\urlstyle}[1]{}
+\providecommand{\tiny}{}
+\providecommand{\scriptsize}{}
+\providecommand{\footnotesize}{}
+\providecommand{\small}{}
+\providecommand{\normalsize}{}
+\providecommand{\large}{}
+\providecommand{\Large}{}
+\providecommand{\LARGE}{}
+\providecommand{\huge}{}
+\providecommand{\Huge}{}
+\providecommand{\bfseries}{}
+\providecommand{\itshape}{}
+\providecommand{\slshape}{}
+\providecommand{\scshape}{}
+\providecommand{\upshape}{}
+\providecommand{\mdseries}{}
+\providecommand{\rmfamily}{}
+\providecommand{\sffamily}{}
+\providecommand{\ttfamily}{}
+\providecommand{\normalfont}{}
+\providecommand{\fontsize}[2]{}
+\providecommand{\selectfont}{}
 \providecommand{\textcolor}[2]{#2}
 \providecommand{\color}[1]{}
 \providecommand{\definecolor}[3]{}
@@ -3395,6 +3417,19 @@ impl<'i> Vm<'i> {
                                                         "hiderowcolors" | "showrowcolors" => {
                                                             table_index = command_end;
                                                         }
+                                                        _ if is_font_declaration_command(
+                                                            command,
+                                                        ) =>
+                                                        {
+                                                            table_index = command_end;
+                                                        }
+                                                        "fontsize" => {
+                                                            table_index =
+                                                                consume_fontsize_source_arguments(
+                                                                    table_body,
+                                                                    command_end,
+                                                                );
+                                                        }
                                                         "definecolor" | "providecolor"
                                                         | "colorlet" => {
                                                             table_index =
@@ -3839,6 +3874,10 @@ impl<'i> Vm<'i> {
                 "smallskip" | "medskip" | "bigskip" | "noindent" | "indent" | "newpage"
                 | "clearpage" | "cleardoublepage" | "vfill" | "hfill"
                     if in_document => {}
+                _ if in_document && is_font_declaration_command(command) => {}
+                "fontsize" if in_document => {
+                    index = consume_fontsize_source_arguments(source, index);
+                }
                 "FloatBarrier" | "balance" | "flushend" | "raggedend" | "phantomsection"
                     if in_document => {}
                 "xspace" if in_document => {
@@ -10104,6 +10143,13 @@ impl<'i> Vm<'i> {
                         }
                         "hiderowcolors" | "showrowcolors" => {
                             table_index = command_end;
+                        }
+                        _ if is_font_declaration_command(command) => {
+                            table_index = command_end;
+                        }
+                        "fontsize" => {
+                            table_index =
+                                consume_fontsize_source_arguments(table_body, command_end);
                         }
                         "definecolor" | "providecolor" | "colorlet" => {
                             table_index = consume_color_definition_source_arguments(
@@ -18057,6 +18103,44 @@ fn consume_color_definition_source_arguments(
     index
 }
 
+fn is_font_declaration_command(command: &str) -> bool {
+    matches!(
+        command,
+        "tiny"
+            | "scriptsize"
+            | "footnotesize"
+            | "small"
+            | "normalsize"
+            | "large"
+            | "Large"
+            | "LARGE"
+            | "huge"
+            | "Huge"
+            | "bfseries"
+            | "itshape"
+            | "slshape"
+            | "scshape"
+            | "upshape"
+            | "mdseries"
+            | "rmfamily"
+            | "sffamily"
+            | "ttfamily"
+            | "normalfont"
+            | "selectfont"
+    )
+}
+
+fn consume_fontsize_source_arguments(source: &str, command_end: usize) -> usize {
+    let mut index = skip_ascii_whitespace(source, command_end);
+    for _ in 0..2 {
+        let Some((_, _, _, after)) = read_braced_source_argument(source, index) else {
+            break;
+        };
+        index = skip_ascii_whitespace(source, after);
+    }
+    index
+}
+
 fn heading_level_from_command_name(command: &str) -> Option<u8> {
     match command {
         "part" | "chapter" => Some(0),
@@ -19519,6 +19603,23 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
             if let Some((_, _, _, command_after)) =
                 read_braced_source_argument(source, argument_index)
             {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
+        if is_font_declaration_command(command) {
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            found_structured_inline = true;
+            chunk_start = command_name_end;
+            scan_index = command_name_end;
+            continue;
+        }
+        if command == "fontsize" {
+            let command_after = consume_fontsize_source_arguments(source, command_name_end);
+            if command_after > command_name_end {
                 append_normalized_text(&mut text, &source[chunk_start..command_start]);
                 found_structured_inline = true;
                 chunk_start = command_after;
@@ -26198,6 +26299,65 @@ Fallback text.
         assert!(visible_text.contains("B | 22"));
         for hidden in ["bfseries", "itshape", "normalfont"] {
             assert!(!visible_text.contains(hidden), "{visible_text}");
+        }
+    }
+
+    #[test]
+    fn render_event_capture_omits_font_declarations_in_body_and_tables() {
+        let source = r"\begin{document}\small Intro. \begin{tabular}{ll}\scriptsize A & \fontsize{8}{9}\selectfont B \\ \footnotesize C & \normalfont D\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let body_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        let visible_text = visible
+            .normalized_visible_text
+            .as_deref()
+            .expect("visible table text");
+
+        assert!(body_text.contains("Intro."), "{body_text}");
+        assert!(visible_text.contains("A | B"), "{visible_text}");
+        assert!(visible_text.contains("C | D"), "{visible_text}");
+        for hidden in [
+            "small",
+            "scriptsize",
+            "fontsize",
+            "selectfont",
+            "footnotesize",
+            "normalfont",
+            "8",
+            "9",
+        ] {
+            assert!(
+                !body_text.contains(hidden),
+                "{hidden} leaked in {body_text}"
+            );
+            assert!(
+                !visible_text.contains(hidden),
+                "{hidden} leaked in {visible_text}"
+            );
         }
     }
 
