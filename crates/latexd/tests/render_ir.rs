@@ -13287,6 +13287,44 @@ fn tabular_multicolumn_visible_separator_hooks_drive_display_list_text() {
 }
 
 #[test]
+fn tabular_multicolumn_span_uses_visible_separator_width_for_display_list_padding() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{l@{------}lr}\multicolumn{2}{l}{Wide} & Tail \\ Alpha & Beta & Tail\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.columns[0].separator_after.as_deref(), Some("------"));
+    assert_eq!(table.rows[0].cells[0].column_span, Some(2));
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        table_lines.contains(&"Wide            | Tail"),
+        "{table_lines:?}"
+    );
+    assert!(
+        table_lines.contains(&"Alpha------Beta | Tail"),
+        "{table_lines:?}"
+    );
+}
+
+#[test]
 fn tabular_numeric_column_specs_survive_ir_and_align_display_list_text() {
     let capture = capture_internal_render_ir(
         "main.tex",

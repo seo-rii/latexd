@@ -69,8 +69,9 @@ available.
 Simple
 `\multicolumn{n}{...}{text}` cells are also normalized to visible cell text plus
 `TableCell.column_span` metadata so the display-list fallback can occupy the
-combined monospaced column width, and simple `l` / `c` / `r` multicolumn specs
-now survive as `TableCell.alignment` overrides for readable spanning headers.
+combined monospaced column width, including visible intercolumn separator widths
+inside the span, and simple `l` / `c` / `r` multicolumn specs now survive as
+`TableCell.alignment` overrides for readable spanning headers.
 Simple `|` markers and `@{\vrule}` / `!{\vline}`-style hooks in multicolumn
 specs also survive as row-scoped cell-level vertical rule metadata and emit
 renderer-visible rule rectangles. Column-level vertical borders now also span
@@ -597,6 +598,9 @@ Implemented first slice:
   `l{...}` / `r{...}` trim length payloads, shorten the requested side of those
   partial rule rectangles in point units without letting unit names affect the
   trim direction.
+- display-list padding for `\multicolumn` spanning cells uses the visible
+  separator widths from the covered columns, instead of assuming fixed-width
+  default separators.
 - simple `l` / `c` / `r` / paragraph-style table preamble columns and bounded
   `*{n}{...}` repeated specs now survive into IR and drive coarse display-list
   text alignment.

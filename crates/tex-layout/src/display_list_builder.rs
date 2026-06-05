@@ -1088,7 +1088,7 @@ pub fn build_page_display_lists(
                         let mut spanned_width = column_widths[column_index..end_column]
                             .iter()
                             .sum::<usize>();
-                        spanned_width += end_column.saturating_sub(column_index + 1) * 3;
+                        spanned_width += spanned_separator_width(column_index, end_column);
                         let text_width = cell.text.chars().count();
                         let available_padding = spanned_width.saturating_sub(text_width);
                         let alignment = cell
@@ -4178,6 +4178,135 @@ mod tests {
 
         assert!(lines.contains(&"Wide  | Tail"), "{lines:?}");
         assert!(lines.contains(&"A | B | C"), "{lines:?}");
+    }
+
+    #[test]
+    fn table_display_list_text_uses_visible_separator_widths_inside_multicolumn_spans() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                width_spec: None,
+                columns: vec![
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Left,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: false,
+                        rule_after_count: 0,
+                        separator_after: Some("------".to_string()),
+                        width_pt_milli: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Left,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: false,
+                        rule_after_count: 0,
+                        separator_after: None,
+                        width_pt_milli: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Left,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: false,
+                        rule_after_count: 0,
+                        separator_after: None,
+                        width_pt_milli: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                ],
+                rows: vec![
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "Wide".to_string(),
+                                column_span: Some(2),
+                                row_span: None,
+                                alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
+                                cell_prefix: None,
+                                cell_suffix: None,
+                            },
+                            TableCell {
+                                text: "Tail".to_string(),
+                                column_span: None,
+                                row_span: None,
+                                alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
+                                cell_prefix: None,
+                                cell_suffix: None,
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    },
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![
+                            TableCell {
+                                text: "Alpha".to_string(),
+                                column_span: None,
+                                row_span: None,
+                                alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
+                                cell_prefix: None,
+                                cell_suffix: None,
+                            },
+                            TableCell {
+                                text: "Beta".to_string(),
+                                column_span: None,
+                                row_span: None,
+                                alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
+                                cell_prefix: None,
+                                cell_suffix: None,
+                            },
+                            TableCell {
+                                text: "Tail".to_string(),
+                                column_span: None,
+                                row_span: None,
+                                alignment: None,
+                                rule_before_count: 0,
+                                rule_after_count: 0,
+                                cell_prefix: None,
+                                cell_suffix: None,
+                            },
+                        ],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    },
+                ],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let lines = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(lines.contains(&"Wide            | Tail"), "{lines:?}");
+        assert!(lines.contains(&"Alpha------Beta | Tail"), "{lines:?}");
     }
 
     #[test]
