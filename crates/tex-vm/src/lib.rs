@@ -156,6 +156,9 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\urlstyle}[1]{}
 \providecommand{\textcolor}[2]{#2}
 \providecommand{\color}[1]{}
+\providecommand{\definecolor}[3]{}
+\providecommand{\providecolor}[3]{}
+\providecommand{\colorlet}[2]{}
 \providecommand{\cellcolor}[2][]{}
 \providecommand{\rowcolor}[2][]{}
 \providecommand{\rowcolors}[4][]{}
@@ -3392,6 +3395,15 @@ impl<'i> Vm<'i> {
                                                         "hiderowcolors" | "showrowcolors" => {
                                                             table_index = command_end;
                                                         }
+                                                        "definecolor" | "providecolor"
+                                                        | "colorlet" => {
+                                                            table_index =
+                                                                consume_color_definition_source_arguments(
+                                                                    table_body,
+                                                                    command,
+                                                                    command_end,
+                                                                );
+                                                        }
                                                         "cellcolor" | "rowcolor"
                                                         | "columncolor" => {
                                                             table_index = command_end;
@@ -4784,6 +4796,9 @@ impl<'i> Vm<'i> {
                     if let Some((_, _, _, after)) = read_braced_source_argument(source, index) {
                         index = after;
                     }
+                }
+                "definecolor" | "providecolor" | "colorlet" if in_document => {
+                    index = consume_color_definition_source_arguments(source, command, index);
                 }
                 "textcolor" | "colorbox" if in_document => {
                     index = skip_ascii_whitespace(source, index);
@@ -10089,6 +10104,13 @@ impl<'i> Vm<'i> {
                         }
                         "hiderowcolors" | "showrowcolors" => {
                             table_index = command_end;
+                        }
+                        "definecolor" | "providecolor" | "colorlet" => {
+                            table_index = consume_color_definition_source_arguments(
+                                table_body,
+                                command,
+                                command_end,
+                            );
                         }
                         "cellcolor" | "rowcolor" | "columncolor" => {
                             table_index = command_end;
@@ -18002,6 +18024,39 @@ fn consume_rowcolors_source_arguments(source: &str, command_end: usize) -> usize
     index
 }
 
+fn consume_color_definition_source_arguments(
+    source: &str,
+    command: &str,
+    command_end: usize,
+) -> usize {
+    let mut index = skip_ascii_whitespace(source, command_end);
+    match command {
+        "definecolor" | "providecolor" => {
+            for _ in 0..3 {
+                index = skip_ascii_whitespace(source, index);
+                let Some((_, _, _, after)) = read_braced_source_argument(source, index) else {
+                    break;
+                };
+                index = after;
+            }
+        }
+        "colorlet" => {
+            index = skip_ascii_whitespace(source, index);
+            if let Some((_, _, _, after_name)) = read_braced_source_argument(source, index) {
+                index = skip_ascii_whitespace(source, after_name);
+                if let Some((_, _, _, after_option)) = read_bracket_source_argument(source, index) {
+                    index = skip_ascii_whitespace(source, after_option);
+                }
+                if let Some((_, _, _, after_color)) = read_braced_source_argument(source, index) {
+                    index = after_color;
+                }
+            }
+        }
+        _ => {}
+    }
+    index
+}
+
 fn heading_level_from_command_name(command: &str) -> Option<u8> {
     match command {
         "part" | "chapter" => Some(0),
@@ -19464,6 +19519,17 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
             if let Some((_, _, _, command_after)) =
                 read_braced_source_argument(source, argument_index)
             {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
+        if matches!(command, "definecolor" | "providecolor" | "colorlet") {
+            let command_after =
+                consume_color_definition_source_arguments(source, command, command_name_end);
+            if command_after > command_name_end {
                 append_normalized_text(&mut text, &source[chunk_start..command_start]);
                 found_structured_inline = true;
                 chunk_start = command_after;
@@ -30754,6 +30820,45 @@ Fallback text.
             "key",
             "sec:intro",
             "https://hidden.test",
+        ] {
+            assert!(
+                !visible_text.contains(hidden),
+                "{hidden} leaked in {visible_text}"
+            );
+        }
+    }
+
+    #[test]
+    fn render_event_capture_omits_color_definition_commands() {
+        let source = r"\documentclass{article}\usepackage{xcolor}\begin{document}\definecolor{brand}{RGB}{1,2,3}A \colorlet{accent}{brand}\textcolor{accent}{visible} \providecolor{backup}{gray}{0.2}B.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+
+        assert!(visible_text.contains("A visibleB."), "{visible_text}");
+        for hidden in [
+            "definecolor",
+            "providecolor",
+            "colorlet",
+            "brand",
+            "accent",
+            "backup",
+            "RGB",
+            "gray",
+            "1,2,3",
+            "0.2",
         ] {
             assert!(
                 !visible_text.contains(hidden),

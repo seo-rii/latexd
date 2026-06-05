@@ -671,9 +671,9 @@ Implemented first slice:
   payloads; exact pattern semantics are deferred.
 - common `colortbl` / `xcolor` table color commands such as `\rowcolor`,
   `\rowcolors`, `\hiderowcolors`, `\showrowcolors`, `\cellcolor`,
-  `\columncolor`, and `\arrayrulecolor` are suppressed from visible table text,
-  including color-only column and multicolumn hooks; color styling is not
-  rendered yet.
+  `\columncolor`, `\arrayrulecolor`, `\definecolor`, `\providecolor`, and
+  `\colorlet` are suppressed from visible table text, including color-only
+  column and multicolumn hooks; color styling is not rendered yet.
 - simple `\multicolumn` alignment specs survive as `TableCell.alignment` and
   drive readable display-list padding for spanning cells.
 - simple `|` markers and `@{\vrule}` / `!{\vline}` hooks in `\multicolumn`
@@ -930,8 +930,9 @@ Status:
   leaking command names or rule dimensions into table text;
 - common `hhline` rule commands are normalized without leaking command names,
   pattern strings, or simple modifier payloads into table text;
-- common `colortbl` / `xcolor` table color commands are normalized without
-  leaking command names or color arguments into table text;
+- common `colortbl` / `xcolor` table color commands and color-definition
+  commands are normalized without leaking command names or color arguments into
+  table text;
 - simple multirow row counts survive into `TableCell.row_span` metadata;
 - production SVG/PDF vector embedding remains pending.
 

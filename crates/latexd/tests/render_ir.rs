@@ -14874,6 +14874,80 @@ fn table_color_commands_do_not_leak_into_table_text() {
 }
 
 #[test]
+fn color_definition_commands_do_not_leak_into_body_or_table_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{xcolor}\begin{document}\definecolor{brand}{RGB}{1,2,3}A \colorlet{accent}{brand}\textcolor{accent}{visible} \providecolor{backup}{gray}{0.2}B.\begin{tabular}{ll}\definecolor{row}{HTML}{ffeeaa}Left & \colorlet{cell}{row}\textcolor{cell}{Right} \\ \providecolor{shade}{gray}{0.9}Tail & End\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows.len(), 2);
+    assert_eq!(table.rows[0].cells[0].text, "Left");
+    assert_eq!(table.rows[0].cells[1].text, "Right");
+    assert_eq!(table.rows[1].cells[0].text, "Tail");
+    assert_eq!(table.rows[1].cells[1].text, "End");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("A visibleB."), "{extracted_text}");
+    assert!(extracted_text.contains("Left | Right"), "{extracted_text}");
+    assert!(extracted_text.contains("Tail | End"), "{extracted_text}");
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    for visible in ["A", "visible", "B."] {
+        assert!(display_list_text.contains(visible), "{display_list_text}");
+    }
+    assert!(
+        display_list_text.contains("Left | Right"),
+        "{display_list_text}"
+    );
+    assert!(
+        display_list_text.contains("Tail | End"),
+        "{display_list_text}"
+    );
+
+    for hidden in [
+        "definecolor",
+        "providecolor",
+        "colorlet",
+        "brand",
+        "accent",
+        "backup",
+        "RGB",
+        "HTML",
+        "gray",
+        "1,2,3",
+        "0.2",
+        "ffeeaa",
+        "0.9",
+    ] {
+        assert!(
+            !extracted_text.contains(hidden),
+            "{hidden} leaked in {extracted_text}"
+        );
+        assert!(
+            !display_list_text.contains(hidden),
+            "{hidden} leaked in {display_list_text}"
+        );
+    }
+}
+
+#[test]
 fn table_rowcolors_command_does_not_leak_into_table_text() {
     let capture = capture_internal_render_ir(
         "main.tex",
