@@ -2717,6 +2717,29 @@ fn graphic_rotation_options_survive_render_ir_capture() {
 }
 
 #[test]
+fn graphic_dimexpr_width_option_drives_display_list_image_rect() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\includegraphics[width=\dimexpr\textwidth-2\fboxsep\relax]{figures/plot.pdf}\end{document}",
+        &SemanticAux::default(),
+    );
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.pdf" => Some(image),
+            _ => None,
+        })
+        .expect("image op");
+
+    assert!((image.rect.width - 462.0).abs() < 0.01, "{image:?}");
+    let extracted_text = capture.document_ir.extracted_text();
+    for hidden in ["dimexpr", "textwidth", "fboxsep", "relax"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+}
+
+#[test]
 fn project_root_missing_graphic_asset_emits_render_diagnostic() {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");

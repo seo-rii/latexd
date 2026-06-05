@@ -1380,7 +1380,7 @@ pub fn build_page_display_lists(
             return None;
         }
 
-        for (name, reference_pt) in [
+        let reference_dimensions = [
             ("\\hsize", content_width_pt),
             ("\\linewidth", content_width_pt),
             ("\\textwidth", content_width_pt),
@@ -1391,25 +1391,9 @@ pub fn build_page_display_lists(
             ("\\textheight", content_height_pt),
             ("\\paperheight", options.page_height_pt),
             ("\\pageheight", options.page_height_pt),
-        ] {
-            if normalized == name {
-                return Some(reference_pt);
-            }
-            if let Some(prefix) = normalized.strip_suffix(name) {
-                let factor = prefix.strip_suffix('*').unwrap_or(prefix);
-                let factor = if factor.is_empty() {
-                    Some(1.0)
-                } else {
-                    factor.parse::<f32>().ok()
-                }?;
-                let dimension = reference_pt * factor;
-                if accepts_dimension(dimension) {
-                    return Some(dimension);
-                }
-            }
-        }
-
-        for (unit, multiplier) in [
+            ("\\fboxsep", 3.0),
+        ];
+        let unit_dimensions = [
             ("truept", 1.0),
             ("bp", 1.0),
             ("pt", 1.0),
@@ -1419,17 +1403,77 @@ pub fn build_page_display_lists(
             ("pc", 12.0),
             ("em", options.body_font_size_pt),
             ("ex", options.body_font_size_pt * 0.5),
-        ] {
-            if let Some(number) = normalized.strip_suffix(unit) {
-                let dimension = number.parse::<f32>().ok()? * multiplier;
-                if accepts_dimension(dimension) {
-                    return Some(dimension);
+        ];
+        let parse_dimension_atom = |atom: &str| -> Option<f32> {
+            let atom = atom.trim();
+            if atom.is_empty() {
+                return None;
+            }
+
+            for (name, reference_pt) in reference_dimensions {
+                if atom == name {
+                    return Some(reference_pt);
+                }
+                if let Some(prefix) = atom.strip_suffix(name) {
+                    let factor = prefix.strip_suffix('*').unwrap_or(prefix);
+                    let factor = if factor.is_empty() {
+                        Some(1.0)
+                    } else {
+                        factor.parse::<f32>().ok()
+                    }?;
+                    let dimension = reference_pt * factor;
+                    if accepts_dimension(dimension) {
+                        return Some(dimension);
+                    }
                 }
             }
-        }
 
-        let dimension = normalized.parse::<f32>().ok()?;
-        accepts_dimension(dimension).then_some(dimension)
+            for (unit, multiplier) in unit_dimensions {
+                if let Some(number) = atom.strip_suffix(unit) {
+                    let dimension = number.parse::<f32>().ok()? * multiplier;
+                    if accepts_dimension(dimension) {
+                        return Some(dimension);
+                    }
+                }
+            }
+
+            let dimension = atom.parse::<f32>().ok()?;
+            accepts_dimension(dimension).then_some(dimension)
+        };
+        let parse_dimension_expression = |expression: &str| -> Option<f32> {
+            let mut expression = expression;
+            let is_dimexpr = if let Some(inner) = expression.strip_prefix("\\dimexpr") {
+                expression = inner.strip_suffix("\\relax").unwrap_or(inner);
+                true
+            } else {
+                false
+            };
+            let mut total = 0.0;
+            let mut sign = 1.0;
+            let mut term_start = 0usize;
+            let mut saw_operator = false;
+            for (index, ch) in expression.char_indices() {
+                if ch != '+' && ch != '-' {
+                    continue;
+                }
+                if index == term_start {
+                    sign = if ch == '-' { -1.0 } else { 1.0 };
+                    term_start = index + ch.len_utf8();
+                    continue;
+                }
+                total += sign * parse_dimension_atom(&expression[term_start..index])?;
+                saw_operator = true;
+                sign = if ch == '-' { -1.0 } else { 1.0 };
+                term_start = index + ch.len_utf8();
+            }
+            if term_start >= expression.len() {
+                return None;
+            }
+            total += sign * parse_dimension_atom(&expression[term_start..])?;
+            ((is_dimexpr || saw_operator) && accepts_dimension(total)).then_some(total)
+        };
+
+        parse_dimension_atom(&normalized).or_else(|| parse_dimension_expression(&normalized))
     };
     let parse_graphic_quad_pt = |raw_value: &str| -> Option<[f32; 4]> {
         let normalized = raw_value.trim().trim_matches(|ch| ch == '{' || ch == '}');
@@ -5487,6 +5531,44 @@ mod tests {
             display_lists[0].content_hash,
             different_width[0].content_hash
         );
+    }
+
+    #[test]
+    fn graphic_dimexpr_dimension_options_affect_image_rect() {
+        let source = SourceProvenance::file("main.tex", 0, 24);
+        let options = PageDisplayListOptions::default();
+        let content_width_pt = options.page_width_pt - options.margin_left_pt * 2.0;
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.png".to_string(),
+                options: Some(r"width=\dimexpr\textwidth-2\fboxsep\relax".to_string()),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: None,
+                asset_dimensions: Some(GraphicAssetDimensions {
+                    width_px: 200,
+                    height_px: 100,
+                    density: None,
+                    natural_width_pt_milli: None,
+                    natural_height_pt_milli: None,
+                }),
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            options,
+        );
+        let image = display_lists[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::Image(image) if image.asset_ref == "figures/plot.png" => Some(image),
+                _ => None,
+            })
+            .expect("image op");
+        let expected_width = content_width_pt - 6.0;
+
+        assert!((image.rect.width - expected_width).abs() < 0.01);
+        assert!((image.rect.height - expected_width / 2.0).abs() < 0.01);
     }
 
     #[test]
