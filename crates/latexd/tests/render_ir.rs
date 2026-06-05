@@ -12512,6 +12512,8 @@ fn array_environment_capture_builds_table_ir_and_display_list_rules() {
             end_column: 1,
             trim_start: false,
             trim_end: false,
+            trim_start_pt_milli: None,
+            trim_end_pt_milli: None,
         }]
     );
 
@@ -14024,6 +14026,8 @@ fn tabular_partial_rules_survive_ir_and_display_list() {
             end_column: 2,
             trim_start: false,
             trim_end: false,
+            trim_start_pt_milli: None,
+            trim_end_pt_milli: None,
         }]
     );
     let table_lines = capture.page_display_lists[0]
@@ -14294,6 +14298,8 @@ fn booktabs_cmidrule_trim_length_units_do_not_change_trim_side() {
             end_column: 1,
             trim_start: true,
             trim_end: false,
+            trim_start_pt_milli: Some(1_000),
+            trim_end_pt_milli: None,
         }]
     );
     assert_eq!(
@@ -14303,6 +14309,8 @@ fn booktabs_cmidrule_trim_length_units_do_not_change_trim_side() {
             end_column: 2,
             trim_start: false,
             trim_end: true,
+            trim_start_pt_milli: None,
+            trim_end_pt_milli: Some(1_000),
         }]
     );
 
@@ -14332,6 +14340,10 @@ fn booktabs_cmidrule_trim_length_units_do_not_change_trim_side() {
         "{trimmed_rules:?} {untrimmed_rules:?}"
     );
     assert!(
+        ((trimmed_rules[0].x - untrimmed_rules[0].x) - 1.0).abs() <= 0.01,
+        "{trimmed_rules:?} {untrimmed_rules:?}"
+    );
+    assert!(
         (trimmed_left_end - untrimmed_left_end).abs() <= 0.01,
         "{trimmed_rules:?} {untrimmed_rules:?}"
     );
@@ -14341,6 +14353,10 @@ fn booktabs_cmidrule_trim_length_units_do_not_change_trim_side() {
     );
     assert!(
         trimmed_right_end < untrimmed_right_end,
+        "{trimmed_rules:?} {untrimmed_rules:?}"
+    );
+    assert!(
+        ((untrimmed_right_end - trimmed_right_end) - 1.0).abs() <= 0.01,
         "{trimmed_rules:?} {untrimmed_rules:?}"
     );
     let display_list_text = trimmed.page_display_lists[0]
@@ -14438,6 +14454,8 @@ fn makecell_xrule_commands_do_not_leak_into_table_text() {
             end_column: 2,
             trim_start: false,
             trim_end: false,
+            trim_start_pt_milli: None,
+            trim_end_pt_milli: None,
         }]
     );
     let extracted_text = capture.document_ir.extracted_text();
@@ -14528,12 +14546,16 @@ fn hhline_partial_pattern_survives_ir_and_display_list() {
                 end_column: 0,
                 trim_start: false,
                 trim_end: false,
+                trim_start_pt_milli: None,
+                trim_end_pt_milli: None,
             },
             TableRuleSpan {
                 start_column: 2,
                 end_column: 2,
                 trim_start: false,
                 trim_end: false,
+                trim_start_pt_milli: None,
+                trim_end_pt_milli: None,
             },
         ]
     );
@@ -14580,18 +14602,24 @@ fn hhline_repeated_partial_pattern_survives_ir_and_display_list() {
                 end_column: 0,
                 trim_start: false,
                 trim_end: false,
+                trim_start_pt_milli: None,
+                trim_end_pt_milli: None,
             },
             TableRuleSpan {
                 start_column: 2,
                 end_column: 2,
                 trim_start: false,
                 trim_end: false,
+                trim_start_pt_milli: None,
+                trim_end_pt_milli: None,
             },
             TableRuleSpan {
                 start_column: 4,
                 end_column: 4,
                 trim_start: false,
                 trim_end: false,
+                trim_start_pt_milli: None,
+                trim_end_pt_milli: None,
             },
         ]
     );

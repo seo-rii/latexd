@@ -422,6 +422,10 @@ pub struct TableRuleSpan {
     pub trim_start: bool,
     #[serde(default, skip_serializing_if = "is_false")]
     pub trim_end: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trim_start_pt_milli: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trim_end_pt_milli: Option<u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

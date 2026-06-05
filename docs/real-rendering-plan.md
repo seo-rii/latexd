@@ -59,11 +59,13 @@ spans are carried as zero-based inclusive column ranges with whitespace outside
 the covered columns and matching partial rule rectangles, using the same visible
 separator widths as table row text when trimming the rule span. Simple
 `booktabs` `\cmidrule(l/r/lr){...}` trim options also survive as rule-span trim
-metadata and shorten the renderer-visible partial rule rectangles. A default-CI
-table readability gate now checks that representative tables keep cell text in
-display-list/PDF text while rendering horizontal and vertical separators as
-`Rule` operations rather than searchable filler glyphs, with optional
-`pdftotext` and Ghostscript raster gross checks when those tools are available.
+metadata; `l{...}` / `r{...}` length payloads are preserved as point-sized trim
+hints and shorten the renderer-visible partial rule rectangle x/width directly.
+A default-CI table readability gate now checks that representative tables keep
+cell text in display-list/PDF text while rendering horizontal and vertical
+separators as `Rule` operations rather than searchable filler glyphs, with
+optional `pdftotext` and Ghostscript raster gross checks when those tools are
+available.
 Simple
 `\multicolumn{n}{...}{text}` cells are also normalized to visible cell text plus
 `TableCell.column_span` metadata so the display-list fallback can occupy the
@@ -585,7 +587,8 @@ Implemented first slice:
   widths as table row text instead of assuming fixed-width default separators,
   and simple `booktabs` `\cmidrule(l/r/lr){...}` trim options, including
   `l{...}` / `r{...}` trim length payloads, shorten the requested side of those
-  partial rule rectangles without letting unit names affect the trim direction.
+  partial rule rectangles in point units without letting unit names affect the
+  trim direction.
 - simple `l` / `c` / `r` / paragraph-style table preamble columns and bounded
   `*{n}{...}` repeated specs now survive into IR and drive coarse display-list
   text alignment.
@@ -690,7 +693,8 @@ Remaining table work:
 
 - exact column width policy, programmable column hooks, and fuller multirow
   geometry rendering approximations;
-- exact vertical border trimming and exact rule trimming in `PageDisplayList`;
+- exact vertical border trimming and residual exact rule-trimming edge cases in
+  `PageDisplayList`;
 - stronger booktabs/array-package compatibility on corpus fixtures;
 - broader raster-oriented table readability gates on corpus fixtures.
 

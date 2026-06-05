@@ -8723,6 +8723,35 @@ impl<'i> Vm<'i> {
             }
             custom_definition_index = definition_start + "\\newcolumntype".len();
         }
+        let parse_table_dimension_pt_milli = |dimension_text: &str| -> Option<u32> {
+            let normalized = normalize_latex_text(dimension_text);
+            let trimmed = normalized.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            let number_end = trimmed
+                .char_indices()
+                .take_while(|(_, ch)| ch.is_ascii_digit() || matches!(ch, '.' | '+' | '-'))
+                .map(|(index, ch)| index + ch.len_utf8())
+                .last()?;
+            let value = trimmed[..number_end].parse::<f32>().ok()?;
+            if !value.is_finite() || value <= 0.0 {
+                return None;
+            }
+            let unit = trimmed[number_end..].trim();
+            let factor = match unit {
+                "" | "pt" | "truept" => 1.0,
+                "bp" => 72.0 / 72.27,
+                "in" => 72.0,
+                "cm" => 72.0 / 2.54,
+                "mm" => 72.0 / 25.4,
+                "pc" => 12.0,
+                "em" => 10.0,
+                "ex" => 5.0,
+                _ => return None,
+            };
+            Some((value * factor * 1000.0).round().max(1.0) as u32)
+        };
         let mut table_columns: Vec<TableColumnSpec> = Vec::new();
         if let Some((column_spec, _, _, after)) =
             read_braced_source_argument(body_source, table_body_start)
@@ -8731,33 +8760,6 @@ impl<'i> Vm<'i> {
             let mut pending_rule_before_count = 0u8;
             let mut pending_alignment_hint: Option<TableColumnAlignment> = None;
             let mut pending_cell_prefix: Option<String> = None;
-            let parse_table_column_width_pt_milli = |width_text: &str| -> Option<u32> {
-                let normalized = normalize_latex_text(width_text);
-                let trimmed = normalized.trim();
-                if trimmed.is_empty() {
-                    return None;
-                }
-                let number_end = trimmed
-                    .char_indices()
-                    .take_while(|(_, ch)| ch.is_ascii_digit() || matches!(ch, '.' | '+' | '-'))
-                    .map(|(index, ch)| index + ch.len_utf8())
-                    .last()?;
-                let value = trimmed[..number_end].parse::<f32>().ok()?;
-                if !value.is_finite() || value <= 0.0 {
-                    return None;
-                }
-                let unit = trimmed[number_end..].trim();
-                let factor = match unit {
-                    "" | "pt" => 1.0,
-                    "bp" => 72.0 / 72.27,
-                    "in" => 72.0,
-                    "cm" => 72.0 / 2.54,
-                    "mm" => 72.0 / 25.4,
-                    "pc" => 12.0,
-                    _ => return None,
-                };
-                Some((value * factor * 1000.0).round().max(1.0) as u32)
-            };
             let normalize_modifier_text = |modifier_text: &str| -> String {
                 let compact = modifier_text
                     .chars()
@@ -8897,7 +8899,7 @@ impl<'i> Vm<'i> {
                             if let Some((width_text, _, _, after_width)) =
                                 read_braced_source_argument(&replacement, width_index)
                             {
-                                width_pt_milli = parse_table_column_width_pt_milli(width_text);
+                                width_pt_milli = parse_table_dimension_pt_milli(width_text);
                                 replacement_index = after_width;
                             } else {
                                 replacement_index = width_index;
@@ -8923,7 +8925,7 @@ impl<'i> Vm<'i> {
                                 if let Some((width_text, _, _, after_width)) =
                                     read_braced_source_argument(&replacement, width_index)
                                 {
-                                    width_pt_milli = parse_table_column_width_pt_milli(width_text);
+                                    width_pt_milli = parse_table_dimension_pt_milli(width_text);
                                     replacement_index = after_width;
                                 } else {
                                     replacement_index = after_alignment;
@@ -9065,7 +9067,7 @@ impl<'i> Vm<'i> {
                             if let Some((width_text, _, _, after_width)) =
                                 read_braced_source_argument(column_spec, width_index)
                             {
-                                width_pt_milli = parse_table_column_width_pt_milli(width_text);
+                                width_pt_milli = parse_table_dimension_pt_milli(width_text);
                                 after_spec = after_width;
                             }
                         }
@@ -9113,7 +9115,7 @@ impl<'i> Vm<'i> {
                             if let Some((width_text, _, _, after_argument)) =
                                 read_braced_source_argument(column_spec, argument_index)
                             {
-                                width_pt_milli = parse_table_column_width_pt_milli(width_text);
+                                width_pt_milli = parse_table_dimension_pt_milli(width_text);
                                 spec_index = after_argument;
                             }
                         } else if ch == 'X' {
@@ -9311,7 +9313,7 @@ impl<'i> Vm<'i> {
                                                         )
                                                     {
                                                         width_pt_milli =
-                                                            parse_table_column_width_pt_milli(
+                                                            parse_table_dimension_pt_milli(
                                                                 width_text,
                                                             );
                                                         after_spec = after_width;
@@ -9376,7 +9378,7 @@ impl<'i> Vm<'i> {
                                                         argument_index,
                                                     ) {
                                                         width_pt_milli =
-                                                            parse_table_column_width_pt_milli(
+                                                            parse_table_dimension_pt_milli(
                                                                 width_text,
                                                             );
                                                         repeated_spec_index = after_argument;
@@ -9999,6 +10001,8 @@ impl<'i> Vm<'i> {
                                                     end_column: column_index - 1,
                                                     trim_start: false,
                                                     trim_end: false,
+                                                    trim_start_pt_milli: None,
+                                                    trim_end_pt_milli: None,
                                                 });
                                             }
                                             column_index += 1;
@@ -10015,6 +10019,8 @@ impl<'i> Vm<'i> {
                                         end_column: column_index - 1,
                                         trim_start: false,
                                         trim_end: false,
+                                        trim_start_pt_milli: None,
+                                        trim_end_pt_milli: None,
                                     });
                                 }
 
@@ -10396,6 +10402,8 @@ impl<'i> Vm<'i> {
                             table_index = command_end;
                             let mut trim_start = false;
                             let mut trim_end = false;
+                            let mut trim_start_pt_milli = None;
+                            let mut trim_end_pt_milli = None;
                             if let Some((_, _, _, after)) =
                                 read_bracket_source_argument(table_body, table_index)
                             {
@@ -10420,10 +10428,46 @@ impl<'i> Vm<'i> {
                                                 'l' => {
                                                     trim_start = true;
                                                     trim_option_index += ch.len_utf8();
+                                                    let dimension_index = skip_ascii_whitespace(
+                                                        trim_options,
+                                                        trim_option_index,
+                                                    );
+                                                    if let Some((dimension_text, _, _, after)) =
+                                                        read_braced_source_argument(
+                                                            trim_options,
+                                                            dimension_index,
+                                                        )
+                                                    {
+                                                        trim_start_pt_milli =
+                                                            parse_table_dimension_pt_milli(
+                                                                dimension_text,
+                                                            );
+                                                        trim_option_index = after;
+                                                    } else {
+                                                        trim_option_index = dimension_index;
+                                                    }
                                                 }
                                                 'r' => {
                                                     trim_end = true;
                                                     trim_option_index += ch.len_utf8();
+                                                    let dimension_index = skip_ascii_whitespace(
+                                                        trim_options,
+                                                        trim_option_index,
+                                                    );
+                                                    if let Some((dimension_text, _, _, after)) =
+                                                        read_braced_source_argument(
+                                                            trim_options,
+                                                            dimension_index,
+                                                        )
+                                                    {
+                                                        trim_end_pt_milli =
+                                                            parse_table_dimension_pt_milli(
+                                                                dimension_text,
+                                                            );
+                                                        trim_option_index = after;
+                                                    } else {
+                                                        trim_option_index = dimension_index;
+                                                    }
                                                 }
                                                 '{' => {
                                                     let mut depth = 1usize;
@@ -10471,6 +10515,8 @@ impl<'i> Vm<'i> {
                                                 end_column: end - 1,
                                                 trim_start,
                                                 trim_end,
+                                                trim_start_pt_milli,
+                                                trim_end_pt_milli,
                                             })
                                         }
                                         _ => None,
@@ -24805,6 +24851,8 @@ Fallback text.
                         end_column: 1,
                         trim_start: false,
                         trim_end: false,
+                        trim_start_pt_milli: None,
+                        trim_end_pt_milli: None,
                     }),
                 },
             ]
@@ -24851,6 +24899,8 @@ Fallback text.
                         end_column: 2,
                         trim_start: false,
                         trim_end: false,
+                        trim_start_pt_milli: None,
+                        trim_end_pt_milli: None,
                     }),
                 },
                 TableRuleEvent {
@@ -24861,6 +24911,8 @@ Fallback text.
                         end_column: 1,
                         trim_start: true,
                         trim_end: true,
+                        trim_start_pt_milli: None,
+                        trim_end_pt_milli: None,
                     }),
                 },
             ]
@@ -24868,7 +24920,7 @@ Fallback text.
     }
 
     #[test]
-    fn render_event_capture_ignores_cmidrule_trim_unit_letters() {
+    fn render_event_capture_preserves_cmidrule_trim_lengths_without_unit_leakage() {
         let source = r"\documentclass{article}\usepackage{booktabs}\begin{document}\begin{tabular}{lll}A & B & C \\\cmidrule(l{1truept}){1-2} D & E & F \\\cmidrule(r{1truept}){2-3} G & H & I\end{tabular}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
@@ -24903,6 +24955,8 @@ Fallback text.
                         end_column: 1,
                         trim_start: true,
                         trim_end: false,
+                        trim_start_pt_milli: Some(1_000),
+                        trim_end_pt_milli: None,
                     }),
                 },
                 TableRuleEvent {
@@ -24913,6 +24967,8 @@ Fallback text.
                         end_column: 2,
                         trim_start: false,
                         trim_end: true,
+                        trim_start_pt_milli: None,
+                        trim_end_pt_milli: Some(1_000),
                     }),
                 },
             ]
@@ -24961,6 +25017,8 @@ Fallback text.
                     end_column: 1,
                     trim_start: true,
                     trim_end: true,
+                    trim_start_pt_milli: None,
+                    trim_end_pt_milli: None,
                 })),
             "{:?}",
             visible.table_rules
@@ -25041,6 +25099,8 @@ Fallback text.
                         end_column: 2,
                         trim_start: false,
                         trim_end: false,
+                        trim_start_pt_milli: None,
+                        trim_end_pt_milli: None,
                     })
         }));
     }
@@ -25125,6 +25185,8 @@ Fallback text.
                         end_column: 0,
                         trim_start: false,
                         trim_end: false,
+                        trim_start_pt_milli: None,
+                        trim_end_pt_milli: None,
                     }),
                 },
                 TableRuleEvent {
@@ -25135,6 +25197,8 @@ Fallback text.
                         end_column: 2,
                         trim_start: false,
                         trim_end: false,
+                        trim_start_pt_milli: None,
+                        trim_end_pt_milli: None,
                     }),
                 },
             ]
@@ -25180,6 +25244,8 @@ Fallback text.
                         end_column: 0,
                         trim_start: false,
                         trim_end: false,
+                        trim_start_pt_milli: None,
+                        trim_end_pt_milli: None,
                     }),
                 },
                 TableRuleEvent {
@@ -25190,6 +25256,8 @@ Fallback text.
                         end_column: 2,
                         trim_start: false,
                         trim_end: false,
+                        trim_start_pt_milli: None,
+                        trim_end_pt_milli: None,
                     }),
                 },
                 TableRuleEvent {
@@ -25200,6 +25268,8 @@ Fallback text.
                         end_column: 4,
                         trim_start: false,
                         trim_end: false,
+                        trim_start_pt_milli: None,
+                        trim_end_pt_milli: None,
                     }),
                 },
             ]

@@ -58,6 +58,8 @@ struct LogicalTextSegment {
     source: SourceProvenance,
     link_target: Option<String>,
     table_rule: bool,
+    table_rule_trim_start_pt: Option<f32>,
+    table_rule_trim_end_pt: Option<f32>,
     table_vertical_rule_offsets: Vec<(usize, u8)>,
 }
 
@@ -131,6 +133,8 @@ pub fn build_page_display_lists(
                         source: source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_rule_trim_start_pt: None,
+                        table_rule_trim_end_pt: None,
                         table_vertical_rule_offsets: Vec::new(),
                     });
                 }
@@ -140,6 +144,8 @@ pub fn build_page_display_lists(
                         source: source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_rule_trim_start_pt: None,
+                        table_rule_trim_end_pt: None,
                         table_vertical_rule_offsets: Vec::new(),
                     });
                 }
@@ -149,6 +155,8 @@ pub fn build_page_display_lists(
                         source: source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_rule_trim_start_pt: None,
+                        table_rule_trim_end_pt: None,
                         table_vertical_rule_offsets: Vec::new(),
                     });
                 }
@@ -158,6 +166,8 @@ pub fn build_page_display_lists(
                         source: citation.source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_rule_trim_start_pt: None,
+                        table_rule_trim_end_pt: None,
                         table_vertical_rule_offsets: Vec::new(),
                     });
                 }
@@ -167,6 +177,8 @@ pub fn build_page_display_lists(
                         source: reference.source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_rule_trim_start_pt: None,
+                        table_rule_trim_end_pt: None,
                         table_vertical_rule_offsets: Vec::new(),
                     });
                 }
@@ -176,6 +188,8 @@ pub fn build_page_display_lists(
                         source: link.source.clone(),
                         link_target: Some(link.target.clone()),
                         table_rule: false,
+                        table_rule_trim_start_pt: None,
+                        table_rule_trim_end_pt: None,
                         table_vertical_rule_offsets: Vec::new(),
                     });
                 }
@@ -191,6 +205,8 @@ pub fn build_page_display_lists(
                         source: source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_rule_trim_start_pt: None,
+                        table_rule_trim_end_pt: None,
                         table_vertical_rule_offsets: Vec::new(),
                     });
                 }
@@ -203,6 +219,8 @@ pub fn build_page_display_lists(
                         source: fallback.source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_rule_trim_start_pt: None,
+                        table_rule_trim_end_pt: None,
                         table_vertical_rule_offsets: Vec::new(),
                     });
                 }
@@ -226,6 +244,8 @@ pub fn build_page_display_lists(
                             source: source.clone(),
                             link_target: None,
                             table_rule: false,
+                            table_rule_trim_start_pt: None,
+                            table_rule_trim_end_pt: None,
                             table_vertical_rule_offsets: Vec::new(),
                         }],
                         source,
@@ -249,6 +269,8 @@ pub fn build_page_display_lists(
                             source: source.clone(),
                             link_target: None,
                             table_rule: false,
+                            table_rule_trim_start_pt: None,
+                            table_rule_trim_end_pt: None,
                             table_vertical_rule_offsets: Vec::new(),
                         }],
                         source,
@@ -271,6 +293,8 @@ pub fn build_page_display_lists(
                             source: source.clone(),
                             link_target: None,
                             table_rule: false,
+                            table_rule_trim_start_pt: None,
+                            table_rule_trim_end_pt: None,
                             table_vertical_rule_offsets: Vec::new(),
                         }],
                         source,
@@ -303,6 +327,8 @@ pub fn build_page_display_lists(
                         source: block.source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_rule_trim_start_pt: None,
+                        table_rule_trim_end_pt: None,
                         table_vertical_rule_offsets: Vec::new(),
                     });
                     segments.push(LogicalTextSegment {
@@ -310,6 +336,8 @@ pub fn build_page_display_lists(
                         source: block.source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_rule_trim_start_pt: None,
+                        table_rule_trim_end_pt: None,
                         table_vertical_rule_offsets: Vec::new(),
                     });
                 }
@@ -356,6 +384,8 @@ pub fn build_page_display_lists(
                         source: item.source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_rule_trim_start_pt: None,
+                        table_rule_trim_end_pt: None,
                         table_vertical_rule_offsets: Vec::new(),
                     }];
                     segments.extend(inline_segments(&item.content));
@@ -397,6 +427,8 @@ pub fn build_page_display_lists(
                         source: block.source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_rule_trim_start_pt: None,
+                        table_rule_trim_end_pt: None,
                         table_vertical_rule_offsets: Vec::new(),
                     }],
                     source: block.source.clone(),
@@ -422,6 +454,8 @@ pub fn build_page_display_lists(
                             source: item.source.clone(),
                             link_target: None,
                             table_rule: false,
+                            table_rule_trim_start_pt: None,
+                            table_rule_trim_end_pt: None,
                             table_vertical_rule_offsets: Vec::new(),
                         }],
                         source: item.source.clone(),
@@ -477,6 +511,8 @@ pub fn build_page_display_lists(
                             source: source.clone(),
                             link_target: None,
                             table_rule: false,
+                            table_rule_trim_start_pt: None,
+                            table_rule_trim_end_pt: None,
                             table_vertical_rule_offsets: Vec::new(),
                         }],
                         source,
@@ -836,17 +872,18 @@ pub fn build_page_display_lists(
                             end_offset += separator_width(column, column + 1);
                         }
                     }
-                    if span.trim_start && start_offset < end_offset {
-                        start_offset += 1;
-                    }
-                    if span.trim_end && end_offset > start_offset {
-                        end_offset -= 1;
-                    }
                     let mut chars = vec![' '; rule_width.max(3)];
                     for index in start_offset..end_offset.min(chars.len()) {
                         chars[index] = '-';
                     }
                     chars.into_iter().collect::<String>()
+                };
+                let partial_rule_trim_pt = |enabled: bool, trim_pt_milli: Option<u32>| {
+                    enabled.then(|| {
+                        trim_pt_milli
+                            .map(|trim| trim as f32 / 1000.0)
+                            .unwrap_or(table_glyph_width_pt)
+                    })
                 };
                 let table_vertical_rule_offsets = || {
                     let mut offsets = Vec::new();
@@ -890,6 +927,8 @@ pub fn build_page_display_lists(
                         source,
                         link_target: None,
                         table_rule: false,
+                        table_rule_trim_start_pt: None,
+                        table_rule_trim_end_pt: None,
                         table_vertical_rule_offsets: Vec::new(),
                     });
                 }
@@ -901,6 +940,8 @@ pub fn build_page_display_lists(
                                 source: block.source.clone(),
                                 link_target: None,
                                 table_rule: false,
+                                table_rule_trim_start_pt: None,
+                                table_rule_trim_end_pt: None,
                                 table_vertical_rule_offsets: Vec::new(),
                             });
                         }
@@ -909,6 +950,8 @@ pub fn build_page_display_lists(
                             source: block.source.clone(),
                             link_target: None,
                             table_rule: true,
+                            table_rule_trim_start_pt: None,
+                            table_rule_trim_end_pt: None,
                             table_vertical_rule_offsets: table_vertical_rule_offsets(),
                         });
                     }
@@ -919,6 +962,8 @@ pub fn build_page_display_lists(
                                 source: block.source.clone(),
                                 link_target: None,
                                 table_rule: false,
+                                table_rule_trim_start_pt: None,
+                                table_rule_trim_end_pt: None,
                                 table_vertical_rule_offsets: Vec::new(),
                             });
                         }
@@ -927,6 +972,14 @@ pub fn build_page_display_lists(
                             source: block.source.clone(),
                             link_target: None,
                             table_rule: true,
+                            table_rule_trim_start_pt: partial_rule_trim_pt(
+                                rule.trim_start,
+                                rule.trim_start_pt_milli,
+                            ),
+                            table_rule_trim_end_pt: partial_rule_trim_pt(
+                                rule.trim_end,
+                                rule.trim_end_pt_milli,
+                            ),
                             table_vertical_rule_offsets: table_vertical_rule_offsets(),
                         });
                     }
@@ -936,6 +989,8 @@ pub fn build_page_display_lists(
                             source: block.source.clone(),
                             link_target: None,
                             table_rule: false,
+                            table_rule_trim_start_pt: None,
+                            table_rule_trim_end_pt: None,
                             table_vertical_rule_offsets: Vec::new(),
                         });
                     }
@@ -1068,6 +1123,8 @@ pub fn build_page_display_lists(
                         source: block.source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_rule_trim_start_pt: None,
+                        table_rule_trim_end_pt: None,
                         table_vertical_rule_offsets: deduped_vertical_rule_offsets,
                     });
                     if row.rule_below {
@@ -1076,6 +1133,8 @@ pub fn build_page_display_lists(
                             source: block.source.clone(),
                             link_target: None,
                             table_rule: false,
+                            table_rule_trim_start_pt: None,
+                            table_rule_trim_end_pt: None,
                             table_vertical_rule_offsets: Vec::new(),
                         });
                         segments.push(LogicalTextSegment {
@@ -1083,6 +1142,8 @@ pub fn build_page_display_lists(
                             source: block.source.clone(),
                             link_target: None,
                             table_rule: true,
+                            table_rule_trim_start_pt: None,
+                            table_rule_trim_end_pt: None,
                             table_vertical_rule_offsets: table_vertical_rule_offsets(),
                         });
                     }
@@ -1092,6 +1153,8 @@ pub fn build_page_display_lists(
                             source: block.source.clone(),
                             link_target: None,
                             table_rule: false,
+                            table_rule_trim_start_pt: None,
+                            table_rule_trim_end_pt: None,
                             table_vertical_rule_offsets: Vec::new(),
                         });
                         segments.push(LogicalTextSegment {
@@ -1099,6 +1162,14 @@ pub fn build_page_display_lists(
                             source: block.source.clone(),
                             link_target: None,
                             table_rule: true,
+                            table_rule_trim_start_pt: partial_rule_trim_pt(
+                                rule.trim_start,
+                                rule.trim_start_pt_milli,
+                            ),
+                            table_rule_trim_end_pt: partial_rule_trim_pt(
+                                rule.trim_end,
+                                rule.trim_end_pt_milli,
+                            ),
                             table_vertical_rule_offsets: table_vertical_rule_offsets(),
                         });
                     }
@@ -1130,6 +1201,8 @@ pub fn build_page_display_lists(
                         source: block.source.clone(),
                         link_target: None,
                         table_rule: false,
+                        table_rule_trim_start_pt: None,
+                        table_rule_trim_end_pt: None,
                         table_vertical_rule_offsets: Vec::new(),
                     }],
                     source: block.source.clone(),
@@ -1358,6 +1431,8 @@ pub fn build_page_display_lists(
                      source: &SourceProvenance,
                      link_target: Option<&str>,
                      table_rule: bool,
+                     table_rule_trim_start_pt: Option<f32>,
+                     table_rule_trim_end_pt: Option<f32>,
                      table_vertical_rule_offsets: &[(usize, u8)],
                      current_line: &mut Vec<LogicalTextSegment>,
                      current_len: &mut usize,
@@ -1407,6 +1482,8 @@ pub fn build_page_display_lists(
                                     source: source.clone(),
                                     link_target: link_target.map(ToOwned::to_owned),
                                     table_rule,
+                                    table_rule_trim_start_pt,
+                                    table_rule_trim_end_pt,
                                     table_vertical_rule_offsets,
                                 });
                                 *current_len += take_chars;
@@ -1445,6 +1522,8 @@ pub fn build_page_display_lists(
                                 &segment.source,
                                 segment.link_target.as_deref(),
                                 segment.table_rule,
+                                segment.table_rule_trim_start_pt,
+                                segment.table_rule_trim_end_pt,
                                 &table_vertical_rule_offsets,
                                 &mut current_line,
                                 &mut current_len,
@@ -1471,6 +1550,8 @@ pub fn build_page_display_lists(
                                 &segment.source,
                                 segment.link_target.as_deref(),
                                 segment.table_rule,
+                                segment.table_rule_trim_start_pt,
+                                segment.table_rule_trim_end_pt,
                                 &table_vertical_rule_offsets,
                                 &mut current_line,
                                 &mut current_len,
@@ -1548,6 +1629,26 @@ pub fn build_page_display_lists(
                         let mut table_rule_rects = Vec::new();
                         let mut table_vertical_rule_rects = Vec::new();
                         if segment.table_rule {
+                            let mut push_table_rule_rect =
+                                |prefix_advance: f32, rule_advance: f32| {
+                                    let trim_start = segment
+                                        .table_rule_trim_start_pt
+                                        .unwrap_or(0.0)
+                                        .min(rule_advance);
+                                    let trim_end = segment
+                                        .table_rule_trim_end_pt
+                                        .unwrap_or(0.0)
+                                        .min((rule_advance - trim_start).max(0.0));
+                                    let trimmed_rule_advance = rule_advance - trim_start - trim_end;
+                                    if trimmed_rule_advance > 0.0 {
+                                        table_rule_rects.push(Rect {
+                                            x: x + prefix_advance + trim_start,
+                                            y: (y - logical.size_pt * 0.35).max(0.0),
+                                            width: trimmed_rule_advance,
+                                            height: 0.8,
+                                        });
+                                    }
+                                };
                             let mut rule_start_byte = None;
                             for (byte_index, ch) in segment.text.char_indices() {
                                 if ch == '-' {
@@ -1565,14 +1666,7 @@ pub fn build_page_display_lists(
                                         &logical.font,
                                         logical.size_pt,
                                     );
-                                    if rule_advance > 0.0 {
-                                        table_rule_rects.push(Rect {
-                                            x: x + prefix_advance,
-                                            y: (y - logical.size_pt * 0.35).max(0.0),
-                                            width: rule_advance,
-                                            height: 0.8,
-                                        });
-                                    }
+                                    push_table_rule_rect(prefix_advance, rule_advance);
                                 }
                             }
                             if let Some(start_byte) = rule_start_byte {
@@ -1586,14 +1680,7 @@ pub fn build_page_display_lists(
                                     &logical.font,
                                     logical.size_pt,
                                 );
-                                if rule_advance > 0.0 {
-                                    table_rule_rects.push(Rect {
-                                        x: x + prefix_advance,
-                                        y: (y - logical.size_pt * 0.35).max(0.0),
-                                        width: rule_advance,
-                                        height: 0.8,
-                                    });
-                                }
+                                push_table_rule_rect(prefix_advance, rule_advance);
                             }
                         }
                         for (offset, count) in &segment.table_vertical_rule_offsets {
@@ -3485,6 +3572,8 @@ mod tests {
                             end_column: 2,
                             trim_start: false,
                             trim_end: false,
+                            trim_start_pt_milli: None,
+                            trim_end_pt_milli: None,
                         }],
                     },
                     TableRow {
@@ -3559,6 +3648,114 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(rules.len(), 1, "{rules:?}");
         assert!(rules[0].x > PageDisplayListOptions::default().margin_left_pt);
+    }
+
+    #[test]
+    fn table_display_list_partial_rule_uses_pt_trim_lengths() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let build = |trim_start_pt_milli: Option<u32>, trim_end_pt_milli: Option<u32>| {
+            build_page_display_lists(
+                &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                    environment: "tabular".to_string(),
+                    width_spec: None,
+                    columns: Vec::new(),
+                    rows: vec![
+                        TableRow {
+                            rule_above: false,
+                            partial_rules_above: Vec::new(),
+                            cells: vec![
+                                TableCell {
+                                    text: "Head".to_string(),
+                                    column_span: None,
+                                    row_span: None,
+                                    alignment: None,
+                                    rule_before_count: 0,
+                                    rule_after_count: 0,
+                                    cell_prefix: None,
+                                    cell_suffix: None,
+                                },
+                                TableCell {
+                                    text: "Value".to_string(),
+                                    column_span: None,
+                                    row_span: None,
+                                    alignment: None,
+                                    rule_before_count: 0,
+                                    rule_after_count: 0,
+                                    cell_prefix: None,
+                                    cell_suffix: None,
+                                },
+                            ],
+                            rule_below: false,
+                            partial_rules_below: vec![TableRuleSpan {
+                                start_column: 0,
+                                end_column: 1,
+                                trim_start: trim_start_pt_milli.is_some(),
+                                trim_end: trim_end_pt_milli.is_some(),
+                                trim_start_pt_milli,
+                                trim_end_pt_milli,
+                            }],
+                        },
+                        TableRow {
+                            rule_above: false,
+                            partial_rules_above: Vec::new(),
+                            cells: vec![
+                                TableCell {
+                                    text: "A".to_string(),
+                                    column_span: None,
+                                    row_span: None,
+                                    alignment: None,
+                                    rule_before_count: 0,
+                                    rule_after_count: 0,
+                                    cell_prefix: None,
+                                    cell_suffix: None,
+                                },
+                                TableCell {
+                                    text: "B".to_string(),
+                                    column_span: None,
+                                    row_span: None,
+                                    alignment: None,
+                                    rule_before_count: 0,
+                                    rule_after_count: 0,
+                                    cell_prefix: None,
+                                    cell_suffix: None,
+                                },
+                            ],
+                            rule_below: false,
+                            partial_rules_below: Vec::new(),
+                        },
+                    ],
+                    caption: None,
+                    caption_source: None,
+                    source: source.clone(),
+                })]),
+                PageDisplayListOptions::default(),
+            )
+        };
+        let untrimmed = build(None, None);
+        let trimmed = build(Some(2_500), Some(4_000));
+        let horizontal_rule = |display_lists: &[tex_render_model::PageDisplayList]| {
+            display_lists[0]
+                .ops
+                .iter()
+                .find_map(|op| match op {
+                    DrawOp::Rule(rect) if rect.width > rect.height => Some(rect.to_owned()),
+                    _ => None,
+                })
+                .expect("horizontal partial rule")
+        };
+        let untrimmed_rule = horizontal_rule(&untrimmed);
+        let trimmed_rule = horizontal_rule(&trimmed);
+        let untrimmed_end = untrimmed_rule.x + untrimmed_rule.width;
+        let trimmed_end = trimmed_rule.x + trimmed_rule.width;
+
+        assert!(
+            ((trimmed_rule.x - untrimmed_rule.x) - 2.5).abs() <= 0.01,
+            "{trimmed_rule:?} {untrimmed_rule:?}"
+        );
+        assert!(
+            ((untrimmed_end - trimmed_end) - 4.0).abs() <= 0.01,
+            "{trimmed_rule:?} {untrimmed_rule:?}"
+        );
     }
 
     #[test]
