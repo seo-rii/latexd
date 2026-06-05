@@ -93,7 +93,9 @@ are also interpreted narrowly in the display-list fallback so `tabularx` /
 `tabu` stretching can remain close to the requested target without promoting the
 raw expression into visible text. If a target-width table has no flexible
 paragraph-style column, the fallback stretches intercolumn separators instead of
-adding trailing padding to the last column.
+adding trailing padding to the last column. Target-width stretching is capped to
+the same line-character budget used by the fallback wrapper so common
+`\textwidth` tables do not wrap solely because of character-count rounding.
 Simple `@{...}` /
 `!{...}` intercolumn visible separators now replace the default fallback
 separator in display-list text, simple visible `>{...}` / `<{...}` cell hooks
@@ -616,7 +618,9 @@ Implemented first slice:
   `\textwidth` / `\linewidth`, plus simple `\dimexpr` addition/subtraction
   forms, and stretches flexible paragraph-style columns toward that target
   width. If no flexible column is available, the fallback stretches separators
-  rather than padding the final column.
+  rather than padding the final column. Target-width stretching is capped to the
+  fallback line-character budget so `\textwidth` tables do not wrap solely
+  because of coarse character rounding.
 - array-package hook and intercolumn modifiers `>{...}`, `<{...}`, `@{...}`,
   and `!{...}` are skipped as non-column material so the following real columns
   still drive fallback alignment. Simple visible `@{...}` / `!{...}`

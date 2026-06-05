@@ -866,10 +866,15 @@ pub fn build_page_display_lists(
                         parse_table_width_spec_pt(width_spec, content_width_pt, &options)
                         && !column_widths.is_empty()
                     {
-                        let target_chars =
-                            ((table_width_pt / table_glyph_width_pt) - 0.001).ceil() as usize;
+                        let line_char_budget = options.max_chars_per_line.max(1).min(
+                            ((content_width_pt / table_glyph_width_pt).floor() as usize).max(1),
+                        );
                         let current_chars = column_widths.iter().sum::<usize>()
                             + base_spanned_separator_width(0, column_widths.len());
+                        let target_chars = ((table_width_pt / table_glyph_width_pt).floor()
+                            as usize)
+                            .max(1)
+                            .min(line_char_budget.max(current_chars));
                         if target_chars > current_chars {
                             let stretch_columns = block
                                 .columns
@@ -3422,6 +3427,92 @@ mod tests {
         assert!(line.chars().count() > "Alpha | Beta".chars().count());
         assert!(line.starts_with("Alpha | "), "{line:?}");
         assert!(line.ends_with("Beta"), "{line:?}");
+    }
+
+    #[test]
+    fn table_display_list_textwidth_target_width_does_not_wrap_rows() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular*".to_string(),
+                width_spec: Some("\\textwidth".to_string()),
+                columns: vec![
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Left,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: false,
+                        rule_after_count: 0,
+                        separator_after: None,
+                        width_pt_milli: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                    TableColumnSpec {
+                        alignment: TableColumnAlignment::Right,
+                        rule_before: false,
+                        rule_before_count: 0,
+                        rule_after: false,
+                        rule_after_count: 0,
+                        separator_after: None,
+                        width_pt_milli: None,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                ],
+                rows: vec![TableRow {
+                    rule_above: false,
+                    partial_rules_above: Vec::new(),
+                    cells: vec![
+                        TableCell {
+                            text: "Alpha".to_string(),
+                            column_span: None,
+                            row_span: None,
+                            alignment: None,
+                            rule_before_count: 0,
+                            rule_after_count: 0,
+                            cell_prefix: None,
+                            cell_suffix: None,
+                        },
+                        TableCell {
+                            text: "Beta".to_string(),
+                            column_span: None,
+                            row_span: None,
+                            alignment: None,
+                            rule_before_count: 0,
+                            rule_after_count: 0,
+                            cell_prefix: None,
+                            cell_suffix: None,
+                        },
+                    ],
+                    rule_below: false,
+                    partial_rules_below: Vec::new(),
+                }],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let lines = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let line = lines
+            .iter()
+            .find(|line| line.starts_with("Alpha"))
+            .expect("table row");
+
+        assert!(line.ends_with("Beta"), "{lines:?}");
+        assert!(line.chars().count() > "Alpha | Beta".chars().count());
+        assert!(
+            !lines.iter().any(|line| *line == "Beta"),
+            "target-width row wrapped: {lines:?}"
+        );
     }
 
     #[test]
