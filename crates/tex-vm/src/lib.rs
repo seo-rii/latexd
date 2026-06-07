@@ -3345,33 +3345,33 @@ impl<'i> Vm<'i> {
                                                     skip_ascii_whitespace(source, argument_index);
                                                 if let Some((
                                                     _,
-                                                    graphic_body_start,
-                                                    graphic_body_end,
-                                                    after_graphic_body,
+                                                    first_body_start,
+                                                    first_body_end,
+                                                    after_first_body,
                                                 )) = read_braced_source_argument(
                                                     source,
                                                     argument_index,
-                                                ) && after_graphic_body <= body_end
+                                                ) && after_first_body <= body_end
                                                 {
-                                                    let caption_index = skip_ascii_whitespace(
+                                                    let second_body_index = skip_ascii_whitespace(
                                                         source,
-                                                        after_graphic_body,
+                                                        after_first_body,
                                                     );
                                                     if let Some((
-                                                        caption_body,
-                                                        caption_body_start,
-                                                        caption_body_end,
-                                                        after_caption_body,
+                                                        _,
+                                                        second_body_start,
+                                                        second_body_end,
+                                                        after_second_body,
                                                     )) = read_braced_source_argument(
                                                         source,
-                                                        caption_index,
-                                                    ) && after_caption_body <= body_end
+                                                        second_body_index,
+                                                    ) && after_second_body <= body_end
                                                     {
                                                         self.capture_graphics_in_source_range(
                                                             source_path,
                                                             source,
-                                                            graphic_body_start,
-                                                            graphic_body_end,
+                                                            first_body_start,
+                                                            first_body_end,
                                                             &scan_state.graphic_paths,
                                                             &scan_state.graphic_extensions,
                                                             scan_state
@@ -3379,42 +3379,85 @@ impl<'i> Vm<'i> {
                                                                 .as_deref(),
                                                             None,
                                                         );
-                                                        let mut caption_command_index =
-                                                            caption_body_start;
+                                                        self.capture_graphics_in_source_range(
+                                                            source_path,
+                                                            source,
+                                                            second_body_start,
+                                                            second_body_end,
+                                                            &scan_state.graphic_paths,
+                                                            &scan_state.graphic_extensions,
+                                                            scan_state
+                                                                .graphic_default_options
+                                                                .as_deref(),
+                                                            None,
+                                                        );
                                                         let mut emitted_caption = false;
-                                                        while caption_command_index
-                                                            < caption_body_end
-                                                        {
-                                                            let Some(relative_caption) = source
-                                                                [caption_command_index
-                                                                    ..caption_body_end]
-                                                                .find("\\caption")
-                                                            else {
-                                                                break;
-                                                            };
-                                                            let caption_command_start =
-                                                                caption_command_index
-                                                                    + relative_caption;
-                                                            let after_caption_command =
-                                                                caption_command_start
-                                                                    + "\\caption".len();
-                                                            if let Some(after) = self
-                                                                .capture_caption_event(
-                                                                    source_path,
-                                                                    source,
-                                                                    caption_command_start,
-                                                                    after_caption_command,
-                                                                    caption_body_end,
-                                                                )
+                                                        'caption_scan: for (
+                                                            caption_body_start,
+                                                            caption_body_end,
+                                                        ) in [
+                                                            (first_body_start, first_body_end),
+                                                            (second_body_start, second_body_end),
+                                                        ] {
+                                                            let mut caption_command_index =
+                                                                caption_body_start;
+                                                            while caption_command_index
+                                                                < caption_body_end
                                                             {
-                                                                emitted_caption = true;
-                                                                caption_command_index = after;
-                                                            } else {
+                                                                let Some(relative_caption) = source
+                                                                    [caption_command_index
+                                                                        ..caption_body_end]
+                                                                    .find("\\caption")
+                                                                else {
+                                                                    break;
+                                                                };
+                                                                let caption_command_start =
+                                                                    caption_command_index
+                                                                        + relative_caption;
+                                                                let after_caption_command =
+                                                                    caption_command_start
+                                                                        + "\\caption".len();
+                                                                if self
+                                                                    .capture_caption_event(
+                                                                        source_path,
+                                                                        source,
+                                                                        caption_command_start,
+                                                                        after_caption_command,
+                                                                        caption_body_end,
+                                                                    )
+                                                                    .is_some()
+                                                                {
+                                                                    emitted_caption = true;
+                                                                    break 'caption_scan;
+                                                                }
                                                                 caption_command_index =
                                                                     after_caption_command;
                                                             }
                                                         }
                                                         if !emitted_caption {
+                                                            let (
+                                                                caption_body,
+                                                                caption_body_start,
+                                                                caption_body_end,
+                                                            ) = if source_range_contains_graphic_command(
+                                                                source,
+                                                                first_body_start,
+                                                                first_body_end,
+                                                            ) {
+                                                                (
+                                                                    &source[second_body_start
+                                                                        ..second_body_end],
+                                                                    second_body_start,
+                                                                    second_body_end,
+                                                                )
+                                                            } else {
+                                                                (
+                                                                    &source[first_body_start
+                                                                        ..first_body_end],
+                                                                    first_body_start,
+                                                                    first_body_end,
+                                                                )
+                                                            };
                                                             let caption_text =
                                                                 normalize_latex_text_with_inline_placeholders(
                                                                     caption_body,
@@ -3434,7 +3477,7 @@ impl<'i> Vm<'i> {
                                                                 );
                                                             }
                                                         }
-                                                        body_index = after_caption_body;
+                                                        body_index = after_second_body;
                                                         continue;
                                                     }
                                                 }
@@ -29057,6 +29100,35 @@ Fallback text.
             &event.event,
             RenderEvent::Text(text)
                 if ["fcapside", "FBwidth", "key"]
+                    .iter()
+                    .any(|hidden| text.text.contains(hidden))
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_floatrow_ffigbox_caption_first() {
+        let source = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{figure}\ffigbox{\caption{Reversed \cite{key}.}}{\includegraphics[width=3cm]{figures/reversed.pdf}}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("figures/reversed.pdf", "%PDF fake");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/reversed.pdf"
+                    && graphic.options.as_deref() == Some("width=3cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Reversed [?]."
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if ["ffigbox", "key"]
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));

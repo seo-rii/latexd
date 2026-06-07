@@ -3820,6 +3820,31 @@ fn floatrow_fcapside_preserves_image_and_caption_without_option_leakage() {
 }
 
 #[test]
+fn floatrow_ffigbox_caption_first_preserves_image_and_caption() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        FLOATROW_FFIGBOX_CAPTION_FIRST_SOURCE,
+        &SemanticAux::default(),
+        &[("figures/reversed.pdf", "%PDF fake")],
+    );
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Graphic(graphic)
+                if graphic.path == "figures/reversed.pdf"
+                    && graphic.options.as_deref() == Some("width=3cm")
+                    && graphic.caption.as_deref() == Some("Reversed [?].")
+        )
+    }));
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Reversed [?]."));
+    for hidden in ["ffigbox", "key"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+}
+
+#[test]
 fn starred_graphic_capture_derives_display_list_image_without_visible_star() {
     let capture =
         capture_internal_render_ir("main.tex", STARRED_GRAPHIC_SOURCE, &SemanticAux::default());
@@ -19519,6 +19544,8 @@ const OVERPIC_GRAPHIC_SOURCE: &str = r"\documentclass{article}\usepackage{overpi
 const OVERPIC_FIGURE_SOURCE: &str = r"\documentclass{article}\usepackage{overpic}\begin{document}\begin{figure}\begin{overpic}[width=5cm]{figures/annotated.pdf}\put(5,5){Label}\end{overpic}\caption{Annotated figure.}\end{figure}\end{document}";
 
 const FLOATROW_FFIGBOX_SOURCE: &str = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{figure}\ffigbox[\FBwidth][c]{\includegraphics[width=3cm]{figures/floatrow.pdf}}{\caption{Floatrow \cite{key}.}}\end{figure}\end{document}";
+
+const FLOATROW_FFIGBOX_CAPTION_FIRST_SOURCE: &str = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{figure}\ffigbox{\caption{Reversed \cite{key}.}}{\includegraphics[width=3cm]{figures/reversed.pdf}}\end{figure}\end{document}";
 
 const FLOATROW_FCAPSIDE_SOURCE: &str = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{figure}\fcapside[\FBwidth]{\caption{Side float \cite{key}.}}{\includegraphics[width=3cm]{figures/fcapside.pdf}}\end{figure}\end{document}";
 

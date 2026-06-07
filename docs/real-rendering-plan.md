@@ -225,7 +225,8 @@ subcaptionbox capture path, preserving the image and caption while hiding width
 options.
 Floatrow figure boxes such as
 `\ffigbox[...][...]{\includegraphics...}{\caption{...}}` preserve the image and
-caption while consuming floatrow layout options.
+caption while consuming floatrow layout options, including caption-first
+argument order.
 Floatrow side-caption boxes such as `\fcapside[...]{...}{...}` now scan both
 braced arguments so the image and caption survive regardless of argument order.
 Floatrow table boxes such as `\ttabbox[...]{\begin{tabular}...\end{tabular}}`
@@ -985,7 +986,7 @@ Status:
 - `\captionbox` commands preserve nested images and captions through the same
   path as `\subcaptionbox`;
 - floatrow `\ffigbox` commands preserve nested images and captions while
-  suppressing floatrow layout options;
+  suppressing floatrow layout options, including caption-first argument order;
 - floatrow `\fcapside` commands preserve nested images and captions while
   suppressing side-caption layout options;
 - floatrow `\ttabbox` commands preserve nested tables and captions while
