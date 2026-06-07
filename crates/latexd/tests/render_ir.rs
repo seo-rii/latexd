@@ -4519,8 +4519,13 @@ fn caption_package_setup_helpers_do_not_leak_into_ir_or_display_list() {
         "labelfont",
         "justification",
         "centering",
+        "Hidden starred",
+        "font",
+        "name",
+        "small",
         "skip",
         "key",
+        "*",
     ] {
         assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
     }
@@ -4545,8 +4550,13 @@ fn caption_package_setup_helpers_do_not_leak_into_ir_or_display_list() {
         "labelfont",
         "justification",
         "centering",
+        "Hidden starred",
+        "font",
+        "name",
+        "small",
         "skip",
         "key",
+        "*",
     ] {
         assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
     }
@@ -20280,7 +20290,7 @@ const FIGURE_TABLE_LABEL_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\de
 
 const CAPTIONOF_SOURCE: &str = r"\begin{document}\captionof{figure}[Short Figure]{Long Figure Title}\label{fig:first}See \autoref{fig:first}.\captionof*{table}{Long Table Title}\label{tab:first}See \autoref{tab:first}.\end{document}";
 
-const CAPTION_SETUP_SOURCE: &str = r"\documentclass{article}\usepackage{caption,subcaption}\begin{document}\captionsetup[figure]{labelfont=bf,skip=2pt}\subcaptionsetup{justification=centering}\begin{figure}\ContinuedFloat\captionlistentry{Hidden entry}\includegraphics[width=2cm]{figures/caption-setup.pdf}\caption{Visible \cite{key}.}\end{figure}After.\end{document}";
+const CAPTION_SETUP_SOURCE: &str = r"\documentclass{article}\usepackage{caption,subcaption}\begin{document}\captionsetup[figure]{labelfont=bf,skip=2pt}\captionsetup*{name=Hidden starred}\subcaptionsetup{justification=centering}\subcaptionsetup*{font=small}\begin{figure}\ContinuedFloat\captionlistentry{Hidden entry}\captionlistentry*{Hidden starred entry}\includegraphics[width=2cm]{figures/caption-setup.pdf}\caption{Visible \cite{key}.}\end{figure}After.\end{document}";
 
 const CAPTION_LIKE_COMMAND_SOURCE: &str = r"\documentclass{article}\usepackage{caption,subcaption}\begin{document}\begin{figure}\includegraphics[width=2cm]{figures/subcaption-command.pdf}\subcaption[Short sub \cite{key}.]{Visible sub \cite{key}.}\end{figure}\begin{figure}\includegraphics[width=2cm]{figures/caption-above.pdf}\captionabove[Short above \cite{key}.]{Visible above \cite{key}.}\end{figure}\begin{figure}\includegraphics[width=2cm]{figures/caption-below.pdf}\captionbelow*{Visible below \cite{key}.}\end{figure}\end{document}";
 

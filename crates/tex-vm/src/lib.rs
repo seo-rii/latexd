@@ -4872,6 +4872,10 @@ impl<'i> Vm<'i> {
                 }
                 "captionsetup" | "subcaptionsetup" | "captionlistentry" if in_document => {
                     let mut argument_index = skip_ascii_whitespace(source, index);
+                    if source[argument_index..].starts_with('*') {
+                        argument_index += 1;
+                        argument_index = skip_ascii_whitespace(source, argument_index);
+                    }
                     if let Some((_, _, _, after_option)) =
                         read_bracket_source_argument(source, argument_index)
                     {
@@ -31043,7 +31047,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_omits_caption_package_setup_helpers() {
-        let source = r"\documentclass{article}\usepackage{caption,subcaption}\begin{document}\captionsetup[figure]{labelfont=bf,skip=2pt}\subcaptionsetup{justification=centering}\begin{figure}\ContinuedFloat\captionlistentry{Hidden entry}\includegraphics[width=2cm]{figures/caption-setup.pdf}\caption{Visible \cite{key}.}\end{figure}After.\end{document}";
+        let source = r"\documentclass{article}\usepackage{caption,subcaption}\begin{document}\captionsetup[figure]{labelfont=bf,skip=2pt}\captionsetup*{name=Hidden starred}\subcaptionsetup{justification=centering}\subcaptionsetup*{font=small}\begin{figure}\ContinuedFloat\captionlistentry{Hidden entry}\captionlistentry*{Hidden starred entry}\includegraphics[width=2cm]{figures/caption-setup.pdf}\caption{Visible \cite{key}.}\end{figure}After.\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -31089,8 +31093,13 @@ Fallback text.
             "labelfont",
             "justification",
             "centering",
+            "Hidden starred",
+            "font",
+            "name",
+            "small",
             "skip",
             "key",
+            "*",
         ] {
             assert!(!visible_text.contains(hidden), "{visible_text:?}");
         }
