@@ -30601,7 +30601,7 @@ Fallback text.
             &event.event,
             RenderEvent::GraphicRef(graphic)
                 if graphic.path == "figures/starred.pdf"
-                    && graphic.options.as_deref() == Some("width=3cm")
+                    && graphic.options.as_deref() == Some("width=3cm,clip")
         )));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
