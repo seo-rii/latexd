@@ -185,10 +185,10 @@ unsupported-image placeholders, while resolved PDF/EPS assets can be converted
 to PNG for debug display-list PDF/SVG artifacts through Ghostscript or Poppler.
 Resolver-backed SVG and PNG/JPEG bitmap assets are embedded as data-URI
 `<image>` elements in project-root display-list SVG debug artifacts. Simple
-resolver-backed SVG `<rect>` and `<line>` content, including basic
-presentation/style fill and stroke metadata, is also rendered directly as
-vector PDF drawing operations in display-list PDF artifacts instead of falling
-back to unsupported-image placeholders. The
+resolver-backed SVG `<rect>`, `<line>`, `<circle>`, and `<ellipse>` content,
+including basic presentation/style fill and stroke metadata, is also rendered
+directly as vector PDF drawing operations in display-list PDF artifacts instead
+of falling back to unsupported-image placeholders. The
 display-list image op now carries the resolved natural point size separately
 from the destination rectangle, so PDF/SVG debug crop placement uses the
 original asset coordinate space even when a PDF/EPS asset is rendered through a
@@ -614,9 +614,9 @@ Implemented first slice:
   crop metadata reflected in the debug SVG for bitmap assets, simple SVG
   assets with parseable natural dimensions, and converted PDF/EPS debug assets
   whose display-list ops carry resolved natural point dimensions;
-- display-list PDF artifacts can render simple resolver-provided SVG `<rect>`
-  and `<line>` content, including basic presentation/style fill and stroke
-  metadata, as vector drawing operations;
+- display-list PDF artifacts can render simple resolver-provided SVG `<rect>`,
+  `<line>`, `<circle>`, and `<ellipse>` content, including basic
+  presentation/style fill and stroke metadata, as vector drawing operations;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
   display-list PDF and debug SVG artifacts;
 - missing or undecodable assets still render as bounded placeholders in both
@@ -1033,8 +1033,9 @@ Status:
   and PNG/JPEG bitmap assets, including clip-enabled crop visualization for
   bitmap assets and simple SVG assets with parseable natural dimensions;
 - project-root display-list PDF debug artifacts render simple resolver-backed
-  SVG rectangle and line content, including basic presentation/style fill and
-  stroke metadata, as vector PDF drawing operations;
+  SVG rectangle, line, circle, and ellipse content, including basic
+  presentation/style fill and stroke metadata, as vector PDF drawing
+  operations;
 - `latexd render-ir --root ... --input ... --output-dir ...` exposes the
   event/IR/display-list artifact pipeline without replacing the serve preview
   path;
@@ -1160,7 +1161,7 @@ Status:
   suppressed from visible table fallback text;
 - simple multirow row counts survive into `TableCell.row_span` metadata;
 - broader production SVG/PDF vector embedding remains pending beyond the
-  current simple SVG rectangle/line subset.
+  current simple SVG rectangle/line/circle/ellipse subset.
 
 Exit criteria:
 

@@ -282,7 +282,9 @@ pub fn render_display_list_pdf_with_converted_assets(
                         if image.asset_format == Some(GraphicAssetFormat::Svg)
                             && let Ok(svg_text) = std::str::from_utf8(&bytes)
                             && let Some(svg) = parse_simple_svg_asset(svg_text)
-                            && (!svg.rects.is_empty() || !svg.lines.is_empty())
+                            && (!svg.rects.is_empty()
+                                || !svg.lines.is_empty()
+                                || !svg.ellipses.is_empty())
                         {
                             let (natural_width, natural_height) = image_natural_size_or_fallback(
                                 image,
@@ -392,6 +394,73 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             x2,
                                             y2
                                         ));
+                                    }
+                                }
+                                for ellipse in svg.ellipses {
+                                    let center_x =
+                                        draw.rect.x + ellipse.cx_ratio * natural_width * scale_x;
+                                    let center_y = draw.rect.y
+                                        + (1.0 - ellipse.cy_ratio) * natural_height * scale_y;
+                                    let radius_x = ellipse.rx_ratio * natural_width * scale_x;
+                                    let radius_y = ellipse.ry_ratio * natural_height * scale_y;
+                                    if center_x.is_finite()
+                                        && center_y.is_finite()
+                                        && radius_x.is_finite()
+                                        && radius_y.is_finite()
+                                        && radius_x > 0.0
+                                        && radius_y > 0.0
+                                    {
+                                        let kappa = 0.552_284_8_f32;
+                                        let path = format!(
+                                            "{} {} m {} {} {} {} {} {} c {} {} {} {} {} {} c {} {} {} {} {} {} c {} {} {} {} {} {} c h ",
+                                            center_x + radius_x,
+                                            center_y,
+                                            center_x + radius_x,
+                                            center_y + kappa * radius_y,
+                                            center_x + kappa * radius_x,
+                                            center_y + radius_y,
+                                            center_x,
+                                            center_y + radius_y,
+                                            center_x - kappa * radius_x,
+                                            center_y + radius_y,
+                                            center_x - radius_x,
+                                            center_y + kappa * radius_y,
+                                            center_x - radius_x,
+                                            center_y,
+                                            center_x - radius_x,
+                                            center_y - kappa * radius_y,
+                                            center_x - kappa * radius_x,
+                                            center_y - radius_y,
+                                            center_x,
+                                            center_y - radius_y,
+                                            center_x + kappa * radius_x,
+                                            center_y - radius_y,
+                                            center_x + radius_x,
+                                            center_y - kappa * radius_y,
+                                            center_x + radius_x,
+                                            center_y
+                                        );
+                                        if let Some(fill_rgb) = ellipse.fill_rgb {
+                                            stream.push_str(&format!(
+                                                "{} {} {} rg {}f ",
+                                                fill_rgb.0, fill_rgb.1, fill_rgb.2, path
+                                            ));
+                                        }
+                                        if let Some(stroke_rgb) = ellipse.stroke_rgb {
+                                            let stroke_width = ellipse.stroke_width_ratio
+                                                * natural_width
+                                                * scale_x;
+                                            if stroke_width.is_finite() && stroke_width > 0.0 {
+                                                stream.push_str(&format!(
+                                                    "{} {} {} RG {} w {}S ",
+                                                    stroke_rgb.0,
+                                                    stroke_rgb.1,
+                                                    stroke_rgb.2,
+                                                    stroke_width,
+                                                    path
+                                                ));
+                                            }
+                                        }
                                     }
                                 }
                                 rendered_svg_vector = true;
@@ -580,6 +649,7 @@ struct SimpleSvgAsset {
     natural_height_pt: f32,
     rects: Vec<SimpleSvgRect>,
     lines: Vec<SimpleSvgLine>,
+    ellipses: Vec<SimpleSvgEllipse>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -600,6 +670,17 @@ struct SimpleSvgLine {
     x2_ratio: f32,
     y2_ratio: f32,
     stroke_rgb: (f32, f32, f32),
+    stroke_width_ratio: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SimpleSvgEllipse {
+    cx_ratio: f32,
+    cy_ratio: f32,
+    rx_ratio: f32,
+    ry_ratio: f32,
+    fill_rgb: Option<(f32, f32, f32)>,
+    stroke_rgb: Option<(f32, f32, f32)>,
     stroke_width_ratio: f32,
 }
 
@@ -635,7 +716,11 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 continue;
             }
             let after = tag[index + name.len()..].trim_start();
-            let after = after.strip_prefix('=')?.trim_start();
+            let Some(after) = after.strip_prefix('=') else {
+                offset = index + name.len();
+                continue;
+            };
+            let after = after.trim_start();
             let quote = after.chars().next()?;
             if quote != '"' && quote != '\'' {
                 return None;
@@ -879,11 +964,110 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         search_index = line_start + line_end + 1;
     }
+    let mut ellipses = Vec::new();
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<circle") {
+        let circle_start = search_index + relative;
+        let circle_tail = &svg_content[circle_start..];
+        let Some(circle_end) = circle_tail.find('>') else {
+            break;
+        };
+        let circle_tag = &circle_tail[..circle_end];
+        let cx = attr_value(circle_tag, "cx")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let cy = attr_value(circle_tag, "cy")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let Some(radius) = attr_value(circle_tag, "r")
+            .as_deref()
+            .and_then(parse_number_prefix)
+        else {
+            search_index = circle_start + circle_end + 1;
+            continue;
+        };
+        if radius > 0.0 {
+            let fill_rgb = presentation_value(circle_tag, "fill")
+                .as_deref()
+                .map(&parse_color)
+                .unwrap_or(Some((0.0, 0.0, 0.0)));
+            let stroke_rgb = presentation_value(circle_tag, "stroke")
+                .as_deref()
+                .and_then(&parse_color);
+            if fill_rgb.is_some() || stroke_rgb.is_some() {
+                ellipses.push(SimpleSvgEllipse {
+                    cx_ratio: (cx - view_box.0) / view_box.2,
+                    cy_ratio: (cy - view_box.1) / view_box.3,
+                    rx_ratio: radius / view_box.2,
+                    ry_ratio: radius / view_box.3,
+                    fill_rgb,
+                    stroke_rgb,
+                    stroke_width_ratio: stroke_width_ratio(circle_tag),
+                });
+            }
+        }
+        search_index = circle_start + circle_end + 1;
+    }
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<ellipse") {
+        let ellipse_start = search_index + relative;
+        let ellipse_tail = &svg_content[ellipse_start..];
+        let Some(ellipse_end) = ellipse_tail.find('>') else {
+            break;
+        };
+        let ellipse_tag = &ellipse_tail[..ellipse_end];
+        let cx = attr_value(ellipse_tag, "cx")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let cy = attr_value(ellipse_tag, "cy")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let Some(rx) = attr_value(ellipse_tag, "rx")
+            .as_deref()
+            .and_then(parse_number_prefix)
+        else {
+            search_index = ellipse_start + ellipse_end + 1;
+            continue;
+        };
+        let Some(ry) = attr_value(ellipse_tag, "ry")
+            .as_deref()
+            .and_then(parse_number_prefix)
+        else {
+            search_index = ellipse_start + ellipse_end + 1;
+            continue;
+        };
+        if rx > 0.0 && ry > 0.0 {
+            let fill_rgb = presentation_value(ellipse_tag, "fill")
+                .as_deref()
+                .map(&parse_color)
+                .unwrap_or(Some((0.0, 0.0, 0.0)));
+            let stroke_rgb = presentation_value(ellipse_tag, "stroke")
+                .as_deref()
+                .and_then(&parse_color);
+            if fill_rgb.is_some() || stroke_rgb.is_some() {
+                ellipses.push(SimpleSvgEllipse {
+                    cx_ratio: (cx - view_box.0) / view_box.2,
+                    cy_ratio: (cy - view_box.1) / view_box.3,
+                    rx_ratio: rx / view_box.2,
+                    ry_ratio: ry / view_box.3,
+                    fill_rgb,
+                    stroke_rgb,
+                    stroke_width_ratio: stroke_width_ratio(ellipse_tag),
+                });
+            }
+        }
+        search_index = ellipse_start + ellipse_end + 1;
+    }
     Some(SimpleSvgAsset {
         natural_width_pt: natural_size.0,
         natural_height_pt: natural_size.1,
         rects,
         lines,
+        ellipses,
     })
 }
 
@@ -2490,7 +2674,7 @@ mod tests {
             (asset_ref == "figures/stroked.svg").then(|| {
                 br##"<svg width="20" height="10">
   <rect x="2" y="1" width="10" height="4" style="fill:#ff0000;stroke:#0000ff;stroke-width:0.5"/>
-  <line x1="0" y1="10" x2="20" y2="0" stroke="#00ff00" stroke-width="1"/>
+  <line x1="0" y1="10" x2="20" y2="0" stroke-width="1" stroke="#00ff00"/>
 </svg>"##
                     .to_vec()
             })
@@ -2501,6 +2685,51 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 100 40 re S"));
         assert!(pdf_text.contains("0 1 0 RG 10 w 10 180 m 210 280 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/stroked.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_circle_and_ellipse_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/markers.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:markers".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/markers.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <circle cx="5" cy="5" r="2" fill="#ff0000"/>
+  <ellipse cx="15" cy="5" rx="3" ry="2" fill="none" stroke-width="0.5" stroke="#0000ff"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 80 230 m"));
+        assert!(pdf_text.contains("0 0 1 RG 5 w 190 230 m"));
+        assert!(!pdf_text.contains("[unsupported image: figures/markers.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
