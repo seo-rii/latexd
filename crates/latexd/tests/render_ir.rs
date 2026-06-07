@@ -18643,6 +18643,20 @@ fn subfloat_commands_capture_as_graphics_with_captions() {
         }));
     }
 
+    let label_keys = capture
+        .document_ir
+        .labels
+        .iter()
+        .map(|label| label.key.as_str())
+        .collect::<Vec<_>>();
+    for key in [
+        "fig:subfloat-caption",
+        "fig:subcaptionbox-caption",
+        "fig:captionbox-caption",
+    ] {
+        assert!(label_keys.contains(&key));
+    }
+
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("Panel [?]."));
     assert!(extracted_text.contains("Box [?]."));
@@ -18657,6 +18671,9 @@ fn subfloat_commands_capture_as_graphics_with_captions() {
         "0.3",
         "textwidth",
         "key",
+        "fig:subfloat-caption",
+        "fig:subcaptionbox-caption",
+        "fig:captionbox-caption",
     ] {
         assert!(!extracted_text.contains(hidden));
     }
@@ -18683,6 +18700,9 @@ fn subfloat_commands_capture_as_graphics_with_captions() {
         "0.3",
         "textwidth",
         "key",
+        "fig:subfloat-caption",
+        "fig:subcaptionbox-caption",
+        "fig:captionbox-caption",
     ] {
         assert!(!display_list_text.contains(hidden));
     }
@@ -20656,7 +20676,7 @@ const MEASURED_FIGURE_SOURCE: &str = r"\documentclass{article}\usepackage{threep
 
 const SUBCAPTION_WRAPPER_SOURCE: &str = r"\begin{document}\begin{subfigure}[b]{0.45\textwidth}\includegraphics[width=4cm]{figures/panel-a.pdf}\caption{Panel \cite{key}.}\end{subfigure}\begin{subtable}{0.4\textwidth}\caption{Panel table.}\end{subtable}\end{document}";
 
-const SUBFLOAT_COMMAND_SOURCE: &str = r"\begin{document}\begin{figure}\subfloat[Panel \cite{key}.]{\includegraphics[width=3cm]{figures/a.pdf}}\subcaptionbox{Box \cite{key}.}[0.4\textwidth]{\includegraphics[width=2cm]{figures/b.pdf}}\subfigure[Legacy \cite{key}.]{\includegraphics[width=1cm]{figures/c.pdf}}\captionbox{Caption box \cite{key}.}[0.3\textwidth]{\includegraphics[width=4cm]{figures/d.pdf}}\end{figure}\end{document}";
+const SUBFLOAT_COMMAND_SOURCE: &str = r"\begin{document}\begin{figure}\subfloat[Panel \cite{key}.\label{fig:subfloat-caption}]{\includegraphics[width=3cm]{figures/a.pdf}}\subcaptionbox{Box \cite{key}.\label{fig:subcaptionbox-caption}}[0.4\textwidth]{\includegraphics[width=2cm]{figures/b.pdf}}\subfigure[Legacy \cite{key}.]{\includegraphics[width=1cm]{figures/c.pdf}}\captionbox{Caption box \cite{key}.\label{fig:captionbox-caption}}[0.3\textwidth]{\includegraphics[width=4cm]{figures/d.pdf}}\end{figure}\end{document}";
 
 const SUBFLOAT_TWO_OPTIONAL_SOURCE: &str = r"\begin{document}\begin{figure}\subfloat[Short \cite{key}.][Long \cite{key}.]{\includegraphics[width=2cm]{figures/two-optional-a.pdf}}\subfigure[Legacy short \cite{key}.][Legacy long \cite{key}.]{\includegraphics[width=2cm]{figures/two-optional-b.pdf}}\end{figure}\end{document}";
 

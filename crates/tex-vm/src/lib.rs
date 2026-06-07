@@ -3570,6 +3570,12 @@ impl<'i> Vm<'i> {
                                                         caption_end,
                                                     )) = caption
                                                     {
+                                                        self.capture_label_definitions_in_source_range(
+                                                            source_path,
+                                                            source,
+                                                            caption_start,
+                                                            caption_end,
+                                                        );
                                                         self.emit_render_event(
                                                             RenderEvent::Caption(CaptionEvent {
                                                                 text: caption_text,
@@ -3662,6 +3668,12 @@ impl<'i> Vm<'i> {
                                                                 .graphic_default_options
                                                                 .as_deref(),
                                                             None,
+                                                        );
+                                                        self.capture_label_definitions_in_source_range(
+                                                            source_path,
+                                                            source,
+                                                            caption_start,
+                                                            caption_end,
                                                         );
                                                         self.emit_render_event(
                                                             RenderEvent::Caption(CaptionEvent {
@@ -30408,7 +30420,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_subfloat_commands_without_option_leakage() {
-        let source = r"\documentclass{article}\usepackage{subfig}\usepackage{subcaption}\usepackage{subfigure}\usepackage{caption}\begin{document}\begin{figure}\subfloat[Panel \cite{key}.]{\includegraphics[width=3cm]{figures/a.pdf}}\subcaptionbox{Box \cite{key}.}[0.4\textwidth]{\includegraphics[width=2cm]{figures/b.pdf}}\subfigure[Legacy \cite{key}.]{\includegraphics[width=1cm]{figures/c.pdf}}\captionbox{Caption box \cite{key}.}[0.3\textwidth]{\includegraphics[width=4cm]{figures/d.pdf}}\end{figure}\end{document}";
+        let source = r"\documentclass{article}\usepackage{subfig}\usepackage{subcaption}\usepackage{subfigure}\usepackage{caption}\begin{document}\begin{figure}\subfloat[Panel \cite{key}.\label{fig:subfloat-caption}]{\includegraphics[width=3cm]{figures/a.pdf}}\subcaptionbox{Box \cite{key}.\label{fig:subcaptionbox-caption}}[0.4\textwidth]{\includegraphics[width=2cm]{figures/b.pdf}}\subfigure[Legacy \cite{key}.]{\includegraphics[width=1cm]{figures/c.pdf}}\captionbox{Caption box \cite{key}.\label{fig:captionbox-caption}}[0.3\textwidth]{\includegraphics[width=4cm]{figures/d.pdf}}\end{figure}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -30452,6 +30464,16 @@ Fallback text.
                 RenderEvent::Caption(event) if event.text == caption
             )));
         }
+        for key in [
+            "fig:subfloat-caption",
+            "fig:subcaptionbox-caption",
+            "fig:captionbox-caption",
+        ] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::LabelDefinition(label) if label.key == key
+            )));
+        }
         assert!(!outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Text(text)
@@ -30463,7 +30485,10 @@ Fallback text.
                     "0.4",
                     "0.3",
                     "textwidth",
-                    "key"
+                    "key",
+                    "fig:subfloat-caption",
+                    "fig:subcaptionbox-caption",
+                    "fig:captionbox-caption"
                 ]
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
