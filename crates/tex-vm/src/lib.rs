@@ -313,6 +313,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "etoolbox.sty",
     "fancybox.sty",
     "float.sty",
+    "floatflt.sty",
     "floatrow.sty",
     "flushend.sty",
     "fontenc.sty",
@@ -2841,16 +2842,16 @@ impl<'i> Vm<'i> {
                                 }
                             }
                             "figure" | "figure*" | "sidewaysfigure" | "sidewaysfigure*"
-                            | "wrapfigure" | "wrapfigure*" | "SCfigure" | "SCfigure*" | "table"
-                            | "table*" | "sidewaystable" | "sidewaystable*" | "wraptable"
-                            | "wraptable*" | "SCtable" | "SCtable*"
+                            | "wrapfigure" | "wrapfigure*" | "SCfigure" | "SCfigure*"
+                            | "floatingfigure" | "table" | "table*" | "sidewaystable"
+                            | "sidewaystable*" | "wraptable" | "wraptable*" | "SCtable"
+                            | "SCtable*" | "floatingtable"
                                 if in_document =>
                             {
                                 let block = match environment {
                                     "figure" | "figure*" | "sidewaysfigure" | "sidewaysfigure*"
-                                    | "wrapfigure" | "wrapfigure*" | "SCfigure" | "SCfigure*" => {
-                                        BlockKind::Figure
-                                    }
+                                    | "wrapfigure" | "wrapfigure*" | "SCfigure" | "SCfigure*"
+                                    | "floatingfigure" => BlockKind::Figure,
                                     _ => BlockKind::Table,
                                 };
                                 self.emit_render_event(
@@ -29995,6 +29996,66 @@ Fallback text.
                     Some("wrapfigure" | "wraptable")
                 )
         )));
+    }
+
+    #[test]
+    fn render_event_capture_records_floatflt_floats_without_layout_leakage() {
+        let source = r"\documentclass{article}\usepackage{floatflt}\begin{document}\begin{floatingfigure}[r]{0.35\textwidth}\includegraphics[width=3cm]{figures/floating.pdf}\caption{Floating \cite{key}.}\label{fig:flt}\end{floatingfigure}\begin{floatingtable}[l]{0.4\textwidth}\caption{Floating table.}\label{tab:flt}\end{floatingtable}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package floatflt.sty"
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("floatflt.sty"))
+        );
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Figure
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Table
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/floating.pdf"
+                    && graphic.options.as_deref() == Some("width=3cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Floating [?]."
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Floating table."
+        )));
+        for key in ["fig:flt", "tab:flt"] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::LabelDefinition(label) if label.key == key
+            )));
+        }
+        assert!(!outcome.render_events.iter().any(|event| {
+            match &event.event {
+                RenderEvent::Text(text) => ["0.35", "0.4", "textwidth", "key"]
+                    .iter()
+                    .any(|argument| text.text.contains(argument)),
+                RenderEvent::RawFallback(fallback) => matches!(
+                    fallback.environment.as_deref(),
+                    Some("floatingfigure" | "floatingtable")
+                ),
+                _ => false,
+            }
+        }));
     }
 
     #[test]

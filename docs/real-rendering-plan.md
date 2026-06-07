@@ -241,6 +241,9 @@ Legacy `epsf` sizing assignments such as `\epsfxsize=...` and
 `picins` inline picture commands now preserve `\parpic` images and attach the
 preceding `\piccaption` text without leaking placement or width hints into body
 text.
+`floatflt` `floatingfigure` / `floatingtable` environments now follow the same
+float capture path as wrap/sidecap floats, preserving images, captions, and
+labels without leaking position or width arguments into visible text.
 Simple `fancybox` wrappers such as `\shadowbox`, `\ovalbox`, and `\doublebox`
 now use the same graphic wrapper path as `\fbox`.
 `psfrag` replacement helper commands are treated as layout/asset preprocessing
@@ -1000,6 +1003,8 @@ Status:
   `\epsffile` image options without leaking assignment tokens;
 - `picins` `\piccaption` / `\parpic` pairs preserve inline picture assets and
   captions without leaking layout hints;
+- `floatflt` `floatingfigure` / `floatingtable` environments preserve float
+  contents while suppressing position and width arguments;
 - `fancybox` image wrappers preserve nested graphics without undefined-command
   diagnostics;
 - `psfrag` replacement helper commands no longer leak tags/options/replacement
