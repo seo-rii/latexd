@@ -17701,6 +17701,7 @@ fn subfloat_commands_capture_as_graphics_with_captions() {
         ("figures/a.pdf", Some("width=3cm"), "Panel [?]."),
         ("figures/b.pdf", Some("width=2cm"), "Box [?]."),
         ("figures/c.pdf", Some("width=1cm"), "Legacy [?]."),
+        ("figures/d.pdf", Some("width=4cm"), "Caption box [?]."),
     ] {
         assert!(capture.document_ir.blocks.iter().any(|block| {
             matches!(
@@ -17717,11 +17718,14 @@ fn subfloat_commands_capture_as_graphics_with_captions() {
     assert!(extracted_text.contains("Panel [?]."));
     assert!(extracted_text.contains("Box [?]."));
     assert!(extracted_text.contains("Legacy [?]."));
+    assert!(extracted_text.contains("Caption box [?]."));
     for hidden in [
         "subfloat",
         "subfigure",
         "subcaptionbox",
+        "captionbox",
         "0.4",
+        "0.3",
         "textwidth",
         "key",
     ] {
@@ -17740,17 +17744,25 @@ fn subfloat_commands_capture_as_graphics_with_captions() {
     assert!(display_list_text.contains("Panel [?]."));
     assert!(display_list_text.contains("Box [?]."));
     assert!(display_list_text.contains("Legacy [?]."));
+    assert!(display_list_text.contains("Caption box [?]."));
     for hidden in [
         "subfloat",
         "subfigure",
         "subcaptionbox",
+        "captionbox",
         "0.4",
+        "0.3",
         "textwidth",
         "key",
     ] {
         assert!(!display_list_text.contains(hidden));
     }
-    for path in ["figures/a.pdf", "figures/b.pdf", "figures/c.pdf"] {
+    for path in [
+        "figures/a.pdf",
+        "figures/b.pdf",
+        "figures/c.pdf",
+        "figures/d.pdf",
+    ] {
         assert!(
             capture.page_display_lists[0]
                 .ops
@@ -19469,7 +19481,7 @@ const THREEPARTTABLE_SOURCE: &str = r"\begin{document}\begin{threeparttable}\cap
 
 const SUBCAPTION_WRAPPER_SOURCE: &str = r"\begin{document}\begin{subfigure}[b]{0.45\textwidth}\includegraphics[width=4cm]{figures/panel-a.pdf}\caption{Panel \cite{key}.}\end{subfigure}\begin{subtable}{0.4\textwidth}\caption{Panel table.}\end{subtable}\end{document}";
 
-const SUBFLOAT_COMMAND_SOURCE: &str = r"\begin{document}\begin{figure}\subfloat[Panel \cite{key}.]{\includegraphics[width=3cm]{figures/a.pdf}}\subcaptionbox{Box \cite{key}.}[0.4\textwidth]{\includegraphics[width=2cm]{figures/b.pdf}}\subfigure[Legacy \cite{key}.]{\includegraphics[width=1cm]{figures/c.pdf}}\end{figure}\end{document}";
+const SUBFLOAT_COMMAND_SOURCE: &str = r"\begin{document}\begin{figure}\subfloat[Panel \cite{key}.]{\includegraphics[width=3cm]{figures/a.pdf}}\subcaptionbox{Box \cite{key}.}[0.4\textwidth]{\includegraphics[width=2cm]{figures/b.pdf}}\subfigure[Legacy \cite{key}.]{\includegraphics[width=1cm]{figures/c.pdf}}\captionbox{Caption box \cite{key}.}[0.3\textwidth]{\includegraphics[width=4cm]{figures/d.pdf}}\end{figure}\end{document}";
 
 const ALGORITHM_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{algorithm}\caption{Procedure.}\label{alg:first}Step text.\end{algorithm}\begin{algorithm*}Wide step.\end{algorithm*}\end{document}";
 
