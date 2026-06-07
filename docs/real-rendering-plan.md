@@ -229,6 +229,9 @@ caption while consuming floatrow layout options.
 Floatrow table boxes such as `\ttabbox[...]{\begin{tabular}...\end{tabular}}`
 also preserve the nested table and caption without leaking floatrow width
 macros.
+Legacy `epsf` sizing assignments such as `\epsfxsize=...` and
+`\epsfysize=...` are converted into graphic width/height options for the next
+`\epsfbox` / `\epsffile` image instead of leaking as text.
 `PageDisplayList::Image` now carries optional `ImageScale` metadata, and SVG
 debug artifacts expose that metadata as `data-image-scale-x` /
 `data-image-scale-y`. Nested graphic wrappers now thread outer sizing and scale
@@ -973,6 +976,8 @@ Status:
   suppressing floatrow layout options;
 - floatrow `\ttabbox` commands preserve nested tables and captions while
   suppressing floatrow width macros;
+- legacy `epsf` sizing assignments are threaded into following `\epsfbox` /
+  `\epsffile` image options without leaking assignment tokens;
 - table horizontal rules now produce renderer-visible display-list rule ops;
 - simple and repeated table column alignment specs survive into display-list
   text;

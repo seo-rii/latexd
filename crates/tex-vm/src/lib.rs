@@ -138,6 +138,10 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\nolinkurl}[1]{#1}
 \providecommand{\path}[1]{#1}
 \providecommand{\includegraphics}[2][]{[image]}
+\providecommand{\epsfxsize}{}
+\providecommand{\epsfysize}{}
+\providecommand{\epsfbox}[1]{}
+\providecommand{\epsffile}[1]{}
 \providecommand{\DeclareMathOperator}[2]{\def#1{#2}}
 \providecommand{\DeclareMathAlphabet}[5]{}
 \providecommand{\Crefname}[3]{}
@@ -294,6 +298,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "dcolumn.sty",
     "dblfloatfix.sty",
     "enumitem.sty",
+    "epsf.sty",
     "etoolbox.sty",
     "fancybox.sty",
     "float.sty",
@@ -809,6 +814,7 @@ struct RenderEventScanState {
     graphic_global_options: Option<String>,
     graphic_pending_package_options: HashMap<String, String>,
     graphic_default_options: Option<String>,
+    epsf_pending_options: Option<String>,
     section_macros: HashMap<String, RenderSectionMacro>,
     citation_macros: HashMap<String, RenderCitationMacro>,
     reference_macros: HashMap<String, RenderReferenceMacro>,
@@ -2920,6 +2926,8 @@ impl<'i> Vm<'i> {
                                                 }
                                             }
                                             "epsfbox" | "epsffile" => {
+                                                let inherited_options =
+                                                    scan_state.epsf_pending_options.clone();
                                                 if let Some(after) = self
                                                     .capture_legacy_graphic_file_event(
                                                         source_path,
@@ -2932,12 +2940,60 @@ impl<'i> Vm<'i> {
                                                         scan_state
                                                             .graphic_default_options
                                                             .as_deref(),
-                                                        None,
+                                                        inherited_options.as_deref(),
                                                     )
                                                 {
+                                                    scan_state.epsf_pending_options = None;
                                                     body_index = after;
                                                     continue;
                                                 }
+                                            }
+                                            "epsfxsize" | "epsfysize" => {
+                                                let mut value_index = skip_ascii_whitespace(
+                                                    source,
+                                                    body_command_index,
+                                                );
+                                                if value_index < body_end
+                                                    && source.as_bytes()[value_index] == b'='
+                                                {
+                                                    value_index += 1;
+                                                    value_index =
+                                                        skip_ascii_whitespace(source, value_index);
+                                                }
+                                                let value_start = value_index;
+                                                while value_index < body_end {
+                                                    let byte = source.as_bytes()[value_index];
+                                                    if byte == b'\\'
+                                                        || byte == b'{'
+                                                        || byte == b'}'
+                                                        || byte.is_ascii_whitespace()
+                                                    {
+                                                        break;
+                                                    }
+                                                    value_index += 1;
+                                                }
+                                                let value = source[value_start..value_index].trim();
+                                                if !value.is_empty() {
+                                                    let key = if body_command == "epsfxsize" {
+                                                        "width"
+                                                    } else {
+                                                        "height"
+                                                    };
+                                                    let option = format!("{key}={value}");
+                                                    scan_state.epsf_pending_options = Some(
+                                                        match scan_state.epsf_pending_options.take()
+                                                        {
+                                                            Some(existing)
+                                                                if !existing.is_empty() =>
+                                                            {
+                                                                format!("{existing},{option}")
+                                                            }
+                                                            _ => option,
+                                                        },
+                                                    );
+                                                }
+                                                body_index = value_index;
+                                                continue;
                                             }
                                             "resizebox" | "scalebox" | "rotatebox"
                                             | "reflectbox" | "adjustbox" | "centerline"
@@ -7753,7 +7809,44 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
+                "epsfxsize" | "epsfysize" if in_document => {
+                    let mut value_index = skip_ascii_whitespace(source, index);
+                    if value_index < source.len() && source.as_bytes()[value_index] == b'=' {
+                        value_index += 1;
+                        value_index = skip_ascii_whitespace(source, value_index);
+                    }
+                    let value_start = value_index;
+                    while value_index < source.len() {
+                        let byte = source.as_bytes()[value_index];
+                        if byte == b'\\'
+                            || byte == b'{'
+                            || byte == b'}'
+                            || byte.is_ascii_whitespace()
+                        {
+                            break;
+                        }
+                        value_index += 1;
+                    }
+                    let value = source[value_start..value_index].trim();
+                    if !value.is_empty() {
+                        let key = if command == "epsfxsize" {
+                            "width"
+                        } else {
+                            "height"
+                        };
+                        let option = format!("{key}={value}");
+                        scan_state.epsf_pending_options =
+                            Some(match scan_state.epsf_pending_options.take() {
+                                Some(existing) if !existing.is_empty() => {
+                                    format!("{existing},{option}")
+                                }
+                                _ => option,
+                            });
+                    }
+                    index = value_index;
+                }
                 "epsfbox" | "epsffile" if in_document => {
+                    let inherited_options = scan_state.epsf_pending_options.clone();
                     if let Some(after) = self.capture_legacy_graphic_file_event(
                         source_path,
                         source,
@@ -7763,8 +7856,9 @@ impl<'i> Vm<'i> {
                         &scan_state.graphic_paths,
                         &scan_state.graphic_extensions,
                         scan_state.graphic_default_options.as_deref(),
-                        None,
+                        inherited_options.as_deref(),
                     ) {
+                        scan_state.epsf_pending_options = None;
                         index = after;
                     }
                 }
@@ -28258,7 +28352,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_legacy_epsf_file_commands() {
-        let source = r"\begin{document}\begin{figure}\epsfbox{figures/plot}\epsffile{figures/other.eps}\caption{Plot caption.}\end{figure}\end{document}";
+        let source = r"\documentclass{article}\usepackage{epsf}\begin{document}\begin{figure}\epsfxsize=4cm\epsfysize=2cm\epsfbox{figures/plot}\epsffile{figures/other.eps}\caption{Plot caption.}\end{figure}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -28270,12 +28364,28 @@ Fallback text.
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::GraphicRef(graphic)
-                if graphic.path == "figures/plot.eps" && graphic.options.is_none()
+                if graphic.path == "figures/plot.eps"
+                    && graphic.options.as_deref() == Some("width=4cm,height=2cm")
         )));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::GraphicRef(graphic)
                 if graphic.path == "figures/other.eps" && graphic.options.is_none()
+        )));
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package epsf.sty"
+        }));
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && matches!(diagnostic.detail.as_str(), "epsfxsize" | "epsfysize")
+        }));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if ["epsfxsize", "epsfysize", "4cm", "2cm"]
+                    .iter()
+                    .any(|hidden| text.text.contains(hidden))
         )));
     }
 

@@ -3314,7 +3314,7 @@ fn legacy_epsf_file_capture_survives_ir_and_display_list() {
             block,
             IrBlock::Graphic(graphic)
                 if graphic.path == "figures/plot.eps"
-                    && graphic.options.is_none()
+                    && graphic.options.as_deref() == Some("width=4cm,height=2cm")
                     && graphic.caption.as_deref() == Some("Plot caption.")
         )
     }));
@@ -3327,6 +3327,8 @@ fn legacy_epsf_file_capture_survives_ir_and_display_list() {
     let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
     assert!(pdf_text.contains("[image: figures/plot.eps]"));
     assert!(!pdf_text.contains("epsfbox"));
+    assert!(!pdf_text.contains("epsfxsize"));
+    assert!(!pdf_text.contains("epsfysize"));
 }
 
 #[test]
@@ -19226,7 +19228,7 @@ const DECLARED_GRAPHIC_EXTENSIONS_SOURCE: &str = r"\DeclareGraphicsExtensions{.p
 
 const LEGACY_EPSFIG_SOURCE: &str = r"\begin{document}\begin{figure}\epsfig{file=figures/plot,width=5cm}\caption{Plot caption.}\end{figure}\end{document}";
 
-const LEGACY_EPSF_FILE_SOURCE: &str = r"\begin{document}\begin{figure}\epsfbox{figures/plot}\caption{Plot caption.}\end{figure}\end{document}";
+const LEGACY_EPSF_FILE_SOURCE: &str = r"\documentclass{article}\usepackage{epsf}\begin{document}\begin{figure}\epsfxsize=4cm\epsfysize=2cm\epsfbox{figures/plot}\caption{Plot caption.}\end{figure}\end{document}";
 
 const GRAPHIC_LAYOUT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\resizebox{0.8\textwidth}{0.4\textheight}{\includegraphics[width=5cm]{figures/plot}}\scalebox{0.5}[2]{\epsfbox{figures/other}}\rotatebox[origin=c]{90}{\psfig{figure=figures/third.eps,width=2cm}}\raisebox{0.5ex}[1ex][0pt]{\includegraphics{figures/raised}}\parbox[t]{4cm}{\includegraphics{figures/boxed}}\end{document}";
 
