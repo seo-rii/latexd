@@ -22590,6 +22590,38 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         }
                         index = after_radicand;
                     }
+                    "substack" => {
+                        let body_index = skip_ascii_whitespace(source, command_index);
+                        let Some((body, _, _, after_body)) =
+                            read_braced_source_argument(source, body_index)
+                        else {
+                            return None;
+                        };
+                        let mut rows = Vec::new();
+                        for row in body.split("\\\\") {
+                            let cells = row
+                                .split('&')
+                                .filter_map(|cell| {
+                                    let cell = cell.trim();
+                                    if cell.is_empty() {
+                                        return None;
+                                    }
+                                    Some(
+                                        normalize_latex_math_text(cell)
+                                            .unwrap_or_else(|| normalize_latex_math_source(cell)),
+                                    )
+                                })
+                                .collect::<Vec<_>>();
+                            if !cells.is_empty() {
+                                rows.push(cells.join(", "));
+                            }
+                        }
+                        if rows.is_empty() {
+                            return None;
+                        }
+                        push_token!(&format!("substack({})", rows.join("; ")));
+                        index = after_body;
+                    }
                     "begin" => {
                         let environment_index = skip_ascii_whitespace(source, command_index);
                         let Some((environment, _, _, after_environment)) =
@@ -22764,12 +22796,13 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         let mut lower = None;
                         let mut upper = None;
                         for _ in 0..2 {
-                            script_index = skip_ascii_whitespace(source, script_index);
-                            if script_index >= bytes.len()
-                                || !matches!(bytes[script_index], b'_' | b'^')
+                            let next_script_index = skip_ascii_whitespace(source, script_index);
+                            if next_script_index >= bytes.len()
+                                || !matches!(bytes[next_script_index], b'_' | b'^')
                             {
                                 break;
                             }
+                            script_index = next_script_index;
                             let marker = bytes[script_index];
                             let mut argument_index =
                                 skip_ascii_whitespace(source, script_index + 1);
@@ -22900,6 +22933,11 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
             }
             byte if byte.is_ascii_whitespace() => {
                 push_space!();
+                index += 1;
+            }
+            b',' => {
+                text.push(',');
+                pending_space = true;
                 index += 1;
             }
             b'=' | b'+' | b'-' | b'<' | b'>' => {
@@ -32237,6 +32275,34 @@ Fallback text.
                     && math.normalized_text.as_deref()
                         == Some("sum_{i = 1}^{n} x_i + int_{0}^{1} f(x) dx + sin theta")
         ));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_substack_scripts() {
+        let source = r"\begin{document}Nested \(\sum_{\substack{i<j\\j<k}}^{n} x_i + \lim_{\substack{x\to0\\y\to0}} f(x,y)\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        let RenderEvent::InlineMath(math) = &inline_math.event else {
+            panic!("inline math event");
+        };
+
+        assert_eq!(
+            math.raw_source,
+            r"\sum_{\substack{i<j\\j<k}}^{n} x_i + \lim_{\substack{x\to0\\y\to0}} f(x,y)"
+        );
+        assert_eq!(
+            math.normalized_text.as_deref(),
+            Some("sum_{substack(i < j; j < k)}^{n} x_i + lim_{substack(x -> 0; y -> 0)} f(x, y)")
+        );
     }
 
     #[test]
