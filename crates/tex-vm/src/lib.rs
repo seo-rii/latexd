@@ -192,6 +192,9 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\showrowcolors}{}
 \providecommand{\columncolor}[2][]{}
 \providecommand{\arrayrulecolor}[1]{}
+\providecommand{\shadowbox}[1]{#1}
+\providecommand{\ovalbox}[1]{#1}
+\providecommand{\doublebox}[1]{#1}
 \providecommand{\FBwidth}{}
 \providecommand{\ffigbox}[4][]{#3#4}
 \providecommand{\ttabbox}[4][]{#3#4}
@@ -3002,7 +3005,8 @@ impl<'i> Vm<'i> {
                                             "resizebox" | "scalebox" | "rotatebox"
                                             | "reflectbox" | "adjustbox" | "centerline"
                                             | "makebox" | "framebox" | "fbox" | "mbox"
-                                            | "raisebox" | "parbox" | "colorbox" | "fcolorbox" => {
+                                            | "raisebox" | "parbox" | "colorbox" | "fcolorbox"
+                                            | "shadowbox" | "ovalbox" | "doublebox" => {
                                                 if let Some(after) = self
                                                     .capture_graphic_box_wrapper_events(
                                                         source_path,
@@ -7940,7 +7944,7 @@ impl<'i> Vm<'i> {
                 }
                 "resizebox" | "scalebox" | "rotatebox" | "reflectbox" | "adjustbox"
                 | "centerline" | "makebox" | "framebox" | "fbox" | "mbox" | "raisebox"
-                | "parbox" | "colorbox" | "fcolorbox"
+                | "parbox" | "colorbox" | "fcolorbox" | "shadowbox" | "ovalbox" | "doublebox"
                     if in_document =>
                 {
                     if let Some(after) = self.capture_graphic_box_wrapper_events(
@@ -8824,17 +8828,19 @@ impl<'i> Vm<'i> {
                 ),
                 "resizebox" | "scalebox" | "rotatebox" | "reflectbox" | "adjustbox"
                 | "centerline" | "makebox" | "framebox" | "fbox" | "mbox" | "raisebox"
-                | "parbox" | "colorbox" | "fcolorbox" => self.capture_graphic_box_wrapper_events(
-                    source_path,
-                    source,
-                    command,
-                    command_index,
-                    range_end,
-                    graphic_paths,
-                    graphic_extensions,
-                    default_options,
-                    inherited_options,
-                ),
+                | "parbox" | "colorbox" | "fcolorbox" | "shadowbox" | "ovalbox" | "doublebox" => {
+                    self.capture_graphic_box_wrapper_events(
+                        source_path,
+                        source,
+                        command,
+                        command_index,
+                        range_end,
+                        graphic_paths,
+                        graphic_extensions,
+                        default_options,
+                        inherited_options,
+                    )
+                }
                 _ => None,
             };
             range_index = after.unwrap_or(command_index);
@@ -9064,7 +9070,7 @@ impl<'i> Vm<'i> {
                 );
                 Some(after_body)
             }
-            "centerline" | "fbox" | "mbox" => {
+            "centerline" | "fbox" | "mbox" | "shadowbox" | "ovalbox" | "doublebox" => {
                 let (_, body_start, body_end, after_body) =
                     read_braced_source_argument(source, argument_index)?;
                 if after_body > limit {
@@ -28574,6 +28580,59 @@ Fallback text.
                     "000000",
                     "FFFFFF"
                 ]
+                    .iter()
+                    .any(|hidden| text.text.contains(hidden))
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_graphics_inside_fancybox_wrappers() {
+        let source = r"\documentclass{article}\usepackage{fancybox}\begin{document}\shadowbox{\includegraphics[width=2cm]{figures/shadow}}\ovalbox{\includegraphics{figures/oval.pdf}}\doublebox{\includegraphics{figures/double.pdf}}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("figures/shadow.pdf", "%PDF fake");
+        vm.mount_file("figures/oval.pdf", "%PDF fake");
+        vm.mount_file("figures/double.pdf", "%PDF fake");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package fancybox.sty"
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("fancybox.sty"))
+        );
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && matches!(
+                    diagnostic.detail.as_str(),
+                    "shadowbox" | "ovalbox" | "doublebox"
+                )
+        }));
+        for path in [
+            "figures/shadow.pdf",
+            "figures/oval.pdf",
+            "figures/double.pdf",
+        ] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::GraphicRef(graphic) if graphic.path == path
+            )));
+        }
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/shadow.pdf"
+                    && graphic.options.as_deref() == Some("width=2cm")
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if ["shadowbox", "ovalbox", "doublebox"]
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));

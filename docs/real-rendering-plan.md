@@ -235,6 +235,8 @@ Legacy `epsf` sizing assignments such as `\epsfxsize=...` and
 `picins` inline picture commands now preserve `\parpic` images and attach the
 preceding `\piccaption` text without leaking placement or width hints into body
 text.
+Simple `fancybox` wrappers such as `\shadowbox`, `\ovalbox`, and `\doublebox`
+now use the same graphic wrapper path as `\fbox`.
 `PageDisplayList::Image` now carries optional `ImageScale` metadata, and SVG
 debug artifacts expose that metadata as `data-image-scale-x` /
 `data-image-scale-y`. Nested graphic wrappers now thread outer sizing and scale
@@ -983,6 +985,8 @@ Status:
   `\epsffile` image options without leaking assignment tokens;
 - `picins` `\piccaption` / `\parpic` pairs preserve inline picture assets and
   captions without leaking layout hints;
+- `fancybox` image wrappers preserve nested graphics without undefined-command
+  diagnostics;
 - table horizontal rules now produce renderer-visible display-list rule ops;
 - simple and repeated table column alignment specs survive into display-list
   text;
