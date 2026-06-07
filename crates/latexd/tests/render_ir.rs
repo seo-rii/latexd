@@ -6350,6 +6350,56 @@ fn math_delimiter_and_punctuation_symbols_use_normalized_text_in_ir_and_display_
 }
 
 #[test]
+fn math_delimiter_control_symbols_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Sets \(\left\{x\in A \middle| x>0\right\} + \left\|v\right\| + \bigm|_{x=0}\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"\left\{x\in A \middle| x>0\right\} + \left\|v\right\| + \bigm|_{x=0}"
+                && normalized_text.as_deref()
+                    == Some("{x in A | x > 0} + ||v|| + |_x = 0")
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text.contains("{x in A | x > 0} + ||v|| + |_x = 0"),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains(r"\middle"));
+    assert!(!display_list_text.contains(r"\left\|"));
+    assert!(!display_list_text.contains(r"\bigm"));
+}
+
+#[test]
 fn math_binary_and_large_operators_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Ops \(A\oplus B \otimes C \odot D \ominus E \oslash F \circ G \bullet H \star I \diamond J + \bigcup_{i=1}^{n} U_i + \bigcap_{j=1}^{m} V_j + \bigoplus_{k=1}^{r} W_k\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
