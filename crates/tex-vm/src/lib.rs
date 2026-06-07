@@ -12691,17 +12691,62 @@ impl<'i> Vm<'i> {
             return None;
         }
         let options = options.trim().to_string();
-        let path = options.split(',').find_map(|part| {
-            let (key, value) = part.split_once('=')?;
-            match key.trim() {
-                "file" | "figure" => {
-                    let value = value.trim();
-                    (!value.is_empty()).then_some(value)
+        let mut path = None;
+        let mut option_start = 0;
+        let mut option_index = 0;
+        let mut brace_depth = 0usize;
+        while option_index <= options.len() {
+            let delimiter = option_index == options.len()
+                || (brace_depth == 0 && options[option_index..].starts_with(','));
+            if delimiter {
+                let part = &options[option_start..option_index];
+                let mut equals_index = None;
+                let mut part_depth = 0usize;
+                for (index, ch) in part.char_indices() {
+                    match ch {
+                        '{' => part_depth += 1,
+                        '}' => part_depth = part_depth.saturating_sub(1),
+                        '=' if part_depth == 0 => {
+                            equals_index = Some(index);
+                            break;
+                        }
+                        _ => {}
+                    }
                 }
-                _ => None,
+                if let Some(equals_index) = equals_index {
+                    let key = part[..equals_index].trim();
+                    if matches!(key, "file" | "figure") {
+                        let value = part[equals_index + 1..].trim();
+                        let normalized_value = if let Some((inner, _, _, after_inner)) =
+                            read_braced_source_argument(value, 0)
+                            && skip_ascii_whitespace(value, after_inner) == value.len()
+                        {
+                            normalize_latex_text(inner)
+                        } else {
+                            normalize_latex_text(value)
+                        };
+                        if !normalized_value.is_empty() {
+                            path = Some(normalized_value);
+                            break;
+                        }
+                    }
+                }
+                option_index += 1;
+                option_start = option_index;
+                continue;
             }
-        });
-        if let Some(path) = path {
+            if let Some(ch) = options[option_index..].chars().next() {
+                match ch {
+                    '{' => brace_depth += 1,
+                    '}' => brace_depth = brace_depth.saturating_sub(1),
+                    _ => {}
+                }
+                option_index += ch.len_utf8();
+            } else {
+                break;
+            }
+        }
+        if let Some(path) = path.as_deref() {
             let resolved_path = self.resolve_graphic_asset_path(
                 source_path,
                 path,
@@ -29832,6 +29877,35 @@ Fallback text.
                 if graphic.path == "figures/other.eps"
                     && graphic.options.as_deref() == Some("figure=figures/other.eps,height=2cm")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_resolves_braced_legacy_epsfig_paths() {
+        let source = r"\begin{document}\epsfig{file={figures/plot},width=5cm}\psfig{figure={figures/other},height=2cm}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("figures/plot.eps", "fake eps");
+        vm.mount_file("figures/other.eps", "fake eps");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.eps"
+                    && graphic.options.as_deref() == Some("file={figures/plot},width=5cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/other.eps"
+                    && graphic.options.as_deref() == Some("figure={figures/other},height=2cm")
+        )));
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail.contains("figures/")
+        }));
     }
 
     #[test]

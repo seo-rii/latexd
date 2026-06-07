@@ -1054,6 +1054,9 @@ Status:
   suppressing floatrow width macros;
 - legacy `epsf` sizing assignments are threaded into following `\epsfbox` /
   `\epsffile` image options without leaking assignment tokens;
+- legacy `\epsfig` / `\psfig` `file={...}` / `figure={...}` path options resolve
+  brace-wrapped extensionless assets without leaking those option payloads into
+  display-list text;
 - `picins` `\piccaption` / `\parpic` pairs preserve inline picture assets and
   captions without leaking layout hints;
 - `floatflt` `floatingfigure` / `floatingtable` environments preserve float
