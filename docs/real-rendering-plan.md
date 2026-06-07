@@ -67,6 +67,10 @@ cell text in display-list/PDF text while rendering horizontal and vertical
 separators as `Rule` operations rather than searchable filler glyphs, with
 optional `pdftotext` and Ghostscript raster gross checks when those tools are
 available.
+Simple table environments nested inside a table cell now stay inside that outer
+cell as readable flattened text, rather than truncating the outer table at the
+inner `\end{tabular}` or leaking the nested `\begin{tabular}{...}` preamble as
+body text.
 Simple
 `\multicolumn{n}{...}{text}` cells are also normalized to visible cell text plus
 `TableCell.column_span` metadata so the display-list fallback can occupy the
@@ -199,7 +203,8 @@ the converted bitmap pixel size. Driver-accurate crop/clip rendering for
 production PDF/SVG vector output and raster backends, TeX-exact rotated-box
 reflow, programmable table preamble hooks, exact
 vertical border trimming, exact table rule trimming, actual multirow geometry,
-nested table constructs, and full TeX alignment policy are still deferred.
+exact nested table layout/reflow, and full TeX alignment policy are still
+deferred.
 Rotation intent is no longer dropped: `angle` /
 `origin` options and simple `\rotatebox` wrappers are preserved as
 renderer-neutral `ImageRotation` metadata. The display-list PDF path applies
@@ -806,11 +811,15 @@ Implemented first slice:
   are still captured as table IR instead of being swallowed by wrapper handling.
 - `adjustbox` environments hide their option argument and allow nested tables to
   use the normal table fallback/IR path.
+- simple table environments inside a table cell are flattened into readable cell
+  text while keeping the outer table rows intact and hiding the nested table
+  preamble/control text.
 
 Remaining table work:
 
 - exact column width policy, programmable column hooks, and fuller multirow
   geometry rendering approximations;
+- exact nested table layout/reflow beyond readable flattened cell text;
 - residual vertical-border and exact rule-trimming edge cases in
   `PageDisplayList`;
 - stronger booktabs/array-package compatibility on corpus fixtures;

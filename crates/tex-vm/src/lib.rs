@@ -2996,16 +2996,14 @@ impl<'i> Vm<'i> {
                                                         | "longtabu"
                                                 ) && after_environment <= object_end
                                                 {
-                                                    let end_marker =
-                                                        format!("\\end{{{nested_environment}}}");
-                                                    if let Some(relative_table_end) = source
-                                                        [after_environment..object_end]
-                                                        .find(&end_marker)
+                                                    if let Some((table_body_end, table_raw_end)) =
+                                                        find_latex_environment_end(
+                                                            source,
+                                                            after_environment,
+                                                            object_end,
+                                                            nested_environment,
+                                                        )
                                                     {
-                                                        let table_body_end =
-                                                            after_environment + relative_table_end;
-                                                        let table_raw_end =
-                                                            table_body_end + end_marker.len();
                                                         if let Some(after) = self
                                                             .capture_table_fallback_event(
                                                                 source_path,
@@ -3463,17 +3461,15 @@ impl<'i> Vm<'i> {
                                                             | "longtabu"
                                                     ) && after_environment <= body_end
                                                     {
-                                                        let end_marker = format!(
-                                                            "\\end{{{nested_environment}}}"
-                                                        );
-                                                        if let Some(relative_table_end) = source
-                                                            [after_environment..body_end]
-                                                            .find(&end_marker)
-                                                        {
-                                                            let table_body_end = after_environment
-                                                                + relative_table_end;
-                                                            let table_raw_end =
-                                                                table_body_end + end_marker.len();
+                                                        if let Some((
+                                                            table_body_end,
+                                                            table_raw_end,
+                                                        )) = find_latex_environment_end(
+                                                            source,
+                                                            after_environment,
+                                                            body_end,
+                                                            nested_environment,
+                                                        ) {
                                                             if let Some(after) = self
                                                                 .capture_table_fallback_event(
                                                                     source_path,
@@ -4134,11 +4130,26 @@ impl<'i> Vm<'i> {
                                 }
                             }
                             other if in_document => {
-                                let end_marker = format!("\\end{{{other}}}");
-                                if let Some(relative_end) = source[index..].find(&end_marker) {
+                                let environment_end = if matches!(
+                                    other,
+                                    "array"
+                                        | "tabular"
+                                        | "tabular*"
+                                        | "tabularx"
+                                        | "longtable"
+                                        | "tabu"
+                                        | "longtabu"
+                                ) {
+                                    find_latex_environment_end(source, index, source.len(), other)
+                                } else {
+                                    let end_marker = format!("\\end{{{other}}}");
+                                    source[index..].find(&end_marker).map(|relative_end| {
+                                        let body_end = index + relative_end;
+                                        (body_end, body_end + end_marker.len())
+                                    })
+                                };
+                                if let Some((body_end, raw_end)) = environment_end {
                                     let body_start = index;
-                                    let body_end = index + relative_end;
-                                    let raw_end = body_end + end_marker.len();
                                     let body_source = &source[body_start..body_end];
                                     if matches!(
                                         other,
@@ -9712,12 +9723,12 @@ impl<'i> Vm<'i> {
                         && after_environment <= body_end
                     {
                         let environment = environment.trim();
-                        let end_marker = format!("\\end{{{environment}}}");
-                        if let Some(relative_table_end) =
-                            source[after_environment..body_end].find(&end_marker)
-                        {
-                            let table_body_end = after_environment + relative_table_end;
-                            let table_raw_end = table_body_end + end_marker.len();
+                        if let Some((table_body_end, table_raw_end)) = find_latex_environment_end(
+                            source,
+                            after_environment,
+                            body_end,
+                            environment,
+                        ) {
                             if let Some(after) = vm.capture_table_fallback_event(
                                 source_path,
                                 source,
@@ -11278,6 +11289,237 @@ impl<'i> Vm<'i> {
                     }
                     let command = &table_body[command_start_in_table..command_end];
                     match command {
+                        "begin" => {
+                            let mut parsed = false;
+                            let environment_index = skip_ascii_whitespace(table_body, command_end);
+                            if let Some((nested_environment, _, _, after_environment)) =
+                                read_braced_source_argument(table_body, environment_index)
+                            {
+                                let nested_environment = nested_environment.trim();
+                                if matches!(
+                                    nested_environment,
+                                    "array"
+                                        | "tabular"
+                                        | "tabular*"
+                                        | "tabularx"
+                                        | "longtable"
+                                        | "tabu"
+                                        | "longtabu"
+                                ) && let Some((nested_body_end, nested_raw_end)) =
+                                    find_latex_environment_end(
+                                        table_body,
+                                        after_environment,
+                                        table_body.len(),
+                                        nested_environment,
+                                    )
+                                {
+                                    let mut nested_body_start =
+                                        skip_ascii_whitespace(table_body, after_environment);
+                                    if matches!(nested_environment, "tabular*" | "tabularx")
+                                        && let Some((_, _, _, after_width)) =
+                                            read_braced_source_argument(
+                                                table_body,
+                                                nested_body_start,
+                                            )
+                                    {
+                                        nested_body_start =
+                                            skip_ascii_whitespace(table_body, after_width);
+                                    }
+                                    if matches!(nested_environment, "tabu" | "longtabu") {
+                                        let keyword_index = nested_body_start;
+                                        let keyword = ["to", "spread"].iter().find(|keyword| {
+                                            table_body[keyword_index..].starts_with(*keyword)
+                                                && table_body[keyword_index + keyword.len()..]
+                                                    .chars()
+                                                    .next()
+                                                    .is_none_or(|ch| !ch.is_ascii_alphabetic())
+                                        });
+                                        if let Some(keyword) = keyword {
+                                            let mut dimension_index = skip_ascii_whitespace(
+                                                table_body,
+                                                keyword_index + keyword.len(),
+                                            );
+                                            while dimension_index < nested_body_end
+                                                && table_body.as_bytes()[dimension_index] != b'{'
+                                            {
+                                                let ch = table_body[dimension_index..]
+                                                    .chars()
+                                                    .next()
+                                                    .expect("nested tabu dimension char");
+                                                dimension_index += ch.len_utf8();
+                                            }
+                                            nested_body_start =
+                                                skip_ascii_whitespace(table_body, dimension_index);
+                                        }
+                                    }
+                                    if let Some((_, _, _, after_option)) =
+                                        read_bracket_source_argument(table_body, nested_body_start)
+                                    {
+                                        nested_body_start = after_option;
+                                    }
+                                    if let Some((_, _, _, after_columns)) =
+                                        read_braced_source_argument(table_body, nested_body_start)
+                                    {
+                                        let nested_cells =
+                                            &table_body[after_columns..nested_body_end];
+                                        let mut nested_rewritten = String::new();
+                                        let mut nested_index = 0usize;
+                                        while nested_index < nested_cells.len() {
+                                            if nested_cells.as_bytes()[nested_index] == b'&' {
+                                                nested_rewritten.push(' ');
+                                                nested_index += 1;
+                                                continue;
+                                            }
+                                            if nested_cells[nested_index..].starts_with(r"\\") {
+                                                nested_rewritten.push(' ');
+                                                nested_index += 2;
+                                                if let Some((_, _, _, after_option)) =
+                                                    read_bracket_source_argument(
+                                                        nested_cells,
+                                                        nested_index,
+                                                    )
+                                                {
+                                                    nested_index = after_option;
+                                                }
+                                                continue;
+                                            }
+                                            if nested_cells[nested_index..]
+                                                .starts_with(r"\tabularnewline")
+                                            {
+                                                nested_rewritten.push(' ');
+                                                nested_index += r"\tabularnewline".len();
+                                                if let Some((_, _, _, after_option)) =
+                                                    read_bracket_source_argument(
+                                                        nested_cells,
+                                                        nested_index,
+                                                    )
+                                                {
+                                                    nested_index = after_option;
+                                                }
+                                                continue;
+                                            }
+                                            let mut skipped_rule = false;
+                                            for rule_command in [
+                                                r"\hline",
+                                                r"\toprule",
+                                                r"\midrule",
+                                                r"\bottomrule",
+                                                r"\addlinespace",
+                                                r"\morecmidrules",
+                                            ] {
+                                                if nested_cells[nested_index..]
+                                                    .starts_with(rule_command)
+                                                {
+                                                    nested_index += rule_command.len();
+                                                    if let Some((_, _, _, after_option)) =
+                                                        read_bracket_source_argument(
+                                                            nested_cells,
+                                                            nested_index,
+                                                        )
+                                                    {
+                                                        nested_index = after_option;
+                                                    }
+                                                    skipped_rule = true;
+                                                    break;
+                                                }
+                                            }
+                                            if skipped_rule {
+                                                continue;
+                                            }
+                                            for rule_command in
+                                                [r"\cline", r"\cmidrule", r"\Xcline"]
+                                            {
+                                                if nested_cells[nested_index..]
+                                                    .starts_with(rule_command)
+                                                {
+                                                    nested_index += rule_command.len();
+                                                    if let Some((_, _, _, after_option)) =
+                                                        read_bracket_source_argument(
+                                                            nested_cells,
+                                                            nested_index,
+                                                        )
+                                                    {
+                                                        nested_index = after_option;
+                                                    }
+                                                    nested_index = skip_ascii_whitespace(
+                                                        nested_cells,
+                                                        nested_index,
+                                                    );
+                                                    if rule_command == r"\cmidrule"
+                                                        && nested_cells[nested_index..]
+                                                            .starts_with('(')
+                                                        && let Some(close_relative) = nested_cells
+                                                            [nested_index + 1..]
+                                                            .find(')')
+                                                    {
+                                                        nested_index += close_relative + 2;
+                                                        nested_index = skip_ascii_whitespace(
+                                                            nested_cells,
+                                                            nested_index,
+                                                        );
+                                                    }
+                                                    if let Some((_, _, _, after_range)) =
+                                                        read_braced_source_argument(
+                                                            nested_cells,
+                                                            nested_index,
+                                                        )
+                                                    {
+                                                        nested_index = after_range;
+                                                    }
+                                                    if rule_command == r"\Xcline" {
+                                                        nested_index = skip_ascii_whitespace(
+                                                            nested_cells,
+                                                            nested_index,
+                                                        );
+                                                        if let Some((_, _, _, after_width)) =
+                                                            read_braced_source_argument(
+                                                                nested_cells,
+                                                                nested_index,
+                                                            )
+                                                        {
+                                                            nested_index = after_width;
+                                                        }
+                                                    }
+                                                    skipped_rule = true;
+                                                    break;
+                                                }
+                                            }
+                                            if skipped_rule {
+                                                continue;
+                                            }
+                                            let ch = nested_cells[nested_index..]
+                                                .chars()
+                                                .next()
+                                                .expect("nested table cell char");
+                                            nested_rewritten.push(ch);
+                                            nested_index += ch.len_utf8();
+                                        }
+                                        let nested_visible =
+                                            normalize_latex_text_with_inline_placeholders(
+                                                &nested_rewritten,
+                                            );
+                                        if !nested_visible.is_empty() {
+                                            rewritten.push_str(&nested_visible);
+                                            row_has_visible_content = true;
+                                        }
+                                        self.capture_label_definitions_in_source_range(
+                                            source_path,
+                                            source,
+                                            body_start + table_body_start + after_environment,
+                                            body_start + table_body_start + nested_body_end,
+                                        );
+                                        table_index = nested_raw_end;
+                                        parsed = true;
+                                    }
+                                }
+                            }
+                            if !parsed {
+                                rewritten.push('\\');
+                                rewritten.push_str(command);
+                                row_has_visible_content = true;
+                                table_index = command_end;
+                            }
+                        }
                         "tabularnewline" => {
                             rewritten.push_str(" ; ");
                             if row_has_visible_content {
@@ -19718,6 +19960,53 @@ fn skip_ascii_whitespace(source: &str, mut index: usize) -> usize {
     index
 }
 
+fn find_latex_environment_end(
+    source: &str,
+    body_start: usize,
+    limit: usize,
+    environment: &str,
+) -> Option<(usize, usize)> {
+    let mut cursor = body_start;
+    let mut depth = 1usize;
+    while cursor < limit {
+        let relative_command = source[cursor..limit].find('\\')?;
+        let command_start = cursor + relative_command;
+        let command_name_start = command_start + 1;
+        if command_name_start >= limit {
+            return None;
+        }
+        let mut command_name_end = command_name_start;
+        while command_name_end < limit && source.as_bytes()[command_name_end].is_ascii_alphabetic()
+        {
+            command_name_end += 1;
+        }
+        if command_name_end == command_name_start {
+            cursor = command_name_start + 1;
+            continue;
+        }
+        let command = &source[command_name_start..command_name_end];
+        if matches!(command, "begin" | "end")
+            && let Some((nested_environment, _, _, after_environment)) =
+                read_braced_source_argument(source, command_name_end)
+            && after_environment <= limit
+            && nested_environment.trim() == environment
+        {
+            if command == "begin" {
+                depth += 1;
+            } else {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    return Some((command_start, after_environment));
+                }
+            }
+            cursor = after_environment;
+            continue;
+        }
+        cursor = command_name_end;
+    }
+    None
+}
+
 fn consume_rowcolors_source_arguments(source: &str, command_end: usize) -> usize {
     let mut index = skip_ascii_whitespace(source, command_end);
     if let Some((_, _, _, after)) = read_bracket_source_argument(source, index) {
@@ -26770,6 +27059,33 @@ Fallback text.
         assert!(!visible_text.contains("ll"));
         assert!(!visible_text.contains("hline"));
         assert!(!visible_text.contains("textbf"));
+    }
+
+    #[test]
+    fn render_event_capture_keeps_nested_tabular_inside_outer_cell() {
+        let source = r"\begin{document}\begin{tabular}{ll}Outer & \begin{tabular}{c}Inner A \\ Inner B\end{tabular} \\ Tail & End\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible, "Outer | Inner A Inner B ; Tail | End");
+        for hidden in ["begin", "tabular", "{c}", "{ll}", r"\\"] {
+            assert!(!visible.contains(hidden), "{visible:?}");
+        }
     }
 
     #[test]
