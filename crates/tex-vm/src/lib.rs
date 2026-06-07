@@ -22947,6 +22947,11 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("*");
                         index = command_index;
                     }
+                    "oplus" | "ominus" | "otimes" | "oslash" | "odot" | "circ" | "bullet"
+                    | "star" | "diamond" => {
+                        push_operator!(command);
+                        index = command_index;
+                    }
                     "pm" => {
                         push_operator!("+/-");
                         index = command_index;
@@ -23001,7 +23006,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!("infinity");
                         index = command_index;
                     }
-                    "sum" | "prod" | "int" | "lim" => {
+                    "sum" | "prod" | "int" | "lim" | "bigcup" | "bigcap" | "bigoplus"
+                    | "bigotimes" | "bigodot" | "bigsqcup" | "bigvee" | "bigwedge" => {
                         let mut script_index = skip_ascii_whitespace(source, command_index);
                         if script_index < bytes.len() && bytes[script_index] == b'\\' {
                             let mut limit_command_index = script_index + 1;
@@ -32833,6 +32839,36 @@ Fallback text.
         assert_eq!(
             math.normalized_text.as_deref(),
             Some("ell + aleph + hbar + Re z + Im z")
+        );
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_binary_and_large_operators() {
+        let source = r"\begin{document}Ops \(A\oplus B \otimes C \odot D \ominus E \oslash F \circ G \bullet H \star I \diamond J + \bigcup_{i=1}^{n} U_i + \bigcap_{j=1}^{m} V_j + \bigoplus_{k=1}^{r} W_k\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        let RenderEvent::InlineMath(math) = &inline_math.event else {
+            panic!("inline math event");
+        };
+
+        assert_eq!(
+            math.raw_source,
+            r"A\oplus B \otimes C \odot D \ominus E \oslash F \circ G \bullet H \star I \diamond J + \bigcup_{i=1}^{n} U_i + \bigcap_{j=1}^{m} V_j + \bigoplus_{k=1}^{r} W_k"
+        );
+        assert_eq!(
+            math.normalized_text.as_deref(),
+            Some(
+                "A oplus B otimes C odot D ominus E oslash F circ G bullet H star I diamond J + bigcup_{i = 1}^{n} U_i + bigcap_{j = 1}^{m} V_j + bigoplus_{k = 1}^{r} W_k"
+            )
         );
     }
 

@@ -6135,6 +6135,71 @@ fn math_named_symbols_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_binary_and_large_operators_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Ops \(A\oplus B \otimes C \odot D \ominus E \oslash F \circ G \bullet H \star I \diamond J + \bigcup_{i=1}^{n} U_i + \bigcap_{j=1}^{m} V_j + \bigoplus_{k=1}^{r} W_k\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"A\oplus B \otimes C \odot D \ominus E \oslash F \circ G \bullet H \star I \diamond J + \bigcup_{i=1}^{n} U_i + \bigcap_{j=1}^{m} V_j + \bigoplus_{k=1}^{r} W_k"
+                && normalized_text.as_deref()
+                    == Some(
+                        "A oplus B otimes C odot D ominus E oslash F circ G bullet H star I diamond J + bigcup_{i = 1}^{n} U_i + bigcap_{j = 1}^{m} V_j + bigoplus_{k = 1}^{r} W_k"
+                    )
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text
+            .contains("A oplus B otimes C odot D ominus E oslash F circ G bullet H star I"),
+        "{display_list_text}"
+    );
+    assert!(
+        normalized_display_list_text.contains("bigcup_{i = 1}^{n} U_i"),
+        "{display_list_text}"
+    );
+    assert!(
+        normalized_display_list_text.contains("bigcap_{j = 1}^{m} V_j"),
+        "{display_list_text}"
+    );
+    assert!(
+        normalized_display_list_text.contains("bigoplus_{k = 1}^{r} W_k"),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains(r"\oplus"));
+    assert!(!display_list_text.contains(r"\otimes"));
+    assert!(!display_list_text.contains(r"\bigcup"));
+}
+
+#[test]
 fn unknown_math_commands_use_raw_source_without_lossy_normalization() {
     let source = r"\begin{document}Set \(\mathbb{R} + \unknownmath{x}\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

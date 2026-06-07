@@ -851,10 +851,12 @@ Current status:
   readable `normalized_text`;
 - the first normalized-text subset covers common Greek names, comparison and
   arithmetic operators, relation/equivalence operators, set/logical operators,
-  fractions, binomial coefficients,
+  fractions, binomial coefficients, common binary operators such as `oplus`,
+  `otimes`, and `odot`,
   roots,
   text/operator wrappers, simple
-  superscript/subscript braces, large-operator scripts including `substack`,
+  superscript/subscript braces, large-operator scripts including `substack` and
+  `bigcup` / `bigcap` / `bigoplus`-style operators,
   style and limit controls such as `displaystyle`, `limits`, and `nolimits`,
   stack relation wrappers such as `overset`, `underset`, and `stackrel`, named
   operators and symbols such as `ell`, `aleph`, `hbar`, `Re`, and `Im`, common
