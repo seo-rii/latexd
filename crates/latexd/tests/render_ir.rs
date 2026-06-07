@@ -5313,6 +5313,46 @@ fn math_operators_and_scripts_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_alphabet_wrappers_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Sets \(\mathbb{R} + \mathcal{F} + \mathfrak{g} + \mathscr{L}\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source == r"\mathbb{R} + \mathcal{F} + \mathfrak{g} + \mathscr{L}"
+                && normalized_text.as_deref() == Some("R + F + g + L")
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("R + F + g + L"));
+    assert!(!display_list_text.contains(r"\mathbb"));
+    assert!(!display_list_text.contains(r"\mathcal"));
+}
+
+#[test]
 fn unknown_math_commands_use_raw_source_without_lossy_normalization() {
     let source = r"\begin{document}Set \(\mathbb{R} + \unknownmath{x}\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

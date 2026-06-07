@@ -22622,7 +22622,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         index = body_end + end_tag.len();
                     }
                     "text" | "textrm" | "textnormal" | "mathrm" | "mathbf" | "mathit"
-                    | "mathsf" | "mathtt" | "operatorname" => {
+                    | "mathsf" | "mathtt" | "mathbb" | "mathcal" | "mathfrak" | "mathscr"
+                    | "operatorname" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);
                         let Some((argument, _, _, after_argument)) =
                             read_braced_source_argument(source, argument_index)
@@ -32192,6 +32193,28 @@ Fallback text.
                     == r"\sum_{i=1}^{n} x_i + \int_{0}^{1} f(x)\,dx + \sin \theta"
                     && math.normalized_text.as_deref()
                         == Some("sum_{i = 1}^{n} x_i + int_{0}^{1} f(x) dx + sin theta")
+        ));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_alphabet_wrappers() {
+        let source = r"\begin{document}Sets \(\mathbb{R} + \mathcal{F} + \mathfrak{g} + \mathscr{L}\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math)
+                if math.raw_source == r"\mathbb{R} + \mathcal{F} + \mathfrak{g} + \mathscr{L}"
+                    && math.normalized_text.as_deref() == Some("R + F + g + L")
         ));
     }
 

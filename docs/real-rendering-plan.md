@@ -847,9 +847,9 @@ Current status:
   readable `normalized_text`;
 - the first normalized-text subset covers common Greek names, comparison and
   arithmetic operators, fractions, roots, text/operator wrappers, simple
-  superscript/subscript braces, large-operator scripts, named operators, accent
-  wrappers, delimiter commands, matrix/cases-style environments, and alignment
-  markers;
+  superscript/subscript braces, large-operator scripts, named operators, common
+  math alphabet wrappers, accent wrappers, delimiter commands,
+  matrix/cases-style environments, and alignment markers;
 - document IR and page display lists already prefer normalized math text when
   present while keeping raw source available as fallback.
 - unsupported math commands intentionally leave `normalized_text` empty so raw
