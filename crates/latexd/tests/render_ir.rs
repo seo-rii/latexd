@@ -18396,6 +18396,52 @@ fn subfloat_commands_capture_as_graphics_with_captions() {
 }
 
 #[test]
+fn subfloat_two_optional_captions_use_long_caption_without_short_leakage() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        SUBFLOAT_TWO_OPTIONAL_SOURCE,
+        &SemanticAux::default(),
+    );
+
+    for (path, caption) in [
+        ("figures/two-optional-a.pdf", "Long [?]."),
+        ("figures/two-optional-b.pdf", "Legacy long [?]."),
+    ] {
+        assert!(capture.document_ir.blocks.iter().any(|block| {
+            matches!(
+                block,
+                IrBlock::Graphic(graphic)
+                    if graphic.path == path
+                        && graphic.options.as_deref() == Some("width=2cm")
+                        && graphic.caption.as_deref() == Some(caption)
+            )
+        }));
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Long [?]."));
+    assert!(extracted_text.contains("Legacy long [?]."));
+    for hidden in ["Short", "Legacy short", "key", "subfloat", "subfigure"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Long [?]."));
+    assert!(display_list_text.contains("Legacy long [?]."));
+    for hidden in ["Short", "Legacy short", "key", "subfloat", "subfigure"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
+    }
+}
+
+#[test]
 fn algorithm_environment_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -20133,6 +20179,8 @@ const MEASURED_FIGURE_SOURCE: &str = r"\documentclass{article}\usepackage{threep
 const SUBCAPTION_WRAPPER_SOURCE: &str = r"\begin{document}\begin{subfigure}[b]{0.45\textwidth}\includegraphics[width=4cm]{figures/panel-a.pdf}\caption{Panel \cite{key}.}\end{subfigure}\begin{subtable}{0.4\textwidth}\caption{Panel table.}\end{subtable}\end{document}";
 
 const SUBFLOAT_COMMAND_SOURCE: &str = r"\begin{document}\begin{figure}\subfloat[Panel \cite{key}.]{\includegraphics[width=3cm]{figures/a.pdf}}\subcaptionbox{Box \cite{key}.}[0.4\textwidth]{\includegraphics[width=2cm]{figures/b.pdf}}\subfigure[Legacy \cite{key}.]{\includegraphics[width=1cm]{figures/c.pdf}}\captionbox{Caption box \cite{key}.}[0.3\textwidth]{\includegraphics[width=4cm]{figures/d.pdf}}\end{figure}\end{document}";
+
+const SUBFLOAT_TWO_OPTIONAL_SOURCE: &str = r"\begin{document}\begin{figure}\subfloat[Short \cite{key}.][Long \cite{key}.]{\includegraphics[width=2cm]{figures/two-optional-a.pdf}}\subfigure[Legacy short \cite{key}.][Legacy long \cite{key}.]{\includegraphics[width=2cm]{figures/two-optional-b.pdf}}\end{figure}\end{document}";
 
 const ALGORITHM_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{algorithm}\caption{Procedure.}\label{alg:first}Step text.\end{algorithm}\begin{algorithm*}Wide step.\end{algorithm*}\end{document}";
 

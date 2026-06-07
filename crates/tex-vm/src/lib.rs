@@ -30229,6 +30229,43 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_records_subfloat_two_optional_captions() {
+        let source = r"\begin{document}\begin{figure}\subfloat[Short \cite{key}.][Long \cite{key}.]{\includegraphics[width=2cm]{figures/two-optional-a.pdf}}\subfigure[Legacy short \cite{key}.][Legacy long \cite{key}.]{\includegraphics[width=2cm]{figures/two-optional-b.pdf}}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for path in ["figures/two-optional-a.pdf", "figures/two-optional-b.pdf"] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::GraphicRef(graphic)
+                    if graphic.path == path && graphic.options.as_deref() == Some("width=2cm")
+            )));
+        }
+        for caption in ["Long [?].", "Legacy long [?]."] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Caption(event) if event.text == caption
+            )));
+        }
+        assert!(!outcome.render_events.iter().any(|event| {
+            match &event.event {
+                RenderEvent::Caption(caption) => {
+                    caption.text.contains("Short") || caption.text.contains("Legacy short")
+                }
+                RenderEvent::Text(text) => {
+                    ["Short", "Legacy short", "key", "subfloat", "subfigure"]
+                        .iter()
+                        .any(|hidden| text.text.contains(hidden))
+                }
+                _ => false,
+            }
+        }));
+    }
+
+    #[test]
     fn render_event_capture_loads_rotating_package_for_sideways_floats() {
         let source = r"\documentclass{article}\usepackage{rotating}\begin{document}\begin{sidewaysfigure}\caption{Rotated figure.}\end{sidewaysfigure}\end{document}";
         let mut interner = ControlSequenceInterner::new();

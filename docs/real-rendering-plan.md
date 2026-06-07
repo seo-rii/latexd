@@ -220,6 +220,9 @@ the overlay annotations themselves is still deferred.
 Legacy subfigure commands such as `\subfigure[...]{\includegraphics...}` share
 the subfloat capture path, preserving panel images and captions without leaking
 raw citation keys or layout arguments.
+Two-optional caption forms such as `\subfloat[short][long]{...}` and legacy
+`\subfigure[short][long]{...}` preserve the long visible caption while hiding
+the short list caption.
 Caption package boxes such as `\captionbox{...}{\includegraphics...}` share the
 subcaptionbox capture path, preserving the image and caption while hiding width
 options.
@@ -1001,6 +1004,8 @@ Status:
   emitting overlay coordinate commands as text;
 - legacy `\subfigure` commands preserve nested panel images and captions through
   the same event/IR/display-list path as `\subfloat`;
+- two-optional `\subfloat` / `\subfigure` commands preserve the long visible
+  caption without leaking the short list caption;
 - `\captionbox` commands preserve nested images and captions through the same
   path as `\subcaptionbox`;
 - floatrow `\ffigbox` commands preserve nested images and captions while
