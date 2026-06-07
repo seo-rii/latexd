@@ -857,7 +857,8 @@ Current status:
   operators, common extended arrows such as `xrightarrow` and `xleftarrow`,
   common math alphabet wrappers, accent wrappers, brace grouping wrappers,
   delimiter commands, matrix/cases-style environments, alignment markers, and
-  multiline row separators;
+  multiline row separators, plus nested amsmath environments such as `split`,
+  `gathered`, and `alignedat`;
 - document IR and page display lists already prefer normalized math text when
   present while keeping raw source available as fallback.
 - unsupported math commands intentionally leave `normalized_text` empty so raw

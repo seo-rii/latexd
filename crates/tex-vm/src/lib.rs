@@ -22660,15 +22660,44 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                                 | "smallmatrix"
                                 | "cases"
                                 | "aligned"
+                                | "split"
+                                | "gathered"
+                                | "alignedat"
                         ) {
                             return None;
                         }
                         let end_tag = format!("\\end{{{environment}}}");
-                        let Some(relative_end) = source[after_environment..].find(&end_tag) else {
+                        let mut body_start = after_environment;
+                        if matches!(environment, "aligned" | "gathered" | "alignedat") {
+                            let option_index = skip_ascii_whitespace(source, body_start);
+                            if let Some((_, _, _, after_option)) =
+                                read_bracket_source_argument(source, option_index)
+                            {
+                                body_start = after_option;
+                            }
+                        }
+                        if environment == "alignedat" {
+                            let argument_index = skip_ascii_whitespace(source, body_start);
+                            let Some((_, _, _, after_argument)) =
+                                read_braced_source_argument(source, argument_index)
+                            else {
+                                return None;
+                            };
+                            body_start = after_argument;
+                        }
+                        let Some(relative_end) = source[body_start..].find(&end_tag) else {
                             return None;
                         };
-                        let body_end = after_environment + relative_end;
-                        let body = &source[after_environment..body_end];
+                        let body_end = body_start + relative_end;
+                        let body = &source[body_start..body_end];
+                        let cell_separator = if matches!(
+                            environment,
+                            "aligned" | "split" | "gathered" | "alignedat"
+                        ) {
+                            " "
+                        } else {
+                            ", "
+                        };
                         let mut rows = Vec::new();
                         for row in body.split("\\\\") {
                             let cells = row
@@ -22685,7 +22714,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                                 })
                                 .collect::<Vec<_>>();
                             if !cells.is_empty() {
-                                rows.push(cells.join(", "));
+                                rows.push(cells.join(cell_separator));
                             }
                         }
                         if rows.is_empty() {
@@ -22694,6 +22723,9 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         let wrapper = match environment {
                             "cases" => "cases",
                             "aligned" => "aligned",
+                            "split" => "split",
+                            "gathered" => "gathered",
+                            "alignedat" => "alignedat",
                             _ => "matrix",
                         };
                         push_token!(&format!("{wrapper}({})", rows.join("; ")));
@@ -32586,6 +32618,33 @@ Fallback text.
         assert_eq!(
             display_math[1].normalized_text.as_deref(),
             Some("x = y; z = w")
+        );
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_nested_amsmath_environments() {
+        let source = r"\begin{document}\begin{equation}\begin{split}a&=b+c\\&=d\end{split} + \begin{gathered}[t]x=y\\z=w\end{gathered} + \begin{alignedat}{2}p&=q & r&=s\end{alignedat}\end{equation}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let display_math = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::DisplayMath(math) => Some(math),
+                _ => None,
+            })
+            .expect("display math event");
+
+        assert_eq!(
+            display_math.raw_source,
+            r"\begin{split}a&=b+c\\&=d\end{split} + \begin{gathered}[t]x=y\\z=w\end{gathered} + \begin{alignedat}{2}p&=q & r&=s\end{alignedat}"
+        );
+        assert_eq!(
+            display_math.normalized_text.as_deref(),
+            Some("split(a = b + c; = d) + gathered(x = y; z = w) + alignedat(p = q r = s)")
         );
     }
 
