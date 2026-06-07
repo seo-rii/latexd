@@ -241,6 +241,7 @@ now use the same graphic wrapper path as `\fbox`.
 metadata around graphics, so replacement tags do not leak into body text.
 `pstricks` `pspicture` environments now use bounded unsupported-picture
 placeholders instead of rendering drawing command payloads as body text.
+LaTeX `picture` environments use the same unsupported-picture placeholder path.
 `PageDisplayList::Image` now carries optional `ImageScale` metadata, and SVG
 debug artifacts expose that metadata as `data-image-scale-x` /
 `data-image-scale-y`. Nested graphic wrappers now thread outer sizing and scale
@@ -995,6 +996,8 @@ Status:
   text around preserved graphics;
 - `pstricks` `pspicture` environments emit unsupported-picture placeholders
   instead of drawing command text;
+- LaTeX `picture` environments emit unsupported-picture placeholders instead
+  of drawing command text;
 - table horizontal rules now produce renderer-visible display-list rule ops;
 - simple and repeated table column alignment specs survive into display-list
   text;

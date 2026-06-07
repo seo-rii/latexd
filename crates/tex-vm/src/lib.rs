@@ -3923,6 +3923,8 @@ impl<'i> Vm<'i> {
                                             | "pgfpicture*"
                                             | "pspicture"
                                             | "pspicture*"
+                                            | "picture"
+                                            | "picture*"
                                     ) {
                                         format!("[unsupported {other}]")
                                     } else {
@@ -27807,6 +27809,7 @@ Fallback text.
             ("tikzpicture", "[unsupported tikzpicture]"),
             ("pgfpicture", "[unsupported pgfpicture]"),
             ("pspicture", "[unsupported pspicture]"),
+            ("picture", "[unsupported picture]"),
         ];
 
         for (environment, expected) in cases {
