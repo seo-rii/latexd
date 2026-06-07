@@ -22807,6 +22807,40 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("<-");
                         index = command_index;
                     }
+                    "xrightarrow" | "xleftarrow" => {
+                        let mut label_index = skip_ascii_whitespace(source, command_index);
+                        let lower = if let Some((lower, _, _, after_lower)) =
+                            read_bracket_source_argument(source, label_index)
+                        {
+                            label_index = skip_ascii_whitespace(source, after_lower);
+                            Some(
+                                normalize_latex_math_text(lower)
+                                    .unwrap_or_else(|| normalize_latex_math_source(lower)),
+                            )
+                        } else {
+                            None
+                        };
+                        let Some((upper, _, _, after_upper)) =
+                            read_braced_source_argument(source, label_index)
+                        else {
+                            return None;
+                        };
+                        let upper = normalize_latex_math_text(upper)
+                            .unwrap_or_else(|| normalize_latex_math_source(upper));
+                        let arrow = match command {
+                            "xrightarrow" => "->",
+                            "xleftarrow" => "<-",
+                            _ => unreachable!("extended arrow command"),
+                        };
+                        let mut arrow_text = format!("{arrow}^{{{upper}}}");
+                        if let Some(lower) = lower {
+                            arrow_text.push_str("_{");
+                            arrow_text.push_str(&lower);
+                            arrow_text.push('}');
+                        }
+                        push_token!(&arrow_text);
+                        index = after_upper;
+                    }
                     "infty" => {
                         push_token!("infinity");
                         index = command_index;
@@ -32346,6 +32380,30 @@ Fallback text.
                     == r"\overset{p}{\to} X + \underset{n\to\infty}{\lim} a_n + \stackrel{d}{=} Y"
                     && math.normalized_text.as_deref()
                         == Some("overset(p, ->) X + underset(n -> infinity, lim) a_n + stackrel(d, =) Y")
+        ));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_extended_arrows() {
+        let source = r"\begin{document}Flow \(\xrightarrow{p} X + Y \xleftarrow[n\to\infty]{d} Z\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math)
+                if math.raw_source
+                    == r"\xrightarrow{p} X + Y \xleftarrow[n\to\infty]{d} Z"
+                    && math.normalized_text.as_deref()
+                        == Some("->^{p} X + Y <-^{d}_{n -> infinity} Z")
         ));
     }
 

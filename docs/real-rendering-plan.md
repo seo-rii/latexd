@@ -854,7 +854,8 @@ Current status:
   text/operator wrappers, simple
   superscript/subscript braces, large-operator scripts including `substack`,
   stack relation wrappers such as `overset`, `underset`, and `stackrel`, named
-  operators, common math alphabet wrappers, accent wrappers, delimiter commands,
+  operators, common extended arrows such as `xrightarrow` and `xleftarrow`,
+  common math alphabet wrappers, accent wrappers, delimiter commands,
   matrix/cases-style environments, and alignment markers;
 - document IR and page display lists already prefer normalized math text when
   present while keeping raw source available as fallback.
