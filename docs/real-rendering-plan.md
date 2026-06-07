@@ -837,6 +837,10 @@ Implemented first slice:
 - simple table environments inside a table cell are flattened into readable cell
   text while keeping the outer table rows intact and hiding the nested table
   preamble/control text.
+- common `longtable` repeated head/foot template delimiters
+  `\endfirsthead`, `\endhead`, `\endfoot`, and `\endlastfoot` are consumed
+  without leaking delimiter names or repeated header/footer template text into
+  table fallback output.
 
 Remaining table work:
 
@@ -1142,6 +1146,8 @@ Status:
   table text;
 - common font declaration commands are normalized without leaking command names
   or font-size arguments into body/table text;
+- common `longtable` repeated head/foot delimiters and template rows are
+  suppressed from visible table fallback text;
 - simple multirow row counts survive into `TableCell.row_span` metadata;
 - production SVG/PDF vector embedding remains pending.
 

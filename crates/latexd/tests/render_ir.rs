@@ -18440,6 +18440,52 @@ fn longtable_table_ir_labels_survive_without_visible_key() {
 }
 
 #[test]
+fn longtable_repeated_head_and_foot_templates_do_not_leak() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{longtable}{ll}First head & Visible \\\endfirsthead Repeat head & Hidden \\\endhead Foot & Hidden \\\endfoot Last foot & Hidden \\\endlastfoot Alpha & Beta \\ Gamma & Delta\end{longtable}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "longtable" => Some(table),
+            _ => None,
+        })
+        .expect("longtable table");
+
+    assert!(table.visible_text().contains("First head | Visible"));
+    assert!(table.visible_text().contains("Alpha | Beta"));
+    assert!(table.visible_text().contains("Gamma | Delta"));
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    for hidden in [
+        "endfirsthead",
+        "endhead",
+        "endfoot",
+        "endlastfoot",
+        "Repeat head",
+        "Foot",
+        "Last foot",
+        "Hidden",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
+    }
+}
+
+#[test]
 fn table_float_caption_and_tabular_body_build_table_ir() {
     let capture =
         capture_internal_render_ir("main.tex", TABLE_FLOAT_BODY_SOURCE, &SemanticAux::default());

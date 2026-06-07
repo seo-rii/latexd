@@ -11097,6 +11097,7 @@ impl<'i> Vm<'i> {
         let mut current_row_index = 0usize;
         let mut current_column_index = 0usize;
         let mut row_has_visible_content = false;
+        let mut suppress_longtable_template_section = false;
         let mut table_index = 0usize;
         let parse_multicolumn_alignment = |alignment_spec: &str| {
             let mut alignment = None;
@@ -11318,6 +11319,62 @@ impl<'i> Vm<'i> {
             )
         };
         while table_index < table_body.len() {
+            if suppress_longtable_template_section {
+                if table_body.as_bytes()[table_index] == b'\\' {
+                    if table_body.as_bytes().get(table_index + 1).copied() == Some(b'\\') {
+                        table_index += 2;
+                        if let Some((_, _, _, after)) =
+                            read_bracket_source_argument(table_body, table_index)
+                        {
+                            table_index = after;
+                        }
+                        continue;
+                    }
+                    let command_start = table_index + 1;
+                    let mut command_end = command_start;
+                    while command_end < table_body.len()
+                        && (table_body.as_bytes()[command_end].is_ascii_alphabetic()
+                            || table_body.as_bytes()[command_end] == b'@')
+                    {
+                        command_end += 1;
+                    }
+                    match &table_body[command_start..command_end] {
+                        "endfirsthead" => {
+                            suppress_longtable_template_section = true;
+                            table_index = command_end;
+                            continue;
+                        }
+                        "endhead" => {
+                            let rest = &table_body[command_end..];
+                            suppress_longtable_template_section =
+                                rest.contains(r"\endfoot") || rest.contains(r"\endlastfoot");
+                            table_index = command_end;
+                            continue;
+                        }
+                        "endfoot" => {
+                            suppress_longtable_template_section =
+                                table_body[command_end..].contains(r"\endlastfoot");
+                            table_index = command_end;
+                            continue;
+                        }
+                        "endlastfoot" => {
+                            suppress_longtable_template_section = false;
+                            table_index = command_end;
+                            continue;
+                        }
+                        _ => {
+                            table_index = command_end.max(table_index + 1);
+                            continue;
+                        }
+                    }
+                }
+                let ch = table_body[table_index..]
+                    .chars()
+                    .next()
+                    .expect("suppressed longtable template char");
+                table_index += ch.len_utf8();
+                continue;
+            }
             let byte = table_body.as_bytes()[table_index];
             match byte {
                 b'&' => {
@@ -11643,6 +11700,25 @@ impl<'i> Vm<'i> {
                         }
                         "morecmidrules" => {
                             table_index = command_end;
+                        }
+                        "endfirsthead" => {
+                            table_index = command_end;
+                            suppress_longtable_template_section = true;
+                        }
+                        "endhead" => {
+                            table_index = command_end;
+                            let rest = &table_body[table_index..];
+                            suppress_longtable_template_section =
+                                rest.contains(r"\endfoot") || rest.contains(r"\endlastfoot");
+                        }
+                        "endfoot" => {
+                            table_index = command_end;
+                            suppress_longtable_template_section =
+                                table_body[table_index..].contains(r"\endlastfoot");
+                        }
+                        "endlastfoot" => {
+                            table_index = command_end;
+                            suppress_longtable_template_section = false;
                         }
                         "noalign" => {
                             table_index = command_end;
@@ -29728,6 +29804,44 @@ Fallback text.
                 RenderEvent::LabelDefinition(label) if label.key == "tab:long"
             )
         }));
+    }
+
+    #[test]
+    fn render_event_capture_suppresses_longtable_repeated_head_and_foot_templates() {
+        let source = r"\begin{document}\begin{longtable}{ll}First head & Visible \\\endfirsthead Repeat head & Hidden \\\endhead Foot & Hidden \\\endfoot Last foot & Hidden \\\endlastfoot Alpha & Beta \\ Gamma & Delta\end{longtable}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("longtable") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("longtable fallback visible text");
+
+        assert!(visible.contains("First head | Visible"), "{visible:?}");
+        assert!(visible.contains("Alpha | Beta"), "{visible:?}");
+        assert!(visible.contains("Gamma | Delta"), "{visible:?}");
+        for hidden in [
+            "endfirsthead",
+            "endhead",
+            "endfoot",
+            "endlastfoot",
+            "Repeat head",
+            "Foot",
+            "Last foot",
+            "Hidden",
+        ] {
+            assert!(!visible.contains(hidden), "{visible:?}");
+        }
     }
 
     #[test]
