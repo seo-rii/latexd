@@ -6245,6 +6245,57 @@ fn math_named_symbols_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_special_symbols_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Symbols \(f^\prime(x) + A^\dagger + B^\dag + C \bigcirc D + X \backslash Y\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"f^\prime(x) + A^\dagger + B^\dag + C \bigcirc D + X \backslash Y"
+                && normalized_text.as_deref()
+                    == Some("f^prime(x) + A^dagger + B^dag + C bigcirc D + X backslash Y")
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text
+            .contains("f^prime(x) + A^dagger + B^dag + C bigcirc D + X backslash Y"),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains(r"\prime"));
+    assert!(!display_list_text.contains(r"\dagger"));
+    assert!(!display_list_text.contains(r"\backslash"));
+}
+
+#[test]
 fn math_binary_and_large_operators_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Ops \(A\oplus B \otimes C \odot D \ominus E \oslash F \circ G \bullet H \star I \diamond J + \bigcup_{i=1}^{n} U_i + \bigcap_{j=1}^{m} V_j + \bigoplus_{k=1}^{r} W_k\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

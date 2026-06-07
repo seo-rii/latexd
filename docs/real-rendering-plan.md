@@ -859,7 +859,8 @@ Current status:
   `bigcup` / `bigcap` / `bigoplus`-style operators,
   style and limit controls such as `displaystyle`, `limits`, and `nolimits`,
   stack relation wrappers such as `overset`, `underset`, and `stackrel`, named
-  operators and symbols such as `ell`, `aleph`, `hbar`, `Re`, and `Im`, common
+  operators and symbols such as `ell`, `aleph`, `hbar`, `Re`, `Im`, `prime`,
+  `dagger`, `bigcirc`, and `backslash`, common
   extended arrows such as `xrightarrow` and `xleftarrow`, and arrow variants
   such as `Longrightarrow`, `leftrightarrow`, and `hookrightarrow`,
   common math alphabet wrappers, accent wrappers, brace grouping wrappers,
