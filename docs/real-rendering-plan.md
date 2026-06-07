@@ -704,6 +704,9 @@ Implemented first slice:
   normalized to visible cell text without leaking helper command names.
 - `makecell` / `thead` / `shortstack` internal line breaks are consumed inside
   the current cell and rendered as spaces in the readable fallback.
+- `makecell` gaped-cell helpers such as `\Gape`, `\gape`,
+  `\makegapedcells`, and `\setcellgapes` preserve visible cell text without
+  leaking gape dimensions or helper names.
 - `makecell` rule helpers `\Xhline{...}` and `\Xcline{...}{...}` are
   normalized to full/partial table rule metadata without leaking rule widths.
 - diagonal table header helpers `\diagbox`, `\slashbox`, and `\backslashbox`

@@ -13972,6 +13972,55 @@ fn tabular_cell_linebreak_helpers_stay_inside_cells() {
 }
 
 #[test]
+fn tabular_makecell_gaped_helpers_preserve_visible_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{makecell}\begin{document}\begin{tabular}{lll}\makegapedcells\Gape[1pt][2pt]{Tall} & \gape{Wide} & \setcellgapes{3pt}Plain\nomakegapedcells\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "Tall");
+    assert_eq!(table.rows[0].cells[1].text, "Wide");
+    assert_eq!(table.rows[0].cells[2].text, "Plain");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Tall | Wide | Plain"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("Tall | Wide | Plain"));
+
+    for hidden in [
+        "makegapedcells",
+        "nomakegapedcells",
+        "setcellgapes",
+        "Gape",
+        "gape",
+        "1pt",
+        "2pt",
+        "3pt",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
+    }
+}
+
+#[test]
 fn tabular_box_wrappers_hide_layout_arguments() {
     let capture = capture_internal_render_ir(
         "main.tex",

@@ -202,6 +202,11 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\backslashbox}[2]{#1/#2}
 \providecommand{\makecell}[2][]{#2}
 \providecommand{\thead}[2][]{#2}
+\providecommand{\gape}[2][]{#2}
+\providecommand{\Gape}[2][]{#2}
+\providecommand{\makegapedcells}{}
+\providecommand{\nomakegapedcells}{}
+\providecommand{\setcellgapes}[1]{}
 \providecommand{\multirow}[4][]{#4}
 \providecommand{\multirowcell}[3][]{#3}
 \providecommand{\hhline}[1]{}
@@ -10233,7 +10238,7 @@ impl<'i> Vm<'i> {
                         | "clearpage" | "cleardoublepage" | "vfill" | "hfill" => {
                             table_index = command_end;
                         }
-                        "makecell" | "thead" | "shortstack" => {
+                        "makecell" | "thead" | "shortstack" | "gape" | "Gape" => {
                             let mut parsed = false;
                             let mut argument_index = skip_ascii_whitespace(table_body, command_end);
                             if matches!(command, "makecell" | "thead")
@@ -10300,6 +10305,17 @@ impl<'i> Vm<'i> {
                                 rewritten.push_str(command);
                                 row_has_visible_content = true;
                                 table_index = command_end;
+                            }
+                        }
+                        "makegapedcells" | "nomakegapedcells" => {
+                            table_index = command_end;
+                        }
+                        "setcellgapes" => {
+                            table_index = skip_ascii_whitespace(table_body, command_end);
+                            if let Some((_, _, _, after)) =
+                                read_braced_source_argument(table_body, table_index)
+                            {
+                                table_index = after;
                             }
                         }
                         "multicolumn" => {
@@ -19519,7 +19535,10 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 }
             }
         }
-        if matches!(command, "makecell" | "thead" | "shortstack") {
+        if matches!(
+            command,
+            "makecell" | "thead" | "shortstack" | "gape" | "Gape"
+        ) {
             let mut argument_index = skip_ascii_whitespace(source, command_name_end);
             if matches!(command, "makecell" | "thead")
                 && source.as_bytes().get(argument_index).copied() == Some(b'*')
@@ -19573,6 +19592,25 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 }
                 let visible_text = normalize_latex_text_with_inline_placeholders(&visible_source);
                 append_text(&mut text, &visible_text);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
+        if matches!(command, "makegapedcells" | "nomakegapedcells") {
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            found_structured_inline = true;
+            chunk_start = command_name_end;
+            scan_index = command_name_end;
+            continue;
+        }
+        if command == "setcellgapes" {
+            let argument_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, command_after)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
                 found_structured_inline = true;
                 chunk_start = command_after;
                 scan_index = command_after;
@@ -33296,6 +33334,49 @@ Fallback text.
         for hidden in ["makecell", "shortstack", "\\\\"] {
             assert!(!visible_text.contains(hidden), "{visible_text:?}");
         }
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_makecell_gaped_helpers() {
+        let source = r"\documentclass{article}\usepackage{makecell}\begin{document}\begin{tabular}{lll}\makegapedcells\Gape[1pt][2pt]{Tall} & \gape{Wide} & \setcellgapes{3pt}Plain\nomakegapedcells\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible_text, "Tall | Wide | Plain");
+        for hidden in [
+            "makegapedcells",
+            "nomakegapedcells",
+            "setcellgapes",
+            "Gape",
+            "gape",
+            "1pt",
+            "2pt",
+            "3pt",
+        ] {
+            assert!(!visible_text.contains(hidden), "{visible_text:?}");
+        }
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && matches!(
+                    diagnostic.detail.as_str(),
+                    "Gape" | "gape" | "makegapedcells" | "nomakegapedcells" | "setcellgapes"
+                )
+        }));
     }
 
     #[test]
