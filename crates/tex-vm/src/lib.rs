@@ -22823,16 +22823,56 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     | "limits" | "nolimits" => {
                         index = command_index;
                     }
-                    "le" | "leq" => {
+                    "le" | "leq" | "leqslant" => {
                         push_operator!("<=");
                         index = command_index;
                     }
-                    "ge" | "geq" => {
+                    "ge" | "geq" | "geqslant" => {
                         push_operator!(">=");
                         index = command_index;
                     }
                     "neq" | "ne" => {
                         push_operator!("!=");
+                        index = command_index;
+                    }
+                    "lesssim" => {
+                        push_operator!("lesssim");
+                        index = command_index;
+                    }
+                    "gtrsim" => {
+                        push_operator!("gtrsim");
+                        index = command_index;
+                    }
+                    "prec" => {
+                        push_operator!("prec");
+                        index = command_index;
+                    }
+                    "preceq" => {
+                        push_operator!("preceq");
+                        index = command_index;
+                    }
+                    "succ" => {
+                        push_operator!("succ");
+                        index = command_index;
+                    }
+                    "succeq" => {
+                        push_operator!("succeq");
+                        index = command_index;
+                    }
+                    "npreceq" => {
+                        push_operator!("not preceq");
+                        index = command_index;
+                    }
+                    "sqsubseteq" => {
+                        push_operator!("sqsubseteq");
+                        index = command_index;
+                    }
+                    "sqsupseteq" => {
+                        push_operator!("sqsupseteq");
+                        index = command_index;
+                    }
+                    "triangleq" => {
+                        push_operator!("triangleq");
                         index = command_index;
                     }
                     "equiv" => {
@@ -32812,6 +32852,36 @@ Fallback text.
             math.normalized_text.as_deref(),
             Some(
                 "a equiv b cong c simeq d propto e perp f parallel g << h >> i models J |- K -| L"
+            )
+        );
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_order_relation_operators() {
+        let source = r"\begin{document}Order \(a\leqslant b \geqslant c \lesssim d \gtrsim e \prec f \preceq g \succ h \succeq i \npreceq j \sqsubseteq K \sqsupseteq L \triangleq M\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        let RenderEvent::InlineMath(math) = &inline_math.event else {
+            panic!("inline math event");
+        };
+
+        assert_eq!(
+            math.raw_source,
+            r"a\leqslant b \geqslant c \lesssim d \gtrsim e \prec f \preceq g \succ h \succeq i \npreceq j \sqsubseteq K \sqsupseteq L \triangleq M"
+        );
+        assert_eq!(
+            math.normalized_text.as_deref(),
+            Some(
+                "a <= b >= c lesssim d gtrsim e prec f preceq g succ h succeq i not preceq j sqsubseteq K sqsupseteq L triangleq M"
             )
         );
     }
