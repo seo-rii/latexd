@@ -284,7 +284,8 @@ pub fn render_display_list_pdf_with_converted_assets(
                             && let Some(svg) = parse_simple_svg_asset(svg_text)
                             && (!svg.rects.is_empty()
                                 || !svg.lines.is_empty()
-                                || !svg.ellipses.is_empty())
+                                || !svg.ellipses.is_empty()
+                                || !svg.polys.is_empty())
                         {
                             let (natural_width, natural_height) = image_natural_size_or_fallback(
                                 image,
@@ -460,6 +461,60 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                     path
                                                 ));
                                             }
+                                        }
+                                    }
+                                }
+                                for poly in svg.polys {
+                                    if poly.points.len() < 2 {
+                                        continue;
+                                    }
+                                    let mut path = String::new();
+                                    let mut points = poly.points.iter();
+                                    let Some(first) = points.next() else {
+                                        continue;
+                                    };
+                                    let first_x = draw.rect.x + first.0 * natural_width * scale_x;
+                                    let first_y =
+                                        draw.rect.y + (1.0 - first.1) * natural_height * scale_y;
+                                    if !first_x.is_finite() || !first_y.is_finite() {
+                                        continue;
+                                    }
+                                    path.push_str(&format!("{first_x} {first_y} m "));
+                                    let mut valid = true;
+                                    for point in points {
+                                        let x = draw.rect.x + point.0 * natural_width * scale_x;
+                                        let y = draw.rect.y
+                                            + (1.0 - point.1) * natural_height * scale_y;
+                                        if !x.is_finite() || !y.is_finite() {
+                                            valid = false;
+                                            break;
+                                        }
+                                        path.push_str(&format!("{x} {y} l "));
+                                    }
+                                    if !valid {
+                                        continue;
+                                    }
+                                    if poly.closed {
+                                        path.push_str("h ");
+                                    }
+                                    if let Some(fill_rgb) = poly.fill_rgb {
+                                        stream.push_str(&format!(
+                                            "{} {} {} rg {}f ",
+                                            fill_rgb.0, fill_rgb.1, fill_rgb.2, path
+                                        ));
+                                    }
+                                    if let Some(stroke_rgb) = poly.stroke_rgb {
+                                        let stroke_width =
+                                            poly.stroke_width_ratio * natural_width * scale_x;
+                                        if stroke_width.is_finite() && stroke_width > 0.0 {
+                                            stream.push_str(&format!(
+                                                "{} {} {} RG {} w {}S ",
+                                                stroke_rgb.0,
+                                                stroke_rgb.1,
+                                                stroke_rgb.2,
+                                                stroke_width,
+                                                path
+                                            ));
                                         }
                                     }
                                 }
@@ -650,6 +705,7 @@ struct SimpleSvgAsset {
     rects: Vec<SimpleSvgRect>,
     lines: Vec<SimpleSvgLine>,
     ellipses: Vec<SimpleSvgEllipse>,
+    polys: Vec<SimpleSvgPoly>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -679,6 +735,15 @@ struct SimpleSvgEllipse {
     cy_ratio: f32,
     rx_ratio: f32,
     ry_ratio: f32,
+    fill_rgb: Option<(f32, f32, f32)>,
+    stroke_rgb: Option<(f32, f32, f32)>,
+    stroke_width_ratio: f32,
+}
+
+#[derive(Debug, Clone)]
+struct SimpleSvgPoly {
+    points: Vec<(f32, f32)>,
+    closed: bool,
     fill_rgb: Option<(f32, f32, f32)>,
     stroke_rgb: Option<(f32, f32, f32)>,
     stroke_width_ratio: f32,
@@ -851,6 +916,28 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .filter(|width| *width > 0.0)
             .unwrap_or(1.0)
             / view_box.2
+    };
+    let parse_points = |raw: &str| -> Option<Vec<(f32, f32)>> {
+        let values = raw
+            .split(|ch: char| ch.is_whitespace() || ch == ',')
+            .filter(|part| !part.is_empty())
+            .map(str::parse::<f32>)
+            .collect::<Result<Vec<_>, _>>()
+            .ok()?;
+        if values.len() < 4 || values.len() % 2 != 0 {
+            return None;
+        }
+        let mut points = Vec::new();
+        for pair in values.chunks_exact(2) {
+            if !pair[0].is_finite() || !pair[1].is_finite() {
+                return None;
+            }
+            points.push((
+                (pair[0] - view_box.0) / view_box.2,
+                (pair[1] - view_box.1) / view_box.3,
+            ));
+        }
+        Some(points)
     };
     let svg_content_start = tag_start + tag_end + 1;
     let svg_content_end = text[svg_content_start..]
@@ -1062,12 +1149,75 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         search_index = ellipse_start + ellipse_end + 1;
     }
+    let mut polys = Vec::new();
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<polyline") {
+        let poly_start = search_index + relative;
+        let poly_tail = &svg_content[poly_start..];
+        let Some(poly_end) = poly_tail.find('>') else {
+            break;
+        };
+        let poly_tag = &poly_tail[..poly_end];
+        if let Some(points) = attr_value(poly_tag, "points")
+            .as_deref()
+            .and_then(&parse_points)
+        {
+            let fill_rgb = presentation_value(poly_tag, "fill")
+                .as_deref()
+                .and_then(&parse_color);
+            let stroke_rgb = presentation_value(poly_tag, "stroke")
+                .as_deref()
+                .and_then(&parse_color);
+            if fill_rgb.is_some() || stroke_rgb.is_some() {
+                polys.push(SimpleSvgPoly {
+                    points,
+                    closed: false,
+                    fill_rgb,
+                    stroke_rgb,
+                    stroke_width_ratio: stroke_width_ratio(poly_tag),
+                });
+            }
+        }
+        search_index = poly_start + poly_end + 1;
+    }
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<polygon") {
+        let poly_start = search_index + relative;
+        let poly_tail = &svg_content[poly_start..];
+        let Some(poly_end) = poly_tail.find('>') else {
+            break;
+        };
+        let poly_tag = &poly_tail[..poly_end];
+        if let Some(points) = attr_value(poly_tag, "points")
+            .as_deref()
+            .and_then(&parse_points)
+        {
+            let fill_rgb = presentation_value(poly_tag, "fill")
+                .as_deref()
+                .map(&parse_color)
+                .unwrap_or(Some((0.0, 0.0, 0.0)));
+            let stroke_rgb = presentation_value(poly_tag, "stroke")
+                .as_deref()
+                .and_then(&parse_color);
+            if fill_rgb.is_some() || stroke_rgb.is_some() {
+                polys.push(SimpleSvgPoly {
+                    points,
+                    closed: true,
+                    fill_rgb,
+                    stroke_rgb,
+                    stroke_width_ratio: stroke_width_ratio(poly_tag),
+                });
+            }
+        }
+        search_index = poly_start + poly_end + 1;
+    }
     Some(SimpleSvgAsset {
         natural_width_pt: natural_size.0,
         natural_height_pt: natural_size.1,
         rects,
         lines,
         ellipses,
+        polys,
     })
 }
 
@@ -2730,6 +2880,52 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 rg 80 230 m"));
         assert!(pdf_text.contains("0 0 1 RG 5 w 190 230 m"));
         assert!(!pdf_text.contains("[unsupported image: figures/markers.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_polylines_and_polygons_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/poly.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:poly".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/poly.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <polyline points="0,10 10,0 20,10" fill="none" stroke-width="1" stroke="#00ff00"/>
+  <polygon points="2,8 10,2 18,8" style="fill:#ff0000;stroke:#0000ff;stroke-width:0.5"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 RG 10 w 10 180 m 110 280 l 210 180 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 30 200 m 110 260 l 190 200 l h f"));
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 200 m 110 260 l 190 200 l h S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/poly.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
