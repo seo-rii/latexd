@@ -3566,6 +3566,13 @@ impl<'i> Vm<'i> {
                                                     source,
                                                     body_command_index,
                                                 );
+                                                if source[caption_index..].starts_with('*') {
+                                                    caption_index += 1;
+                                                    caption_index = skip_ascii_whitespace(
+                                                        source,
+                                                        caption_index,
+                                                    );
+                                                }
                                                 loop {
                                                     let Some((_, _, _, after_option)) =
                                                         read_bracket_source_argument(
@@ -30317,6 +30324,51 @@ Fallback text.
                     "subcaptionbox",
                     "captionbox",
                     "0.3",
+                    "0.4",
+                    "textwidth",
+                ]
+                .iter()
+                .any(|hidden| text.text.contains(hidden)),
+                _ => false,
+            }
+        }));
+    }
+
+    #[test]
+    fn render_event_capture_records_starred_captionbox_commands() {
+        let source = r"\begin{document}\begin{figure}\subcaptionbox*{Starred subcaption \cite{key}.}[0.25\textwidth]{\includegraphics[width=2cm]{figures/captionbox-star-a.pdf}}\captionbox*[Captionbox short \cite{key}.]{Starred box \cite{key}.}[0.4\textwidth]{\includegraphics[width=2cm]{figures/captionbox-star-b.pdf}}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for path in [
+            "figures/captionbox-star-a.pdf",
+            "figures/captionbox-star-b.pdf",
+        ] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::GraphicRef(graphic)
+                    if graphic.path == path && graphic.options.as_deref() == Some("width=2cm")
+            )));
+        }
+        for caption in ["Starred subcaption [?].", "Starred box [?]."] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Caption(event) if event.text == caption
+            )));
+        }
+        assert!(!outcome.render_events.iter().any(|event| {
+            match &event.event {
+                RenderEvent::Caption(caption) => caption.text.contains("Captionbox short"),
+                RenderEvent::Text(text) => [
+                    "*",
+                    "Captionbox short",
+                    "key",
+                    "subcaptionbox",
+                    "captionbox",
+                    "0.25",
                     "0.4",
                     "textwidth",
                 ]

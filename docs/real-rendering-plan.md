@@ -228,7 +228,9 @@ subcaptionbox capture path, preserving the image and caption while hiding width
 options. Leading optional short/list captions such as
 `\captionbox[short]{long}[width]{...}` and `\subcaptionbox[short]{long}{...}`
 use the long visible caption and suppress the short caption from extracted
-text.
+text. Starred forms such as `\captionbox*{...}{...}` and
+`\subcaptionbox*{...}{...}` follow the same capture path without leaking the
+star marker.
 Floatrow figure boxes such as
 `\ffigbox[...][...]{\includegraphics...}{\caption{...}}` preserve the image and
 caption while consuming floatrow layout options, including caption-first
@@ -1010,7 +1012,8 @@ Status:
 - two-optional `\subfloat` / `\subfigure` commands preserve the long visible
   caption without leaking the short list caption;
 - `\captionbox` commands preserve nested images and captions through the same
-  path as `\subcaptionbox`, including leading optional short/list captions;
+  path as `\subcaptionbox`, including leading optional short/list captions and
+  starred forms;
 - floatrow `\ffigbox` commands preserve nested images and captions while
   suppressing floatrow layout options, including caption-first argument order;
 - floatrow `\fcapside` commands preserve nested images and captions while

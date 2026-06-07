@@ -18482,6 +18482,47 @@ fn captionbox_leading_optional_uses_long_caption_without_short_leakage() {
 }
 
 #[test]
+fn starred_captionbox_commands_capture_without_star_or_option_leakage() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        CAPTIONBOX_STARRED_SOURCE,
+        &SemanticAux::default(),
+    );
+
+    for (path, caption) in [
+        ("figures/captionbox-star-a.pdf", "Starred subcaption [?]."),
+        ("figures/captionbox-star-b.pdf", "Starred box [?]."),
+    ] {
+        assert!(capture.document_ir.blocks.iter().any(|block| {
+            matches!(
+                block,
+                IrBlock::Graphic(graphic)
+                    if graphic.path == path
+                        && graphic.options.as_deref() == Some("width=2cm")
+                        && graphic.caption.as_deref() == Some(caption)
+            )
+        }));
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    for visible in ["Starred subcaption [?].", "Starred box [?]."] {
+        assert!(extracted_text.contains(visible), "{extracted_text:?}");
+    }
+    for hidden in [
+        "*",
+        "Captionbox short",
+        "key",
+        "subcaptionbox",
+        "captionbox",
+        "0.25",
+        "0.4",
+        "textwidth",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+}
+
+#[test]
 fn algorithm_environment_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -20223,6 +20264,8 @@ const SUBFLOAT_COMMAND_SOURCE: &str = r"\begin{document}\begin{figure}\subfloat[
 const SUBFLOAT_TWO_OPTIONAL_SOURCE: &str = r"\begin{document}\begin{figure}\subfloat[Short \cite{key}.][Long \cite{key}.]{\includegraphics[width=2cm]{figures/two-optional-a.pdf}}\subfigure[Legacy short \cite{key}.][Legacy long \cite{key}.]{\includegraphics[width=2cm]{figures/two-optional-b.pdf}}\end{figure}\end{document}";
 
 const CAPTIONBOX_LEADING_OPTION_SOURCE: &str = r"\begin{document}\begin{figure}\subcaptionbox[Subcaption short \cite{key}.]{Subcaption long \cite{key}.}[0.3\textwidth]{\includegraphics[width=2cm]{figures/captionbox-leading-a.pdf}}\captionbox[Captionbox short \cite{key}.]{Captionbox long \cite{key}.}[0.4\textwidth]{\includegraphics[width=2cm]{figures/captionbox-leading-b.pdf}}\end{figure}\end{document}";
+
+const CAPTIONBOX_STARRED_SOURCE: &str = r"\begin{document}\begin{figure}\subcaptionbox*{Starred subcaption \cite{key}.}[0.25\textwidth]{\includegraphics[width=2cm]{figures/captionbox-star-a.pdf}}\captionbox*[Captionbox short \cite{key}.]{Starred box \cite{key}.}[0.4\textwidth]{\includegraphics[width=2cm]{figures/captionbox-star-b.pdf}}\end{figure}\end{document}";
 
 const ALGORITHM_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{algorithm}\caption{Procedure.}\label{alg:first}Step text.\end{algorithm}\begin{algorithm*}Wide step.\end{algorithm*}\end{document}";
 
