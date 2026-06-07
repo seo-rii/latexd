@@ -22663,12 +22663,13 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                                 | "split"
                                 | "gathered"
                                 | "alignedat"
+                                | "array"
                         ) {
                             return None;
                         }
                         let end_tag = format!("\\end{{{environment}}}");
                         let mut body_start = after_environment;
-                        if matches!(environment, "aligned" | "gathered" | "alignedat") {
+                        if matches!(environment, "aligned" | "gathered" | "alignedat" | "array") {
                             let option_index = skip_ascii_whitespace(source, body_start);
                             if let Some((_, _, _, after_option)) =
                                 read_bracket_source_argument(source, option_index)
@@ -22676,7 +22677,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                                 body_start = after_option;
                             }
                         }
-                        if environment == "alignedat" {
+                        if matches!(environment, "alignedat" | "array") {
                             let argument_index = skip_ascii_whitespace(source, body_start);
                             let Some((_, _, _, after_argument)) =
                                 read_braced_source_argument(source, argument_index)
@@ -22726,6 +22727,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                             "split" => "split",
                             "gathered" => "gathered",
                             "alignedat" => "alignedat",
+                            "array" => "array",
                             _ => "matrix",
                         };
                         push_token!(&format!("{wrapper}({})", rows.join("; ")));
@@ -32645,6 +32647,33 @@ Fallback text.
         assert_eq!(
             display_math.normalized_text.as_deref(),
             Some("split(a = b + c; = d) + gathered(x = y; z = w) + alignedat(p = q r = s)")
+        );
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_array_environments() {
+        let source = r"\begin{document}\[\begin{array}{cc}a&b\\c&d\end{array} + \begin{array}[t]{rcl}x&=&y\end{array}\]\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let display_math = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::DisplayMath(math) => Some(math),
+                _ => None,
+            })
+            .expect("display math event");
+
+        assert_eq!(
+            display_math.raw_source,
+            r"\begin{array}{cc}a&b\\c&d\end{array} + \begin{array}[t]{rcl}x&=&y\end{array}"
+        );
+        assert_eq!(
+            display_math.normalized_text.as_deref(),
+            Some("array(a, b; c, d) + array(x, =, y)")
         );
     }
 
