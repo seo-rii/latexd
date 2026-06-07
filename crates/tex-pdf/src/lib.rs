@@ -470,7 +470,7 @@ fn image_draw_placement(
         rect: dest,
         clip_to_dest: false,
     };
-    let Some(crop) = crop.filter(|crop| crop.clip) else {
+    let Some(crop) = crop else {
         return placement;
     };
     let (mut source_left, mut source_bottom, mut source_right, mut source_top) =
@@ -512,7 +512,7 @@ fn image_draw_placement(
     };
     placement.rect.width = natural_width * scale_x;
     placement.rect.height = natural_height * scale_y;
-    placement.clip_to_dest = true;
+    placement.clip_to_dest = crop.clip;
     placement
 }
 
@@ -2370,6 +2370,53 @@ mod tests {
     }
 
     #[test]
+    fn renders_clip_disabled_png_viewport_with_svg_offset_without_clipping() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 72.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                asset_ref: "figures/tiny.png".to_string(),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: Some("blake3:tiny".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: Some(ImageCrop {
+                    trim: None,
+                    viewport: Some(ImageViewport {
+                        llx_pt: 0.5,
+                        lly_pt: 0.5,
+                        urx_pt: 1.5,
+                        ury_pt: 1.5,
+                    }),
+                    clip: false,
+                }),
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            (asset_ref == "figures/tiny.png").then(tiny_png_bytes)
+        });
+
+        assert!(!svg.contains("<clipPath"));
+        assert!(!svg.contains("data-image-crop-rendered=\"true\""));
+        assert!(svg.contains("<image x=\"22\" y=\"47\" width=\"200\" height=\"100\""));
+        assert!(svg.contains("href=\"data:image/png,%89PNG"));
+        assert!(!svg.contains("[image: figures/tiny.png]"));
+    }
+
+    #[test]
     fn renders_resolved_png_assets_as_pdf_image_xobjects() {
         let source = SourceProvenance::file("main.tex", 0, 10);
         let page = PageDisplayList {
@@ -2541,6 +2588,54 @@ mod tests {
         let pdf_text = String::from_utf8_lossy(&pdf);
 
         assert!(pdf_text.contains("q 72 620 100 100 re W n q 200 0 0 100 -28 620 cm /Im1 Do Q Q"));
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(!pdf_text.contains("[image: figures/tiny.png]"));
+    }
+
+    #[test]
+    fn renders_clip_disabled_png_viewport_with_pdf_offset_without_clipping() {
+        let source = SourceProvenance::file("main.tex", 0, 10);
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 72.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                asset_ref: "figures/tiny.png".to_string(),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: Some("blake3:tiny".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: Some(ImageCrop {
+                    trim: None,
+                    viewport: Some(ImageViewport {
+                        llx_pt: 0.5,
+                        lly_pt: 0.5,
+                        urx_pt: 1.5,
+                        ury_pt: 1.5,
+                    }),
+                    clip: false,
+                }),
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source,
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/tiny.png").then(tiny_png_bytes)
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(!pdf_text.contains(" re W n "));
+        assert!(pdf_text.contains("q 200 0 0 100 22 645 cm /Im1 Do Q"));
         assert!(pdf_text.contains("/Subtype /Image"));
         assert!(!pdf_text.contains("[image: figures/tiny.png]"));
     }
