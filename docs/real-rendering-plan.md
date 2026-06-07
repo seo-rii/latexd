@@ -214,6 +214,9 @@ preserve nested graphics without leaking layout dimensions into visible text.
 Color box wrappers such as `\colorbox` and `\fcolorbox` likewise preserve
 nested graphics while hiding color arguments, including optional color model
 selectors, from extracted text.
+`overpic` environments now preserve their backing image and graphic options
+without leaking overlay coordinates or package scaffolding into text; rendering
+the overlay annotations themselves is still deferred.
 `PageDisplayList::Image` now carries optional `ImageScale` metadata, and SVG
 debug artifacts expose that metadata as `data-image-scale-x` /
 `data-image-scale-y`. Nested graphic wrappers now thread outer sizing and scale
@@ -948,6 +951,8 @@ Status:
 - nested graphic wrappers preserve inherited sizing and scale hints;
 - color-box graphic wrappers preserve nested images without leaking color
   arguments or optional color model selectors into IR or display-list text;
+- `overpic` environments preserve backing images and graphic options without
+  emitting overlay coordinate commands as text;
 - table horizontal rules now produce renderer-visible display-list rule ops;
 - simple and repeated table column alignment specs survive into display-list
   text;

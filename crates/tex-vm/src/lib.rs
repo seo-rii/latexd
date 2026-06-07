@@ -316,6 +316,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "natbib.sty",
     "nicefrac.sty",
     "optidef.sty",
+    "overpic.sty",
     "paracol.sty",
     "pdflscape.sty",
     "placeins.sty",
@@ -2516,6 +2517,22 @@ impl<'i> Vm<'i> {
                                     ),
                                 );
                             }
+                            "overpic" | "overpic*" if in_document => {
+                                if let Some(after) = self.capture_overpic_environment_event(
+                                    source_path,
+                                    source,
+                                    command_start,
+                                    environment,
+                                    index,
+                                    source.len(),
+                                    &scan_state.graphic_paths,
+                                    &scan_state.graphic_extensions,
+                                    scan_state.graphic_default_options.as_deref(),
+                                    None,
+                                ) {
+                                    index = after;
+                                }
+                            }
                             "itemize" | "enumerate" | "description" if in_document => {
                                 let kind = match environment {
                                     "itemize" => ListKind::Unordered,
@@ -2941,50 +2958,75 @@ impl<'i> Vm<'i> {
                                             }
                                             "begin" => {
                                                 if let Some((
-                                                    table_environment,
+                                                    nested_environment,
                                                     _,
                                                     _,
-                                                    after_table_environment,
+                                                    after_environment,
                                                 )) = read_braced_source_argument(
                                                     source,
                                                     body_command_index,
-                                                ) && matches!(
-                                                    table_environment.trim(),
-                                                    "array"
-                                                        | "tabular"
-                                                        | "tabular*"
-                                                        | "tabularx"
-                                                        | "longtable"
-                                                        | "tabu"
-                                                        | "longtabu"
-                                                ) && after_table_environment <= body_end
-                                                {
-                                                    let table_environment =
-                                                        table_environment.trim();
-                                                    let end_marker =
-                                                        format!("\\end{{{table_environment}}}");
-                                                    if let Some(relative_table_end) = source
-                                                        [after_table_environment..body_end]
-                                                        .find(&end_marker)
+                                                ) {
+                                                    let nested_environment =
+                                                        nested_environment.trim();
+                                                    if matches!(
+                                                        nested_environment,
+                                                        "overpic" | "overpic*"
+                                                    ) && let Some(after) = self
+                                                        .capture_overpic_environment_event(
+                                                            source_path,
+                                                            source,
+                                                            body_command_start,
+                                                            nested_environment,
+                                                            after_environment,
+                                                            body_end,
+                                                            &scan_state.graphic_paths,
+                                                            &scan_state.graphic_extensions,
+                                                            scan_state
+                                                                .graphic_default_options
+                                                                .as_deref(),
+                                                            None,
+                                                        )
                                                     {
-                                                        let table_body_end = after_table_environment
-                                                            + relative_table_end;
-                                                        let table_raw_end =
-                                                            table_body_end + end_marker.len();
-                                                        if let Some(after) = self
-                                                            .capture_table_fallback_event(
-                                                                source_path,
-                                                                source,
-                                                                body_command_start,
-                                                                table_raw_end,
-                                                                after_table_environment,
-                                                                &source[after_table_environment
-                                                                    ..table_body_end],
-                                                                table_environment,
-                                                            )
+                                                        body_index = after;
+                                                        continue;
+                                                    }
+                                                    if matches!(
+                                                        nested_environment,
+                                                        "array"
+                                                            | "tabular"
+                                                            | "tabular*"
+                                                            | "tabularx"
+                                                            | "longtable"
+                                                            | "tabu"
+                                                            | "longtabu"
+                                                    ) && after_environment <= body_end
+                                                    {
+                                                        let end_marker = format!(
+                                                            "\\end{{{nested_environment}}}"
+                                                        );
+                                                        if let Some(relative_table_end) = source
+                                                            [after_environment..body_end]
+                                                            .find(&end_marker)
                                                         {
-                                                            body_index = after;
-                                                            continue;
+                                                            let table_body_end = after_environment
+                                                                + relative_table_end;
+                                                            let table_raw_end =
+                                                                table_body_end + end_marker.len();
+                                                            if let Some(after) = self
+                                                                .capture_table_fallback_event(
+                                                                    source_path,
+                                                                    source,
+                                                                    body_command_start,
+                                                                    table_raw_end,
+                                                                    after_environment,
+                                                                    &source[after_environment
+                                                                        ..table_body_end],
+                                                                    nested_environment,
+                                                                )
+                                                            {
+                                                                body_index = after;
+                                                                continue;
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -10954,6 +10996,37 @@ impl<'i> Vm<'i> {
             SourceProvenance::file(source_path.to_owned(), command_start as u32, raw_end as u32),
         );
         fallback_event.meta.mode_hint = ModeHint::Vertical;
+        Some(raw_end)
+    }
+
+    fn capture_overpic_environment_event(
+        &mut self,
+        source_path: &Utf8Path,
+        source: &str,
+        command_start: usize,
+        environment: &str,
+        argument_index: usize,
+        limit: usize,
+        graphic_paths: &[Utf8PathBuf],
+        graphic_extensions: &[String],
+        default_options: Option<&str>,
+        inherited_options: Option<&str>,
+    ) -> Option<usize> {
+        let end_marker = format!("\\end{{{environment}}}");
+        let relative_end = source[argument_index..limit].find(&end_marker)?;
+        let body_end = argument_index + relative_end;
+        let raw_end = body_end + end_marker.len();
+        self.capture_includegraphics_event(
+            source_path,
+            source,
+            command_start,
+            argument_index,
+            body_end,
+            graphic_paths,
+            graphic_extensions,
+            default_options,
+            inherited_options,
+        )?;
         Some(raw_end)
     }
 
@@ -28191,6 +28264,40 @@ Fallback text.
                     "000000",
                     "FFFFFF"
                 ]
+                    .iter()
+                    .any(|hidden| text.text.contains(hidden))
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_overpic_backing_image() {
+        let source = r"\documentclass{article}\usepackage{overpic}\begin{document}\begin{overpic}[width=4cm,grid,tics=10]{figures/annotated.pdf}\put(5,5){Label}\end{overpic}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("figures/annotated.pdf", "%PDF fake");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/annotated.pdf"
+                    && graphic.options.as_deref() == Some("width=4cm,grid,tics=10")
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("overpic")
+        )));
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package overpic.sty"
+        }));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if ["overpic", "width", "4cm", "grid", "tics", "put"]
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));
