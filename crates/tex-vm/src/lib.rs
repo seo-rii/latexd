@@ -34455,6 +34455,13 @@ Fallback text.
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
 
+        for package in ["algorithm.sty", "tocloft.sty"] {
+            assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+                diagnostic.kind == VmDiagnosticKind::MissingFile
+                    && diagnostic.detail == format!("package {package}")
+            }));
+            assert!(outcome.loaded_modules.contains(&Utf8PathBuf::from(package)));
+        }
         let visible_text = outcome
             .render_events
             .iter()
