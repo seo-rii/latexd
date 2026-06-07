@@ -237,6 +237,8 @@ preceding `\piccaption` text without leaking placement or width hints into body
 text.
 Simple `fancybox` wrappers such as `\shadowbox`, `\ovalbox`, and `\doublebox`
 now use the same graphic wrapper path as `\fbox`.
+`psfrag` replacement helper commands are treated as layout/asset preprocessing
+metadata around graphics, so replacement tags do not leak into body text.
 `PageDisplayList::Image` now carries optional `ImageScale` metadata, and SVG
 debug artifacts expose that metadata as `data-image-scale-x` /
 `data-image-scale-y`. Nested graphic wrappers now thread outer sizing and scale
@@ -987,6 +989,8 @@ Status:
   captions without leaking layout hints;
 - `fancybox` image wrappers preserve nested graphics without undefined-command
   diagnostics;
+- `psfrag` replacement helper commands no longer leak tags/options/replacement
+  text around preserved graphics;
 - table horizontal rules now produce renderer-visible display-list rule ops;
 - simple and repeated table column alignment specs survive into display-list
   text;

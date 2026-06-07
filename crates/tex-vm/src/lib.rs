@@ -195,6 +195,7 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\shadowbox}[1]{#1}
 \providecommand{\ovalbox}[1]{#1}
 \providecommand{\doublebox}[1]{#1}
+\providecommand{\psfrag}[2]{}
 \providecommand{\FBwidth}{}
 \providecommand{\ffigbox}[4][]{#3#4}
 \providecommand{\ttabbox}[4][]{#3#4}
@@ -337,6 +338,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "pdflscape.sty",
     "picins.sty",
     "placeins.sty",
+    "psfrag.sty",
     "rotating.sty",
     "sidecap.sty",
     "siunitx.sty",
@@ -3001,6 +3003,59 @@ impl<'i> Vm<'i> {
                                                 }
                                                 body_index = value_index;
                                                 continue;
+                                            }
+                                            "psfrag" => {
+                                                let mut argument_index = skip_ascii_whitespace(
+                                                    source,
+                                                    body_command_index,
+                                                );
+                                                if let Some((_, _, _, after_tag)) =
+                                                    read_braced_source_argument(
+                                                        source,
+                                                        argument_index,
+                                                    )
+                                                {
+                                                    if after_tag > body_end {
+                                                        break;
+                                                    }
+                                                    argument_index = after_tag;
+                                                    for _ in 0..4 {
+                                                        argument_index = skip_ascii_whitespace(
+                                                            source,
+                                                            argument_index,
+                                                        );
+                                                        let Some((_, _, _, after_option)) =
+                                                            read_bracket_source_argument(
+                                                                source,
+                                                                argument_index,
+                                                            )
+                                                        else {
+                                                            break;
+                                                        };
+                                                        if after_option > body_end {
+                                                            break;
+                                                        }
+                                                        argument_index = after_option;
+                                                    }
+                                                    argument_index = skip_ascii_whitespace(
+                                                        source,
+                                                        argument_index,
+                                                    );
+                                                    if let Some((_, _, _, after_replacement)) =
+                                                        read_braced_source_argument(
+                                                            source,
+                                                            argument_index,
+                                                        )
+                                                    {
+                                                        if after_replacement > body_end {
+                                                            break;
+                                                        }
+                                                        body_index = after_replacement;
+                                                    } else {
+                                                        body_index = argument_index;
+                                                    }
+                                                    continue;
+                                                }
                                             }
                                             "resizebox" | "scalebox" | "rotatebox"
                                             | "reflectbox" | "adjustbox" | "centerline"
@@ -7868,6 +7923,31 @@ impl<'i> Vm<'i> {
                     ) {
                         scan_state.epsf_pending_options = None;
                         index = after;
+                    }
+                }
+                "psfrag" if in_document => {
+                    let mut argument_index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_tag)) =
+                        read_braced_source_argument(source, argument_index)
+                    {
+                        argument_index = after_tag;
+                        for _ in 0..4 {
+                            argument_index = skip_ascii_whitespace(source, argument_index);
+                            let Some((_, _, _, after_option)) =
+                                read_bracket_source_argument(source, argument_index)
+                            else {
+                                break;
+                            };
+                            argument_index = after_option;
+                        }
+                        argument_index = skip_ascii_whitespace(source, argument_index);
+                        if let Some((_, _, _, after_replacement)) =
+                            read_braced_source_argument(source, argument_index)
+                        {
+                            index = after_replacement;
+                        } else {
+                            index = argument_index;
+                        }
                     }
                 }
                 "piccaption" if in_document => {
@@ -28633,6 +28713,48 @@ Fallback text.
             &event.event,
             RenderEvent::Text(text)
                 if ["shadowbox", "ovalbox", "doublebox"]
+                    .iter()
+                    .any(|hidden| text.text.contains(hidden))
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_psfrag_without_replacement_leakage() {
+        let source = r"\documentclass{article}\usepackage{psfrag}\begin{document}\begin{figure}\psfrag{xlabel}[tc][tc][0.8][0]{replacement}\includegraphics[width=3cm]{figures/fragged.eps}\caption{Fragged figure.}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("figures/fragged.eps", "fake eps");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package psfrag.sty"
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("psfrag.sty"))
+        );
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && diagnostic.detail == "psfrag"
+        }));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/fragged.eps"
+                    && graphic.options.as_deref() == Some("width=3cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Fragged figure."
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if ["psfrag", "xlabel", "tc", "0.8", "replacement"]
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));

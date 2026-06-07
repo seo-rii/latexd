@@ -3630,6 +3630,48 @@ fn graphic_fancybox_wrappers_preserve_images_without_command_leakage() {
 }
 
 #[test]
+fn graphic_psfrag_helpers_do_not_leak_replacement_arguments() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        GRAPHIC_PSFRAG_SOURCE,
+        &SemanticAux::default(),
+        &[("figures/fragged.eps", "fake eps")],
+    );
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Graphic(graphic)
+                if graphic.path == "figures/fragged.eps"
+                    && graphic.options.as_deref() == Some("width=3cm")
+                    && graphic.caption.as_deref() == Some("Fragged figure.")
+        )
+    }));
+    assert!(
+        capture.page_display_lists[0].ops.iter().any(
+            |op| matches!(op, DrawOp::Image(image) if image.asset_ref == "figures/fragged.eps")
+        )
+    );
+
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(extracted_text.contains("Fragged figure."));
+    assert!(display_list_text.contains("Fragged figure."));
+    for hidden in ["psfrag", "xlabel", "tc", "0.8", "replacement"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
+    }
+}
+
+#[test]
 fn overpic_environment_captures_backing_image_without_option_leakage() {
     let capture = capture_internal_render_ir_with_mounted_files(
         "main.tex",
@@ -19331,6 +19373,8 @@ const GRAPHIC_ALIGNMENT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\adjustbox{
 const GRAPHIC_COLOR_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\colorbox[rgb]{1,1,0}{\includegraphics[width=3cm]{figures/highlight}}\fcolorbox[HTML]{000000}{FFFFFF}{\includegraphics{figures/framed}}\end{document}";
 
 const GRAPHIC_FANCYBOX_WRAPPER_SOURCE: &str = r"\documentclass{article}\usepackage{fancybox}\begin{document}\shadowbox{\includegraphics[width=2cm]{figures/shadow}}\ovalbox{\includegraphics{figures/oval.pdf}}\doublebox{\includegraphics{figures/double.pdf}}\end{document}";
+
+const GRAPHIC_PSFRAG_SOURCE: &str = r"\documentclass{article}\usepackage{psfrag}\begin{document}\begin{figure}\psfrag{xlabel}[tc][tc][0.8][0]{replacement}\includegraphics[width=3cm]{figures/fragged.eps}\caption{Fragged figure.}\end{figure}\end{document}";
 
 const OVERPIC_GRAPHIC_SOURCE: &str = r"\documentclass{article}\usepackage{overpic}\begin{document}\begin{overpic}[width=4cm,grid,tics=10]{figures/annotated.pdf}\put(5,5){Label}\end{overpic}\end{document}";
 
