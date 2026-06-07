@@ -16157,6 +16157,67 @@ fn tabular_repeated_vertical_column_rules_emit_multiple_display_list_rules() {
 }
 
 #[test]
+fn tabular_arydshln_rules_do_not_leak_into_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{arydshln}\begin{document}\begin{tabular}{lll}A & B & C \\\hdashline[0.5pt/2pt] D & E & F \\\cdashline{2-3}[1pt/3pt] G & H & I\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows.len(), 3);
+    assert_eq!(table.rows[0].cells[0].text, "A");
+    assert_eq!(table.rows[1].cells[1].text, "E");
+    assert_eq!(table.rows[2].cells[2].text, "I");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("A | B | C"));
+    assert!(extracted_text.contains("D | E | F"));
+    assert!(extracted_text.contains("G | H | I"));
+    for hidden in ["hdashline", "cdashline", "arydshln", "0.5pt", "3pt"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+    }
+
+    let horizontal_rules = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::Rule(rect) if rect.width > rect.height => Some(rect),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let table_lines = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert!(
+        horizontal_rules.len() >= 2,
+        "expected dashed rules to become coarse display-list rules: {horizontal_rules:?}"
+    );
+    for expected in ["A | B | C", "D | E | F", "G | H | I"] {
+        assert!(table_lines.contains(&expected), "{table_lines:?}");
+    }
+    for hidden in ["hdashline", "cdashline", "arydshln", "0.5pt", "3pt"] {
+        assert!(
+            !table_lines.iter().any(|line| line.contains(hidden)),
+            "{table_lines:?}"
+        );
+    }
+}
+
+#[test]
 fn tabular_multirow_visible_text_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",

@@ -54,7 +54,9 @@ display-list text, including table-float captions and basic max-width column
 padding for uneven rows. Horizontal table rules from `\hline` and common
 booktabs commands are preserved as row rule flags and now emit renderer-visible
 `PageDisplayList::Rule` rectangles while preserving dashed separators in the
-readable display-list fallback. Simple `\cline{a-b}` / `\cmidrule(...){a-b}`
+readable display-list fallback. Common `arydshln` dashed rule commands such as
+`\hdashline` and `\cdashline{a-b}` share that coarse rule path without leaking
+command names into table text. Simple `\cline{a-b}` / `\cmidrule(...){a-b}`
 spans are carried as zero-based inclusive column ranges with whitespace outside
 the covered columns and matching partial rule rectangles, using the same visible
 separator widths as table row text when trimming the rule span. Simple
@@ -753,6 +755,9 @@ Implemented first slice:
   columns, `~` blank columns, `>{...}` modifiers, and bounded `*{n}{...}`
   repeated patterns preserved as partial rule spans without leaking pattern
   payloads; exact pattern semantics are deferred.
+- common `arydshln` dashed rule commands such as `\hdashline`,
+  `\firsthdashline`, `\lasthdashline`, and `\cdashline{...}` are suppressed
+  from visible table text and mapped to coarse full/partial rule metadata.
 - common `colortbl` / `xcolor` table color commands such as `\rowcolor`,
   `\rowcolors`, `\hiderowcolors`, `\showrowcolors`, `\cellcolor`,
   `\columncolor`, `\arrayrulecolor`, `\definecolor`, `\providecolor`, and
@@ -1116,6 +1121,8 @@ Status:
   leaking command names or rule dimensions into table text;
 - common `hhline` rule commands are normalized without leaking command names,
   pattern strings, or simple modifier payloads into table text;
+- common `arydshln` dashed rule commands are normalized without leaking command
+  names or dash/gap options into table text;
 - common `colortbl` / `xcolor` table color commands and color-definition
   commands are normalized without leaking command names or color arguments into
   table text;

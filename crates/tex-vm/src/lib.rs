@@ -254,6 +254,10 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \setlength{\extrarowheight}{0pt}
 \providecommand{\multirow}[4][]{#4}
 \providecommand{\multirowcell}[3][]{#3}
+\providecommand{\hdashline}[1][]{}
+\providecommand{\firsthdashline}[1][]{}
+\providecommand{\lasthdashline}[1][]{}
+\providecommand{\cdashline}[2][]{}
 \providecommand{\hhline}[1]{}
 \providecommand{\FloatBarrier}{}
 \providecommand{\balance}{}
@@ -305,6 +309,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "amsmath.sty",
     "amssymb.sty",
     "amsthm.sty",
+    "arydshln.sty",
     "array.sty",
     "authblk.sty",
     "balance.sty",
@@ -4342,13 +4347,17 @@ impl<'i> Vm<'i> {
                                                             }
                                                         }
                                                         "hline" | "toprule" | "midrule"
-                                                        | "bottomrule" => {
+                                                        | "bottomrule" | "hdashline"
+                                                        | "firsthdashline" | "lasthdashline" => {
                                                             table_index = command_end;
                                                             if matches!(
                                                                 command,
                                                                 "toprule"
                                                                     | "midrule"
                                                                     | "bottomrule"
+                                                                    | "hdashline"
+                                                                    | "firsthdashline"
+                                                                    | "lasthdashline"
                                                             ) && let Some((_, _, _, after)) =
                                                                 read_bracket_source_argument(
                                                                     table_body,
@@ -4517,7 +4526,7 @@ impl<'i> Vm<'i> {
                                                                 table_index = after;
                                                             }
                                                         }
-                                                        "cline" | "cmidrule" => {
+                                                        "cline" | "cmidrule" | "cdashline" => {
                                                             table_index = command_end;
                                                             if let Some((_, _, _, after)) =
                                                                 read_bracket_source_argument(
@@ -4555,6 +4564,20 @@ impl<'i> Vm<'i> {
                                                                 )
                                                             {
                                                                 table_index = after;
+                                                            }
+                                                            if command == "cdashline" {
+                                                                table_index = skip_ascii_whitespace(
+                                                                    table_body,
+                                                                    table_index,
+                                                                );
+                                                                if let Some((_, _, _, after)) =
+                                                                    read_bracket_source_argument(
+                                                                        table_body,
+                                                                        table_index,
+                                                                    )
+                                                                {
+                                                                    table_index = after;
+                                                                }
                                                             }
                                                         }
                                                         _ => {
@@ -11541,7 +11564,8 @@ impl<'i> Vm<'i> {
                                 table_index = after;
                             }
                         }
-                        "hline" | "toprule" | "midrule" | "bottomrule" | "Xhline" => {
+                        "hline" | "toprule" | "midrule" | "bottomrule" | "Xhline" | "hdashline"
+                        | "firsthdashline" | "lasthdashline" => {
                             let (row_index, position) = if row_has_visible_content {
                                 (current_row_index, TableRulePosition::Below)
                             } else if current_row_index == 0 {
@@ -11568,6 +11592,12 @@ impl<'i> Vm<'i> {
                                 {
                                     table_index = after;
                                 }
+                            }
+                            if matches!(command, "hdashline" | "firsthdashline" | "lasthdashline")
+                                && let Some((_, _, _, after)) =
+                                    read_bracket_source_argument(table_body, table_index)
+                            {
+                                table_index = after;
                             }
                         }
                         "addlinespace" => {
@@ -12226,7 +12256,7 @@ impl<'i> Vm<'i> {
                                 table_index = after;
                             }
                         }
-                        "cline" | "cmidrule" | "Xcline" => {
+                        "cline" | "cmidrule" | "Xcline" | "cdashline" => {
                             table_index = command_end;
                             let mut trim_start = false;
                             let mut trim_end = false;
@@ -12373,6 +12403,14 @@ impl<'i> Vm<'i> {
                                         read_braced_source_argument(table_body, table_index)
                                     {
                                         table_index = after_width;
+                                    }
+                                }
+                                if command == "cdashline" {
+                                    table_index = skip_ascii_whitespace(table_body, table_index);
+                                    if let Some((_, _, _, after_dash_options)) =
+                                        read_bracket_source_argument(table_body, table_index)
+                                    {
+                                        table_index = after_dash_options;
                                     }
                                 }
                             }
@@ -28365,6 +28403,69 @@ Fallback text.
                     trim_end_pt_milli: None,
                 }),
             }]
+        );
+    }
+
+    #[test]
+    fn render_event_capture_omits_arydshln_rule_commands() {
+        let source = r"\documentclass{article}\usepackage{arydshln}\begin{document}\begin{tabular}{lll}A & B & C \\\hdashline[0.5pt/2pt] D & E & F \\\cdashline{2-3}[1pt/3pt] G & H & I\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package arydshln.sty"
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("arydshln.sty"))
+        );
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        let visible_text = visible
+            .normalized_visible_text
+            .as_deref()
+            .expect("visible table text");
+
+        assert_eq!(visible_text, "A | B | C ; D | E | F ; G | H | I");
+        for hidden in ["hdashline", "cdashline", "arydshln", "0.5pt", "3pt"] {
+            assert!(!visible_text.contains(hidden), "{visible_text}");
+        }
+        assert_eq!(
+            visible.table_rules,
+            vec![
+                TableRuleEvent {
+                    row_index: 0,
+                    position: TableRulePosition::Below,
+                    column_span: None,
+                },
+                TableRuleEvent {
+                    row_index: 1,
+                    position: TableRulePosition::Below,
+                    column_span: Some(TableRuleSpan {
+                        start_column: 1,
+                        end_column: 2,
+                        trim_start: false,
+                        trim_end: false,
+                        trim_start_pt_milli: None,
+                        trim_end_pt_milli: None,
+                    }),
+                },
+            ]
         );
     }
 
