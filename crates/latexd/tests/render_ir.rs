@@ -3943,6 +3943,50 @@ fn wrap_float_capture_survives_ir_without_fallback() {
 }
 
 #[test]
+fn picins_parpic_capture_preserves_image_and_caption_without_layout_leakage() {
+    let capture =
+        capture_internal_render_ir("main.tex", PICINS_PARPIC_SOURCE, &SemanticAux::default());
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Graphic(graphic)
+                if graphic.path == "figures/inset.pdf"
+                    && graphic.options.as_deref() == Some("width=2cm")
+                    && graphic.caption.as_deref() == Some("Inset [?].")
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Inset [?]."));
+    assert!(extracted_text.contains("Visible text."));
+    for hidden in ["parpic", "piccaption", "0.35", "textwidth", "key"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Inset [?]."));
+    assert!(display_list_text.contains("Visible text."));
+    for hidden in ["parpic", "piccaption", "0.35", "textwidth", "key"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+    assert!(
+        capture.page_display_lists[0]
+            .ops
+            .iter()
+            .any(|op| matches!(op, DrawOp::Image(image) if image.asset_ref == "figures/inset.pdf"))
+    );
+}
+
+#[test]
 fn captionof_capture_uses_long_caption_without_type_or_short_title_leakage() {
     let capture = capture_internal_render_ir("main.tex", CAPTIONOF_SOURCE, &SemanticAux::default());
 
@@ -19255,6 +19299,8 @@ const SIDEWAYS_FLOAT_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\ca
 const SIDECAP_FLOAT_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{SCfigure}[1][ht]\includegraphics[width=4cm]{figures/side.pdf}\caption{Side \cite{key}.}\label{fig:side}\end{SCfigure}\begin{SCtable}\caption{Side table.}\label{tab:side}\end{SCtable}\end{document}";
 
 const WRAP_FLOAT_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{wrapfigure}{r}{0.35\textwidth}\includegraphics[width=3cm]{figures/wrapped.pdf}\caption{Wrapped figure.}\label{fig:wrap}\end{wrapfigure}\begin{wraptable}{l}{0.4\textwidth}\caption{Wrapped table.}\label{tab:wrap}\end{wraptable}\end{document}";
+
+const PICINS_PARPIC_SOURCE: &str = r"\documentclass{article}\usepackage{picins}\begin{document}\piccaption{Inset \cite{key}.}\parpic[r][0.35\textwidth]{\includegraphics[width=2cm]{figures/inset.pdf}}Visible text.\end{document}";
 
 const FIGURE_TABLE_LABEL_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\label{fig:plot}\end{figure}\begin{table}\caption{Table caption.}\label{tab:data}\end{table}\end{document}";
 

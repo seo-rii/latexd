@@ -206,6 +206,8 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\subfigure}[2][]{#2}
 \providecommand{\captionbox}[2]{#2}
 \providecommand{\subcaptionbox}[2]{#2}
+\providecommand{\piccaption}[1]{#1}
+\providecommand{\parpic}[2][]{#2}
 \providecommand{\diagbox}[3][]{#2/#3}
 \providecommand{\slashbox}[2]{#1/#2}
 \providecommand{\backslashbox}[2]{#1/#2}
@@ -330,6 +332,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "overpic.sty",
     "paracol.sty",
     "pdflscape.sty",
+    "picins.sty",
     "placeins.sty",
     "rotating.sty",
     "sidecap.sty",
@@ -815,6 +818,7 @@ struct RenderEventScanState {
     graphic_pending_package_options: HashMap<String, String>,
     graphic_default_options: Option<String>,
     epsf_pending_options: Option<String>,
+    picins_pending_caption: Option<(String, SourceProvenance)>,
     section_macros: HashMap<String, RenderSectionMacro>,
     citation_macros: HashMap<String, RenderCitationMacro>,
     reference_macros: HashMap<String, RenderReferenceMacro>,
@@ -7860,6 +7864,78 @@ impl<'i> Vm<'i> {
                     ) {
                         scan_state.epsf_pending_options = None;
                         index = after;
+                    }
+                }
+                "piccaption" if in_document => {
+                    let mut argument_index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_option)) =
+                        read_bracket_source_argument(source, argument_index)
+                    {
+                        argument_index = after_option;
+                    }
+                    if let Some((caption, caption_start, caption_end, after_caption)) =
+                        read_braced_source_argument(source, argument_index)
+                    {
+                        scan_state.picins_pending_caption = Some((
+                            normalize_latex_text_with_inline_placeholders(caption),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                caption_start as u32,
+                                caption_end as u32,
+                            )
+                            .with_related(
+                                SourceSpanRole::Invocation,
+                                ProvenanceSpan::File(SourceSpan {
+                                    path: source_path.to_owned(),
+                                    start_utf8: command_start as u32,
+                                    end_utf8: after_caption as u32,
+                                }),
+                            ),
+                        ));
+                        index = after_caption;
+                    }
+                }
+                "parpic" if in_document => {
+                    let mut argument_index = skip_ascii_whitespace(source, index);
+                    loop {
+                        argument_index = skip_ascii_whitespace(source, argument_index);
+                        if let Some((_, _, _, after_option)) =
+                            read_bracket_source_argument(source, argument_index)
+                        {
+                            argument_index = after_option;
+                            continue;
+                        }
+                        if argument_index < source.len()
+                            && source.as_bytes()[argument_index] == b'('
+                            && let Some(relative_end) = source[argument_index..].find(')')
+                        {
+                            argument_index += relative_end + 1;
+                            continue;
+                        }
+                        break;
+                    }
+                    if let Some((_, body_start, body_end, after_body)) =
+                        read_braced_source_argument(source, argument_index)
+                    {
+                        self.capture_graphics_in_source_range(
+                            source_path,
+                            source,
+                            body_start,
+                            body_end,
+                            &scan_state.graphic_paths,
+                            &scan_state.graphic_extensions,
+                            scan_state.graphic_default_options.as_deref(),
+                            None,
+                        );
+                        if let Some((caption_text, caption_source)) =
+                            scan_state.picins_pending_caption.take()
+                        {
+                            self.emit_render_event(
+                                RenderEvent::Caption(CaptionEvent { text: caption_text }),
+                                caption_source,
+                            );
+                        }
+                        index = after_body;
                     }
                 }
                 "resizebox" | "scalebox" | "rotatebox" | "reflectbox" | "adjustbox"
@@ -29232,6 +29308,54 @@ Fallback text.
                     fallback.environment.as_deref(),
                     Some("wrapfigure" | "wraptable")
                 )
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_picins_parpic_without_layout_leakage() {
+        let source = r"\documentclass{article}\usepackage{picins}\begin{document}\piccaption{Inset \cite{key}.}\parpic[r][0.35\textwidth]{\includegraphics[width=2cm]{figures/inset.pdf}}Visible text.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package picins.sty"
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("picins.sty"))
+        );
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/inset.pdf"
+                    && graphic.options.as_deref() == Some("width=2cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Inset [?]."
+        )));
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("Visible text."));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if ["parpic", "piccaption", "0.35", "textwidth", "key"]
+                    .iter()
+                    .any(|hidden| text.text.contains(hidden))
         )));
     }
 

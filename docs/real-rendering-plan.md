@@ -232,6 +232,9 @@ macros.
 Legacy `epsf` sizing assignments such as `\epsfxsize=...` and
 `\epsfysize=...` are converted into graphic width/height options for the next
 `\epsfbox` / `\epsffile` image instead of leaking as text.
+`picins` inline picture commands now preserve `\parpic` images and attach the
+preceding `\piccaption` text without leaking placement or width hints into body
+text.
 `PageDisplayList::Image` now carries optional `ImageScale` metadata, and SVG
 debug artifacts expose that metadata as `data-image-scale-x` /
 `data-image-scale-y`. Nested graphic wrappers now thread outer sizing and scale
@@ -978,6 +981,8 @@ Status:
   suppressing floatrow width macros;
 - legacy `epsf` sizing assignments are threaded into following `\epsfbox` /
   `\epsffile` image options without leaking assignment tokens;
+- `picins` `\piccaption` / `\parpic` pairs preserve inline picture assets and
+  captions without leaking layout hints;
 - table horizontal rules now produce renderer-visible display-list rule ops;
 - simple and repeated table column alignment specs survive into display-list
   text;
