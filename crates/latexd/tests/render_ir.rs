@@ -4264,6 +4264,70 @@ fn picinpar_window_environment_capture_survives_ir_without_option_leakage() {
 }
 
 #[test]
+fn margin_float_capture_survives_ir_without_fallback() {
+    let capture =
+        capture_internal_render_ir("main.tex", MARGIN_FLOAT_SOURCE, &SemanticAux::default());
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Graphic(graphic)
+                if graphic.path == "figures/margin.pdf"
+                    && graphic.options.as_deref() == Some("width=2cm")
+                    && graphic.caption.as_deref() == Some("Margin [?].")
+        )
+    }));
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Margin [?]."));
+    assert!(extracted_text.contains("Margin table."));
+    for hidden in [
+        "marginfigure",
+        "margintable",
+        "key",
+        "fig:margin",
+        "tab:margin",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if matches!(
+                    fallback.environment.as_deref(),
+                    Some("marginfigure" | "margintable")
+                )
+        )
+    }));
+
+    let label_keys = capture
+        .document_ir
+        .labels
+        .iter()
+        .map(|label| label.key.as_str())
+        .collect::<Vec<_>>();
+    assert!(label_keys.contains(&"fig:margin"));
+    assert!(label_keys.contains(&"tab:margin"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Margin [?]."));
+    assert!(display_list_text.contains("Margin table."));
+    assert!(
+        capture.page_display_lists[0].ops.iter().any(
+            |op| matches!(op, DrawOp::Image(image) if image.asset_ref == "figures/margin.pdf")
+        )
+    );
+}
+
+#[test]
 fn picins_parpic_capture_preserves_image_and_caption_without_layout_leakage() {
     let capture =
         capture_internal_render_ir("main.tex", PICINS_PARPIC_SOURCE, &SemanticAux::default());
@@ -19727,6 +19791,8 @@ const WRAP_FLOAT_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\captio
 const FLOATFLT_FLOAT_SOURCE: &str = r"\documentclass{article}\usepackage{floatflt}\begin{document}\begin{floatingfigure}[r]{0.35\textwidth}\includegraphics[width=3cm]{figures/floating.pdf}\caption{Floating \cite{key}.}\label{fig:flt}\end{floatingfigure}\begin{floatingtable}[l]{0.4\textwidth}\caption{Floating table.}\label{tab:flt}\end{floatingtable}\end{document}";
 
 const PICINPAR_WINDOW_SOURCE: &str = r"\documentclass{article}\usepackage{picinpar}\begin{document}\begin{figwindow}[2,r,{\includegraphics[width=2cm]{figures/window.pdf}},{Window \cite{key}.}]\label{fig:win}\end{figwindow}\begin{tabwindow}[1,l,{\begin{tabular}{ll}A & B\end{tabular}},{Window table.}]\label{tab:win}\end{tabwindow}\end{document}";
+
+const MARGIN_FLOAT_SOURCE: &str = r"\begin{document}\begin{marginfigure}\includegraphics[width=2cm]{figures/margin.pdf}\caption{Margin \cite{key}.}\label{fig:margin}\end{marginfigure}\begin{margintable}\caption{Margin table.}\label{tab:margin}\end{margintable}\end{document}";
 
 const PICINS_PARPIC_SOURCE: &str = r"\documentclass{article}\usepackage{picins}\begin{document}\piccaption{Inset \cite{key}.}\parpic[r][0.35\textwidth]{\includegraphics[width=2cm]{figures/inset.pdf}}Visible text.\end{document}";
 

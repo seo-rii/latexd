@@ -3149,15 +3149,18 @@ impl<'i> Vm<'i> {
                             }
                             "figure" | "figure*" | "sidewaysfigure" | "sidewaysfigure*"
                             | "wrapfigure" | "wrapfigure*" | "SCfigure" | "SCfigure*"
-                            | "floatingfigure" | "table" | "table*" | "sidewaystable"
-                            | "sidewaystable*" | "wraptable" | "wraptable*" | "SCtable"
-                            | "SCtable*" | "floatingtable"
+                            | "floatingfigure" | "marginfigure" | "marginfigure*" | "table"
+                            | "table*" | "sidewaystable" | "sidewaystable*" | "wraptable"
+                            | "wraptable*" | "SCtable" | "SCtable*" | "floatingtable"
+                            | "margintable" | "margintable*"
                                 if in_document =>
                             {
                                 let block = match environment {
                                     "figure" | "figure*" | "sidewaysfigure" | "sidewaysfigure*"
                                     | "wrapfigure" | "wrapfigure*" | "SCfigure" | "SCfigure*"
-                                    | "floatingfigure" => BlockKind::Figure,
+                                    | "floatingfigure" | "marginfigure" | "marginfigure*" => {
+                                        BlockKind::Figure
+                                    }
                                     _ => BlockKind::Table,
                                 };
                                 self.emit_render_event(
@@ -30426,6 +30429,65 @@ Fallback text.
                     matches!(
                         fallback.environment.as_deref(),
                         Some("figwindow" | "tabwindow")
+                    )
+                }
+                _ => false,
+            }
+        }));
+    }
+
+    #[test]
+    fn render_event_capture_records_margin_floats_without_fallback() {
+        let source = r"\begin{document}\begin{marginfigure}\includegraphics[width=2cm]{figures/margin.pdf}\caption{Margin \cite{key}.}\label{fig:margin}\end{marginfigure}\begin{margintable}\caption{Margin table.}\label{tab:margin}\end{margintable}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Figure
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Table
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/margin.pdf"
+                    && graphic.options.as_deref() == Some("width=2cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Margin [?]."
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Margin table."
+        )));
+        for key in ["fig:margin", "tab:margin"] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::LabelDefinition(label) if label.key == key
+            )));
+        }
+        assert!(!outcome.render_events.iter().any(|event| {
+            match &event.event {
+                RenderEvent::Text(text) => [
+                    "marginfigure",
+                    "margintable",
+                    "key",
+                    "fig:margin",
+                    "tab:margin",
+                ]
+                .iter()
+                .any(|argument| text.text.contains(argument)),
+                RenderEvent::RawFallback(fallback) => {
+                    matches!(
+                        fallback.environment.as_deref(),
+                        Some("marginfigure" | "margintable")
                     )
                 }
                 _ => false,
