@@ -4410,6 +4410,66 @@ fn captionof_capture_uses_long_caption_without_type_or_short_title_leakage() {
 }
 
 #[test]
+fn caption_package_setup_helpers_do_not_leak_into_ir_or_display_list() {
+    let capture =
+        capture_internal_render_ir("main.tex", CAPTION_SETUP_SOURCE, &SemanticAux::default());
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Graphic(graphic)
+                if graphic.path == "figures/caption-setup.pdf"
+                    && graphic.options.as_deref() == Some("width=2cm")
+                    && graphic.caption.as_deref() == Some("Visible [?].")
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Visible [?]."));
+    assert!(extracted_text.contains("After."));
+    for hidden in [
+        "captionsetup",
+        "subcaptionsetup",
+        "ContinuedFloat",
+        "captionlistentry",
+        "Hidden entry",
+        "labelfont",
+        "justification",
+        "centering",
+        "skip",
+        "key",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Visible [?]."));
+    assert!(display_list_text.contains("After."));
+    for hidden in [
+        "captionsetup",
+        "subcaptionsetup",
+        "ContinuedFloat",
+        "captionlistentry",
+        "Hidden entry",
+        "labelfont",
+        "justification",
+        "centering",
+        "skip",
+        "key",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
+    }
+}
+
+#[test]
 fn captionof_provenance_preserves_long_caption_and_invocation_spans() {
     let capture = capture_internal_render_ir("main.tex", CAPTIONOF_SOURCE, &SemanticAux::default());
 
@@ -20051,6 +20111,8 @@ const PICINS_PARPIC_SOURCE: &str = r"\documentclass{article}\usepackage{picins}\
 const FIGURE_TABLE_LABEL_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\label{fig:plot}\end{figure}\begin{table}\caption{Table caption.}\label{tab:data}\end{table}\end{document}";
 
 const CAPTIONOF_SOURCE: &str = r"\begin{document}\captionof{figure}[Short Figure]{Long Figure Title}\label{fig:first}See \autoref{fig:first}.\captionof*{table}{Long Table Title}\label{tab:first}See \autoref{tab:first}.\end{document}";
+
+const CAPTION_SETUP_SOURCE: &str = r"\documentclass{article}\usepackage{caption,subcaption}\begin{document}\captionsetup[figure]{labelfont=bf,skip=2pt}\subcaptionsetup{justification=centering}\begin{figure}\ContinuedFloat\captionlistentry{Hidden entry}\includegraphics[width=2cm]{figures/caption-setup.pdf}\caption{Visible \cite{key}.}\end{figure}After.\end{document}";
 
 const STARRED_CAPTION_SOURCE: &str = r"\begin{document}\begin{figure}\caption*{Unnumbered Figure Caption}\label{fig:starred}\end{figure}See \autoref{fig:starred}.\end{document}";
 

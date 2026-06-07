@@ -215,6 +215,10 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\subfigure}[2][]{#2}
 \providecommand{\captionbox}[2]{#2}
 \providecommand{\subcaptionbox}[2]{#2}
+\providecommand{\captionsetup}[2][]{}
+\providecommand{\subcaptionsetup}[2][]{}
+\providecommand{\captionlistentry}[2][]{}
+\providecommand{\ContinuedFloat}{}
 \providecommand{\piccaption}[1]{#1}
 \providecommand{\parpic}[2][]{#2}
 \providecommand{\diagbox}[3][]{#2/#3}
@@ -4906,6 +4910,27 @@ impl<'i> Vm<'i> {
                 | "centering" | "Centering" | "raggedleft" | "raggedright" | "RaggedLeft"
                 | "RaggedRight" | "justifying"
                     if in_document => {}
+                "ContinuedFloat" if in_document => {
+                    index = skip_ascii_whitespace(source, index);
+                    if source[index..].starts_with('*') {
+                        index += 1;
+                    }
+                }
+                "captionsetup" | "subcaptionsetup" | "captionlistentry" if in_document => {
+                    let mut argument_index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_option)) =
+                        read_bracket_source_argument(source, argument_index)
+                    {
+                        argument_index = skip_ascii_whitespace(source, after_option);
+                    }
+                    if let Some((_, _, _, after_argument)) =
+                        read_braced_source_argument(source, argument_index)
+                    {
+                        index = after_argument;
+                    } else {
+                        index = argument_index;
+                    }
+                }
                 "xspace" if in_document => {
                     index = skip_ascii_whitespace(source, index);
                     self.emit_render_event(
@@ -30938,6 +30963,61 @@ Fallback text.
         )));
         for hidden in ["figure", "Short Figure", "fig:first", "table", "tab:first"] {
             assert!(!visible_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_omits_caption_package_setup_helpers() {
+        let source = r"\documentclass{article}\usepackage{caption,subcaption}\begin{document}\captionsetup[figure]{labelfont=bf,skip=2pt}\subcaptionsetup{justification=centering}\begin{figure}\ContinuedFloat\captionlistentry{Hidden entry}\includegraphics[width=2cm]{figures/caption-setup.pdf}\caption{Visible \cite{key}.}\end{figure}After.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for package in ["caption.sty", "subcaption.sty"] {
+            assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+                diagnostic.kind == VmDiagnosticKind::MissingFile
+                    && diagnostic.detail == format!("package {package}")
+            }));
+        }
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/caption-setup.pdf"
+                    && graphic.options.as_deref() == Some("width=2cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Visible [?]."
+        )));
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Caption(caption) => Some(caption.text.as_str()),
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("Visible [?]."));
+        assert!(visible_text.contains("After."));
+        for hidden in [
+            "captionsetup",
+            "subcaptionsetup",
+            "ContinuedFloat",
+            "captionlistentry",
+            "Hidden entry",
+            "labelfont",
+            "justification",
+            "centering",
+            "skip",
+            "key",
+        ] {
+            assert!(!visible_text.contains(hidden), "{visible_text:?}");
         }
     }
 
