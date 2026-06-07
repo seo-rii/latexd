@@ -12493,7 +12493,9 @@ impl<'i> Vm<'i> {
         inherited_options: Option<&str>,
     ) -> Option<usize> {
         let mut argument_index = skip_ascii_whitespace(source, argument_index);
+        let mut starred_clip = false;
         if argument_index < limit && source[argument_index..].starts_with('*') {
+            starred_clip = true;
             argument_index += 1;
             argument_index = skip_ascii_whitespace(source, argument_index);
         }
@@ -12552,9 +12554,10 @@ impl<'i> Vm<'i> {
                         end_utf8: path_end as u32,
                     }),
                 );
+        let local_options = merge_graphic_options(options, starred_clip.then_some("clip"));
         let options = merge_graphic_default_options(
             default_options,
-            merge_graphic_options(options, inherited_options),
+            merge_graphic_options(local_options, inherited_options),
         );
         self.emit_render_event(
             RenderEvent::GraphicRef(GraphicRefEvent {
@@ -29475,6 +29478,23 @@ Fallback text.
             &event.event,
             RenderEvent::Text(text)
                 if text.text.contains("0pt,0pt") || text.text.contains("144pt,72pt")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_starred_includegraphics_clip_option() {
+        let source = r"\begin{document}\includegraphics*[viewport=0pt 0pt 10pt 20pt]{figures/plot.pdf}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.options.as_deref() == Some("viewport=0pt 0pt 10pt 20pt,clip")
         )));
     }
 

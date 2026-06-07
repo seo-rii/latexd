@@ -2935,6 +2935,67 @@ fn graphic_viewport_without_clip_offsets_project_root_artifact_images() {
 }
 
 #[test]
+fn starred_graphic_viewport_enables_project_root_crop_clipping() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
+    fs::create_dir_all(root.join("figures").as_std_path()).expect("create figures dir");
+    fs::write(
+        root.join("main.tex").as_std_path(),
+        r"\begin{document}\includegraphics*[viewport=0.5pt 0.5pt 1.5pt 1.5pt]{figures/plot.png}\end{document}",
+    )
+    .expect("write source");
+    fs::write(
+        root.join("figures/plot.png").as_std_path(),
+        tiny_png_bytes(),
+    )
+    .expect("write image");
+
+    let capture =
+        capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
+            .expect("capture project render ir");
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.png" => Some(image),
+            _ => None,
+        })
+        .expect("image op");
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+
+    assert_eq!(
+        image.crop,
+        Some(ImageCrop {
+            trim: None,
+            viewport: Some(ImageViewport {
+                llx_pt: 0.5,
+                lly_pt: 0.5,
+                urx_pt: 1.5,
+                ury_pt: 1.5,
+            }),
+            clip: true,
+        })
+    );
+    assert!((image.rect.width - 1.0).abs() < 0.01);
+    assert!((image.rect.height - 1.0).abs() < 0.01);
+    assert!(pdf_text.contains("72 719 1 1 re W n"), "{pdf_text}");
+    assert!(
+        pdf_text.contains("q 2 0 0 2 71.5 718.5 cm /Im1 Do Q"),
+        "{pdf_text}"
+    );
+
+    let output_dir = root.join("render-artifacts");
+    let paths = capture
+        .write_debug_artifacts(&output_dir)
+        .expect("write debug artifacts");
+    let display_list_svg =
+        fs::read_to_string(&paths.display_list_svgs[0]).expect("read display-list svg");
+    assert!(display_list_svg.contains("clip-path=\"url(#image-clip-0)\""));
+    assert!(display_list_svg.contains("data-image-crop-rendered=\"true\""));
+    assert!(display_list_svg.contains("<image x=\"71.5\" y=\"71.5\" width=\"2\" height=\"2\""));
+}
+
+#[test]
 fn graphic_rotation_options_survive_render_ir_capture() {
     let capture = capture_internal_render_ir(
         "main.tex",

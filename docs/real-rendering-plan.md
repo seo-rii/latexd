@@ -158,7 +158,8 @@ to derive default image-box size when no explicit size is provided; individual
 metadata. The PDF bitmap embedder and display-list SVG debug renderer now apply
 crop metadata by offsetting/scaling embedded bitmap assets; `clip=true`
 additionally clips to the destination rect. Project-root render-IR artifacts
-cover both clipped and unclipped crop placement for bitmap assets. Local `draft`
+cover both clipped and unclipped crop placement for bitmap assets, including
+starred `\includegraphics*` forms that imply `clip`. Local `draft`
 graphic options,
 package-level
 `\usepackage[draft]{graphicx}` options, and class-level
