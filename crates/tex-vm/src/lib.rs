@@ -22827,6 +22827,50 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("!=");
                         index = command_index;
                     }
+                    "equiv" => {
+                        push_operator!("equiv");
+                        index = command_index;
+                    }
+                    "cong" => {
+                        push_operator!("cong");
+                        index = command_index;
+                    }
+                    "simeq" => {
+                        push_operator!("simeq");
+                        index = command_index;
+                    }
+                    "propto" => {
+                        push_operator!("propto");
+                        index = command_index;
+                    }
+                    "perp" => {
+                        push_operator!("perp");
+                        index = command_index;
+                    }
+                    "parallel" => {
+                        push_operator!("parallel");
+                        index = command_index;
+                    }
+                    "ll" => {
+                        push_operator!("<<");
+                        index = command_index;
+                    }
+                    "gg" => {
+                        push_operator!(">>");
+                        index = command_index;
+                    }
+                    "models" => {
+                        push_operator!("models");
+                        index = command_index;
+                    }
+                    "vdash" => {
+                        push_operator!("|-");
+                        index = command_index;
+                    }
+                    "dashv" => {
+                        push_operator!("-|");
+                        index = command_index;
+                    }
                     "in" => {
                         push_operator!("in");
                         index = command_index;
@@ -32650,6 +32694,36 @@ Fallback text.
         assert_eq!(
             math.normalized_text.as_deref(),
             Some("x_1, ..., x_n + a_1 + ... + a_n + b_1, ..., b_k")
+        );
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_relation_operators() {
+        let source = r"\begin{document}Relations \(a\equiv b \cong c \simeq d \propto e \perp f \parallel g \ll h \gg i \models J \vdash K \dashv L\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        let RenderEvent::InlineMath(math) = &inline_math.event else {
+            panic!("inline math event");
+        };
+
+        assert_eq!(
+            math.raw_source,
+            r"a\equiv b \cong c \simeq d \propto e \perp f \parallel g \ll h \gg i \models J \vdash K \dashv L"
+        );
+        assert_eq!(
+            math.normalized_text.as_deref(),
+            Some(
+                "a equiv b cong c simeq d propto e perp f parallel g << h >> i models J |- K -| L"
+            )
         );
     }
 
