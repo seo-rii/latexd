@@ -727,6 +727,10 @@ Implemented first slice:
 - table-local layout spacing helpers such as `\hspace{...}`, `\vspace{...}`,
   `\pagebreak[...]`, `\hfill`, and `\smallskip` are consumed without leaking
   spacing arguments into table text.
+- common table layout defaults such as `\arraystretch`, `\tabcolsep`,
+  `\arrayrulewidth`, and `\extrarowheight` are defined so local
+  `\renewcommand` / `\setlength` tweaks do not leak or produce undefined
+  control-sequence diagnostics.
 - table environments inside box wrappers such as `\resizebox{...}{...}{...}`
   are still captured as table IR instead of being swallowed by wrapper handling.
 - `adjustbox` environments hide their option argument and allow nested tables to

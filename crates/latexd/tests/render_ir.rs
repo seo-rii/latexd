@@ -12437,6 +12437,54 @@ fn tabular_capture_builds_table_ir() {
 }
 
 #[test]
+fn tabular_layout_settings_do_not_leak_into_ir_or_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\renewcommand{\arraystretch}{1.2}\setlength{\tabcolsep}{3pt}\addtolength{\arrayrulewidth}{0.2pt}\setlength{\extrarowheight}{1pt}\begin{tabular}{ll}A & B\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "A");
+    assert_eq!(table.rows[0].cells[1].text, "B");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("A | B"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("A | B"));
+
+    for hidden in [
+        "arraystretch",
+        "tabcolsep",
+        "arrayrulewidth",
+        "extrarowheight",
+        "1.2",
+        "3pt",
+        "0.2pt",
+        "1pt",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
+    }
+}
+
+#[test]
 fn tabular_display_list_pdf_readability_gate_preserves_text_and_rules() {
     let capture = capture_internal_render_ir(
         "main.tex",

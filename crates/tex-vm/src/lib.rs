@@ -207,6 +207,15 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\makegapedcells}{}
 \providecommand{\nomakegapedcells}{}
 \providecommand{\setcellgapes}[1]{}
+\providecommand{\arraystretch}{1}
+\newlength{\tabcolsep}
+\newlength{\arrayrulewidth}
+\newlength{\doublerulesep}
+\newlength{\extrarowheight}
+\setlength{\tabcolsep}{6pt}
+\setlength{\arrayrulewidth}{0.4pt}
+\setlength{\doublerulesep}{2pt}
+\setlength{\extrarowheight}{0pt}
 \providecommand{\multirow}[4][]{#4}
 \providecommand{\multirowcell}[3][]{#3}
 \providecommand{\hhline}[1]{}
@@ -1710,6 +1719,26 @@ impl<'i> Vm<'i> {
                             }
                             index = after_body;
                         }
+                    }
+                }
+                "newlength" if in_document => {
+                    let argument_index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_argument)) =
+                        read_braced_source_argument(source, argument_index)
+                    {
+                        index = after_argument;
+                    }
+                }
+                "setlength" | "addtolength" if in_document => {
+                    let mut argument_index = skip_ascii_whitespace(source, index);
+                    for _ in 0..2 {
+                        let Some((_, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            break;
+                        };
+                        argument_index = skip_ascii_whitespace(source, after_argument);
+                        index = after_argument;
                     }
                 }
                 "def" | "gdef" | "edef" | "xdef" | "protected@edef" | "protected@xdef" => {
@@ -25217,6 +25246,53 @@ Fallback text.
         assert!(!visible_text.contains("ll"));
         assert!(!visible_text.contains("hline"));
         assert!(!visible_text.contains("textbf"));
+    }
+
+    #[test]
+    fn render_event_capture_omits_table_layout_settings() {
+        let source = r"\begin{document}\renewcommand{\arraystretch}{1.2}\setlength{\tabcolsep}{3pt}\addtolength{\arrayrulewidth}{0.2pt}\setlength{\extrarowheight}{1pt}\begin{tabular}{ll}A & B\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible_text, "A | B");
+        for hidden in [
+            "arraystretch",
+            "tabcolsep",
+            "arrayrulewidth",
+            "extrarowheight",
+            "1.2",
+            "3pt",
+            "0.2pt",
+            "1pt",
+        ] {
+            assert!(!visible_text.contains(hidden), "{visible_text:?}");
+            assert!(!outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Text(text) if text.text.contains(hidden)
+            )));
+        }
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && matches!(
+                    diagnostic.detail.as_str(),
+                    "arraystretch" | "tabcolsep" | "arrayrulewidth" | "extrarowheight"
+                )
+        }));
     }
 
     #[test]
