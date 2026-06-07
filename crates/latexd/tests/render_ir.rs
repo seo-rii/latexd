@@ -18212,6 +18212,52 @@ fn threeparttable_capture_preserves_caption_and_notes_without_option_leakage() {
 }
 
 #[test]
+fn measuredfigure_capture_preserves_image_and_caption_as_graphic_block() {
+    let capture =
+        capture_internal_render_ir("main.tex", MEASURED_FIGURE_SOURCE, &SemanticAux::default());
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Graphic(graphic)
+                if graphic.path == "figures/measured.pdf"
+                    && graphic.options.as_deref() == Some("width=3cm")
+                    && graphic.caption.as_deref() == Some("Measured [?].")
+        )
+    }));
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Environment(environment) if environment.name == "measuredfigure"
+        ) || matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("measuredfigure")
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Measured [?]."));
+    for hidden in ["measuredfigure", "key", "fig:measured"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+
+    let label_keys = capture
+        .document_ir
+        .labels
+        .iter()
+        .map(|label| label.key.as_str())
+        .collect::<Vec<_>>();
+    assert!(label_keys.contains(&"fig:measured"));
+
+    assert!(
+        capture.page_display_lists[0].ops.iter().any(
+            |op| matches!(op, DrawOp::Image(image) if image.asset_ref == "figures/measured.pdf")
+        )
+    );
+}
+
+#[test]
 fn subcaption_wrappers_capture_hides_layout_arguments() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -20081,6 +20127,8 @@ const MULTICOLS_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{multicols}{2
 const PARACOL_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{paracol}{2}Column \cite{key} text.\end{paracol}\begin{paracol*}{3}Wide text.\end{paracol*}\end{document}";
 
 const THREEPARTTABLE_SOURCE: &str = r"\begin{document}\begin{threeparttable}\caption{Measured table.}\begin{tabular}{ll}A & B \\\end{tabular}\begin{tablenotes}[flushleft]\item Note \cite{key}.\end{tablenotes}\end{threeparttable}\end{document}";
+
+const MEASURED_FIGURE_SOURCE: &str = r"\documentclass{article}\usepackage{threeparttable}\begin{document}\begin{measuredfigure}\includegraphics[width=3cm]{figures/measured.pdf}\caption{Measured \cite{key}.}\label{fig:measured}\end{measuredfigure}\end{document}";
 
 const SUBCAPTION_WRAPPER_SOURCE: &str = r"\begin{document}\begin{subfigure}[b]{0.45\textwidth}\includegraphics[width=4cm]{figures/panel-a.pdf}\caption{Panel \cite{key}.}\end{subfigure}\begin{subtable}{0.4\textwidth}\caption{Panel table.}\end{subtable}\end{document}";
 

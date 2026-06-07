@@ -1261,7 +1261,6 @@ impl<'i> Vm<'i> {
                 "paracol*",
                 "adjustbox",
                 "threeparttable",
-                "measuredfigure",
                 "tablenotes",
                 "subfigure",
                 "subfigure*",
@@ -3149,18 +3148,17 @@ impl<'i> Vm<'i> {
                             }
                             "figure" | "figure*" | "sidewaysfigure" | "sidewaysfigure*"
                             | "wrapfigure" | "wrapfigure*" | "SCfigure" | "SCfigure*"
-                            | "floatingfigure" | "marginfigure" | "marginfigure*" | "table"
-                            | "table*" | "sidewaystable" | "sidewaystable*" | "wraptable"
-                            | "wraptable*" | "SCtable" | "SCtable*" | "floatingtable"
-                            | "margintable" | "margintable*"
+                            | "floatingfigure" | "marginfigure" | "marginfigure*"
+                            | "measuredfigure" | "table" | "table*" | "sidewaystable"
+                            | "sidewaystable*" | "wraptable" | "wraptable*" | "SCtable"
+                            | "SCtable*" | "floatingtable" | "margintable" | "margintable*"
                                 if in_document =>
                             {
                                 let block = match environment {
                                     "figure" | "figure*" | "sidewaysfigure" | "sidewaysfigure*"
                                     | "wrapfigure" | "wrapfigure*" | "SCfigure" | "SCfigure*"
-                                    | "floatingfigure" | "marginfigure" | "marginfigure*" => {
-                                        BlockKind::Figure
-                                    }
+                                    | "floatingfigure" | "marginfigure" | "marginfigure*"
+                                    | "measuredfigure" => BlockKind::Figure,
                                     _ => BlockKind::Table,
                                 };
                                 self.emit_render_event(
@@ -30059,6 +30057,53 @@ Fallback text.
                     fallback.environment.as_deref(),
                     Some("threeparttable" | "tablenotes")
                 ),
+                _ => false,
+            }
+        }));
+    }
+
+    #[test]
+    fn render_event_capture_records_measuredfigure_as_figure_block() {
+        let source = r"\documentclass{article}\usepackage{threeparttable}\begin{document}\begin{measuredfigure}\includegraphics[width=3cm]{figures/measured.pdf}\caption{Measured \cite{key}.}\label{fig:measured}\end{measuredfigure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package threeparttable.sty"
+        }));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Figure
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/measured.pdf"
+                    && graphic.options.as_deref() == Some("width=3cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Measured [?]."
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::LabelDefinition(label) if label.key == "fig:measured"
+        )));
+        assert!(!outcome.render_events.iter().any(|event| {
+            match &event.event {
+                RenderEvent::BeginBlock(BeginBlockEvent {
+                    block: BlockKind::Environment { name },
+                }) if name == "measuredfigure" => true,
+                RenderEvent::Text(text) => ["measuredfigure", "key", "fig:measured"]
+                    .iter()
+                    .any(|argument| text.text.contains(argument)),
+                RenderEvent::RawFallback(fallback) => {
+                    fallback.environment.as_deref() == Some("measuredfigure")
+                }
                 _ => false,
             }
         }));

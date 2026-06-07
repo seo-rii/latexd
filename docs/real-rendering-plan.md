@@ -250,6 +250,9 @@ arguments.
 Tufte-style `marginfigure` / `margintable` environments now use the same
 figure/table capture path, preserving images, captions, and labels without raw
 environment fallback text.
+`threeparttable` `measuredfigure` environments are likewise promoted to the
+figure capture path so images and captions stay attached as a single graphic
+block.
 Simple `fancybox` wrappers such as `\shadowbox`, `\ovalbox`, and `\doublebox`
 now use the same graphic wrapper path as `\fbox`.
 `psfrag` replacement helper commands are treated as layout/asset preprocessing
@@ -1015,6 +1018,8 @@ Status:
   objects and captions while suppressing window placement arguments;
 - `marginfigure` / `margintable` environments preserve images, captions, and
   labels through the figure/table capture path;
+- `threeparttable` `measuredfigure` environments preserve images and captions
+  through the figure capture path;
 - `fancybox` image wrappers preserve nested graphics without undefined-command
   diagnostics;
 - `psfrag` replacement helper commands no longer leak tags/options/replacement
