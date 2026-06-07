@@ -18442,6 +18442,35 @@ fn subfloat_two_optional_captions_use_long_caption_without_short_leakage() {
 }
 
 #[test]
+fn starred_subfloat_commands_capture_without_star_or_command_leakage() {
+    let capture =
+        capture_internal_render_ir("main.tex", SUBFLOAT_STARRED_SOURCE, &SemanticAux::default());
+
+    for (path, caption) in [
+        ("figures/subfloat-star-a.pdf", "Starred panel [?]."),
+        ("figures/subfloat-star-b.pdf", "Starred legacy panel [?]."),
+    ] {
+        assert!(capture.document_ir.blocks.iter().any(|block| {
+            matches!(
+                block,
+                IrBlock::Graphic(graphic)
+                    if graphic.path == path
+                        && graphic.options.as_deref() == Some("width=2cm")
+                        && graphic.caption.as_deref() == Some(caption)
+            )
+        }));
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    for visible in ["Starred panel [?].", "Starred legacy panel [?]."] {
+        assert!(extracted_text.contains(visible), "{extracted_text:?}");
+    }
+    for hidden in ["*", "key", "subfloat", "subfigure"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+}
+
+#[test]
 fn captionbox_leading_optional_uses_long_caption_without_short_leakage() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -20312,6 +20341,8 @@ const SUBCAPTION_WRAPPER_SOURCE: &str = r"\begin{document}\begin{subfigure}[b]{0
 const SUBFLOAT_COMMAND_SOURCE: &str = r"\begin{document}\begin{figure}\subfloat[Panel \cite{key}.]{\includegraphics[width=3cm]{figures/a.pdf}}\subcaptionbox{Box \cite{key}.}[0.4\textwidth]{\includegraphics[width=2cm]{figures/b.pdf}}\subfigure[Legacy \cite{key}.]{\includegraphics[width=1cm]{figures/c.pdf}}\captionbox{Caption box \cite{key}.}[0.3\textwidth]{\includegraphics[width=4cm]{figures/d.pdf}}\end{figure}\end{document}";
 
 const SUBFLOAT_TWO_OPTIONAL_SOURCE: &str = r"\begin{document}\begin{figure}\subfloat[Short \cite{key}.][Long \cite{key}.]{\includegraphics[width=2cm]{figures/two-optional-a.pdf}}\subfigure[Legacy short \cite{key}.][Legacy long \cite{key}.]{\includegraphics[width=2cm]{figures/two-optional-b.pdf}}\end{figure}\end{document}";
+
+const SUBFLOAT_STARRED_SOURCE: &str = r"\begin{document}\begin{figure}\subfloat*[Starred panel \cite{key}.]{\includegraphics[width=2cm]{figures/subfloat-star-a.pdf}}\subfigure*[Starred legacy panel \cite{key}.]{\includegraphics[width=2cm]{figures/subfloat-star-b.pdf}}\end{figure}\end{document}";
 
 const CAPTIONBOX_LEADING_OPTION_SOURCE: &str = r"\begin{document}\begin{figure}\subcaptionbox[Subcaption short \cite{key}.]{Subcaption long \cite{key}.}[0.3\textwidth]{\includegraphics[width=2cm]{figures/captionbox-leading-a.pdf}}\captionbox[Captionbox short \cite{key}.]{Captionbox long \cite{key}.}[0.4\textwidth]{\includegraphics[width=2cm]{figures/captionbox-leading-b.pdf}}\end{figure}\end{document}";
 

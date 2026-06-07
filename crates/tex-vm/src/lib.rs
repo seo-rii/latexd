@@ -3488,6 +3488,13 @@ impl<'i> Vm<'i> {
                                                     source,
                                                     body_command_index,
                                                 );
+                                                if source[argument_index..].starts_with('*') {
+                                                    argument_index += 1;
+                                                    argument_index = skip_ascii_whitespace(
+                                                        source,
+                                                        argument_index,
+                                                    );
+                                                }
                                                 let mut caption = None;
                                                 loop {
                                                     argument_index = skip_ascii_whitespace(
@@ -30306,6 +30313,38 @@ Fallback text.
                         .iter()
                         .any(|hidden| text.text.contains(hidden))
                 }
+                _ => false,
+            }
+        }));
+    }
+
+    #[test]
+    fn render_event_capture_records_starred_subfloat_commands() {
+        let source = r"\begin{document}\begin{figure}\subfloat*[Starred panel \cite{key}.]{\includegraphics[width=2cm]{figures/subfloat-star-a.pdf}}\subfigure*[Starred legacy panel \cite{key}.]{\includegraphics[width=2cm]{figures/subfloat-star-b.pdf}}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for path in ["figures/subfloat-star-a.pdf", "figures/subfloat-star-b.pdf"] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::GraphicRef(graphic)
+                    if graphic.path == path && graphic.options.as_deref() == Some("width=2cm")
+            )));
+        }
+        for caption in ["Starred panel [?].", "Starred legacy panel [?]."] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Caption(event) if event.text == caption
+            )));
+        }
+        assert!(!outcome.render_events.iter().any(|event| {
+            match &event.event {
+                RenderEvent::Text(text) => ["*", "key", "subfloat", "subfigure"]
+                    .iter()
+                    .any(|hidden| text.text.contains(hidden)),
                 _ => false,
             }
         }));

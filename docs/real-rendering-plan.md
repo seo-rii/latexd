@@ -224,7 +224,8 @@ subfloat/subcaptionbox bodies are preserved as label-definition events instead
 of being dropped with the wrapper body.
 Two-optional caption forms such as `\subfloat[short][long]{...}` and legacy
 `\subfigure[short][long]{...}` preserve the long visible caption while hiding
-the short list caption.
+the short list caption. Starred `\subfloat*` / `\subfigure*` commands use the
+same capture path without leaking the star marker.
 Caption package boxes such as `\captionbox{...}{\includegraphics...}` share the
 subcaptionbox capture path, preserving the image and caption while hiding width
 options. Leading optional short/list captions such as
@@ -1015,6 +1016,8 @@ Status:
   definitions;
 - two-optional `\subfloat` / `\subfigure` commands preserve the long visible
   caption without leaking the short list caption;
+- starred `\subfloat` / `\subfigure` commands preserve nested panel images and
+  captions without leaking the star marker;
 - `\captionbox` commands preserve nested images and captions through the same
   path as `\subcaptionbox`, including leading optional short/list captions and
   starred forms;
