@@ -6137,6 +6137,57 @@ fn math_relation_operators_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn split_math_negation_relations_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Negation \(x\not\in A + a\not\le b + p\not\equiv q + r\not\rightarrow s + y\not= z\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"x\not\in A + a\not\le b + p\not\equiv q + r\not\rightarrow s + y\not= z"
+                && normalized_text.as_deref()
+                    == Some("x not in A + a not <= b + p not equiv q + r not -> s + y not = z")
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text
+            .contains("x not in A + a not <= b + p not equiv q + r not -> s + y not = z"),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains(r"\not\in"));
+    assert!(!display_list_text.contains(r"\not\le"));
+    assert!(!display_list_text.contains(r"\not\rightarrow"));
+}
+
+#[test]
 fn math_order_relation_operators_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Order \(a\leqslant b \geqslant c \lesssim d \gtrsim e \prec f \preceq g \succ h \succeq i \npreceq j \sqsubseteq K \sqsupseteq L \triangleq M\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

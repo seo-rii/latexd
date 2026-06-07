@@ -22940,6 +22940,42 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("-|");
                         index = command_index;
                     }
+                    "not" => {
+                        let next_index = skip_ascii_whitespace(source, command_index);
+                        if next_index >= bytes.len() {
+                            return None;
+                        }
+                        let (next_source, after_next) = if bytes[next_index] == b'\\' {
+                            let mut after_next = next_index + 1;
+                            if after_next >= bytes.len() {
+                                return None;
+                            }
+                            if bytes[after_next].is_ascii_alphabetic() || bytes[after_next] == b'@'
+                            {
+                                while after_next < bytes.len()
+                                    && (bytes[after_next].is_ascii_alphabetic()
+                                        || bytes[after_next] == b'@')
+                                {
+                                    after_next += 1;
+                                }
+                            } else {
+                                after_next += 1;
+                            }
+                            (&source[next_index..after_next], after_next)
+                        } else {
+                            let next_char = source[next_index..]
+                                .chars()
+                                .next()
+                                .expect("math negation target char");
+                            let after_next = next_index + next_char.len_utf8();
+                            (&source[next_index..after_next], after_next)
+                        };
+                        let next_text = normalize_latex_math_text(next_source)
+                            .unwrap_or_else(|| normalize_latex_math_source(next_source));
+                        let negated = format!("not {next_text}");
+                        push_operator!(&negated);
+                        index = after_next;
+                    }
                     "in" => {
                         push_operator!("in");
                         index = command_index;
@@ -32947,6 +32983,34 @@ Fallback text.
             Some(
                 "a equiv b cong c simeq d propto e perp f parallel g << h >> i models J |- K -| L"
             )
+        );
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_split_math_negation_relations() {
+        let source = r"\begin{document}Negation \(x\not\in A + a\not\le b + p\not\equiv q + r\not\rightarrow s + y\not= z\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        let RenderEvent::InlineMath(math) = &inline_math.event else {
+            panic!("inline math event");
+        };
+
+        assert_eq!(
+            math.raw_source,
+            r"x\not\in A + a\not\le b + p\not\equiv q + r\not\rightarrow s + y\not= z"
+        );
+        assert_eq!(
+            math.normalized_text.as_deref(),
+            Some("x not in A + a not <= b + p not equiv q + r not -> s + y not = z")
         );
     }
 

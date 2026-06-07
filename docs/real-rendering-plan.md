@@ -850,8 +850,9 @@ Current status:
 - inline/display math events preserve raw TeX source and carry optional
   readable `normalized_text`;
 - the first normalized-text subset covers common Greek names, comparison and
-  arithmetic operators, relation/equivalence/order operators, set/logical operators,
-  fractions, binomial coefficients, common binary operators such as `oplus`,
+  arithmetic operators, relation/equivalence/order operators including split
+  `\not` negation forms, set/logical operators, fractions, binomial coefficients,
+  common binary operators such as `oplus`,
   `otimes`, and `odot`,
   roots,
   text/operator wrappers, simple
