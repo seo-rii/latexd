@@ -225,7 +225,10 @@ Two-optional caption forms such as `\subfloat[short][long]{...}` and legacy
 the short list caption.
 Caption package boxes such as `\captionbox{...}{\includegraphics...}` share the
 subcaptionbox capture path, preserving the image and caption while hiding width
-options.
+options. Leading optional short/list captions such as
+`\captionbox[short]{long}[width]{...}` and `\subcaptionbox[short]{long}{...}`
+use the long visible caption and suppress the short caption from extracted
+text.
 Floatrow figure boxes such as
 `\ffigbox[...][...]{\includegraphics...}{\caption{...}}` preserve the image and
 caption while consuming floatrow layout options, including caption-first
@@ -1007,7 +1010,7 @@ Status:
 - two-optional `\subfloat` / `\subfigure` commands preserve the long visible
   caption without leaking the short list caption;
 - `\captionbox` commands preserve nested images and captions through the same
-  path as `\subcaptionbox`;
+  path as `\subcaptionbox`, including leading optional short/list captions;
 - floatrow `\ffigbox` commands preserve nested images and captions while
   suppressing floatrow layout options, including caption-first argument order;
 - floatrow `\fcapside` commands preserve nested images and captions while

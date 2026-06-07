@@ -3562,10 +3562,25 @@ impl<'i> Vm<'i> {
                                                 }
                                             }
                                             "captionbox" | "subcaptionbox" => {
-                                                let caption_index = skip_ascii_whitespace(
+                                                let mut caption_index = skip_ascii_whitespace(
                                                     source,
                                                     body_command_index,
                                                 );
+                                                loop {
+                                                    let Some((_, _, _, after_option)) =
+                                                        read_bracket_source_argument(
+                                                            source,
+                                                            caption_index,
+                                                        )
+                                                    else {
+                                                        break;
+                                                    };
+                                                    if after_option > body_end {
+                                                        break;
+                                                    }
+                                                    caption_index =
+                                                        skip_ascii_whitespace(source, after_option);
+                                                }
                                                 if let Some((
                                                     caption,
                                                     caption_start,
@@ -30260,6 +30275,53 @@ Fallback text.
                         .iter()
                         .any(|hidden| text.text.contains(hidden))
                 }
+                _ => false,
+            }
+        }));
+    }
+
+    #[test]
+    fn render_event_capture_records_captionbox_leading_optional_captions() {
+        let source = r"\begin{document}\begin{figure}\subcaptionbox[Subcaption short \cite{key}.]{Subcaption long \cite{key}.}[0.3\textwidth]{\includegraphics[width=2cm]{figures/captionbox-leading-a.pdf}}\captionbox[Captionbox short \cite{key}.]{Captionbox long \cite{key}.}[0.4\textwidth]{\includegraphics[width=2cm]{figures/captionbox-leading-b.pdf}}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for path in [
+            "figures/captionbox-leading-a.pdf",
+            "figures/captionbox-leading-b.pdf",
+        ] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::GraphicRef(graphic)
+                    if graphic.path == path && graphic.options.as_deref() == Some("width=2cm")
+            )));
+        }
+        for caption in ["Subcaption long [?].", "Captionbox long [?]."] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Caption(event) if event.text == caption
+            )));
+        }
+        assert!(!outcome.render_events.iter().any(|event| {
+            match &event.event {
+                RenderEvent::Caption(caption) => {
+                    caption.text.contains("short") || caption.text.contains("Short")
+                }
+                RenderEvent::Text(text) => [
+                    "Subcaption short",
+                    "Captionbox short",
+                    "key",
+                    "subcaptionbox",
+                    "captionbox",
+                    "0.3",
+                    "0.4",
+                    "textwidth",
+                ]
+                .iter()
+                .any(|hidden| text.text.contains(hidden)),
                 _ => false,
             }
         }));
