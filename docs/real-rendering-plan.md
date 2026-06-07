@@ -155,8 +155,9 @@ renderer-neutral `ImageCrop` metadata on display-list image
 ops, exposed in SVG debug artifacts as `data-image-crop-*` attributes, and used
 to derive default image-box size when no explicit size is provided; individual
 `bbllx` / `bblly` / `bburx` / `bbury` keys are normalized to the same viewport
-metadata. The PDF bitmap embedder and display-list SVG debug renderer now apply
-crop metadata by offsetting/scaling embedded bitmap assets; `clip=true`
+metadata. Whitespace-separated and braced comma-separated crop quads share the
+same parser. The PDF bitmap embedder and display-list SVG debug renderer now
+apply crop metadata by offsetting/scaling embedded bitmap assets; `clip=true`
 additionally clips to the destination rect. Project-root render-IR artifacts
 cover both clipped and unclipped crop placement for bitmap assets, including
 starred `\includegraphics*` forms that imply `clip`. Local `draft`

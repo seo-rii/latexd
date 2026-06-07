@@ -1539,7 +1539,10 @@ pub fn build_page_display_lists(
         parse_dimension_atom(&normalized).or_else(|| parse_dimension_expression(&normalized))
     };
     let parse_graphic_quad_pt = |raw_value: &str| -> Option<[f32; 4]> {
-        let normalized = raw_value.trim().trim_matches(|ch| ch == '{' || ch == '}');
+        let normalized = raw_value
+            .trim()
+            .trim_matches(|ch| ch == '{' || ch == '}')
+            .replace(',', " ");
         let parts = normalized.split_whitespace().collect::<Vec<_>>();
         if parts.len() != 4 {
             return None;
@@ -2100,7 +2103,23 @@ pub fn build_page_display_lists(
                 let mut rotation_angle_degrees = None;
                 let mut rotation_origin = None;
                 if let Some(graphic_options) = &logical.options {
-                    for part in graphic_options.split(',') {
+                    let mut option_parts = Vec::new();
+                    let mut part_start = 0usize;
+                    let mut brace_depth = 0usize;
+                    for (index, ch) in graphic_options.char_indices() {
+                        match ch {
+                            '{' => brace_depth += 1,
+                            '}' if brace_depth > 0 => brace_depth -= 1,
+                            ',' if brace_depth == 0 => {
+                                option_parts.push(&graphic_options[part_start..index]);
+                                part_start = index + ch.len_utf8();
+                            }
+                            _ => {}
+                        }
+                    }
+                    option_parts.push(&graphic_options[part_start..]);
+
+                    for part in option_parts {
                         let part = part.trim();
                         if part == "keepaspectratio" {
                             keep_aspect_ratio = true;
@@ -6000,6 +6019,46 @@ mod tests {
                     ury_pt: 60.0,
                 }),
                 clip: false,
+            })
+        );
+    }
+
+    #[test]
+    fn graphic_braced_comma_viewport_option_is_preserved_on_image_ops() {
+        let source = SourceProvenance::file("main.tex", 0, 24);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
+                path: "figures/plot.png".to_string(),
+                options: Some("viewport={0pt,0pt,120pt,60pt},clip".to_string()),
+                asset_format: Some(GraphicAssetFormat::Png),
+                asset_hash: None,
+                asset_dimensions: None,
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let image = display_lists[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::Image(image) if image.asset_ref == "figures/plot.png" => Some(image),
+                _ => None,
+            })
+            .expect("image op");
+
+        assert_eq!(
+            image.crop,
+            Some(ImageCrop {
+                trim: None,
+                viewport: Some(ImageViewport {
+                    llx_pt: 0.0,
+                    lly_pt: 0.0,
+                    urx_pt: 120.0,
+                    ury_pt: 60.0,
+                }),
+                clip: true,
             })
         );
     }
