@@ -162,7 +162,10 @@ same parser. The PDF bitmap embedder and display-list SVG debug renderer now
 apply crop metadata by offsetting/scaling embedded bitmap assets; `clip=true`
 additionally clips to the destination rect. Project-root render-IR artifacts
 cover both clipped and unclipped crop placement for bitmap assets, including
-starred `\includegraphics*` forms that imply `clip`. Local `draft`
+starred `\includegraphics*` forms that imply `clip`. PDF `page` and `pagebox`
+graphic options now survive as renderer-neutral page-selection metadata through
+events, Document IR, and `PageDisplayList::Image`, and external PDF conversion
+uses the selected page when converting debug artifacts. Local `draft`
 graphic options,
 package-level
 `\usepackage[draft]{graphicx}` options, and class-level
@@ -1056,6 +1059,9 @@ Status:
 - legacy `graphics` two-optional bounding-box syntax
   `\includegraphics[llx,lly][urx,ury]{...}` is normalized to viewport metadata
   instead of dropping the image;
+- PDF `page` / `pagebox` graphic options survive into `GraphicRef`,
+  `GraphicBlock`, and `PageDisplayList::Image`, and debug PDF/SVG asset
+  conversion uses the selected page when available;
 - local, package-level, class-level, `PassOptionsToPackage`, and
   `\setkeys{Gin}{...}` `draft` graphic options force placeholders instead of
   embedding resolver-backed assets;

@@ -2834,6 +2834,59 @@ fn graphic_two_optional_bounding_box_syntax_drives_default_image_rect() {
 }
 
 #[test]
+fn graphic_pdf_page_selection_survives_render_boundaries_without_text_leakage() {
+    let capture =
+        capture_internal_render_ir("main.tex", PDF_PAGE_GRAPHIC_SOURCE, &SemanticAux::default());
+    let expected = tex_render_model::GraphicPageSelection {
+        page: Some(2),
+        pagebox: Some("cropbox".to_string()),
+    };
+    let graphic_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|event| match &event.event {
+            RenderEvent::GraphicRef(graphic) if graphic.path == "figures/multipage.pdf" => {
+                Some(graphic)
+            }
+            _ => None,
+        })
+        .expect("graphic event");
+    let graphic_block = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Graphic(graphic) if graphic.path == "figures/multipage.pdf" => Some(graphic),
+            _ => None,
+        })
+        .expect("graphic block");
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/multipage.pdf" => Some(image),
+            _ => None,
+        })
+        .expect("image op");
+
+    assert_eq!(graphic_event.page_selection.as_ref(), Some(&expected));
+    assert_eq!(graphic_block.page_selection.as_ref(), Some(&expected));
+    assert_eq!(image.page_selection.as_ref(), Some(&expected));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+    let svg = tex_pdf::render_display_list_svg(&capture.page_display_lists[0]);
+    assert!(pdf_text.contains("[image: figures/multipage.pdf]"));
+    assert!(svg.contains("data-image-page=\"2\""));
+    assert!(svg.contains("data-image-pagebox=\"cropbox\""));
+    for hidden in ["page=2", "pagebox", "cropbox"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!pdf_text.contains(hidden), "{pdf_text}");
+    }
+}
+
+#[test]
 fn graphic_trim_affects_project_root_default_image_rect() {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
@@ -22086,6 +22139,8 @@ const CODE_LISTING_FALLBACK_SOURCE: &str = r#"\begin{document}\begin{lstlisting}
 const FANCYVRB_FALLBACK_SOURCE: &str = r"\begin{document}\begin{Verbatim}[fontsize=\small]\foo_{bar} {baz}\end{Verbatim}\end{document}";
 
 const GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\end{figure}\end{document}";
+
+const PDF_PAGE_GRAPHIC_SOURCE: &str = r"\begin{document}\includegraphics[page=2,pagebox=cropbox,width=5cm]{figures/multipage.pdf}\end{document}";
 
 const EXTENSIONLESS_GRAPHIC_SOURCE: &str = r"\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot}\caption{Plot caption.}\end{figure}\end{document}";
 

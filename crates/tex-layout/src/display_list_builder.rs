@@ -177,6 +177,7 @@ struct LogicalTextRun {
 struct LogicalImage {
     path: String,
     options: Option<String>,
+    page_selection: Option<tex_render_model::GraphicPageSelection>,
     asset_format: Option<tex_render_model::GraphicAssetFormat>,
     asset_hash: Option<String>,
     asset_dimensions: Option<tex_render_model::GraphicAssetDimensions>,
@@ -651,6 +652,7 @@ pub fn build_page_display_lists(
                 logical_items.push(LogicalItem::Image(LogicalImage {
                     path: block.path.clone(),
                     options: block.options.clone(),
+                    page_selection: block.page_selection.clone(),
                     asset_format: block.asset_format,
                     asset_hash: block.asset_hash.clone(),
                     asset_dimensions: block.asset_dimensions,
@@ -2398,6 +2400,12 @@ pub fn build_page_display_lists(
                     pending.hash_input.push_str("asset-format:");
                     pending.hash_input.push_str(asset_format.as_str());
                 }
+                if let Some(page_selection) = &logical.page_selection {
+                    pending.hash_input.push('\u{1f}');
+                    pending
+                        .hash_input
+                        .push_str(&format!("page-selection:{page_selection:?}"));
+                }
                 if let Some(asset_hash) = &logical.asset_hash {
                     pending.hash_input.push('\u{1f}');
                     pending.hash_input.push_str("asset-hash:");
@@ -2452,6 +2460,7 @@ pub fn build_page_display_lists(
                     },
                     asset_ref: logical.path.clone(),
                     asset_format: logical.asset_format,
+                    page_selection: logical.page_selection.clone(),
                     asset_hash: logical.asset_hash.clone(),
                     natural_width_pt: Some(natural_image_width),
                     natural_height_pt: Some(natural_image_height),
@@ -4784,6 +4793,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.pdf".to_string(),
                 options: None,
+                page_selection: None,
                 asset_format: None,
                 asset_hash: None,
                 asset_dimensions: None,
@@ -5533,6 +5543,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.pdf".to_string(),
                 options: Some("width=0.8\\linewidth".to_string()),
+                page_selection: None,
                 asset_format: None,
                 asset_hash: None,
                 asset_dimensions: None,
@@ -5584,6 +5595,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.pdf".to_string(),
                 options: Some("width=5cm,height=2cm".to_string()),
+                page_selection: None,
                 asset_format: None,
                 asset_hash: None,
                 asset_dimensions: None,
@@ -5597,6 +5609,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.pdf".to_string(),
                 options: Some("width=6cm,height=2cm".to_string()),
+                page_selection: None,
                 asset_format: None,
                 asset_hash: None,
                 asset_dimensions: None,
@@ -5632,6 +5645,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.png".to_string(),
                 options: Some(r"width=\dimexpr\textwidth-2\fboxsep\relax".to_string()),
+                page_selection: None,
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: None,
                 asset_dimensions: Some(GraphicAssetDimensions {
@@ -5668,6 +5682,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.png".to_string(),
                 options: Some("scale=0.5,yscale=2".to_string()),
+                page_selection: None,
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: Some("blake3:asset".to_string()),
                 asset_dimensions: Some(GraphicAssetDimensions {
@@ -5687,6 +5702,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.png".to_string(),
                 options: Some("scale=0.5,yscale=1".to_string()),
+                page_selection: None,
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: Some("blake3:asset".to_string()),
                 asset_dimensions: Some(GraphicAssetDimensions {
@@ -5727,6 +5743,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.asset".to_string(),
                 options: None,
+                page_selection: None,
                 asset_format: Some(GraphicAssetFormat::Pdf),
                 asset_hash: None,
                 asset_dimensions: None,
@@ -5740,6 +5757,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.asset".to_string(),
                 options: None,
+                page_selection: None,
                 asset_format: Some(GraphicAssetFormat::Svg),
                 asset_hash: None,
                 asset_dimensions: None,
@@ -5764,6 +5782,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.png".to_string(),
                 options: None,
+                page_selection: None,
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: Some("blake3:asset".to_string()),
                 asset_dimensions: Some(GraphicAssetDimensions {
@@ -5783,6 +5802,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.png".to_string(),
                 options: None,
+                page_selection: None,
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: Some("blake3:asset".to_string()),
                 asset_dimensions: None,
@@ -5816,6 +5836,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.png".to_string(),
                 options: None,
+                page_selection: None,
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: Some("blake3:asset".to_string()),
                 asset_dimensions: Some(GraphicAssetDimensions {
@@ -5839,6 +5860,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.png".to_string(),
                 options: None,
+                page_selection: None,
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: Some("blake3:asset".to_string()),
                 asset_dimensions: Some(GraphicAssetDimensions {
@@ -5878,6 +5900,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/vector.svg".to_string(),
                 options: None,
+                page_selection: None,
                 asset_format: Some(GraphicAssetFormat::Svg),
                 asset_hash: Some("blake3:asset".to_string()),
                 asset_dimensions: Some(GraphicAssetDimensions {
@@ -5915,6 +5938,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.png".to_string(),
                 options: Some("width=100pt,height=100pt,keepaspectratio".to_string()),
+                page_selection: None,
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: Some("blake3:asset".to_string()),
                 asset_dimensions: Some(GraphicAssetDimensions {
@@ -5950,6 +5974,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.png".to_string(),
                 options: Some("trim=1pt 2pt 3pt 4pt,clip".to_string()),
+                page_selection: None,
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: None,
                 asset_dimensions: None,
@@ -5990,6 +6015,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.png".to_string(),
                 options: Some("viewport=0pt 0pt 120pt 60pt,clip=false".to_string()),
+                page_selection: None,
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: None,
                 asset_dimensions: None,
@@ -6030,6 +6056,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.png".to_string(),
                 options: Some("viewport={0pt,0pt,120pt,60pt},clip".to_string()),
+                page_selection: None,
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: None,
                 asset_dimensions: None,
@@ -6070,6 +6097,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.png".to_string(),
                 options: Some("trim=50pt 0pt 50pt 0pt,clip".to_string()),
+                page_selection: None,
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: None,
                 asset_dimensions: Some(GraphicAssetDimensions {
@@ -6105,6 +6133,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.png".to_string(),
                 options: Some("viewport=10pt 20pt 60pt 45pt,clip".to_string()),
+                page_selection: None,
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: None,
                 asset_dimensions: Some(GraphicAssetDimensions {
@@ -6140,6 +6169,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.png".to_string(),
                 options: Some("width=100pt,angle=90,origin=c".to_string()),
+                page_selection: None,
                 asset_format: Some(GraphicAssetFormat::Png),
                 asset_hash: None,
                 asset_dimensions: None,
@@ -6174,6 +6204,7 @@ mod tests {
             &DocumentIr::new(vec![IrBlock::Graphic(GraphicBlock {
                 path: "figures/plot.pdf".to_string(),
                 options: None,
+                page_selection: None,
                 asset_format: None,
                 asset_hash: None,
                 asset_dimensions: None,

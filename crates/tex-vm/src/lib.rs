@@ -9,14 +9,14 @@ use tex_lexer::{CatCodeTable, Lexer, lex_plain};
 use tex_render_model::{
     BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint,
     EndBlockEvent, EventId, ExpansionFrame, FallbackReason, FlushTitleBlockEvent,
-    GraphicAssetDensity, GraphicAssetDensityUnit, GraphicAssetFormat, GraphicRefEvent,
-    HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
-    LineBreakEvent, LineBreakReason, ListItemEvent, ListKind, MathSourceEvent, MetadataField,
-    ModeHint, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent,
-    RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent,
-    SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind, TableCellSpanEvent,
-    TableColumnAlignment, TableColumnSpec, TableRuleEvent, TableRulePosition, TableRuleSpan,
-    TextEvent,
+    GraphicAssetDensity, GraphicAssetDensityUnit, GraphicAssetFormat, GraphicPageSelection,
+    GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent,
+    LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent, ListKind,
+    MathSourceEvent, MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason,
+    ProvenanceSpan, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
+    SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
+    TableCellSpanEvent, TableColumnAlignment, TableColumnSpec, TableRuleEvent, TableRulePosition,
+    TableRuleSpan, TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -12711,12 +12711,14 @@ impl<'i> Vm<'i> {
             default_options,
             merge_graphic_options(local_options, inherited_options),
         );
+        let page_selection = parse_graphic_page_selection(options.as_deref());
         self.emit_render_event(
             RenderEvent::GraphicRef(GraphicRefEvent {
                 asset_format,
                 asset_hash: asset_hash.clone(),
                 asset_dimensions,
                 path: resolved_path.clone(),
+                page_selection,
                 options,
             }),
             event_source.clone(),
@@ -12939,12 +12941,14 @@ impl<'i> Vm<'i> {
                 default_options,
                 merge_graphic_options(Some(options), inherited_options),
             );
+            let page_selection = parse_graphic_page_selection(options.as_deref());
             self.emit_render_event(
                 RenderEvent::GraphicRef(GraphicRefEvent {
                     asset_format,
                     asset_hash: asset_hash.clone(),
                     asset_dimensions,
                     path: resolved_path.clone(),
+                    page_selection,
                     options,
                 }),
                 event_source.clone(),
@@ -13005,12 +13009,14 @@ impl<'i> Vm<'i> {
             default_options,
             merge_graphic_options(None, inherited_options),
         );
+        let page_selection = parse_graphic_page_selection(options.as_deref());
         self.emit_render_event(
             RenderEvent::GraphicRef(GraphicRefEvent {
                 asset_format,
                 asset_hash: asset_hash.clone(),
                 asset_dimensions,
                 path: resolved_path.clone(),
+                page_selection,
                 options,
             }),
             event_source.clone(),
@@ -21174,6 +21180,47 @@ fn merge_graphic_default_options(
         (_, Some(options)) if !options.trim().is_empty() => Some(options),
         _ => None,
     }
+}
+
+fn parse_graphic_page_selection(options: Option<&str>) -> Option<GraphicPageSelection> {
+    let mut page = None;
+    let mut pagebox = None;
+    let options = options?.trim();
+    if options.is_empty() {
+        return None;
+    }
+    let mut part_start = 0usize;
+    let mut brace_depth = 0usize;
+    for (index, ch) in options
+        .char_indices()
+        .chain(std::iter::once((options.len(), ',')))
+    {
+        match ch {
+            '{' => brace_depth += 1,
+            '}' if brace_depth > 0 => brace_depth -= 1,
+            ',' if brace_depth == 0 => {
+                let part = options[part_start..index].trim();
+                if let Some((key, value)) = part.split_once('=') {
+                    let key = key.trim();
+                    let value = value.trim().trim_matches(|ch| ch == '{' || ch == '}');
+                    match key {
+                        "page" => {
+                            page = value.parse::<u32>().ok().filter(|page| *page > 0);
+                        }
+                        "pagebox" => {
+                            if !value.is_empty() {
+                                pagebox = Some(value.to_string());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                part_start = index + ch.len_utf8();
+            }
+            _ => {}
+        }
+    }
+    (page.is_some() || pagebox.is_some()).then_some(GraphicPageSelection { page, pagebox })
 }
 
 fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
@@ -30227,6 +30274,27 @@ Fallback text.
                 if graphic.path == "figures/plot.pdf"
                     && graphic.options.as_deref()
                         == Some(r"width=0.5\linewidth,height=0.25\textheight")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_graphic_page_selection_options() {
+        let source = r"\begin{document}\includegraphics[page=2,pagebox=cropbox,width=5cm]{figures/multipage.pdf}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/multipage.pdf"
+                    && graphic.options.as_deref()
+                        == Some("page=2,pagebox=cropbox,width=5cm")
+                    && graphic.page_selection.as_ref().is_some_and(|selection|
+                        selection.page == Some(2)
+                            && selection.pagebox.as_deref() == Some("cropbox"))
         )));
     }
 

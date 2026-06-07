@@ -513,6 +513,7 @@ pub fn convert_pdf_or_eps_asset_to_png_with_cli(
     program: &str,
     asset_ref: &str,
     bytes: &[u8],
+    page: Option<u32>,
 ) -> Result<Vec<u8>> {
     let suffix = Path::new(asset_ref)
         .extension()
@@ -527,6 +528,9 @@ pub fn convert_pdf_or_eps_asset_to_png_with_cli(
         .with_context(|| format!("failed to create temporary input for {asset_ref}"))?;
     std::fs::write(input.path(), bytes)
         .with_context(|| format!("failed to write temporary input for {asset_ref}"))?;
+    let page = page.filter(|page| *page > 0).unwrap_or(1);
+    let first_page_arg = format!("-dFirstPage={page}");
+    let last_page_arg = format!("-dLastPage={page}");
 
     let output = std::process::Command::new(program)
         .args([
@@ -538,8 +542,8 @@ pub fn convert_pdf_or_eps_asset_to_png_with_cli(
             "-sDEVICE=pngalpha",
             "-dTextAlphaBits=4",
             "-dGraphicsAlphaBits=4",
-            "-dFirstPage=1",
-            "-dLastPage=1",
+            &first_page_arg,
+            &last_page_arg,
             "-r72",
             "-sOutputFile=%stdout",
         ])
@@ -561,6 +565,7 @@ pub fn convert_pdf_asset_to_png_with_pdftoppm(
     program: &str,
     asset_ref: &str,
     bytes: &[u8],
+    page: Option<u32>,
 ) -> Result<Vec<u8>> {
     let input = tempfile::Builder::new()
         .prefix("latexd-asset-")
@@ -572,15 +577,16 @@ pub fn convert_pdf_asset_to_png_with_pdftoppm(
     let output_dir = tempfile::tempdir()
         .with_context(|| format!("failed to create temporary output dir for {asset_ref}"))?;
     let output_prefix = output_dir.path().join("page");
+    let page = page.filter(|page| *page > 0).unwrap_or(1).to_string();
     let output = std::process::Command::new(program)
         .args([
             "-q",
             "-png",
             "-singlefile",
             "-f",
-            "1",
+            page.as_str(),
             "-l",
-            "1",
+            page.as_str(),
             "-r",
             "72",
         ])
@@ -805,6 +811,61 @@ mod tests {
         fs::write(path, pdf).expect("write sample pdf");
     }
 
+    fn write_sample_multipage_pdf(path: &std::path::Path, pages: &[(u32, u32)]) {
+        let mut objects = vec![
+            "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n".to_string(),
+            String::new(),
+            "3 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n".to_string(),
+        ];
+        let kids = pages
+            .iter()
+            .enumerate()
+            .map(|(index, _)| format!("{} 0 R", 4 + index * 2))
+            .collect::<Vec<_>>()
+            .join(" ");
+        objects[1] = format!(
+            "2 0 obj << /Type /Pages /Kids [{}] /Count {} >> endobj\n",
+            kids,
+            pages.len()
+        );
+        for (index, (width, height)) in pages.iter().enumerate() {
+            let page_id = 4 + index * 2;
+            let content_id = page_id + 1;
+            let stream = format!("BT /F1 12 Tf 18 18 Td (page {}) Tj ET", index + 1);
+            objects.push(format!(
+                "{page_id} 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 {width} {height}] /Resources << /Font << /F1 3 0 R >> >> /Contents {content_id} 0 R >> endobj\n"
+            ));
+            objects.push(format!(
+                "{content_id} 0 obj << /Length {} >> stream\n{}\nendstream\nendobj\n",
+                stream.len(),
+                stream
+            ));
+        }
+
+        let mut pdf = Vec::new();
+        pdf.extend_from_slice(b"%PDF-1.4\n");
+        let mut offsets = vec![0usize];
+        for object in &objects {
+            offsets.push(pdf.len());
+            pdf.extend_from_slice(object.as_bytes());
+        }
+        let xref_offset = pdf.len();
+        pdf.extend_from_slice(format!("xref\n0 {}\n", objects.len() + 1).as_bytes());
+        pdf.extend_from_slice(b"0000000000 65535 f \n");
+        for offset in offsets.iter().skip(1) {
+            pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        pdf.extend_from_slice(
+            format!(
+                "trailer << /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
+                objects.len() + 1,
+                xref_offset
+            )
+            .as_bytes(),
+        );
+        fs::write(path, pdf).expect("write sample multipage pdf");
+    }
+
     fn gs_page(program: &str) -> (NamedTempFile, PageRenderInput) {
         let pdf_file = NamedTempFile::new().expect("named temp file");
         write_sample_pdf(pdf_file.path(), 144, 72);
@@ -1005,8 +1066,32 @@ mod tests {
             program.to_string_lossy().as_ref(),
             "figures/vector.pdf",
             &pdf,
+            None,
         )
         .expect("convert pdf asset");
+        let image =
+            image::load_from_memory_with_format(&png, image::ImageFormat::Png).expect("decode png");
+
+        assert_eq!(image.width(), 144);
+        assert_eq!(image.height(), 72);
+    }
+
+    #[test]
+    fn cli_converter_uses_selected_pdf_page_when_available() {
+        let Ok(program) = which::which("gs") else {
+            return;
+        };
+        let pdf_file = NamedTempFile::new().expect("named temp file");
+        write_sample_multipage_pdf(pdf_file.path(), &[(72, 36), (144, 72)]);
+        let pdf = fs::read(pdf_file.path()).expect("read sample pdf");
+
+        let png = convert_pdf_or_eps_asset_to_png_with_cli(
+            program.to_string_lossy().as_ref(),
+            "figures/vector.pdf",
+            &pdf,
+            Some(2),
+        )
+        .expect("convert selected pdf page");
         let image =
             image::load_from_memory_with_format(&png, image::ImageFormat::Png).expect("decode png");
 
@@ -1030,6 +1115,7 @@ showpage
             program.to_string_lossy().as_ref(),
             "figures/vector.eps",
             eps,
+            None,
         )
         .expect("convert eps asset");
         let image =
@@ -1052,8 +1138,32 @@ showpage
             program.to_string_lossy().as_ref(),
             "figures/vector.pdf",
             &pdf,
+            None,
         )
         .expect("convert pdf asset");
+        let image =
+            image::load_from_memory_with_format(&png, image::ImageFormat::Png).expect("decode png");
+
+        assert_eq!(image.width(), 144);
+        assert_eq!(image.height(), 72);
+    }
+
+    #[test]
+    fn pdftoppm_converter_uses_selected_pdf_page_when_available() {
+        let Ok(program) = which::which("pdftoppm") else {
+            return;
+        };
+        let pdf_file = NamedTempFile::new().expect("named temp file");
+        write_sample_multipage_pdf(pdf_file.path(), &[(72, 36), (144, 72)]);
+        let pdf = fs::read(pdf_file.path()).expect("read sample pdf");
+
+        let png = convert_pdf_asset_to_png_with_pdftoppm(
+            program.to_string_lossy().as_ref(),
+            "figures/vector.pdf",
+            &pdf,
+            Some(2),
+        )
+        .expect("convert selected pdf page");
         let image =
             image::load_from_memory_with_format(&png, image::ImageFormat::Png).expect("decode png");
 

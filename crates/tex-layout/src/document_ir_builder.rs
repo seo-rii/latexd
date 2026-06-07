@@ -583,6 +583,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     self.blocks.push(IrBlock::Graphic(GraphicBlock {
                         path: event.path.clone(),
                         options: event.options.clone(),
+                        page_selection: event.page_selection.clone(),
                         asset_format: event.asset_format,
                         asset_hash: event.asset_hash.clone(),
                         asset_dimensions: event.asset_dimensions,
@@ -1072,6 +1073,7 @@ mod tests {
                     RenderEvent::GraphicRef(GraphicRefEvent {
                         path: "figures/plot.pdf".to_string(),
                         options: Some("width=0.8\\linewidth".to_string()),
+                        page_selection: None,
                         asset_format: None,
                         asset_hash: None,
                         asset_dimensions: Some(GraphicAssetDimensions {
@@ -1124,6 +1126,7 @@ mod tests {
                     RenderEvent::GraphicRef(GraphicRefEvent {
                         path: "figures/plot.pdf".to_string(),
                         options: None,
+                        page_selection: None,
                         asset_format: None,
                         asset_hash: None,
                         asset_dimensions: None,

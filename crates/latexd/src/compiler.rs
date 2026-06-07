@@ -404,6 +404,10 @@ fn convert_external_display_list_asset(
                 program.to_string_lossy().as_ref(),
                 &image.asset_ref,
                 bytes,
+                image
+                    .page_selection
+                    .as_ref()
+                    .and_then(|selection| selection.page),
             )
             .ok()
         })
@@ -416,6 +420,10 @@ fn convert_external_display_list_asset(
                 program.to_string_lossy().as_ref(),
                 &image.asset_ref,
                 bytes,
+                image
+                    .page_selection
+                    .as_ref()
+                    .and_then(|selection| selection.page),
             )
             .ok()
         })?;
@@ -3701,6 +3709,7 @@ mod tests {
                 },
                 asset_ref: asset_ref.to_string(),
                 asset_format: None,
+                page_selection: None,
                 asset_hash: None,
                 natural_width_pt: None,
                 natural_height_pt: None,

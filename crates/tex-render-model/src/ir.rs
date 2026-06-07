@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CitationStyleHint, GraphicAssetDimensions, GraphicAssetFormat, ListKind, RawFallbackEvent,
-    SourceProvenance, TableColumnAlignment, TableColumnSpec, TableRuleSpan,
+    CitationStyleHint, GraphicAssetDimensions, GraphicAssetFormat, GraphicPageSelection, ListKind,
+    RawFallbackEvent, SourceProvenance, TableColumnAlignment, TableColumnSpec, TableRuleSpan,
 };
 
 pub const DOCUMENT_IR_SCHEMA_VERSION: u32 = 1;
@@ -353,6 +353,8 @@ pub struct GraphicBlock {
     pub path: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub options: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_selection: Option<GraphicPageSelection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asset_format: Option<GraphicAssetFormat>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

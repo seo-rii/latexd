@@ -293,11 +293,21 @@ pub struct GraphicRefEvent {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub options: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_selection: Option<GraphicPageSelection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asset_format: Option<GraphicAssetFormat>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asset_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asset_dimensions: Option<GraphicAssetDimensions>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GraphicPageSelection {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pagebox: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -747,6 +757,7 @@ mod tests {
             RenderEvent::GraphicRef(GraphicRefEvent {
                 path: "figures/plot.pdf".to_string(),
                 options: Some("width=5cm".to_string()),
+                page_selection: None,
                 asset_format: Some(GraphicAssetFormat::Pdf),
                 asset_hash: None,
                 asset_dimensions: None,

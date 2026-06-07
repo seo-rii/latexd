@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{GraphicAssetFormat, SourceProvenance, SourceSpan};
+use crate::{GraphicAssetFormat, GraphicPageSelection, SourceProvenance, SourceSpan};
 
 pub type PageId = String;
 
@@ -77,6 +77,8 @@ pub struct PositionedImage {
     pub asset_ref: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asset_format: Option<GraphicAssetFormat>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_selection: Option<GraphicPageSelection>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asset_hash: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

@@ -926,6 +926,24 @@ pub fn render_display_list_svg_with_converted_assets(
                     .asset_format
                     .map(|format| format!(" data-image-asset-format=\"{}\"", format.as_str()))
                     .unwrap_or_default();
+                let page_selection_attrs = image
+                    .page_selection
+                    .as_ref()
+                    .map(|selection| {
+                        let page_attr = selection
+                            .page
+                            .map(|page| format!(" data-image-page=\"{page}\""))
+                            .unwrap_or_default();
+                        let pagebox_attr = selection
+                            .pagebox
+                            .as_deref()
+                            .map(|pagebox| {
+                                format!(" data-image-pagebox=\"{}\"", escape_xml_text(pagebox))
+                            })
+                            .unwrap_or_default();
+                        format!("{page_attr}{pagebox_attr}")
+                    })
+                    .unwrap_or_default();
                 let asset_hash_attr = image
                     .asset_hash
                     .as_deref()
@@ -1231,10 +1249,11 @@ pub fn render_display_list_svg_with_converted_assets(
                         (String::new(), String::new())
                     };
                     body.push_str(&format!(
-                        "{}<g data-image-asset-ref=\"{}\"{}{}{}{}{} data-image-embedded=\"true\"{}{}{}{}><image x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" href=\"{}\" preserveAspectRatio=\"none\"/></g>",
+                        "{}<g data-image-asset-ref=\"{}\"{}{}{}{}{}{} data-image-embedded=\"true\"{}{}{}{}><image x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" href=\"{}\" preserveAspectRatio=\"none\"/></g>",
                         clip_prefix,
                         escape_xml_text(&image.asset_ref),
                         asset_format_attr,
+                        page_selection_attrs,
                         asset_hash_attr,
                         crop_attrs,
                         rotation_attrs,
@@ -1274,9 +1293,10 @@ pub fn render_display_list_svg_with_converted_assets(
                 };
                 let placeholder_text = image_placeholder_text(image, placeholder_status);
                 body.push_str(&format!(
-                    "<g data-image-asset-ref=\"{}\"{}{}{}{}{}{}{}{}><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
+                    "<g data-image-asset-ref=\"{}\"{}{}{}{}{}{}{}{}{}><rect x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" fill=\"#e5e7eb\" stroke=\"#6b7280\" stroke-width=\"1\"/><text x=\"{}\" y=\"{}\" font-family=\"monospace\" font-size=\"9\" fill=\"#374151\">{}</text></g>",
                     escape_xml_text(&image.asset_ref),
                     asset_format_attr,
+                    page_selection_attrs,
                     asset_hash_attr,
                     crop_attrs,
                     rotation_attrs,
@@ -1948,6 +1968,7 @@ mod tests {
                 },
                 asset_ref: "figures/a(b)&c.pdf".to_string(),
                 asset_format: Some(GraphicAssetFormat::Pdf),
+                page_selection: None,
                 asset_hash: Some("blake3:asset-hash".to_string()),
                 natural_width_pt: None,
                 natural_height_pt: None,
@@ -2026,6 +2047,7 @@ mod tests {
                 },
                 asset_ref: "figures/vector.svg".to_string(),
                 asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
                 asset_hash: Some("blake3:vector".to_string()),
                 natural_width_pt: None,
                 natural_height_pt: None,
@@ -2068,6 +2090,7 @@ mod tests {
                 },
                 asset_ref: "figures/tiny.png".to_string(),
                 asset_format: Some(GraphicAssetFormat::Png),
+                page_selection: None,
                 asset_hash: Some("blake3:tiny".to_string()),
                 natural_width_pt: None,
                 natural_height_pt: None,
@@ -2109,6 +2132,7 @@ mod tests {
                 },
                 asset_ref: "figures/vector.pdf".to_string(),
                 asset_format: Some(GraphicAssetFormat::Pdf),
+                page_selection: None,
                 asset_hash: Some("blake3:vector-pdf".to_string()),
                 natural_width_pt: None,
                 natural_height_pt: None,
@@ -2173,6 +2197,7 @@ mod tests {
                 },
                 asset_ref: "figures/vector.pdf".to_string(),
                 asset_format: Some(GraphicAssetFormat::Pdf),
+                page_selection: None,
                 asset_hash: Some("blake3:vector-pdf".to_string()),
                 natural_width_pt: Some(200.0),
                 natural_height_pt: Some(100.0),
@@ -2246,6 +2271,7 @@ mod tests {
                 },
                 asset_ref: "figures/vector.pdf".to_string(),
                 asset_format: Some(GraphicAssetFormat::Pdf),
+                page_selection: None,
                 asset_hash: Some("blake3:vector-pdf".to_string()),
                 natural_width_pt: None,
                 natural_height_pt: None,
@@ -2287,6 +2313,7 @@ mod tests {
                 },
                 asset_ref: "figures/tiny.png".to_string(),
                 asset_format: Some(GraphicAssetFormat::Png),
+                page_selection: None,
                 asset_hash: Some("blake3:tiny".to_string()),
                 natural_width_pt: None,
                 natural_height_pt: None,
@@ -2335,6 +2362,7 @@ mod tests {
                 },
                 asset_ref: "figures/vector.svg".to_string(),
                 asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
                 asset_hash: Some("blake3:vector".to_string()),
                 natural_width_pt: None,
                 natural_height_pt: None,
@@ -2384,6 +2412,7 @@ mod tests {
                 },
                 asset_ref: "figures/tiny.png".to_string(),
                 asset_format: Some(GraphicAssetFormat::Png),
+                page_selection: None,
                 asset_hash: Some("blake3:tiny".to_string()),
                 natural_width_pt: None,
                 natural_height_pt: None,
@@ -2432,6 +2461,7 @@ mod tests {
                 },
                 asset_ref: "figures/tiny.png".to_string(),
                 asset_format: Some(GraphicAssetFormat::Png),
+                page_selection: None,
                 asset_hash: Some("blake3:tiny".to_string()),
                 natural_width_pt: None,
                 natural_height_pt: None,
@@ -2474,6 +2504,7 @@ mod tests {
                 },
                 asset_ref: "figures/photo.jpg".to_string(),
                 asset_format: Some(GraphicAssetFormat::Jpeg),
+                page_selection: None,
                 asset_hash: Some("blake3:photo".to_string()),
                 natural_width_pt: None,
                 natural_height_pt: None,
@@ -2520,6 +2551,7 @@ mod tests {
                 },
                 asset_ref: "figures/tiny.png".to_string(),
                 asset_format: Some(GraphicAssetFormat::Png),
+                page_selection: None,
                 asset_hash: Some("blake3:tiny".to_string()),
                 natural_width_pt: None,
                 natural_height_pt: None,
@@ -2561,6 +2593,7 @@ mod tests {
                 },
                 asset_ref: "figures/tiny.png".to_string(),
                 asset_format: Some(GraphicAssetFormat::Png),
+                page_selection: None,
                 asset_hash: Some("blake3:tiny".to_string()),
                 natural_width_pt: None,
                 natural_height_pt: None,
@@ -2608,6 +2641,7 @@ mod tests {
                 },
                 asset_ref: "figures/tiny.png".to_string(),
                 asset_format: Some(GraphicAssetFormat::Png),
+                page_selection: None,
                 asset_hash: Some("blake3:tiny".to_string()),
                 natural_width_pt: None,
                 natural_height_pt: None,
@@ -2656,6 +2690,7 @@ mod tests {
                 },
                 asset_ref: "figures/bad.png".to_string(),
                 asset_format: Some(GraphicAssetFormat::Png),
+                page_selection: None,
                 asset_hash: Some("blake3:bad".to_string()),
                 natural_width_pt: None,
                 natural_height_pt: None,
@@ -2699,6 +2734,7 @@ mod tests {
                 },
                 asset_ref: "figures/missing.png".to_string(),
                 asset_format: Some(GraphicAssetFormat::Png),
+                page_selection: None,
                 asset_hash: None,
                 natural_width_pt: None,
                 natural_height_pt: None,
