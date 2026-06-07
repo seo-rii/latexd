@@ -4493,6 +4493,42 @@ fn captionof_capture_uses_long_caption_without_type_or_short_title_leakage() {
 }
 
 #[test]
+fn captionof_internal_label_definition_survives_ir_without_visible_key() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        CAPTIONOF_INNER_LABEL_SOURCE,
+        &SemanticAux::default(),
+    );
+    let label_keys = capture
+        .document_ir
+        .labels
+        .iter()
+        .map(|label| label.key.as_str())
+        .collect::<Vec<_>>();
+    assert!(label_keys.contains(&"fig:detached"));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Detached caption."));
+    assert!(extracted_text.contains("See [?]."));
+    assert!(!extracted_text.contains("fig:detached"));
+    assert!(!extracted_text.contains("label"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Detached caption."));
+    assert!(display_list_text.contains("See [?]."));
+    assert!(!display_list_text.contains("fig:detached"));
+    assert!(!display_list_text.contains("label"));
+}
+
+#[test]
 fn caption_package_setup_helpers_do_not_leak_into_ir_or_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", CAPTION_SETUP_SOURCE, &SemanticAux::default());
@@ -20327,6 +20363,8 @@ const FIGURE_TABLE_LABEL_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\de
 const CAPTION_INNER_LABEL_SOURCE: &str = r"\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/inside.pdf}\caption{Inside caption.\label{fig:inside}}\end{figure}See \ref{fig:inside}.\end{document}";
 
 const CAPTIONOF_SOURCE: &str = r"\begin{document}\captionof{figure}[Short Figure]{Long Figure Title}\label{fig:first}See \autoref{fig:first}.\captionof*{table}{Long Table Title}\label{tab:first}See \autoref{tab:first}.\end{document}";
+
+const CAPTIONOF_INNER_LABEL_SOURCE: &str = r"\begin{document}\captionof{figure}{Detached caption.\label{fig:detached}}See \ref{fig:detached}.\end{document}";
 
 const CAPTION_SETUP_SOURCE: &str = r"\documentclass{article}\usepackage{caption,subcaption}\begin{document}\captionsetup[figure]{labelfont=bf,skip=2pt}\captionsetup*{name=Hidden starred}\subcaptionsetup{justification=centering}\subcaptionsetup*{font=small}\begin{figure}\ContinuedFloat\captionlistentry{Hidden entry}\captionlistentry*{Hidden starred entry}\includegraphics[width=2cm]{figures/caption-setup.pdf}\caption{Visible \cite{key}.}\end{figure}After.\end{document}";
 
