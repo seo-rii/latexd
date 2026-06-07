@@ -12526,6 +12526,57 @@ impl<'i> Vm<'i> {
         if after > limit {
             return None;
         }
+        let mut label_scan_index = content_start;
+        while label_scan_index < content_end {
+            let Some(relative_command) = source[label_scan_index..content_end].find('\\') else {
+                break;
+            };
+            let label_command_start = label_scan_index + relative_command;
+            let mut label_command_index = label_command_start + 1;
+            if label_command_index >= content_end {
+                break;
+            }
+            let label_command = if source.as_bytes()[label_command_index].is_ascii_alphabetic()
+                || source.as_bytes()[label_command_index] == b'@'
+            {
+                let start = label_command_index;
+                while label_command_index < content_end
+                    && (source.as_bytes()[label_command_index].is_ascii_alphabetic()
+                        || source.as_bytes()[label_command_index] == b'@')
+                {
+                    label_command_index += 1;
+                }
+                &source[start..label_command_index]
+            } else {
+                label_command_index += 1;
+                label_scan_index = label_command_index;
+                continue;
+            };
+            if label_command == "label" {
+                let label_index = skip_ascii_whitespace(source, label_command_index);
+                if let Some((key, key_start, key_end, after_label)) =
+                    read_braced_source_argument(source, label_index)
+                    && after_label <= content_end
+                {
+                    self.emit_render_event(
+                        RenderEvent::LabelDefinition(LabelDefinitionEvent {
+                            key: key.trim().to_string(),
+                            command: label_command.to_string(),
+                        }),
+                        Self::label_definition_provenance(
+                            source_path,
+                            label_command_start,
+                            after_label,
+                            key_start,
+                            key_end,
+                        ),
+                    );
+                    label_scan_index = after_label;
+                    continue;
+                }
+            }
+            label_scan_index = label_command_index;
+        }
         self.emit_render_event(
             RenderEvent::Caption(CaptionEvent {
                 text: normalize_latex_text_with_inline_placeholders(caption),
@@ -20612,6 +20663,18 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 | "vrefrange"
                 | "Vrefrange"
         );
+        if command == "label" {
+            let argument_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, command_after)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
         if matches!(
             command,
             "SI" | "qty" | "num" | "si" | "SIrange" | "qtyrange" | "numrange" | "ang"
@@ -31354,6 +31417,38 @@ Fallback text.
             &event.event,
             RenderEvent::Text(text) if text.text.contains("fig:plot") || text.text.contains("tab:data")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_records_caption_internal_label_definitions() {
+        let source = r"\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/inside.pdf}\caption{Inside caption.\label{fig:inside}}\end{figure}See \ref{fig:inside}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::LabelDefinition(label)
+                if label.key == "fig:inside" && label.command == "label"
+        )));
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Caption(caption) => Some(caption.text.as_str()),
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                RenderEvent::InlineReference(_) => Some("[?]"),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("Inside caption."), "{visible_text}");
+        assert!(visible_text.contains("See [?]."), "{visible_text}");
+        assert!(!visible_text.contains("fig:inside"), "{visible_text}");
+        assert!(!visible_text.contains("label"), "{visible_text}");
     }
 
     #[test]

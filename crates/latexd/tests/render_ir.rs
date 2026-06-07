@@ -4825,6 +4825,42 @@ fn float_label_definitions_survive_ir_without_visible_keys() {
 }
 
 #[test]
+fn caption_internal_label_definition_survives_ir_without_visible_key() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        CAPTION_INNER_LABEL_SOURCE,
+        &SemanticAux::default(),
+    );
+    let label_keys = capture
+        .document_ir
+        .labels
+        .iter()
+        .map(|label| label.key.as_str())
+        .collect::<Vec<_>>();
+    assert!(label_keys.contains(&"fig:inside"));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Inside caption."));
+    assert!(extracted_text.contains("See [?]."));
+    assert!(!extracted_text.contains("fig:inside"));
+    assert!(!extracted_text.contains("label"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Inside caption."));
+    assert!(display_list_text.contains("See [?]."));
+    assert!(!display_list_text.contains("fig:inside"));
+    assert!(!display_list_text.contains("label"));
+}
+
+#[test]
 fn caption_inline_keys_are_redacted_in_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -20287,6 +20323,8 @@ const MARGIN_FLOAT_SOURCE: &str = r"\begin{document}\begin{marginfigure}\include
 const PICINS_PARPIC_SOURCE: &str = r"\documentclass{article}\usepackage{picins}\begin{document}\piccaption{Inset \cite{key}.}\parpic[r][0.35\textwidth]{\includegraphics[width=2cm]{figures/inset.pdf}}Visible text.\end{document}";
 
 const FIGURE_TABLE_LABEL_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\label{fig:plot}\end{figure}\begin{table}\caption{Table caption.}\label{tab:data}\end{table}\end{document}";
+
+const CAPTION_INNER_LABEL_SOURCE: &str = r"\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/inside.pdf}\caption{Inside caption.\label{fig:inside}}\end{figure}See \ref{fig:inside}.\end{document}";
 
 const CAPTIONOF_SOURCE: &str = r"\begin{document}\captionof{figure}[Short Figure]{Long Figure Title}\label{fig:first}See \autoref{fig:first}.\captionof*{table}{Long Table Title}\label{tab:first}See \autoref{tab:first}.\end{document}";
 
