@@ -5570,6 +5570,48 @@ fn math_operators_and_scripts_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_binomial_commands_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Choose \(\binom{n}{k} + \dbinom{a+b}{c_d} + \tbinom{\alpha}{2}\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source == r"\binom{n}{k} + \dbinom{a+b}{c_d} + \tbinom{\alpha}{2}"
+                && normalized_text.as_deref()
+                    == Some("binom(n,k) + binom(a + b,c_d) + binom(alpha,2)")
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("binom(n,k) + binom(a + b,c_d) + binom(alpha,2)"));
+    assert!(!display_list_text.contains(r"\binom"));
+    assert!(!display_list_text.contains(r"\dbinom"));
+    assert!(!display_list_text.contains(r"\tbinom"));
+}
+
+#[test]
 fn math_alphabet_wrappers_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Sets \(\mathbb{R} + \mathcal{F} + \mathfrak{g} + \mathscr{L}\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

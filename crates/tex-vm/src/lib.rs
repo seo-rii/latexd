@@ -22543,6 +22543,26 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!(&denominator);
                         index = after_denominator;
                     }
+                    "binom" | "dbinom" | "tbinom" => {
+                        let upper_index = skip_ascii_whitespace(source, command_index);
+                        let Some((upper, _, _, after_upper)) =
+                            read_braced_source_argument(source, upper_index)
+                        else {
+                            return None;
+                        };
+                        let lower_index = skip_ascii_whitespace(source, after_upper);
+                        let Some((lower, _, _, after_lower)) =
+                            read_braced_source_argument(source, lower_index)
+                        else {
+                            return None;
+                        };
+                        let upper = normalize_latex_math_text(upper)
+                            .unwrap_or_else(|| normalize_latex_math_source(upper));
+                        let lower = normalize_latex_math_text(lower)
+                            .unwrap_or_else(|| normalize_latex_math_source(lower));
+                        push_token!(&format!("binom({upper},{lower})"));
+                        index = after_lower;
+                    }
                     "sqrt" => {
                         let mut argument_index = skip_ascii_whitespace(source, command_index);
                         let root = if let Some((root, _, _, after_root)) =
@@ -32216,6 +32236,30 @@ Fallback text.
                     == r"\sum_{i=1}^{n} x_i + \int_{0}^{1} f(x)\,dx + \sin \theta"
                     && math.normalized_text.as_deref()
                         == Some("sum_{i = 1}^{n} x_i + int_{0}^{1} f(x) dx + sin theta")
+        ));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_binomial_commands() {
+        let source = r"\begin{document}Choose \(\binom{n}{k} + \dbinom{a+b}{c_d} + \tbinom{\alpha}{2}\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math)
+                if math.raw_source
+                    == r"\binom{n}{k} + \dbinom{a+b}{c_d} + \tbinom{\alpha}{2}"
+                    && math.normalized_text.as_deref()
+                        == Some("binom(n,k) + binom(a + b,c_d) + binom(alpha,2)")
         ));
     }
 
