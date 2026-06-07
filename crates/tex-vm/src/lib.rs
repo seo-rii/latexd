@@ -222,6 +222,10 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\subcaptionsetup}[2][]{}
 \providecommand{\captionlistentry}[2][]{}
 \providecommand{\ContinuedFloat}{}
+\providecommand{\listoffigures}{}
+\providecommand{\listoftables}{}
+\providecommand{\listofalgorithms}{}
+\providecommand{\listof}[2]{}
 \providecommand{\piccaption}[1]{#1}
 \providecommand{\parpic}[2][]{#2}
 \providecommand{\diagbox}[3][]{#2/#3}
@@ -4838,8 +4842,25 @@ impl<'i> Vm<'i> {
                 }
                 "FloatBarrier" | "balance" | "flushend" | "raggedend" | "phantomsection"
                 | "centering" | "Centering" | "raggedleft" | "raggedright" | "RaggedLeft"
-                | "RaggedRight" | "justifying"
+                | "RaggedRight" | "justifying" | "listoffigures" | "listoftables"
+                | "listofalgorithms"
                     if in_document => {}
+                "listof" if in_document => {
+                    let mut argument_index = skip_ascii_whitespace(source, index);
+                    if source[argument_index..].starts_with('*') {
+                        argument_index += 1;
+                        argument_index = skip_ascii_whitespace(source, argument_index);
+                    }
+                    for _ in 0..2 {
+                        let Some((_, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            break;
+                        };
+                        argument_index = skip_ascii_whitespace(source, after_argument);
+                    }
+                    index = argument_index;
+                }
                 "ContinuedFloat" if in_document => {
                     index = skip_ascii_whitespace(source, index);
                     if source[index..].starts_with('*') {
@@ -36172,6 +36193,38 @@ Fallback text.
             "toc",
         ] {
             assert!(!visible_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_hides_list_of_float_commands() {
+        let source = r"\documentclass{article}\usepackage{algorithm,tocloft}\begin{document}\listoffigures\listoftables\listofalgorithms\listof{figure}{Hidden Figure List}Visible text.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("Visible text."), "{visible_text}");
+        for hidden in [
+            "listoffigures",
+            "listoftables",
+            "listofalgorithms",
+            "listof",
+            "Hidden Figure List",
+            "figure",
+        ] {
+            assert!(!visible_text.contains(hidden), "{visible_text}");
         }
     }
 

@@ -1879,6 +1879,41 @@ fn figure_table_alignment_declarations_do_not_leak_into_render_text() {
 }
 
 #[test]
+fn list_of_float_commands_do_not_leak_into_ir_or_display_list_text() {
+    let source = r"\documentclass{article}\usepackage{algorithm,tocloft}\begin{document}\listoffigures\listoftables\listofalgorithms\listof{figure}{Hidden Figure List}Visible text.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Visible text."), "{extracted_text}");
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("Visible text."),
+        "{display_list_text}"
+    );
+
+    for hidden in [
+        "listoffigures",
+        "listoftables",
+        "listofalgorithms",
+        "listof",
+        "Hidden Figure List",
+        "figure",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn graphic_render_ir_capture_applies_includegraphics_width_hint() {
     let capture = capture_internal_render_ir("main.tex", GRAPHIC_SOURCE, &SemanticAux::default());
     let image = capture.page_display_lists[0]
