@@ -3804,8 +3804,28 @@ fn floatrow_ffigbox_preserves_image_and_caption_without_option_leakage() {
 
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("Floatrow [?]."));
-    for hidden in ["ffigbox", "FBwidth", "key"] {
+    for hidden in ["ffigbox", "FBwidth", "key", "fig:floatrow"] {
         assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+    assert!(
+        capture
+            .document_ir
+            .labels
+            .iter()
+            .any(|label| label.key == "fig:floatrow")
+    );
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Floatrow [?]."));
+    for hidden in ["ffigbox", "FBwidth", "key", "fig:floatrow"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
     }
 }
 
@@ -20372,7 +20392,7 @@ const OVERPIC_GRAPHIC_SOURCE: &str = r"\documentclass{article}\usepackage{overpi
 
 const OVERPIC_FIGURE_SOURCE: &str = r"\documentclass{article}\usepackage{overpic}\begin{document}\begin{figure}\begin{overpic}[width=5cm]{figures/annotated.pdf}\put(5,5){Label}\end{overpic}\caption{Annotated figure.}\end{figure}\end{document}";
 
-const FLOATROW_FFIGBOX_SOURCE: &str = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{figure}\ffigbox[\FBwidth][c]{\includegraphics[width=3cm]{figures/floatrow.pdf}}{\caption{Floatrow \cite{key}.}}\end{figure}\end{document}";
+const FLOATROW_FFIGBOX_SOURCE: &str = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{figure}\ffigbox[\FBwidth][c]{\includegraphics[width=3cm]{figures/floatrow.pdf}}{Floatrow \cite{key}.\label{fig:floatrow}}\end{figure}\end{document}";
 
 const FLOATROW_FFIGBOX_CAPTION_FIRST_SOURCE: &str = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{figure}\ffigbox{\caption{Reversed \cite{key}.}}{\includegraphics[width=3cm]{figures/reversed.pdf}}\end{figure}\end{document}";
 

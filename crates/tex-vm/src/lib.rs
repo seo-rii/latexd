@@ -29737,7 +29737,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_floatrow_ffigbox() {
-        let source = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{figure}\ffigbox[\FBwidth][c]{\includegraphics[width=3cm]{figures/floatrow.pdf}}{\caption{Floatrow \cite{key}.}}\end{figure}\end{document}";
+        let source = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{figure}\ffigbox[\FBwidth][c]{\includegraphics[width=3cm]{figures/floatrow.pdf}}{Floatrow \cite{key}.\label{fig:floatrow}}\end{figure}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -29759,10 +29759,14 @@ Fallback text.
             &event.event,
             RenderEvent::Caption(caption) if caption.text == "Floatrow [?]."
         )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::LabelDefinition(label) if label.key == "fig:floatrow"
+        )));
         assert!(!outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Text(text)
-                if ["ffigbox", "FBwidth", "key"]
+                if ["ffigbox", "FBwidth", "key", "fig:floatrow"]
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));
