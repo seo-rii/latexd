@@ -22967,12 +22967,20 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("or");
                         index = command_index;
                     }
-                    "implies" | "Rightarrow" => {
+                    "implies" | "Rightarrow" | "Longrightarrow" => {
                         push_operator!("=>");
                         index = command_index;
                     }
-                    "iff" | "Leftrightarrow" => {
+                    "Leftarrow" | "Longleftarrow" => {
+                        push_operator!("<=");
+                        index = command_index;
+                    }
+                    "iff" | "Leftrightarrow" | "Longleftrightarrow" => {
                         push_operator!("<=>");
+                        index = command_index;
+                    }
+                    "leftrightarrow" | "longleftrightarrow" => {
+                        push_operator!("<->");
                         index = command_index;
                     }
                     "approx" | "sim" => {
@@ -23000,12 +23008,25 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("-/+");
                         index = command_index;
                     }
-                    "to" | "rightarrow" | "mapsto" => {
+                    "to" | "rightarrow" | "longrightarrow" | "mapsto" | "longmapsto" => {
                         push_operator!("->");
                         index = command_index;
                     }
                     "leftarrow" => {
                         push_operator!("<-");
+                        index = command_index;
+                    }
+                    "hookrightarrow" => {
+                        push_operator!("hook->");
+                        index = command_index;
+                    }
+                    "hookleftarrow" => {
+                        push_operator!("<-hook");
+                        index = command_index;
+                    }
+                    "uparrow" | "downarrow" | "updownarrow" | "nearrow" | "searrow" | "swarrow"
+                    | "nwarrow" => {
+                        push_operator!(command);
                         index = command_index;
                     }
                     "xrightarrow" | "xleftarrow" => {
@@ -32703,6 +32724,34 @@ Fallback text.
                     && math.normalized_text.as_deref()
                         == Some("->^{p} X + Y <-^{d}_{n -> infinity} Z")
         ));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_arrow_variants() {
+        let source = r"\begin{document}Flow \(A\Longrightarrow B \Leftarrow C \Longleftrightarrow D \leftrightarrow E \longmapsto F \hookrightarrow G \uparrow H \downarrow I \nearrow J \searrow K\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        let RenderEvent::InlineMath(math) = &inline_math.event else {
+            panic!("inline math event");
+        };
+
+        assert_eq!(
+            math.raw_source,
+            r"A\Longrightarrow B \Leftarrow C \Longleftrightarrow D \leftrightarrow E \longmapsto F \hookrightarrow G \uparrow H \downarrow I \nearrow J \searrow K"
+        );
+        assert_eq!(
+            math.normalized_text.as_deref(),
+            Some("A => B <= C <=> D <-> E -> F hook-> G uparrow H downarrow I nearrow J searrow K")
+        );
     }
 
     #[test]

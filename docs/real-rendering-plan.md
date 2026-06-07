@@ -860,7 +860,8 @@ Current status:
   style and limit controls such as `displaystyle`, `limits`, and `nolimits`,
   stack relation wrappers such as `overset`, `underset`, and `stackrel`, named
   operators and symbols such as `ell`, `aleph`, `hbar`, `Re`, and `Im`, common
-  extended arrows such as `xrightarrow` and `xleftarrow`,
+  extended arrows such as `xrightarrow` and `xleftarrow`, and arrow variants
+  such as `Longrightarrow`, `leftrightarrow`, and `hookrightarrow`,
   common math alphabet wrappers, accent wrappers, brace grouping wrappers,
   delimiter commands including invisible `left.` / `right.` delimiters, ellipsis
   commands such as `ldots`, `cdots`, and `dots`, matrix/cases/array-style

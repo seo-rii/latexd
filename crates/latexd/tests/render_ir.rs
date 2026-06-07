@@ -5809,6 +5809,58 @@ fn math_extended_arrows_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_arrow_variants_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Flow \(A\Longrightarrow B \Leftarrow C \Longleftrightarrow D \leftrightarrow E \longmapsto F \hookrightarrow G \uparrow H \downarrow I \nearrow J \searrow K\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"A\Longrightarrow B \Leftarrow C \Longleftrightarrow D \leftrightarrow E \longmapsto F \hookrightarrow G \uparrow H \downarrow I \nearrow J \searrow K"
+                && normalized_text.as_deref()
+                    == Some("A => B <= C <=> D <-> E -> F hook-> G uparrow H downarrow I nearrow J searrow K")
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text.contains(
+            "A => B <= C <=> D <-> E -> F hook-> G uparrow H downarrow I nearrow J searrow K"
+        ),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains(r"\Longrightarrow"));
+    assert!(!display_list_text.contains(r"\leftrightarrow"));
+    assert!(!display_list_text.contains(r"\hookrightarrow"));
+}
+
+#[test]
 fn math_brace_groups_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Groups \(\overbrace{a+b}^{n} + \underbrace{c_d}_{\text{reason}}\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
