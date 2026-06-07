@@ -14080,6 +14080,57 @@ fn tabular_phantom_wrappers_hide_invisible_text() {
 }
 
 #[test]
+fn tabular_spacing_and_rule_helpers_do_not_leak_into_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{bigstrut}\begin{document}\begin{tabular}{llll}A\strut & B\bigstrut[t] & C\rule[.5ex]{1em}{.4pt} & D\hrulefill\dotfill\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "A");
+    assert_eq!(table.rows[0].cells[1].text, "B");
+    assert_eq!(table.rows[0].cells[2].text, "C");
+    assert_eq!(table.rows[0].cells[3].text, "D");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("A | B | C | D"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("A | B | C | D"));
+
+    for hidden in [
+        "strut",
+        "bigstrut",
+        "rule",
+        "hrulefill",
+        "dotfill",
+        ".5ex",
+        "1em",
+        ".4pt",
+        "[t]",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
+    }
+}
+
+#[test]
 fn resizebox_wrapped_tabular_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",

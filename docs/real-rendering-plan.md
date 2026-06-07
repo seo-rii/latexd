@@ -714,6 +714,9 @@ Implemented first slice:
   `\smash` normalize to their visible body text.
 - table-cell phantom helpers such as `\phantom`, `\hphantom`, and `\vphantom`
   hide their invisible payloads instead of leaking them into fallback text.
+- table-cell spacing and visual-rule helpers such as `\strut`, `\bigstrut`,
+  `\rule`, `\hrulefill`, and `\dotfill` are suppressed from fallback text so
+  layout dimensions do not render as cell content.
 - table environments inside box wrappers such as `\resizebox{...}{...}{...}`
   are still captured as table IR instead of being swallowed by wrapper handling.
 - `adjustbox` environments hide their option argument and allow nested tables to

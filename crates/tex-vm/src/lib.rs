@@ -10181,6 +10181,34 @@ impl<'i> Vm<'i> {
                                 table_index = after;
                             }
                         }
+                        "strut" | "mathstrut" | "hrulefill" | "dotfill" => {
+                            table_index = command_end;
+                        }
+                        "bigstrut" => {
+                            table_index = skip_ascii_whitespace(table_body, command_end);
+                            if let Some((_, _, _, after)) =
+                                read_bracket_source_argument(table_body, table_index)
+                            {
+                                table_index = after;
+                            }
+                        }
+                        "rule" => {
+                            table_index = skip_ascii_whitespace(table_body, command_end);
+                            if let Some((_, _, _, after)) =
+                                read_bracket_source_argument(table_body, table_index)
+                            {
+                                table_index = after;
+                            }
+                            for _ in 0..2 {
+                                table_index = skip_ascii_whitespace(table_body, table_index);
+                                let Some((_, _, _, after)) =
+                                    read_braced_source_argument(table_body, table_index)
+                                else {
+                                    break;
+                                };
+                                table_index = after;
+                            }
+                        }
                         "makecell" | "thead" | "shortstack" => {
                             let mut parsed = false;
                             let mut argument_index = skip_ascii_whitespace(table_body, command_end);
@@ -19888,6 +19916,53 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
             if let Some((_, _, _, command_after)) =
                 read_braced_source_argument(source, argument_index)
             {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
+        if matches!(command, "strut" | "mathstrut" | "hrulefill" | "dotfill") {
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            found_structured_inline = true;
+            chunk_start = command_name_end;
+            scan_index = command_name_end;
+            continue;
+        }
+        if command == "bigstrut" {
+            let mut command_after = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, after_option)) =
+                read_bracket_source_argument(source, command_after)
+            {
+                command_after = after_option;
+            }
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            found_structured_inline = true;
+            chunk_start = command_after;
+            scan_index = command_after;
+            continue;
+        }
+        if command == "rule" {
+            let mut command_after = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, after_option)) =
+                read_bracket_source_argument(source, command_after)
+            {
+                command_after = after_option;
+            }
+            let mut parsed = true;
+            for _ in 0..2 {
+                command_after = skip_ascii_whitespace(source, command_after);
+                if let Some((_, _, _, after_argument)) =
+                    read_braced_source_argument(source, command_after)
+                {
+                    command_after = after_argument;
+                } else {
+                    parsed = false;
+                    break;
+                }
+            }
+            if parsed {
                 append_normalized_text(&mut text, &source[chunk_start..command_start]);
                 found_structured_inline = true;
                 chunk_start = command_after;
@@ -33062,6 +33137,52 @@ Fallback text.
         ] {
             assert!(!visible_text.contains(hidden), "{visible_text:?}");
         }
+    }
+
+    #[test]
+    fn render_event_capture_omits_table_cell_spacing_and_rule_helpers() {
+        let source = r"\documentclass{article}\usepackage{bigstrut}\begin{document}\begin{tabular}{llll}A\strut & B\bigstrut[t] & C\rule[.5ex]{1em}{.4pt} & D\hrulefill\dotfill\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible_text, "A | B | C | D");
+        for hidden in [
+            "strut",
+            "bigstrut",
+            "rule",
+            "hrulefill",
+            "dotfill",
+            ".5ex",
+            "1em",
+            ".4pt",
+            "[t]",
+        ] {
+            assert!(!visible_text.contains(hidden), "{visible_text:?}");
+        }
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("bigstrut.sty"))
+        );
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package bigstrut.sty"
+        }));
     }
 
     #[test]
