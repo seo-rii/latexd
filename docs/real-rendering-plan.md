@@ -244,6 +244,9 @@ text.
 `floatflt` `floatingfigure` / `floatingtable` environments now follow the same
 float capture path as wrap/sidecap floats, preserving images, captions, and
 labels without leaking position or width arguments into visible text.
+`picinpar` `figwindow` / `tabwindow` environments now capture option-carried
+objects and captions while preserving body labels and hiding window placement
+arguments.
 Simple `fancybox` wrappers such as `\shadowbox`, `\ovalbox`, and `\doublebox`
 now use the same graphic wrapper path as `\fbox`.
 `psfrag` replacement helper commands are treated as layout/asset preprocessing
@@ -1005,6 +1008,8 @@ Status:
   captions without leaking layout hints;
 - `floatflt` `floatingfigure` / `floatingtable` environments preserve float
   contents while suppressing position and width arguments;
+- `picinpar` `figwindow` / `tabwindow` environments preserve option-carried
+  objects and captions while suppressing window placement arguments;
 - `fancybox` image wrappers preserve nested graphics without undefined-command
   diagnostics;
 - `psfrag` replacement helper commands no longer leak tags/options/replacement

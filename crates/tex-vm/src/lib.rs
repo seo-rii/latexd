@@ -343,6 +343,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "paracol.sty",
     "pdflscape.sty",
     "picins.sty",
+    "picinpar.sty",
     "placeins.sty",
     "psfrag.sty",
     "pstricks.sty",
@@ -2836,6 +2837,311 @@ impl<'i> Vm<'i> {
                                             source_path.to_owned(),
                                             body_start as u32,
                                             body_end as u32,
+                                        ),
+                                    );
+                                    index = raw_end;
+                                }
+                            }
+                            "figwindow" | "tabwindow" if in_document => {
+                                let block = if environment == "figwindow" {
+                                    BlockKind::Figure
+                                } else {
+                                    BlockKind::Table
+                                };
+                                self.emit_render_event(
+                                    RenderEvent::BeginBlock(BeginBlockEvent {
+                                        block: block.clone(),
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        command_start as u32,
+                                        index as u32,
+                                    ),
+                                );
+
+                                let mut body_start = index;
+                                let option_index = skip_ascii_whitespace(source, index);
+                                if let Some((_, option_start, option_end, after_option)) =
+                                    read_bracket_source_argument(source, option_index)
+                                {
+                                    body_start = after_option;
+                                    let mut fields = Vec::new();
+                                    let mut field_start = option_start;
+                                    let mut scan_index = option_start;
+                                    let mut brace_depth = 0usize;
+                                    let mut bracket_depth = 0usize;
+                                    let mut paren_depth = 0usize;
+                                    while scan_index < option_end {
+                                        let ch = source[scan_index..option_end]
+                                            .chars()
+                                            .next()
+                                            .expect("valid char boundary");
+                                        let next_index = scan_index + ch.len_utf8();
+                                        match ch {
+                                            '{' => brace_depth += 1,
+                                            '}' => brace_depth = brace_depth.saturating_sub(1),
+                                            '[' => bracket_depth += 1,
+                                            ']' => bracket_depth = bracket_depth.saturating_sub(1),
+                                            '(' => paren_depth += 1,
+                                            ')' => paren_depth = paren_depth.saturating_sub(1),
+                                            ',' if brace_depth == 0
+                                                && bracket_depth == 0
+                                                && paren_depth == 0 =>
+                                            {
+                                                let mut trimmed_start =
+                                                    skip_ascii_whitespace(source, field_start);
+                                                if trimmed_start > scan_index {
+                                                    trimmed_start = scan_index;
+                                                }
+                                                let mut trimmed_end = scan_index;
+                                                while trimmed_end > trimmed_start
+                                                    && source.as_bytes()[trimmed_end - 1]
+                                                        .is_ascii_whitespace()
+                                                {
+                                                    trimmed_end -= 1;
+                                                }
+                                                fields.push((trimmed_start, trimmed_end));
+                                                field_start = next_index;
+                                            }
+                                            _ => {}
+                                        }
+                                        scan_index = next_index;
+                                    }
+                                    let mut trimmed_start =
+                                        skip_ascii_whitespace(source, field_start);
+                                    if trimmed_start > option_end {
+                                        trimmed_start = option_end;
+                                    }
+                                    let mut trimmed_end = option_end;
+                                    while trimmed_end > trimmed_start
+                                        && source.as_bytes()[trimmed_end - 1].is_ascii_whitespace()
+                                    {
+                                        trimmed_end -= 1;
+                                    }
+                                    fields.push((trimmed_start, trimmed_end));
+
+                                    if let Some(&(object_start, object_end)) = fields.get(2) {
+                                        let object_start =
+                                            skip_ascii_whitespace(source, object_start);
+                                        let (object_start, object_end) = if let Some((
+                                            _,
+                                            inner_start,
+                                            inner_end,
+                                            after_object,
+                                        )) =
+                                            read_braced_source_argument(source, object_start)
+                                        {
+                                            let after_object =
+                                                skip_ascii_whitespace(source, after_object);
+                                            if after_object <= object_end {
+                                                (inner_start, inner_end)
+                                            } else {
+                                                (object_start, object_end)
+                                            }
+                                        } else {
+                                            (object_start, object_end)
+                                        };
+                                        self.capture_graphics_in_source_range(
+                                            source_path,
+                                            source,
+                                            object_start,
+                                            object_end,
+                                            &scan_state.graphic_paths,
+                                            &scan_state.graphic_extensions,
+                                            scan_state.graphic_default_options.as_deref(),
+                                            None,
+                                        );
+                                        let mut object_index = object_start;
+                                        while object_index < object_end {
+                                            let Some(relative_begin) =
+                                                source[object_index..object_end].find("\\begin")
+                                            else {
+                                                break;
+                                            };
+                                            let begin_start = object_index + relative_begin;
+                                            let environment_index = begin_start + "\\begin".len();
+                                            if let Some((
+                                                nested_environment,
+                                                _,
+                                                _,
+                                                after_environment,
+                                            )) = read_braced_source_argument(
+                                                source,
+                                                environment_index,
+                                            ) {
+                                                let nested_environment = nested_environment.trim();
+                                                if matches!(
+                                                    nested_environment,
+                                                    "array"
+                                                        | "tabular"
+                                                        | "tabular*"
+                                                        | "tabularx"
+                                                        | "longtable"
+                                                        | "tabu"
+                                                        | "longtabu"
+                                                ) && after_environment <= object_end
+                                                {
+                                                    let end_marker =
+                                                        format!("\\end{{{nested_environment}}}");
+                                                    if let Some(relative_table_end) = source
+                                                        [after_environment..object_end]
+                                                        .find(&end_marker)
+                                                    {
+                                                        let table_body_end =
+                                                            after_environment + relative_table_end;
+                                                        let table_raw_end =
+                                                            table_body_end + end_marker.len();
+                                                        if let Some(after) = self
+                                                            .capture_table_fallback_event(
+                                                                source_path,
+                                                                source,
+                                                                begin_start,
+                                                                table_raw_end,
+                                                                after_environment,
+                                                                &source[after_environment
+                                                                    ..table_body_end],
+                                                                nested_environment,
+                                                            )
+                                                        {
+                                                            object_index = after;
+                                                            continue;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            object_index = environment_index;
+                                        }
+                                    }
+
+                                    if let Some(&(caption_start, caption_end)) = fields.get(3) {
+                                        let caption_start =
+                                            skip_ascii_whitespace(source, caption_start);
+                                        let (caption_start, caption_end) = if let Some((
+                                            _,
+                                            inner_start,
+                                            inner_end,
+                                            after_caption,
+                                        )) =
+                                            read_braced_source_argument(source, caption_start)
+                                        {
+                                            let after_caption =
+                                                skip_ascii_whitespace(source, after_caption);
+                                            if after_caption <= caption_end {
+                                                (inner_start, inner_end)
+                                            } else {
+                                                (caption_start, caption_end)
+                                            }
+                                        } else {
+                                            (caption_start, caption_end)
+                                        };
+                                        let caption_text =
+                                            normalize_latex_text_with_inline_placeholders(
+                                                &source[caption_start..caption_end],
+                                            );
+                                        if !caption_text.is_empty() {
+                                            self.emit_render_event(
+                                                RenderEvent::Caption(CaptionEvent {
+                                                    text: caption_text,
+                                                }),
+                                                SourceProvenance::file(
+                                                    source_path.to_owned(),
+                                                    caption_start as u32,
+                                                    caption_end as u32,
+                                                ),
+                                            );
+                                        }
+                                    }
+                                }
+
+                                let end_marker = format!("\\end{{{environment}}}");
+                                if let Some(relative_end) = source[body_start..].find(&end_marker) {
+                                    let body_end = body_start + relative_end;
+                                    let raw_end = body_end + end_marker.len();
+                                    let mut body_index = body_start;
+                                    while body_index < body_end {
+                                        let Some(relative_command) =
+                                            source[body_index..body_end].find('\\')
+                                        else {
+                                            break;
+                                        };
+                                        let body_command_start = body_index + relative_command;
+                                        let mut body_command_index = body_command_start + 1;
+                                        if body_command_index >= body_end {
+                                            break;
+                                        }
+                                        let body_command = if source.as_bytes()[body_command_index]
+                                            .is_ascii_alphabetic()
+                                            || source.as_bytes()[body_command_index] == b'@'
+                                        {
+                                            let start = body_command_index;
+                                            while body_command_index < body_end
+                                                && (source.as_bytes()[body_command_index]
+                                                    .is_ascii_alphabetic()
+                                                    || source.as_bytes()[body_command_index]
+                                                        == b'@')
+                                            {
+                                                body_command_index += 1;
+                                            }
+                                            &source[start..body_command_index]
+                                        } else {
+                                            let start = body_command_index;
+                                            body_command_index += 1;
+                                            &source[start..body_command_index]
+                                        };
+                                        match body_command {
+                                            "label" => {
+                                                let argument_index = skip_ascii_whitespace(
+                                                    source,
+                                                    body_command_index,
+                                                );
+                                                if let Some((key, key_start, key_end, after_label)) =
+                                                    read_braced_source_argument(
+                                                        source,
+                                                        argument_index,
+                                                    )
+                                                    && after_label <= body_end
+                                                {
+                                                    self.emit_render_event(
+                                                        RenderEvent::LabelDefinition(
+                                                            LabelDefinitionEvent {
+                                                                key: key.trim().to_string(),
+                                                                command: body_command.to_string(),
+                                                            },
+                                                        ),
+                                                        Self::label_definition_provenance(
+                                                            source_path,
+                                                            body_command_start,
+                                                            after_label,
+                                                            key_start,
+                                                            key_end,
+                                                        ),
+                                                    );
+                                                    body_index = after_label;
+                                                    continue;
+                                                }
+                                            }
+                                            "caption" => {
+                                                if let Some(after) = self.capture_caption_event(
+                                                    source_path,
+                                                    source,
+                                                    body_command_start,
+                                                    body_command_index,
+                                                    body_end,
+                                                ) {
+                                                    body_index = after;
+                                                    continue;
+                                                }
+                                            }
+                                            _ => {}
+                                        }
+                                        body_index = body_command_index;
+                                    }
+                                    self.emit_render_event(
+                                        RenderEvent::EndBlock(EndBlockEvent { block }),
+                                        SourceProvenance::file(
+                                            source_path.to_owned(),
+                                            body_end as u32,
+                                            raw_end as u32,
                                         ),
                                     );
                                     index = raw_end;
@@ -30053,6 +30359,75 @@ Fallback text.
                     fallback.environment.as_deref(),
                     Some("floatingfigure" | "floatingtable")
                 ),
+                _ => false,
+            }
+        }));
+    }
+
+    #[test]
+    fn render_event_capture_records_picinpar_windows_without_option_leakage() {
+        let source = r"\documentclass{article}\usepackage{picinpar}\begin{document}\begin{figwindow}[2,r,{\includegraphics[width=2cm]{figures/window.pdf}},{Window \cite{key}.}]\label{fig:win}\end{figwindow}\begin{tabwindow}[1,l,{\begin{tabular}{ll}A & B\end{tabular}},{Window table.}]\label{tab:win}\end{tabwindow}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package picinpar.sty"
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("picinpar.sty"))
+        );
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Figure
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::Table
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/window.pdf"
+                    && graphic.options.as_deref() == Some("width=2cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Window [?]."
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Window table."
+        )));
+        for key in ["fig:win", "tab:win"] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::LabelDefinition(label) if label.key == key
+            )));
+        }
+        assert!(!outcome.render_events.iter().any(|event| {
+            match &event.event {
+                RenderEvent::Text(text) => [
+                    "figwindow",
+                    "tabwindow",
+                    "picinpar",
+                    "key",
+                    "fig:win",
+                    "tab:win",
+                ]
+                .iter()
+                .any(|argument| text.text.contains(argument)),
+                RenderEvent::RawFallback(fallback) => {
+                    matches!(
+                        fallback.environment.as_deref(),
+                        Some("figwindow" | "tabwindow")
+                    )
+                }
                 _ => false,
             }
         }));
