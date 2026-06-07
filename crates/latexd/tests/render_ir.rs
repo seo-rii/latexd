@@ -1837,6 +1837,48 @@ fn graphic_render_ir_capture_derives_display_list_image() {
 }
 
 #[test]
+fn figure_table_alignment_declarations_do_not_leak_into_render_text() {
+    let source = r"\documentclass{article}\usepackage{ragged2e}\begin{document}\begin{figure}\centering\includegraphics{figures/plot.pdf}\caption{Plot.}\end{figure}\begin{table}\RaggedRight\caption{Data.}\end{table}\justifying Visible.\end{document}";
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        source,
+        &SemanticAux::default(),
+        &[("figures/plot.pdf", "%PDF fake")],
+    );
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Graphic(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.caption.as_deref() == Some("Plot.")
+        )
+    }));
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Plot."));
+    assert!(extracted_text.contains("Data."));
+    assert!(extracted_text.contains("Visible."));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Plot."));
+    assert!(display_list_text.contains("Data."));
+    assert!(display_list_text.contains("Visible."));
+
+    for hidden in ["centering", "RaggedRight", "justifying", "ragged2e"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
+    }
+}
+
+#[test]
 fn graphic_render_ir_capture_applies_includegraphics_width_hint() {
     let capture = capture_internal_render_ir("main.tex", GRAPHIC_SOURCE, &SemanticAux::default());
     let image = capture.page_display_lists[0]

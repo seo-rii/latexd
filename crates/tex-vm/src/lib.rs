@@ -214,6 +214,13 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\balance}{}
 \providecommand{\flushend}{}
 \providecommand{\raggedend}{}
+\providecommand{\centering}{}
+\providecommand{\Centering}{}
+\providecommand{\raggedleft}{}
+\providecommand{\raggedright}{}
+\providecommand{\RaggedLeft}{}
+\providecommand{\RaggedRight}{}
+\providecommand{\justifying}{}
 \providecommand{\xspace}{ }
 \providecommand{\phantomsection}{}
 \providecommand{\addcontentsline}[3]{}
@@ -282,6 +289,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "fullpage.sty",
     "graphicx.sty",
     "hhline.sty",
+    "ragged2e.sty",
     "hyperref.sty",
     "inputenc.sty",
     "keyval.sty",
@@ -3885,6 +3893,8 @@ impl<'i> Vm<'i> {
                     index = consume_fontsize_source_arguments(source, index);
                 }
                 "FloatBarrier" | "balance" | "flushend" | "raggedend" | "phantomsection"
+                | "centering" | "Centering" | "raggedleft" | "raggedright" | "RaggedLeft"
+                | "RaggedRight" | "justifying"
                     if in_document => {}
                 "xspace" if in_document => {
                     index = skip_ascii_whitespace(source, index);
@@ -27337,6 +27347,50 @@ Fallback text.
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("figure")
         )));
+    }
+
+    #[test]
+    fn render_event_capture_omits_alignment_declarations_in_floats() {
+        let source = r"\documentclass{article}\usepackage{ragged2e}\begin{document}\begin{figure}\centering\includegraphics{figures/plot.pdf}\caption{Plot.}\end{figure}\begin{table}\RaggedRight\caption{Data.}\end{table}\justifying Visible.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("figures/plot.pdf", "%PDF fake");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("ragged2e.sty"))
+        );
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic) if graphic.path == "figures/plot.pdf"
+        )));
+        for caption in ["Plot.", "Data."] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Caption(caption_event) if caption_event.text == caption
+            )));
+        }
+        for hidden in ["centering", "RaggedRight", "justifying", "ragged2e"] {
+            assert!(!outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Text(text) if text.text.contains(hidden)
+            )));
+        }
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package ragged2e.sty"
+        }));
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && matches!(
+                    diagnostic.detail.as_str(),
+                    "centering" | "RaggedRight" | "justifying"
+                )
+        }));
     }
 
     #[test]

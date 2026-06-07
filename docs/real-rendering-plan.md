@@ -215,6 +215,9 @@ preserve nested graphics without leaking layout dimensions into visible text.
 debug artifacts expose that metadata as `data-image-scale-x` /
 `data-image-scale-y`. Nested graphic wrappers now thread outer sizing and scale
 hints into inner graphics instead of dropping them at the next wrapper boundary.
+Common float alignment declarations such as `\centering`, `\RaggedRight`, and
+`\justifying` are recognized as layout-only commands so they do not leak into
+figure/table text or trigger missing-package diagnostics for `ragged2e`.
 
 ## Product Goal
 
