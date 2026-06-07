@@ -4597,6 +4597,43 @@ fn caption_like_commands_capture_as_float_captions_without_option_leakage() {
 }
 
 #[test]
+fn figcaption_and_tabcaption_capture_as_float_captions_without_option_leakage() {
+    let capture =
+        capture_internal_render_ir("main.tex", FIG_TAB_CAPTION_SOURCE, &SemanticAux::default());
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Graphic(graphic)
+                if graphic.path == "figures/figcaption.pdf"
+                    && graphic.options.as_deref() == Some("width=2cm")
+                    && graphic.caption.as_deref() == Some("Figure caption [?].")
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Figure caption [?]."));
+    assert!(extracted_text.contains("Table caption [?]."));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Figure caption [?]."));
+    assert!(display_list_text.contains("Table caption [?]."));
+
+    for hidden in ["Short fig", "key", "figcaption", "tabcaption"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
+    }
+}
+
+#[test]
 fn captionof_provenance_preserves_long_caption_and_invocation_spans() {
     let capture = capture_internal_render_ir("main.tex", CAPTIONOF_SOURCE, &SemanticAux::default());
 
@@ -20216,6 +20253,8 @@ const FLOATROW_FCAPSIDE_SOURCE: &str = r"\documentclass{article}\usepackage{floa
 const FLOATROW_FLOATBOX_SOURCE: &str = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{figure}\floatbox[\capbeside]{figure}[\FBwidth][c]{\includegraphics[width=3cm]{figures/generic-floatbox.pdf}}{\caption{Generic \cite{key}.}}\end{figure}\end{document}";
 
 const FLOATROW_CAPTION_LIKE_SOURCE: &str = r"\documentclass{article}\usepackage{floatrow,caption,subcaption}\begin{document}\begin{figure}\ffigbox{\includegraphics[width=3cm]{figures/ffigbox-like.pdf}}{\captionabove[Short above \cite{key}.]{Above floatrow \cite{key}.}}\end{figure}\begin{figure}\fcapside{\subcaption[Short sub \cite{key}.]{Side sub \cite{key}.}}{\includegraphics[width=3cm]{figures/fcapside-like.pdf}}\end{figure}\begin{figure}\floatbox{figure}{\includegraphics[width=3cm]{figures/floatbox-like.pdf}}{\captionbelow*{Below generic \cite{key}.}}\end{figure}\end{document}";
+
+const FIG_TAB_CAPTION_SOURCE: &str = r"\documentclass{article}\usepackage{ccaption}\begin{document}\begin{figure}\includegraphics[width=2cm]{figures/figcaption.pdf}\figcaption[Short fig \cite{key}.]{Figure caption \cite{key}.}\end{figure}\begin{table}\tabcaption*{Table caption \cite{key}.}\end{table}\end{document}";
 
 const STARRED_GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics*[width=3cm]{figures/starred.pdf}\caption{Starred plot.}\end{figure}\end{document}";
 

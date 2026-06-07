@@ -216,6 +216,8 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\subcaption}[2][]{#2}
 \providecommand{\captionabove}[2][]{#2}
 \providecommand{\captionbelow}[2][]{#2}
+\providecommand{\figcaption}[2][]{#2}
+\providecommand{\tabcaption}[2][]{#2}
 \providecommand{\captionbox}[2]{#2}
 \providecommand{\subcaptionbox}[2]{#2}
 \providecommand{\captionsetup}[2][]{}
@@ -309,6 +311,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "booktabs.sty",
     "braket.sty",
     "caption.sty",
+    "ccaption.sty",
     "cite.sty",
     "cleveref.sty",
     "collcell.sty",
@@ -3132,7 +3135,7 @@ impl<'i> Vm<'i> {
                                                 }
                                             }
                                             "caption" | "subcaption" | "captionabove"
-                                            | "captionbelow" => {
+                                            | "captionbelow" | "figcaption" | "tabcaption" => {
                                                 if let Some(after) = self.capture_caption_event(
                                                     source_path,
                                                     source,
@@ -3484,7 +3487,7 @@ impl<'i> Vm<'i> {
                                                 }
                                             }
                                             "caption" | "subcaption" | "captionabove"
-                                            | "captionbelow" => {
+                                            | "captionbelow" | "figcaption" | "tabcaption" => {
                                                 if let Some(after) = self.capture_caption_event(
                                                     source_path,
                                                     source,
@@ -8713,7 +8716,10 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
-                "caption" | "subcaption" | "captionabove" | "captionbelow" if in_document => {
+                "caption" | "subcaption" | "captionabove" | "captionbelow" | "figcaption"
+                | "tabcaption"
+                    if in_document =>
+                {
                     if let Some(after) = self.capture_caption_event(
                         source_path,
                         source,
@@ -12572,7 +12578,12 @@ impl<'i> Vm<'i> {
             };
             if matches!(
                 command,
-                "caption" | "subcaption" | "captionabove" | "captionbelow"
+                "caption"
+                    | "subcaption"
+                    | "captionabove"
+                    | "captionbelow"
+                    | "figcaption"
+                    | "tabcaption"
             ) && self
                 .capture_caption_event(source_path, source, command_start, command_index, range_end)
                 .is_some()
@@ -31148,6 +31159,53 @@ Fallback text.
             "captionbelow",
             "key",
         ] {
+            assert!(!visible_text.contains(hidden), "{visible_text:?}");
+        }
+    }
+
+    #[test]
+    fn render_event_capture_records_figcaption_and_tabcaption_commands() {
+        let source = r"\documentclass{article}\usepackage{ccaption}\begin{document}\begin{figure}\includegraphics[width=2cm]{figures/figcaption.pdf}\figcaption[Short fig \cite{key}.]{Figure caption \cite{key}.}\end{figure}\begin{table}\tabcaption*{Table caption \cite{key}.}\end{table}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package ccaption.sty"
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("ccaption.sty"))
+        );
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/figcaption.pdf"
+                    && graphic.options.as_deref() == Some("width=2cm")
+        )));
+        for caption in ["Figure caption [?].", "Table caption [?]."] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Caption(event) if event.text == caption
+            )));
+        }
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Caption(caption) => Some(caption.text.as_str()),
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        for hidden in ["Short fig", "key", "figcaption", "tabcaption"] {
             assert!(!visible_text.contains(hidden), "{visible_text:?}");
         }
     }
