@@ -22714,7 +22714,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         index = after_argument;
                     }
                     "hat" | "widehat" | "bar" | "overline" | "vec" | "tilde" | "widetilde"
-                    | "dot" | "ddot" | "underline" => {
+                    | "dot" | "ddot" | "underline" | "overbrace" | "underbrace" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);
                         let Some((argument, _, _, after_argument)) =
                             read_braced_source_argument(source, argument_index)
@@ -32404,6 +32404,29 @@ Fallback text.
                     == r"\xrightarrow{p} X + Y \xleftarrow[n\to\infty]{d} Z"
                     && math.normalized_text.as_deref()
                         == Some("->^{p} X + Y <-^{d}_{n -> infinity} Z")
+        ));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_brace_groups() {
+        let source = r"\begin{document}Groups \(\overbrace{a+b}^{n} + \underbrace{c_d}_{\text{reason}}\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math)
+                if math.raw_source == r"\overbrace{a+b}^{n} + \underbrace{c_d}_{\text{reason}}"
+                    && math.normalized_text.as_deref()
+                        == Some("overbrace(a + b)^n + underbrace(c_d)_reason")
         ));
     }
 
