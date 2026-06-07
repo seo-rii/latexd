@@ -26,6 +26,8 @@ pub struct DocumentIrBuilder<'a, A: AuxView> {
     title: Option<(String, SourceProvenance)>,
     authors: Vec<(String, SourceProvenance)>,
     date: Option<(String, SourceProvenance)>,
+    keywords: Vec<(String, SourceProvenance)>,
+    pacs: Vec<(String, SourceProvenance)>,
     metadata_sources: Vec<SourceProvenance>,
 }
 
@@ -47,6 +49,8 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             title: None,
             authors: Vec::new(),
             date: None,
+            keywords: Vec::new(),
+            pacs: Vec::new(),
             metadata_sources: Vec::new(),
         }
     }
@@ -66,6 +70,16 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     }
                     MetadataField::Date => {
                         self.date = Some((event.value.clone(), envelope.meta.source.clone()));
+                        self.metadata_sources.push(envelope.meta.source.clone());
+                    }
+                    MetadataField::Keywords => {
+                        self.keywords
+                            .push((event.value.clone(), envelope.meta.source.clone()));
+                        self.metadata_sources.push(envelope.meta.source.clone());
+                    }
+                    MetadataField::Pacs => {
+                        self.pacs
+                            .push((event.value.clone(), envelope.meta.source.clone()));
                         self.metadata_sources.push(envelope.meta.source.clone());
                     }
                 },
@@ -100,6 +114,24 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             .clone()
                             .with_related(SourceSpanRole::EmitSite, emit_span.clone())
                     });
+                    let keywords = std::mem::take(&mut self.keywords);
+                    let keyword_sources = keywords
+                        .iter()
+                        .map(|(_, source)| {
+                            source
+                                .clone()
+                                .with_related(SourceSpanRole::EmitSite, emit_span.clone())
+                        })
+                        .collect::<Vec<_>>();
+                    let pacs = std::mem::take(&mut self.pacs);
+                    let pacs_sources = pacs
+                        .iter()
+                        .map(|(_, source)| {
+                            source
+                                .clone()
+                                .with_related(SourceSpanRole::EmitSite, emit_span.clone())
+                        })
+                        .collect::<Vec<_>>();
                     self.blocks.push(IrBlock::TitleBlock(TitleBlock {
                         title: title.map(|(value, _)| value),
                         title_source,
@@ -107,6 +139,10 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         author_sources,
                         date: date.map(|(value, _)| value),
                         date_source,
+                        keywords: keywords.into_iter().map(|(value, _)| value).collect(),
+                        keyword_sources,
+                        pacs: pacs.into_iter().map(|(value, _)| value).collect(),
+                        pacs_sources,
                         source,
                     }));
                 }

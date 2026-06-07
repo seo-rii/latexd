@@ -794,13 +794,17 @@ fn class_frontmatter_shims_survive_ir_and_display_list() {
             REVTEX_FRONTMATTER_SOURCE,
             "REVTeX Paper",
             vec!["Alice", "alice@example.test", "Quantum Lab"],
-            vec!["affiliation", "email"],
+            vec!["Quantum systems"],
+            vec!["12.34.-x"],
+            vec!["affiliation", "email", "keywords", "pacs"],
         ),
         (
             "wacv",
             WACV_FRONTMATTER_SOURCE,
             "WACV Paper",
             vec!["Alice", "Vision Lab"],
+            Vec::new(),
+            Vec::new(),
             vec!["affiliation"],
         ),
         (
@@ -808,11 +812,22 @@ fn class_frontmatter_shims_survive_ir_and_display_list() {
             IEEE_FRONTMATTER_SOURCE,
             "IEEE Paper",
             vec!["Alice Smith and Bob Jones Vision Lab"],
+            Vec::new(),
+            Vec::new(),
             vec!["IEEEauthor", "IEEEauthorrefmark"],
         ),
     ];
 
-    for (case, source, expected_title, expected_authors, hidden) in cases {
+    for (
+        case,
+        source,
+        expected_title,
+        expected_authors,
+        expected_keywords,
+        expected_pacs,
+        hidden,
+    ) in cases
+    {
         let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
         let title = capture
             .document_ir
@@ -830,16 +845,72 @@ fn class_frontmatter_shims_survive_ir_and_display_list() {
             expected_authors,
             "{case}"
         );
+        assert_eq!(
+            title
+                .keywords
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            expected_keywords,
+            "{case}"
+        );
+        assert_eq!(
+            title.pacs.iter().map(String::as_str).collect::<Vec<_>>(),
+            expected_pacs,
+            "{case}"
+        );
         let extracted_text = capture.document_ir.extracted_text();
+        let display_list_text = capture
+            .page_display_lists
+            .iter()
+            .flat_map(|page| &page.ops)
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some(run.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
         assert!(
             extracted_text.contains(expected_title),
             "{case}: {extracted_text}"
         );
-        for author in expected_authors {
-            assert!(extracted_text.contains(author), "{case}: {extracted_text}");
+        assert!(
+            display_list_text.contains(expected_title),
+            "{case}: {display_list_text}"
+        );
+        for author in &expected_authors {
+            assert!(extracted_text.contains(*author), "{case}: {extracted_text}");
+            assert!(
+                display_list_text.contains(*author),
+                "{case}: {display_list_text}"
+            );
         }
-        for hidden in hidden {
-            assert!(!extracted_text.contains(hidden), "{case}: {extracted_text}");
+        for keyword in &expected_keywords {
+            assert!(
+                extracted_text.contains(*keyword),
+                "{case}: {extracted_text}"
+            );
+            assert!(
+                display_list_text.contains(*keyword),
+                "{case}: {display_list_text}"
+            );
+        }
+        for pacs in &expected_pacs {
+            assert!(extracted_text.contains(*pacs), "{case}: {extracted_text}");
+            assert!(
+                display_list_text.contains(*pacs),
+                "{case}: {display_list_text}"
+            );
+        }
+        for hidden in &hidden {
+            assert!(
+                !extracted_text.contains(*hidden),
+                "{case}: {extracted_text}"
+            );
+            assert!(
+                !display_list_text.contains(*hidden),
+                "{case}: {display_list_text}"
+            );
         }
     }
 }
@@ -20462,7 +20533,7 @@ const AUTHBLK_FRONTMATTER_SOURCE: &str = r"\usepackage{authblk}\title{Quantum Pa
 
 const LLNCS_FRONTMATTER_SOURCE: &str = r"\documentclass{llncs}\title{LNCS Paper}\author{Alice \inst{1}\orcidID{0000} \and Bob \inst{2}}\institute{Lab One \email{alice@example.test} \and Lab Two}\begin{document}\maketitle\end{document}";
 
-const REVTEX_FRONTMATTER_SOURCE: &str = r"\documentclass{revtex4-2}\title{REVTeX Paper}\author{Alice}\email{alice@example.test}\affiliation{Quantum Lab}\begin{document}\maketitle\end{document}";
+const REVTEX_FRONTMATTER_SOURCE: &str = r"\documentclass{revtex4-2}\title{REVTeX Paper}\author{Alice}\email{alice@example.test}\affiliation{Quantum Lab}\pacs{12.34.-x}\keywords{Quantum systems}\begin{document}\maketitle\end{document}";
 
 const WACV_FRONTMATTER_SOURCE: &str = r"\usepackage{wacv}\title{WACV Paper}\author{Alice}\affiliation{Vision Lab}\begin{document}\maketitle\end{document}";
 

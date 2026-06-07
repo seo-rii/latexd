@@ -536,7 +536,7 @@ stubs.
 Tasks:
 
 - store `\title`, `\author`, `\date`, `\thanks`, `\affil`, `\institute`,
-  `\email`, `\keywords`;
+  `\email`, `\keywords`, and `\pacs`;
 - implement `\maketitle` as a structured `TitleBlock`;
 - support common class variants used by `article`, `llncs`, `IEEEtran`,
   `revtex4-2`, and `wacv`;
@@ -879,7 +879,7 @@ Tasks:
 - for `llncs`, emit title/institute/keywords/abstract semantics;
 - for `IEEEtran`, emit IEEE author blocks and common biography/thanks surfaces;
 - for `revtex4-2`, emit affiliations, PACS/keywords where present, and title
-  structure;
+  structure through title-block metadata events rather than body-text leakage;
 - for `wacv`, emit camera-ready title block, abstract, captions, and section
   formatting;
 - document every shim as "semantic approximation" with supported visible
@@ -1157,7 +1157,7 @@ Compat fixtures:
 - article title/abstract/sections;
 - llncs title/institute/keywords;
 - IEEE author blocks;
-- revtex affiliation/keywords;
+- revtex affiliation/keywords/PACS;
 - figure with PDF image;
 - booktabs table;
 - bibliography with `.bbl`;

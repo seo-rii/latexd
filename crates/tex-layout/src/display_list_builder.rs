@@ -400,7 +400,70 @@ pub fn build_page_display_lists(
                         source,
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
-                        gap_after_pt: options.block_gap_pt,
+                        gap_after_pt: if block.keywords.is_empty() && block.pacs.is_empty() {
+                            options.block_gap_pt
+                        } else {
+                            0.0
+                        },
+                        first_line_indent_pt: 0.0,
+                        continuation_indent_pt: 0.0,
+                        preserve_leading_whitespace: false,
+                    }));
+                }
+                for (index, keyword) in block.keywords.iter().enumerate() {
+                    let source = block
+                        .keyword_sources
+                        .get(index)
+                        .cloned()
+                        .unwrap_or_else(|| block.source.clone());
+                    logical_items.push(LogicalItem::Text(LogicalTextRun {
+                        segments: vec![LogicalTextSegment {
+                            text: format!("Keywords: {keyword}"),
+                            source: source.clone(),
+                            link_target: None,
+                            table_rule: false,
+                            table_rule_trim_start_pt: None,
+                            table_rule_trim_end_pt: None,
+                            table_vertical_rule_offsets: Vec::new(),
+                        }],
+                        source,
+                        font: body_font.clone(),
+                        size_pt: options.body_font_size_pt,
+                        gap_after_pt: if block.pacs.is_empty() && index + 1 == block.keywords.len()
+                        {
+                            options.block_gap_pt
+                        } else {
+                            0.0
+                        },
+                        first_line_indent_pt: 0.0,
+                        continuation_indent_pt: 0.0,
+                        preserve_leading_whitespace: false,
+                    }));
+                }
+                for (index, pacs) in block.pacs.iter().enumerate() {
+                    let source = block
+                        .pacs_sources
+                        .get(index)
+                        .cloned()
+                        .unwrap_or_else(|| block.source.clone());
+                    logical_items.push(LogicalItem::Text(LogicalTextRun {
+                        segments: vec![LogicalTextSegment {
+                            text: format!("PACS: {pacs}"),
+                            source: source.clone(),
+                            link_target: None,
+                            table_rule: false,
+                            table_rule_trim_start_pt: None,
+                            table_rule_trim_end_pt: None,
+                            table_vertical_rule_offsets: Vec::new(),
+                        }],
+                        source,
+                        font: body_font.clone(),
+                        size_pt: options.body_font_size_pt,
+                        gap_after_pt: if index + 1 == block.pacs.len() {
+                            options.block_gap_pt
+                        } else {
+                            0.0
+                        },
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: 0.0,
                         preserve_leading_whitespace: false,
@@ -2545,6 +2608,10 @@ mod tests {
                     author_sources: Vec::new(),
                     date: None,
                     date_source: None,
+                    keywords: Vec::new(),
+                    keyword_sources: Vec::new(),
+                    pacs: Vec::new(),
+                    pacs_sources: Vec::new(),
                     source: source.clone(),
                 }),
                 IrBlock::Paragraph(ParagraphBlock {
@@ -5167,6 +5234,10 @@ mod tests {
                 author_sources: vec![author_source],
                 date: None,
                 date_source: None,
+                keywords: Vec::new(),
+                keyword_sources: Vec::new(),
+                pacs: Vec::new(),
+                pacs_sources: Vec::new(),
                 source: block_source,
             })]),
             PageDisplayListOptions::default(),

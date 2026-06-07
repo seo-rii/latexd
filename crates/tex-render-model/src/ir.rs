@@ -51,6 +51,18 @@ impl DocumentIr {
                         }
                         text.push_str(date);
                     }
+                    for keyword in &block.keywords {
+                        if !text.is_empty() {
+                            text.push('\n');
+                        }
+                        text.push_str(keyword);
+                    }
+                    for pacs in &block.pacs {
+                        if !text.is_empty() {
+                            text.push('\n');
+                        }
+                        text.push_str(pacs);
+                    }
                 }
                 IrBlock::Abstract(block) => {
                     for node in &block.content {
@@ -260,6 +272,14 @@ pub struct TitleBlock {
     pub date: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub date_source: Option<SourceProvenance>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keywords: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub keyword_sources: Vec<SourceProvenance>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pacs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pacs_sources: Vec<SourceProvenance>,
     pub source: SourceProvenance,
 }
 

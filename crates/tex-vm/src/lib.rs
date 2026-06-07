@@ -2448,7 +2448,8 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
-                "title" | "author" | "date" | "affil" | "affiliation" | "institute" | "email" => {
+                "title" | "author" | "date" | "affil" | "affiliation" | "institute" | "email"
+                | "keywords" | "pacs" => {
                     let mut argument_index = skip_ascii_whitespace(source, index);
                     loop {
                         let Some((_, _, _, after_option)) =
@@ -2464,6 +2465,8 @@ impl<'i> Vm<'i> {
                         let field = match command {
                             "title" => MetadataField::Title,
                             "date" => MetadataField::Date,
+                            "keywords" => MetadataField::Keywords,
+                            "pacs" => MetadataField::Pacs,
                             "author" | "affil" | "affiliation" | "institute" | "email" => {
                                 MetadataField::Author
                             }
@@ -38357,6 +38360,33 @@ Fallback text.
             assert!(!author.contains("affil"));
             assert!(!author.contains("thanks"));
         }
+    }
+
+    #[test]
+    fn render_event_capture_records_keywords_and_pacs_metadata() {
+        let source = r"\documentclass{revtex4-2}\title{REVTeX Paper}\keywords{Quantum systems}\pacs{12.34.-x}\begin{document}\maketitle\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::SetDocumentMetadata(metadata)
+                if metadata.field == MetadataField::Keywords
+                    && metadata.value == "Quantum systems"
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::SetDocumentMetadata(metadata)
+                if metadata.field == MetadataField::Pacs
+                    && metadata.value == "12.34.-x"
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text.contains("keywords") || text.text.contains("pacs")
+        )));
     }
 
     #[test]

@@ -203,6 +203,8 @@ pub enum MetadataField {
     Title,
     Author,
     Date,
+    Keywords,
+    Pacs,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
