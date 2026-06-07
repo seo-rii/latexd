@@ -3529,6 +3529,49 @@ fn graphic_alignment_box_wrappers_preserve_images_without_argument_leakage() {
 }
 
 #[test]
+fn graphic_color_box_wrappers_preserve_images_without_argument_leakage() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        GRAPHIC_COLOR_BOX_WRAPPER_SOURCE,
+        &SemanticAux::default(),
+        &[
+            ("figures/highlight.pdf", "%PDF fake"),
+            ("figures/framed.pdf", "%PDF fake"),
+        ],
+    );
+
+    for path in ["figures/highlight.pdf", "figures/framed.pdf"] {
+        assert!(capture.document_ir.blocks.iter().any(|block| {
+            matches!(
+                block,
+                IrBlock::Graphic(graphic) if graphic.path == path
+            )
+        }));
+        assert!(
+            capture.page_display_lists[0]
+                .ops
+                .iter()
+                .any(|op| matches!(op, DrawOp::Image(image) if image.asset_ref == path))
+        );
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    for hidden in ["colorbox", "fcolorbox", "yellow", "black", "white"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
+    }
+}
+
+#[test]
 fn starred_graphic_capture_derives_display_list_image_without_visible_star() {
     let capture =
         capture_internal_render_ir("main.tex", STARRED_GRAPHIC_SOURCE, &SemanticAux::default());
@@ -19024,6 +19067,8 @@ const GRAPHIC_LAYOUT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\resizebox{0.8
 const NESTED_GRAPHIC_LAYOUT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\resizebox{0.5\textwidth}{!}{\scalebox{0.5}[2]{\includegraphics{figures/nested}}}\reflectbox{\resizebox{2cm}{!}{\includegraphics{figures/reflected}}}\end{document}";
 
 const GRAPHIC_ALIGNMENT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\adjustbox{width=\textwidth,center}{\includegraphics{figures/plot}}\centerline{\includegraphics{figures/other}}\makebox[\textwidth][c]{\epsfbox{figures/third}}\end{document}";
+
+const GRAPHIC_COLOR_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\colorbox{yellow}{\includegraphics[width=3cm]{figures/highlight}}\fcolorbox{black}{white}{\includegraphics{figures/framed}}\end{document}";
 
 const STARRED_GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics*[width=3cm]{figures/starred.pdf}\caption{Starred plot.}\end{figure}\end{document}";
 

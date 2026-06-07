@@ -2919,7 +2919,7 @@ impl<'i> Vm<'i> {
                                             "resizebox" | "scalebox" | "rotatebox"
                                             | "reflectbox" | "adjustbox" | "centerline"
                                             | "makebox" | "framebox" | "fbox" | "mbox"
-                                            | "raisebox" | "parbox" => {
+                                            | "raisebox" | "parbox" | "colorbox" | "fcolorbox" => {
                                                 if let Some(after) = self
                                                     .capture_graphic_box_wrapper_events(
                                                         source_path,
@@ -4893,49 +4893,22 @@ impl<'i> Vm<'i> {
                         if let Some((text, content_start, content_end, after)) =
                             read_braced_source_argument(source, text_index)
                         {
-                            self.emit_render_event(
-                                RenderEvent::Text(TextEvent {
-                                    text: normalize_latex_text_with_inline_placeholders(text),
-                                }),
-                                SourceProvenance::file(
-                                    source_path.to_owned(),
-                                    content_start as u32,
-                                    content_end as u32,
-                                )
-                                .with_related(
-                                    SourceSpanRole::Invocation,
-                                    ProvenanceSpan::File(SourceSpan {
-                                        path: source_path.to_owned(),
-                                        start_utf8: command_start as u32,
-                                        end_utf8: after as u32,
-                                    }),
-                                )
-                                .with_related(
-                                    SourceSpanRole::Argument,
-                                    ProvenanceSpan::File(SourceSpan {
-                                        path: source_path.to_owned(),
-                                        start_utf8: color_start as u32,
-                                        end_utf8: color_end as u32,
-                                    }),
-                                ),
-                            );
-                            index = after;
-                        }
-                    }
-                }
-                "fcolorbox" if in_document => {
-                    index = skip_ascii_whitespace(source, index);
-                    if let Some((_, frame_start, frame_end, after_frame)) =
-                        read_braced_source_argument(source, index)
-                    {
-                        let color_index = skip_ascii_whitespace(source, after_frame);
-                        if let Some((_, color_start, color_end, after_color)) =
-                            read_braced_source_argument(source, color_index)
-                        {
-                            let text_index = skip_ascii_whitespace(source, after_color);
-                            if let Some((text, content_start, content_end, after)) =
-                                read_braced_source_argument(source, text_index)
-                            {
+                            if source_range_contains_graphic_command(
+                                source,
+                                content_start,
+                                content_end,
+                            ) {
+                                self.capture_graphics_in_source_range(
+                                    source_path,
+                                    source,
+                                    content_start,
+                                    content_end,
+                                    &scan_state.graphic_paths,
+                                    &scan_state.graphic_extensions,
+                                    scan_state.graphic_default_options.as_deref(),
+                                    None,
+                                );
+                            } else {
                                 self.emit_render_event(
                                     RenderEvent::Text(TextEvent {
                                         text: normalize_latex_text_with_inline_placeholders(text),
@@ -4957,19 +4930,82 @@ impl<'i> Vm<'i> {
                                         SourceSpanRole::Argument,
                                         ProvenanceSpan::File(SourceSpan {
                                             path: source_path.to_owned(),
-                                            start_utf8: frame_start as u32,
-                                            end_utf8: frame_end as u32,
-                                        }),
-                                    )
-                                    .with_related(
-                                        SourceSpanRole::Argument,
-                                        ProvenanceSpan::File(SourceSpan {
-                                            path: source_path.to_owned(),
                                             start_utf8: color_start as u32,
                                             end_utf8: color_end as u32,
                                         }),
                                     ),
                                 );
+                            }
+                            index = after;
+                        }
+                    }
+                }
+                "fcolorbox" if in_document => {
+                    index = skip_ascii_whitespace(source, index);
+                    if let Some((_, frame_start, frame_end, after_frame)) =
+                        read_braced_source_argument(source, index)
+                    {
+                        let color_index = skip_ascii_whitespace(source, after_frame);
+                        if let Some((_, color_start, color_end, after_color)) =
+                            read_braced_source_argument(source, color_index)
+                        {
+                            let text_index = skip_ascii_whitespace(source, after_color);
+                            if let Some((text, content_start, content_end, after)) =
+                                read_braced_source_argument(source, text_index)
+                            {
+                                if source_range_contains_graphic_command(
+                                    source,
+                                    content_start,
+                                    content_end,
+                                ) {
+                                    self.capture_graphics_in_source_range(
+                                        source_path,
+                                        source,
+                                        content_start,
+                                        content_end,
+                                        &scan_state.graphic_paths,
+                                        &scan_state.graphic_extensions,
+                                        scan_state.graphic_default_options.as_deref(),
+                                        None,
+                                    );
+                                } else {
+                                    self.emit_render_event(
+                                        RenderEvent::Text(TextEvent {
+                                            text: normalize_latex_text_with_inline_placeholders(
+                                                text,
+                                            ),
+                                        }),
+                                        SourceProvenance::file(
+                                            source_path.to_owned(),
+                                            content_start as u32,
+                                            content_end as u32,
+                                        )
+                                        .with_related(
+                                            SourceSpanRole::Invocation,
+                                            ProvenanceSpan::File(SourceSpan {
+                                                path: source_path.to_owned(),
+                                                start_utf8: command_start as u32,
+                                                end_utf8: after as u32,
+                                            }),
+                                        )
+                                        .with_related(
+                                            SourceSpanRole::Argument,
+                                            ProvenanceSpan::File(SourceSpan {
+                                                path: source_path.to_owned(),
+                                                start_utf8: frame_start as u32,
+                                                end_utf8: frame_end as u32,
+                                            }),
+                                        )
+                                        .with_related(
+                                            SourceSpanRole::Argument,
+                                            ProvenanceSpan::File(SourceSpan {
+                                                path: source_path.to_owned(),
+                                                start_utf8: color_start as u32,
+                                                end_utf8: color_end as u32,
+                                            }),
+                                        ),
+                                    );
+                                }
                                 index = after;
                             }
                         }
@@ -7558,7 +7594,7 @@ impl<'i> Vm<'i> {
                 }
                 "resizebox" | "scalebox" | "rotatebox" | "reflectbox" | "adjustbox"
                 | "centerline" | "makebox" | "framebox" | "fbox" | "mbox" | "raisebox"
-                | "parbox"
+                | "parbox" | "colorbox" | "fcolorbox"
                     if in_document =>
                 {
                     if let Some(after) = self.capture_graphic_box_wrapper_events(
@@ -8442,7 +8478,7 @@ impl<'i> Vm<'i> {
                 ),
                 "resizebox" | "scalebox" | "rotatebox" | "reflectbox" | "adjustbox"
                 | "centerline" | "makebox" | "framebox" | "fbox" | "mbox" | "raisebox"
-                | "parbox" => self.capture_graphic_box_wrapper_events(
+                | "parbox" | "colorbox" | "fcolorbox" => self.capture_graphic_box_wrapper_events(
                     source_path,
                     source,
                     command,
@@ -8685,6 +8721,57 @@ impl<'i> Vm<'i> {
             "centerline" | "fbox" | "mbox" => {
                 let (_, body_start, body_end, after_body) =
                     read_braced_source_argument(source, argument_index)?;
+                if after_body > limit {
+                    return None;
+                }
+                capture_wrapper_body(self, body_start, body_end, outer_options);
+                Some(after_body)
+            }
+            "colorbox" => {
+                let mut color_index = argument_index;
+                if let Some((_, _, _, after_option)) =
+                    read_bracket_source_argument(source, color_index)
+                {
+                    if after_option > limit {
+                        return None;
+                    }
+                    color_index = skip_ascii_whitespace(source, after_option);
+                }
+                let (_, _, _, after_color) = read_braced_source_argument(source, color_index)?;
+                if after_color > limit {
+                    return None;
+                }
+                let body_index = skip_ascii_whitespace(source, after_color);
+                let (_, body_start, body_end, after_body) =
+                    read_braced_source_argument(source, body_index)?;
+                if after_body > limit {
+                    return None;
+                }
+                capture_wrapper_body(self, body_start, body_end, outer_options);
+                Some(after_body)
+            }
+            "fcolorbox" => {
+                let mut frame_index = argument_index;
+                if let Some((_, _, _, after_option)) =
+                    read_bracket_source_argument(source, frame_index)
+                {
+                    if after_option > limit {
+                        return None;
+                    }
+                    frame_index = skip_ascii_whitespace(source, after_option);
+                }
+                let (_, _, _, after_frame) = read_braced_source_argument(source, frame_index)?;
+                if after_frame > limit {
+                    return None;
+                }
+                let color_index = skip_ascii_whitespace(source, after_frame);
+                let (_, _, _, after_color) = read_braced_source_argument(source, color_index)?;
+                if after_color > limit {
+                    return None;
+                }
+                let body_index = skip_ascii_whitespace(source, after_color);
+                let (_, body_start, body_end, after_body) =
+                    read_braced_source_argument(source, body_index)?;
                 if after_body > limit {
                     return None;
                 }
@@ -19117,6 +19204,19 @@ fn normalize_latex_text(source: &str) -> String {
     text.trim().to_string()
 }
 
+fn source_range_contains_graphic_command(source: &str, start: usize, end: usize) -> bool {
+    let body = &source[start..end];
+    [
+        "\\includegraphics",
+        "\\epsfig",
+        "\\psfig",
+        "\\epsfbox",
+        "\\epsffile",
+    ]
+    .iter()
+    .any(|command| body.contains(command))
+}
+
 fn merge_graphic_options(
     options: Option<String>,
     inherited_options: Option<&str>,
@@ -28043,6 +28143,36 @@ Fallback text.
                     "1ex",
                     "4cm"
                 ]
+                    .iter()
+                    .any(|hidden| text.text.contains(hidden))
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_graphics_inside_color_box_wrappers() {
+        let source = r"\begin{document}\colorbox{yellow}{\includegraphics[width=3cm]{figures/highlight}}\fcolorbox{black}{white}{\includegraphics{figures/framed}}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("figures/highlight.pdf", "%PDF fake");
+        vm.mount_file("figures/framed.pdf", "%PDF fake");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/highlight.pdf"
+                    && graphic.options.as_deref() == Some("width=3cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic) if graphic.path == "figures/framed.pdf"
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if ["colorbox", "fcolorbox", "yellow", "black", "white"]
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));
