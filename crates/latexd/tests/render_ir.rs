@@ -5526,6 +5526,50 @@ fn math_accents_and_delimiters_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_invisible_delimiters_do_not_leak_visible_dots() {
+    let source = r"\begin{document}Boundary \(\left. \frac{d}{dx} f(x) \right|_{x=0} + \left( y \right.\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"\left. \frac{d}{dx} f(x) \right|_{x=0} + \left( y \right."
+                && normalized_text.as_deref()
+                    == Some("d/dx f(x) |_x = 0 + (y")
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("d/dx f(x) |_x = 0 + (y"));
+    assert!(!display_list_text.contains(r"\left."));
+    assert!(!display_list_text.contains(r"\right."));
+    assert!(!display_list_text.contains(". d/dx"));
+    assert!(!display_list_text.contains("y ."));
+}
+
+#[test]
 fn math_operators_and_scripts_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Series \(\sum_{i=1}^{n} x_i + \int_{0}^{1} f(x)\,dx + \sin \theta\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

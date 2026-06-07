@@ -22768,7 +22768,11 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     }
                     "left" | "right" | "big" | "Big" | "bigg" | "Bigg" | "bigl" | "bigr"
                     | "Bigl" | "Bigr" | "biggl" | "biggr" | "Biggl" | "Biggr" => {
-                        index = command_index;
+                        if source[command_index..].starts_with('.') {
+                            index = command_index + 1;
+                        } else {
+                            index = command_index;
+                        }
                     }
                     "langle" => {
                         push_token!("<");
@@ -32474,6 +32478,34 @@ Fallback text.
                     && math.normalized_text.as_deref()
                         == Some("hat(x) + bar(y) + vec(v) + < alpha, beta >")
         ));
+    }
+
+    #[test]
+    fn render_event_capture_omits_math_invisible_delimiters() {
+        let source = r"\begin{document}Boundary \(\left. \frac{d}{dx} f(x) \right|_{x=0} + \left( y \right.\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        let RenderEvent::InlineMath(math) = &inline_math.event else {
+            panic!("inline math event");
+        };
+
+        assert_eq!(
+            math.raw_source,
+            r"\left. \frac{d}{dx} f(x) \right|_{x=0} + \left( y \right."
+        );
+        assert_eq!(
+            math.normalized_text.as_deref(),
+            Some("d/dx f(x) |_x = 0 + (y")
+        );
     }
 
     #[test]
