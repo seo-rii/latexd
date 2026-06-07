@@ -3743,6 +3743,8 @@ fn overpic_environment_captures_backing_image_without_option_leakage() {
         })
         .collect::<Vec<_>>()
         .join("");
+    assert!(extracted_text.contains("Label"));
+    assert!(display_list_text.contains("Label"));
     for hidden in ["overpic", "width", "4cm", "grid", "tics", "put"] {
         assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
         assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
@@ -3772,9 +3774,22 @@ fn overpic_inside_figure_preserves_image_and_caption() {
     ));
 
     let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Label"));
     assert!(extracted_text.contains("Annotated figure."));
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Label"));
+    assert!(display_list_text.contains("Annotated figure."));
     for hidden in ["overpic", "5cm", "put"] {
         assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
     }
 }
 

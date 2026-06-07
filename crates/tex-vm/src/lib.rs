@@ -12127,7 +12127,7 @@ impl<'i> Vm<'i> {
         let relative_end = source[argument_index..limit].find(&end_marker)?;
         let body_end = argument_index + relative_end;
         let raw_end = body_end + end_marker.len();
-        self.capture_includegraphics_event(
+        let body_start = self.capture_includegraphics_event(
             source_path,
             source,
             command_start,
@@ -12138,6 +12138,77 @@ impl<'i> Vm<'i> {
             default_options,
             inherited_options,
         )?;
+        let mut body_index = body_start;
+        while body_index < body_end {
+            let Some(relative_command) = source[body_index..body_end].find('\\') else {
+                break;
+            };
+            let overlay_command_start = body_index + relative_command;
+            let mut command_index = overlay_command_start + 1;
+            if command_index >= body_end {
+                break;
+            }
+            let command = if source.as_bytes()[command_index].is_ascii_alphabetic()
+                || source.as_bytes()[command_index] == b'@'
+            {
+                let start = command_index;
+                while command_index < body_end
+                    && (source.as_bytes()[command_index].is_ascii_alphabetic()
+                        || source.as_bytes()[command_index] == b'@')
+                {
+                    command_index += 1;
+                }
+                &source[start..command_index]
+            } else {
+                command_index += 1;
+                body_index = command_index;
+                continue;
+            };
+            if command == "put" {
+                let mut argument_index = skip_ascii_whitespace(source, command_index);
+                if argument_index < body_end
+                    && source.as_bytes()[argument_index] == b'('
+                    && let Some(relative_coordinate_end) =
+                        source[argument_index..body_end].find(')')
+                {
+                    argument_index += relative_coordinate_end + 1;
+                    argument_index = skip_ascii_whitespace(source, argument_index);
+                    if let Some((overlay, overlay_start, overlay_end, after_overlay)) =
+                        read_braced_source_argument(source, argument_index)
+                        && after_overlay <= body_end
+                    {
+                        self.capture_label_definitions_in_source_range(
+                            source_path,
+                            source,
+                            overlay_start,
+                            overlay_end,
+                        );
+                        let overlay_text = normalize_latex_text_with_inline_placeholders(overlay);
+                        if !overlay_text.is_empty() {
+                            self.emit_render_event(
+                                RenderEvent::Text(TextEvent { text: overlay_text }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    overlay_start as u32,
+                                    overlay_end as u32,
+                                )
+                                .with_related(
+                                    SourceSpanRole::Invocation,
+                                    ProvenanceSpan::File(SourceSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: overlay_command_start as u32,
+                                        end_utf8: after_overlay as u32,
+                                    }),
+                                ),
+                            );
+                        }
+                        body_index = after_overlay;
+                        continue;
+                    }
+                }
+            }
+            body_index = command_index;
+        }
         Some(raw_end)
     }
 
@@ -29697,6 +29768,10 @@ Fallback text.
             diagnostic.kind == VmDiagnosticKind::MissingFile
                 && diagnostic.detail == "package overpic.sty"
         }));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text == "Label"
+        )));
         assert!(!outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Text(text)
@@ -29725,6 +29800,10 @@ Fallback text.
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Caption(caption) if caption.text == "Annotated figure."
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text == "Label"
         )));
         assert!(!outcome.render_events.iter().any(|event| matches!(
             &event.event,
