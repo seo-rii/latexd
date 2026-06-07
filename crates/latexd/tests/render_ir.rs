@@ -4295,6 +4295,8 @@ fn picinpar_window_environment_capture_survives_ir_without_option_leakage() {
         "key",
         "fig:win",
         "tab:win",
+        "fig:win-caption",
+        "tab:win-caption",
     ] {
         assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
     }
@@ -4315,8 +4317,9 @@ fn picinpar_window_environment_capture_survives_ir_without_option_leakage() {
         .iter()
         .map(|label| label.key.as_str())
         .collect::<Vec<_>>();
-    assert!(label_keys.contains(&"fig:win"));
-    assert!(label_keys.contains(&"tab:win"));
+    for key in ["fig:win", "tab:win", "fig:win-caption", "tab:win-caption"] {
+        assert!(label_keys.contains(&key), "{label_keys:?}");
+    }
 
     let display_list_text = capture.page_display_lists[0]
         .ops
@@ -4336,6 +4339,8 @@ fn picinpar_window_environment_capture_survives_ir_without_option_leakage() {
         "key",
         "fig:win",
         "tab:win",
+        "fig:win-caption",
+        "tab:win-caption",
     ] {
         assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
     }
@@ -4428,9 +4433,23 @@ fn picins_parpic_capture_preserves_image_and_caption_without_layout_leakage() {
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("Inset [?]."));
     assert!(extracted_text.contains("Visible text."));
-    for hidden in ["parpic", "piccaption", "0.35", "textwidth", "key"] {
+    for hidden in [
+        "parpic",
+        "piccaption",
+        "0.35",
+        "textwidth",
+        "key",
+        "fig:inset",
+    ] {
         assert!(!extracted_text.contains(hidden));
     }
+    assert!(
+        capture
+            .document_ir
+            .labels
+            .iter()
+            .any(|label| label.key == "fig:inset")
+    );
 
     let display_list_text = capture.page_display_lists[0]
         .ops
@@ -4443,7 +4462,14 @@ fn picins_parpic_capture_preserves_image_and_caption_without_layout_leakage() {
         .join("");
     assert!(display_list_text.contains("Inset [?]."));
     assert!(display_list_text.contains("Visible text."));
-    for hidden in ["parpic", "piccaption", "0.35", "textwidth", "key"] {
+    for hidden in [
+        "parpic",
+        "piccaption",
+        "0.35",
+        "textwidth",
+        "key",
+        "fig:inset",
+    ] {
         assert!(!display_list_text.contains(hidden));
     }
     assert!(
@@ -20372,11 +20398,11 @@ const WRAP_FLOAT_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\captio
 
 const FLOATFLT_FLOAT_SOURCE: &str = r"\documentclass{article}\usepackage{floatflt}\begin{document}\begin{floatingfigure}[r]{0.35\textwidth}\includegraphics[width=3cm]{figures/floating.pdf}\caption{Floating \cite{key}.}\label{fig:flt}\end{floatingfigure}\begin{floatingtable}[l]{0.4\textwidth}\caption{Floating table.}\label{tab:flt}\end{floatingtable}\end{document}";
 
-const PICINPAR_WINDOW_SOURCE: &str = r"\documentclass{article}\usepackage{picinpar}\begin{document}\begin{figwindow}[2,r,{\includegraphics[width=2cm]{figures/window.pdf}},{Window \cite{key}.}]\label{fig:win}\end{figwindow}\begin{tabwindow}[1,l,{\begin{tabular}{ll}A & B\end{tabular}},{Window table.}]\label{tab:win}\end{tabwindow}\end{document}";
+const PICINPAR_WINDOW_SOURCE: &str = r"\documentclass{article}\usepackage{picinpar}\begin{document}\begin{figwindow}[2,r,{\includegraphics[width=2cm]{figures/window.pdf}},{Window \cite{key}.\label{fig:win-caption}}]\label{fig:win}\end{figwindow}\begin{tabwindow}[1,l,{\begin{tabular}{ll}A & B\end{tabular}},{Window table.\label{tab:win-caption}}]\label{tab:win}\end{tabwindow}\end{document}";
 
 const MARGIN_FLOAT_SOURCE: &str = r"\begin{document}\begin{marginfigure}\includegraphics[width=2cm]{figures/margin.pdf}\caption{Margin \cite{key}.}\label{fig:margin}\end{marginfigure}\begin{margintable}\caption{Margin table.}\label{tab:margin}\end{margintable}\end{document}";
 
-const PICINS_PARPIC_SOURCE: &str = r"\documentclass{article}\usepackage{picins}\begin{document}\piccaption{Inset \cite{key}.}\parpic[r][0.35\textwidth]{\includegraphics[width=2cm]{figures/inset.pdf}}Visible text.\end{document}";
+const PICINS_PARPIC_SOURCE: &str = r"\documentclass{article}\usepackage{picins}\begin{document}\piccaption{Inset \cite{key}.\label{fig:inset}}\parpic[r][0.35\textwidth]{\includegraphics[width=2cm]{figures/inset.pdf}}Visible text.\end{document}";
 
 const FIGURE_TABLE_LABEL_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics[width=5cm]{figures/plot.pdf}\caption{Plot caption.}\label{fig:plot}\end{figure}\begin{table}\caption{Table caption.}\label{tab:data}\end{table}\end{document}";
 

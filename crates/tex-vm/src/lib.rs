@@ -3049,6 +3049,12 @@ impl<'i> Vm<'i> {
                                         } else {
                                             (caption_start, caption_end)
                                         };
+                                        self.capture_label_definitions_in_source_range(
+                                            source_path,
+                                            source,
+                                            caption_start,
+                                            caption_end,
+                                        );
                                         let caption_text =
                                             normalize_latex_text_with_inline_placeholders(
                                                 &source[caption_start..caption_end],
@@ -8652,6 +8658,12 @@ impl<'i> Vm<'i> {
                     if let Some((caption, caption_start, caption_end, after_caption)) =
                         read_braced_source_argument(source, argument_index)
                     {
+                        self.capture_label_definitions_in_source_range(
+                            source_path,
+                            source,
+                            caption_start,
+                            caption_end,
+                        );
                         scan_state.picins_pending_caption = Some((
                             normalize_latex_text_with_inline_placeholders(caption),
                             SourceProvenance::file(
@@ -30927,7 +30939,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_picinpar_windows_without_option_leakage() {
-        let source = r"\documentclass{article}\usepackage{picinpar}\begin{document}\begin{figwindow}[2,r,{\includegraphics[width=2cm]{figures/window.pdf}},{Window \cite{key}.}]\label{fig:win}\end{figwindow}\begin{tabwindow}[1,l,{\begin{tabular}{ll}A & B\end{tabular}},{Window table.}]\label{tab:win}\end{tabwindow}\end{document}";
+        let source = r"\documentclass{article}\usepackage{picinpar}\begin{document}\begin{figwindow}[2,r,{\includegraphics[width=2cm]{figures/window.pdf}},{Window \cite{key}.\label{fig:win-caption}}]\label{fig:win}\end{figwindow}\begin{tabwindow}[1,l,{\begin{tabular}{ll}A & B\end{tabular}},{Window table.\label{tab:win-caption}}]\label{tab:win}\end{tabwindow}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -30965,7 +30977,7 @@ Fallback text.
             &event.event,
             RenderEvent::Caption(caption) if caption.text == "Window table."
         )));
-        for key in ["fig:win", "tab:win"] {
+        for key in ["fig:win", "tab:win", "fig:win-caption", "tab:win-caption"] {
             assert!(outcome.render_events.iter().any(|event| matches!(
                 &event.event,
                 RenderEvent::LabelDefinition(label) if label.key == key
@@ -30980,6 +30992,8 @@ Fallback text.
                     "key",
                     "fig:win",
                     "tab:win",
+                    "fig:win-caption",
+                    "tab:win-caption",
                 ]
                 .iter()
                 .any(|argument| text.text.contains(argument)),
@@ -31055,7 +31069,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_picins_parpic_without_layout_leakage() {
-        let source = r"\documentclass{article}\usepackage{picins}\begin{document}\piccaption{Inset \cite{key}.}\parpic[r][0.35\textwidth]{\includegraphics[width=2cm]{figures/inset.pdf}}Visible text.\end{document}";
+        let source = r"\documentclass{article}\usepackage{picins}\begin{document}\piccaption{Inset \cite{key}.\label{fig:inset}}\parpic[r][0.35\textwidth]{\includegraphics[width=2cm]{figures/inset.pdf}}Visible text.\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -31081,6 +31095,10 @@ Fallback text.
             &event.event,
             RenderEvent::Caption(caption) if caption.text == "Inset [?]."
         )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::LabelDefinition(label) if label.key == "fig:inset"
+        )));
         let visible_text = outcome
             .render_events
             .iter()
@@ -31095,7 +31113,7 @@ Fallback text.
         assert!(!outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Text(text)
-                if ["parpic", "piccaption", "0.35", "textwidth", "key"]
+                if ["parpic", "piccaption", "0.35", "textwidth", "key", "fig:inset"]
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));
