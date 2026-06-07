@@ -196,6 +196,8 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\ovalbox}[1]{#1}
 \providecommand{\doublebox}[1]{#1}
 \providecommand{\psfrag}[2]{}
+\providecommand{\psline}[1][]{}
+\providecommand{\rput}[2][]{}
 \providecommand{\FBwidth}{}
 \providecommand{\ffigbox}[4][]{#3#4}
 \providecommand{\ttabbox}[4][]{#3#4}
@@ -339,6 +341,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "picins.sty",
     "placeins.sty",
     "psfrag.sty",
+    "pstricks.sty",
     "rotating.sty",
     "sidecap.sty",
     "siunitx.sty",
@@ -3918,6 +3921,8 @@ impl<'i> Vm<'i> {
                                             | "tikzpicture*"
                                             | "pgfpicture"
                                             | "pgfpicture*"
+                                            | "pspicture"
+                                            | "pspicture*"
                                     ) {
                                         format!("[unsupported {other}]")
                                     } else {
@@ -27801,6 +27806,7 @@ Fallback text.
         let cases = [
             ("tikzpicture", "[unsupported tikzpicture]"),
             ("pgfpicture", "[unsupported pgfpicture]"),
+            ("pspicture", "[unsupported pspicture]"),
         ];
 
         for (environment, expected) in cases {
@@ -27846,6 +27852,49 @@ Fallback text.
                 assert!(!visible.contains(hidden));
             }
         }
+    }
+
+    #[test]
+    fn render_event_capture_loads_pstricks_for_pspicture_fallback() {
+        let source = r"\documentclass{article}\usepackage{pstricks}\begin{document}\begin{pspicture}(0,0)(1,1)\psline(0,0)(1,1)\rput(0.5,0.5){Should not render}\end{pspicture}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package pstricks.sty"
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("pstricks.sty"))
+        );
+        let fallback = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("pspicture") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("pspicture fallback event");
+        assert_eq!(
+            fallback.normalized_visible_text.as_deref(),
+            Some("[unsupported pspicture]")
+        );
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if ["psline", "rput", "Should not render", "(0,0)", "(1,1)"]
+                    .iter()
+                    .any(|hidden| text.text.contains(hidden))
+        )));
     }
 
     #[test]

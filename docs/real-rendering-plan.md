@@ -239,6 +239,8 @@ Simple `fancybox` wrappers such as `\shadowbox`, `\ovalbox`, and `\doublebox`
 now use the same graphic wrapper path as `\fbox`.
 `psfrag` replacement helper commands are treated as layout/asset preprocessing
 metadata around graphics, so replacement tags do not leak into body text.
+`pstricks` `pspicture` environments now use bounded unsupported-picture
+placeholders instead of rendering drawing command payloads as body text.
 `PageDisplayList::Image` now carries optional `ImageScale` metadata, and SVG
 debug artifacts expose that metadata as `data-image-scale-x` /
 `data-image-scale-y`. Nested graphic wrappers now thread outer sizing and scale
@@ -991,6 +993,8 @@ Status:
   diagnostics;
 - `psfrag` replacement helper commands no longer leak tags/options/replacement
   text around preserved graphics;
+- `pstricks` `pspicture` environments emit unsupported-picture placeholders
+  instead of drawing command text;
 - table horizontal rules now produce renderer-visible display-list rule ops;
 - simple and repeated table column alignment specs survive into display-list
   text;

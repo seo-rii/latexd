@@ -16356,6 +16356,52 @@ fn tikz_fallback_uses_placeholder_in_ir_and_display_list() {
 }
 
 #[test]
+fn pstricks_fallback_uses_placeholder_in_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        PSTRICKS_FALLBACK_SOURCE,
+        &SemanticAux::default(),
+    );
+    let fallback = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("pspicture") =>
+            {
+                Some(fallback)
+            }
+            _ => None,
+        })
+        .expect("pspicture fallback");
+
+    assert_eq!(
+        fallback.normalized_visible_text.as_deref(),
+        Some("[unsupported pspicture]")
+    );
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("[unsupported pspicture]"));
+    for hidden in ["psline", "rput", "Should not render", "(0,0)", "(1,1)"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("[unsupported pspicture]"));
+    for hidden in ["psline", "rput", "Should not render", "(0,0)", "(1,1)"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn list_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir("main.tex", LIST_SOURCE, &SemanticAux::default());
     let lists = capture
@@ -19338,6 +19384,8 @@ const URLSTYLE_BIBLIOGRAPHY_SOURCE: &str = r"\begin{document}\begin{thebibliogra
 const RAW_FALLBACK_INLINE_KEY_SOURCE: &str = r"\begin{document}\begin{unknownenv}See \cite{cited} and \ref{sec:intro}.\end{unknownenv}\end{document}";
 
 const TIKZ_FALLBACK_SOURCE: &str = r"\begin{document}\begin{tikzpicture}\draw (0,0) -- (1,1); \node {Should not render};\end{tikzpicture}\end{document}";
+
+const PSTRICKS_FALLBACK_SOURCE: &str = r"\documentclass{article}\usepackage{pstricks}\begin{document}\begin{pspicture}(0,0)(1,1)\psline(0,0)(1,1)\rput(0.5,0.5){Should not render}\end{pspicture}\end{document}";
 
 const VERBATIM_FALLBACK_SOURCE: &str =
     r"\begin{document}\begin{verbatim}\alpha_{i} {raw}\end{verbatim}\end{document}";
