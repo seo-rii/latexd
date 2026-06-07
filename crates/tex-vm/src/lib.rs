@@ -201,6 +201,7 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\FBwidth}{}
 \providecommand{\ffigbox}[4][]{#3#4}
 \providecommand{\ttabbox}[4][]{#3#4}
+\providecommand{\fcapside}[3][]{#2#3}
 \providecommand{\affil}[2][]{#2}
 \providecommand{\thanks}[1]{#1}
 \providecommand{\todo}[1]{}
@@ -3434,6 +3435,122 @@ impl<'i> Vm<'i> {
                                                             }
                                                         }
                                                         body_index = after_caption_body;
+                                                        continue;
+                                                    }
+                                                }
+                                            }
+                                            "fcapside" => {
+                                                let mut argument_index = body_command_index;
+                                                for _ in 0..2 {
+                                                    argument_index = skip_ascii_whitespace(
+                                                        source,
+                                                        argument_index,
+                                                    );
+                                                    let Some((_, _, _, after_option)) =
+                                                        read_bracket_source_argument(
+                                                            source,
+                                                            argument_index,
+                                                        )
+                                                    else {
+                                                        break;
+                                                    };
+                                                    if after_option > body_end {
+                                                        break;
+                                                    }
+                                                    argument_index = after_option;
+                                                }
+                                                argument_index =
+                                                    skip_ascii_whitespace(source, argument_index);
+                                                if let Some((
+                                                    _,
+                                                    first_body_start,
+                                                    first_body_end,
+                                                    after_first_body,
+                                                )) = read_braced_source_argument(
+                                                    source,
+                                                    argument_index,
+                                                ) && after_first_body <= body_end
+                                                {
+                                                    let second_body_index = skip_ascii_whitespace(
+                                                        source,
+                                                        after_first_body,
+                                                    );
+                                                    if let Some((
+                                                        _,
+                                                        second_body_start,
+                                                        second_body_end,
+                                                        after_second_body,
+                                                    )) = read_braced_source_argument(
+                                                        source,
+                                                        second_body_index,
+                                                    ) && after_second_body <= body_end
+                                                    {
+                                                        self.capture_graphics_in_source_range(
+                                                            source_path,
+                                                            source,
+                                                            first_body_start,
+                                                            first_body_end,
+                                                            &scan_state.graphic_paths,
+                                                            &scan_state.graphic_extensions,
+                                                            scan_state
+                                                                .graphic_default_options
+                                                                .as_deref(),
+                                                            None,
+                                                        );
+                                                        self.capture_graphics_in_source_range(
+                                                            source_path,
+                                                            source,
+                                                            second_body_start,
+                                                            second_body_end,
+                                                            &scan_state.graphic_paths,
+                                                            &scan_state.graphic_extensions,
+                                                            scan_state
+                                                                .graphic_default_options
+                                                                .as_deref(),
+                                                            None,
+                                                        );
+                                                        'caption_scan: for (
+                                                            caption_body_start,
+                                                            caption_body_end,
+                                                        ) in [
+                                                            (first_body_start, first_body_end),
+                                                            (second_body_start, second_body_end),
+                                                        ] {
+                                                            let mut caption_command_index =
+                                                                caption_body_start;
+                                                            while caption_command_index
+                                                                < caption_body_end
+                                                            {
+                                                                let Some(relative_caption) = source
+                                                                    [caption_command_index
+                                                                        ..caption_body_end]
+                                                                    .find("\\caption")
+                                                                else {
+                                                                    break;
+                                                                };
+                                                                let caption_command_start =
+                                                                    caption_command_index
+                                                                        + relative_caption;
+                                                                let after_caption_command =
+                                                                    caption_command_start
+                                                                        + "\\caption".len();
+                                                                if self
+                                                                    .capture_caption_event(
+                                                                        source_path,
+                                                                        source,
+                                                                        caption_command_start,
+                                                                        after_caption_command,
+                                                                        caption_body_end,
+                                                                    )
+                                                                    .is_some()
+                                                                {
+                                                                    break 'caption_scan;
+                                                                }
+                                                                caption_command_index =
+                                                                    after_caption_command;
+                                                            }
+                                                        }
+                                                        body_index = after_second_body;
                                                         continue;
                                                     }
                                                 }
@@ -28903,6 +29020,43 @@ Fallback text.
             &event.event,
             RenderEvent::Text(text)
                 if ["ffigbox", "FBwidth", "key"]
+                    .iter()
+                    .any(|hidden| text.text.contains(hidden))
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_floatrow_fcapside() {
+        let source = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{figure}\fcapside[\FBwidth]{\caption{Side float \cite{key}.}}{\includegraphics[width=3cm]{figures/fcapside.pdf}}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("figures/fcapside.pdf", "%PDF fake");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package floatrow.sty"
+        }));
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && matches!(diagnostic.detail.as_str(), "fcapside" | "FBwidth")
+        }));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/fcapside.pdf"
+                    && graphic.options.as_deref() == Some("width=3cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Side float [?]."
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if ["fcapside", "FBwidth", "key"]
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));

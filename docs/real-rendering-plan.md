@@ -226,6 +226,8 @@ options.
 Floatrow figure boxes such as
 `\ffigbox[...][...]{\includegraphics...}{\caption{...}}` preserve the image and
 caption while consuming floatrow layout options.
+Floatrow side-caption boxes such as `\fcapside[...]{...}{...}` now scan both
+braced arguments so the image and caption survive regardless of argument order.
 Floatrow table boxes such as `\ttabbox[...]{\begin{tabular}...\end{tabular}}`
 also preserve the nested table and caption without leaking floatrow width
 macros.
@@ -984,6 +986,8 @@ Status:
   path as `\subcaptionbox`;
 - floatrow `\ffigbox` commands preserve nested images and captions while
   suppressing floatrow layout options;
+- floatrow `\fcapside` commands preserve nested images and captions while
+  suppressing side-caption layout options;
 - floatrow `\ttabbox` commands preserve nested tables and captions while
   suppressing floatrow width macros;
 - legacy `epsf` sizing assignments are threaded into following `\epsfbox` /
