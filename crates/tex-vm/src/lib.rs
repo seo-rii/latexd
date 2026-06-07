@@ -33036,6 +33036,35 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_hides_table_cell_phantom_wrappers() {
+        let source = r"\begin{document}\begin{tabular}{lll}Visible\phantom{Ghost} & Wide\hphantom{Hidden} & Tall\vphantom{Depth}\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible_text, "Visible | Wide | Tall");
+        for hidden in [
+            "phantom", "hphantom", "vphantom", "Ghost", "Hidden", "Depth",
+        ] {
+            assert!(!visible_text.contains(hidden), "{visible_text:?}");
+        }
+    }
+
+    #[test]
     fn render_event_capture_keeps_cell_linebreak_helpers_in_one_table_row() {
         let source = r"\documentclass{article}\usepackage{makecell}\begin{document}\begin{tabular}{ll}\makecell{Top\\Bottom} & \shortstack{Left\\Right} \\ Tail & End\end{tabular}\end{document}";
         let mut interner = ControlSequenceInterner::new();

@@ -712,6 +712,8 @@ Implemented first slice:
   `\reflectbox` normalize to visible body text without leaking layout arguments.
 - table-cell overlap/height helpers such as `\rlap`, `\llap`, `\clap`, and
   `\smash` normalize to their visible body text.
+- table-cell phantom helpers such as `\phantom`, `\hphantom`, and `\vphantom`
+  hide their invisible payloads instead of leaking them into fallback text.
 - table environments inside box wrappers such as `\resizebox{...}{...}{...}`
   are still captured as table IR instead of being swallowed by wrapper handling.
 - `adjustbox` environments hide their option argument and allow nested tables to
