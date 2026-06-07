@@ -3744,7 +3744,9 @@ fn overpic_environment_captures_backing_image_without_option_leakage() {
         .collect::<Vec<_>>()
         .join("");
     assert!(extracted_text.contains("Label"));
+    assert!(extracted_text.contains("Dot"));
     assert!(display_list_text.contains("Label"));
+    assert!(display_list_text.contains("Dot"));
     for hidden in ["overpic", "width", "4cm", "grid", "tics", "put"] {
         assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
         assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
@@ -20403,7 +20405,7 @@ const GRAPHIC_FANCYBOX_WRAPPER_SOURCE: &str = r"\documentclass{article}\usepacka
 
 const GRAPHIC_PSFRAG_SOURCE: &str = r"\documentclass{article}\usepackage{psfrag}\begin{document}\begin{figure}\psfrag{xlabel}[tc][tc][0.8][0]{replacement}\includegraphics[width=3cm]{figures/fragged.eps}\caption{Fragged figure.}\end{figure}\end{document}";
 
-const OVERPIC_GRAPHIC_SOURCE: &str = r"\documentclass{article}\usepackage{overpic}\begin{document}\begin{overpic}[width=4cm,grid,tics=10]{figures/annotated.pdf}\put(5,5){Label}\end{overpic}\end{document}";
+const OVERPIC_GRAPHIC_SOURCE: &str = r"\documentclass{article}\usepackage{overpic}\begin{document}\begin{overpic}[width=4cm,grid,tics=10]{figures/annotated.pdf}\put(5,5){Label}\multiput(10,10)(1,1){2}{Dot}\end{overpic}\end{document}";
 
 const OVERPIC_FIGURE_SOURCE: &str = r"\documentclass{article}\usepackage{overpic}\begin{document}\begin{figure}\begin{overpic}[width=5cm]{figures/annotated.pdf}\put(5,5){Label}\end{overpic}\caption{Annotated figure.}\end{figure}\end{document}";
 

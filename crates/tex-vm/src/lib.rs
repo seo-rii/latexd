@@ -12164,7 +12164,7 @@ impl<'i> Vm<'i> {
                 body_index = command_index;
                 continue;
             };
-            if command == "put" {
+            if matches!(command, "put" | "multiput") {
                 let mut argument_index = skip_ascii_whitespace(source, command_index);
                 if argument_index < body_end
                     && source.as_bytes()[argument_index] == b'('
@@ -12172,6 +12172,29 @@ impl<'i> Vm<'i> {
                         source[argument_index..body_end].find(')')
                 {
                     argument_index += relative_coordinate_end + 1;
+                    if command == "multiput" {
+                        argument_index = skip_ascii_whitespace(source, argument_index);
+                        if argument_index < body_end
+                            && source.as_bytes()[argument_index] == b'('
+                            && let Some(relative_delta_end) =
+                                source[argument_index..body_end].find(')')
+                        {
+                            argument_index += relative_delta_end + 1;
+                        } else {
+                            body_index = command_index;
+                            continue;
+                        }
+                        argument_index = skip_ascii_whitespace(source, argument_index);
+                        if let Some((_, _, _, after_count)) =
+                            read_braced_source_argument(source, argument_index)
+                            && after_count <= body_end
+                        {
+                            argument_index = after_count;
+                        } else {
+                            body_index = command_index;
+                            continue;
+                        }
+                    }
                     argument_index = skip_ascii_whitespace(source, argument_index);
                     if let Some((overlay, overlay_start, overlay_end, after_overlay)) =
                         read_braced_source_argument(source, argument_index)
@@ -29745,7 +29768,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_overpic_backing_image() {
-        let source = r"\documentclass{article}\usepackage{overpic}\begin{document}\begin{overpic}[width=4cm,grid,tics=10]{figures/annotated.pdf}\put(5,5){Label}\end{overpic}\end{document}";
+        let source = r"\documentclass{article}\usepackage{overpic}\begin{document}\begin{overpic}[width=4cm,grid,tics=10]{figures/annotated.pdf}\put(5,5){Label}\multiput(10,10)(1,1){2}{Dot}\end{overpic}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -29771,6 +29794,10 @@ Fallback text.
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Text(text) if text.text == "Label"
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text == "Dot"
         )));
         assert!(!outcome.render_events.iter().any(|event| matches!(
             &event.event,
