@@ -4255,14 +4255,20 @@ fn starred_graphic_capture_derives_display_list_image_without_visible_star() {
             block,
             IrBlock::Graphic(graphic)
                 if graphic.path == "figures/starred.pdf"
-                    && graphic.options.as_deref() == Some("width=3cm")
+                    && graphic.options.as_deref() == Some("width=3cm,clip")
                     && graphic.caption.as_deref() == Some("Starred plot.")
         )
     }));
     assert!(capture.page_display_lists[0].ops.iter().any(|op| {
         matches!(
             op,
-            DrawOp::Image(image) if image.asset_ref == "figures/starred.pdf"
+            DrawOp::Image(image)
+                if image.asset_ref == "figures/starred.pdf"
+                    && image.crop == Some(ImageCrop {
+                        trim: None,
+                        viewport: None,
+                        clip: true,
+                    })
         )
     }));
 
