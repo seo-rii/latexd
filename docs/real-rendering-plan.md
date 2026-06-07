@@ -253,6 +253,9 @@ environment fallback text.
 `threeparttable` `measuredfigure` environments are likewise promoted to the
 figure capture path so images and captions stay attached as a single graphic
 block.
+`rotfloat` now shares the rotating-package shim path, so sideways figures from
+that package avoid missing-package diagnostics while retaining the same float
+capture behavior.
 Simple `fancybox` wrappers such as `\shadowbox`, `\ovalbox`, and `\doublebox`
 now use the same graphic wrapper path as `\fbox`.
 `psfrag` replacement helper commands are treated as layout/asset preprocessing
@@ -1020,6 +1023,8 @@ Status:
   labels through the figure/table capture path;
 - `threeparttable` `measuredfigure` environments preserve images and captions
   through the figure capture path;
+- `rotfloat` package shims preserve sideways float capture without
+  missing-package diagnostics;
 - `fancybox` image wrappers preserve nested graphics without undefined-command
   diagnostics;
 - `psfrag` replacement helper commands no longer leak tags/options/replacement

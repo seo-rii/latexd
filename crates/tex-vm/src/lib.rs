@@ -347,6 +347,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "placeins.sty",
     "psfrag.sty",
     "pstricks.sty",
+    "rotfloat.sty",
     "rotating.sty",
     "sidecap.sty",
     "siunitx.sty",
@@ -30248,6 +30249,41 @@ Fallback text.
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Caption(caption) if caption.text == "Rotated figure."
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("sidewaysfigure")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_loads_rotfloat_package_for_sideways_floats() {
+        let source = r"\documentclass{article}\usepackage{rotfloat}\begin{document}\begin{sidewaysfigure}\includegraphics[width=3cm]{figures/rotfloat.pdf}\caption{Rotfloat figure.}\end{sidewaysfigure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package rotfloat.sty"
+        }));
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("rotfloat.sty"))
+        );
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/rotfloat.pdf"
+                    && graphic.options.as_deref() == Some("width=3cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Rotfloat figure."
         )));
         assert!(!outcome.render_events.iter().any(|event| matches!(
             &event.event,
