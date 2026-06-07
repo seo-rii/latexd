@@ -285,7 +285,8 @@ pub fn render_display_list_pdf_with_converted_assets(
                             && (!svg.rects.is_empty()
                                 || !svg.lines.is_empty()
                                 || !svg.ellipses.is_empty()
-                                || !svg.polys.is_empty())
+                                || !svg.polys.is_empty()
+                                || !svg.paths.is_empty())
                         {
                             let (natural_width, natural_height) = image_natural_size_or_fallback(
                                 image,
@@ -464,7 +465,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         }
                                     }
                                 }
-                                for poly in svg.polys {
+                                for poly in svg.polys.iter().chain(svg.paths.iter()) {
                                     if poly.points.len() < 2 {
                                         continue;
                                     }
@@ -706,6 +707,7 @@ struct SimpleSvgAsset {
     lines: Vec<SimpleSvgLine>,
     ellipses: Vec<SimpleSvgEllipse>,
     polys: Vec<SimpleSvgPoly>,
+    paths: Vec<SimpleSvgPoly>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -938,6 +940,155 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             ));
         }
         Some(points)
+    };
+    #[derive(Debug, Clone, Copy)]
+    enum SimplePathToken {
+        Command(char),
+        Number(f32),
+    }
+    let parse_line_path = |raw: &str| -> Option<(Vec<(f32, f32)>, bool)> {
+        let mut tokens = Vec::new();
+        let mut index = 0usize;
+        while index < raw.len() {
+            let ch = raw[index..].chars().next()?;
+            if ch.is_whitespace() || ch == ',' {
+                index += ch.len_utf8();
+                continue;
+            }
+            if matches!(
+                ch,
+                'M' | 'm' | 'L' | 'l' | 'H' | 'h' | 'V' | 'v' | 'Z' | 'z'
+            ) {
+                tokens.push(SimplePathToken::Command(ch));
+                index += ch.len_utf8();
+                continue;
+            }
+            let start = index;
+            let mut allow_sign = true;
+            let mut saw_digit = false;
+            let mut saw_dot = false;
+            let mut saw_exp = false;
+            while index < raw.len() {
+                let ch = raw[index..].chars().next()?;
+                if ch.is_ascii_digit() {
+                    saw_digit = true;
+                    allow_sign = false;
+                    index += ch.len_utf8();
+                } else if matches!(ch, '+' | '-') && allow_sign {
+                    allow_sign = false;
+                    index += ch.len_utf8();
+                } else if ch == '.' && !saw_dot && !saw_exp {
+                    saw_dot = true;
+                    allow_sign = false;
+                    index += ch.len_utf8();
+                } else if matches!(ch, 'e' | 'E') && saw_digit && !saw_exp {
+                    saw_exp = true;
+                    allow_sign = true;
+                    index += ch.len_utf8();
+                } else {
+                    break;
+                }
+            }
+            if index == start {
+                return None;
+            }
+            tokens.push(SimplePathToken::Number(raw[start..index].parse().ok()?));
+        }
+
+        let mut token_index = 0usize;
+        let mut command = None;
+        let mut current = (0.0_f32, 0.0_f32);
+        let mut points = Vec::new();
+        let mut closed = false;
+        let mut has_move = false;
+        while token_index < tokens.len() {
+            if let SimplePathToken::Command(path_command) = tokens[token_index] {
+                command = Some(path_command);
+                token_index += 1;
+                if matches!(path_command, 'Z' | 'z') {
+                    closed = true;
+                    break;
+                }
+            }
+            let current_command = command?;
+            let mut next_number = || -> Option<f32> {
+                let Some(SimplePathToken::Number(value)) = tokens.get(token_index).copied() else {
+                    return None;
+                };
+                token_index += 1;
+                Some(value)
+            };
+            match current_command {
+                'M' | 'm' => {
+                    let x = next_number()?;
+                    let y = next_number()?;
+                    if current_command == 'm' {
+                        current.0 += x;
+                        current.1 += y;
+                    } else {
+                        current = (x, y);
+                    }
+                    points.push((
+                        (current.0 - view_box.0) / view_box.2,
+                        (current.1 - view_box.1) / view_box.3,
+                    ));
+                    has_move = true;
+                    command = Some(if current_command == 'm' { 'l' } else { 'L' });
+                }
+                'L' | 'l' => {
+                    if !has_move {
+                        return None;
+                    }
+                    let x = next_number()?;
+                    let y = next_number()?;
+                    if current_command == 'l' {
+                        current.0 += x;
+                        current.1 += y;
+                    } else {
+                        current = (x, y);
+                    }
+                    points.push((
+                        (current.0 - view_box.0) / view_box.2,
+                        (current.1 - view_box.1) / view_box.3,
+                    ));
+                }
+                'H' | 'h' => {
+                    if !has_move {
+                        return None;
+                    }
+                    let x = next_number()?;
+                    if current_command == 'h' {
+                        current.0 += x;
+                    } else {
+                        current.0 = x;
+                    }
+                    points.push((
+                        (current.0 - view_box.0) / view_box.2,
+                        (current.1 - view_box.1) / view_box.3,
+                    ));
+                }
+                'V' | 'v' => {
+                    if !has_move {
+                        return None;
+                    }
+                    let y = next_number()?;
+                    if current_command == 'v' {
+                        current.1 += y;
+                    } else {
+                        current.1 = y;
+                    }
+                    points.push((
+                        (current.0 - view_box.0) / view_box.2,
+                        (current.1 - view_box.1) / view_box.3,
+                    ));
+                }
+                _ => return None,
+            }
+        }
+        if points.len() < 2 {
+            return None;
+        }
+        Some((points, closed))
     };
     let svg_content_start = tag_start + tag_end + 1;
     let svg_content_end = text[svg_content_start..]
@@ -1211,6 +1362,38 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         search_index = poly_start + poly_end + 1;
     }
+    let mut paths = Vec::new();
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<path") {
+        let path_start = search_index + relative;
+        let path_tail = &svg_content[path_start..];
+        let Some(path_end) = path_tail.find('>') else {
+            break;
+        };
+        let path_tag = &path_tail[..path_end];
+        if let Some((points, closed)) = attr_value(path_tag, "d")
+            .as_deref()
+            .and_then(&parse_line_path)
+        {
+            let fill_rgb = presentation_value(path_tag, "fill")
+                .as_deref()
+                .map(&parse_color)
+                .unwrap_or(if closed { Some((0.0, 0.0, 0.0)) } else { None });
+            let stroke_rgb = presentation_value(path_tag, "stroke")
+                .as_deref()
+                .and_then(&parse_color);
+            if fill_rgb.is_some() || stroke_rgb.is_some() {
+                paths.push(SimpleSvgPoly {
+                    points,
+                    closed,
+                    fill_rgb,
+                    stroke_rgb,
+                    stroke_width_ratio: stroke_width_ratio(path_tag),
+                });
+            }
+        }
+        search_index = path_start + path_end + 1;
+    }
     Some(SimpleSvgAsset {
         natural_width_pt: natural_size.0,
         natural_height_pt: natural_size.1,
@@ -1218,6 +1401,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         lines,
         ellipses,
         polys,
+        paths,
     })
 }
 
@@ -2926,6 +3110,52 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 rg 30 200 m 110 260 l 190 200 l h f"));
         assert!(pdf_text.contains("0 0 1 RG 5 w 30 200 m 110 260 l 190 200 l h S"));
         assert!(!pdf_text.contains("[unsupported image: figures/poly.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_line_paths_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/path.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:path".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/path.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <path d="M 0 5 L 20 5" fill="none" stroke-width="1" stroke="#00ff00"/>
+  <path d="M 0 10 L 10 0 H 20 V 10 Z" style="fill:#ff0000;stroke:#0000ff;stroke-width:0.5"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 RG 10 w 10 230 m 210 230 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 10 180 m 110 280 l 210 280 l 210 180 l h f"));
+        assert!(pdf_text.contains("0 0 1 RG 5 w 10 180 m 110 280 l 210 280 l 210 180 l h S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/path.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
