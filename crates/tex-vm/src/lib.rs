@@ -28304,6 +28304,35 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_records_overpic_inside_figure() {
+        let source = r"\documentclass{article}\usepackage{overpic}\begin{document}\begin{figure}\begin{overpic}[width=5cm]{figures/annotated.pdf}\put(5,5){Label}\end{overpic}\caption{Annotated figure.}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("figures/annotated.pdf", "%PDF fake");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/annotated.pdf"
+                    && graphic.options.as_deref() == Some("width=5cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Annotated figure."
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if ["overpic", "5cm", "put"]
+                    .iter()
+                    .any(|hidden| text.text.contains(hidden))
+        )));
+    }
+
+    #[test]
     fn render_event_capture_threads_nested_graphic_wrapper_options() {
         let source = r"\begin{document}\resizebox{0.5\textwidth}{!}{\scalebox{0.5}[2]{\includegraphics{figures/nested}}}\reflectbox{\resizebox{2cm}{!}{\includegraphics{figures/reflected}}}\end{document}";
         let mut interner = ControlSequenceInterner::new();

@@ -3623,6 +3623,35 @@ fn overpic_environment_captures_backing_image_without_option_leakage() {
 }
 
 #[test]
+fn overpic_inside_figure_preserves_image_and_caption() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        OVERPIC_FIGURE_SOURCE,
+        &SemanticAux::default(),
+        &[("figures/annotated.pdf", "%PDF fake")],
+    );
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Graphic(graphic)
+                if graphic.path == "figures/annotated.pdf"
+                    && graphic.options.as_deref() == Some("width=5cm")
+                    && graphic.caption.as_deref() == Some("Annotated figure.")
+        )
+    }));
+    assert!(capture.page_display_lists[0].ops.iter().any(
+        |op| matches!(op, DrawOp::Image(image) if image.asset_ref == "figures/annotated.pdf")
+    ));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Annotated figure."));
+    for hidden in ["overpic", "5cm", "put"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+}
+
+#[test]
 fn starred_graphic_capture_derives_display_list_image_without_visible_star() {
     let capture =
         capture_internal_render_ir("main.tex", STARRED_GRAPHIC_SOURCE, &SemanticAux::default());
@@ -19122,6 +19151,8 @@ const GRAPHIC_ALIGNMENT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\adjustbox{
 const GRAPHIC_COLOR_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\colorbox[rgb]{1,1,0}{\includegraphics[width=3cm]{figures/highlight}}\fcolorbox[HTML]{000000}{FFFFFF}{\includegraphics{figures/framed}}\end{document}";
 
 const OVERPIC_GRAPHIC_SOURCE: &str = r"\documentclass{article}\usepackage{overpic}\begin{document}\begin{overpic}[width=4cm,grid,tics=10]{figures/annotated.pdf}\put(5,5){Label}\end{overpic}\end{document}";
+
+const OVERPIC_FIGURE_SOURCE: &str = r"\documentclass{article}\usepackage{overpic}\begin{document}\begin{figure}\begin{overpic}[width=5cm]{figures/annotated.pdf}\put(5,5){Label}\end{overpic}\caption{Annotated figure.}\end{figure}\end{document}";
 
 const STARRED_GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics*[width=3cm]{figures/starred.pdf}\caption{Starred plot.}\end{figure}\end{document}";
 
