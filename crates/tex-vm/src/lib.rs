@@ -22760,9 +22760,23 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!("}");
                         index = command_index;
                     }
-                    "," | ":" | ";" | " " | "quad" | "qquad" | "\\" => {
+                    "," | ":" | ";" | " " | "quad" | "qquad" => {
                         push_space!();
                         index = command_index;
+                    }
+                    "\\" => {
+                        if !text.is_empty() && !text.ends_with([' ', ';', '(', '[']) {
+                            text.push(';');
+                        }
+                        pending_space = true;
+                        let option_index = skip_ascii_whitespace(source, command_index);
+                        if let Some((_, _, _, after_option)) =
+                            read_bracket_source_argument(source, option_index)
+                        {
+                            index = after_option;
+                        } else {
+                            index = command_index;
+                        }
                     }
                     "!" => {
                         index = command_index;
@@ -32543,6 +32557,36 @@ Fallback text.
                     && math.normalized_text.as_deref()
                         == Some("cases(x, x > 0; - x, x < 0)")
         ));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_multiline_math_row_separators() {
+        let source = r"\begin{document}\begin{align}a&=b\\c&=d\end{align}\begin{gather*}x=y\\z=w\end{gather*}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let display_math = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::DisplayMath(math) => Some(math),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(display_math.len(), 2);
+        assert_eq!(display_math[0].raw_source, r"a&=b\\c&=d");
+        assert_eq!(
+            display_math[0].normalized_text.as_deref(),
+            Some("a = b; c = d")
+        );
+        assert_eq!(display_math[1].raw_source, r"x=y\\z=w");
+        assert_eq!(
+            display_math[1].normalized_text.as_deref(),
+            Some("x = y; z = w")
+        );
     }
 
     #[test]
