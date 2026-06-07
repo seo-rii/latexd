@@ -23109,6 +23109,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!("nabla");
                         index = command_index;
                     }
+                    "ell" | "aleph" | "hbar" | "Re" | "Im" => {
+                        push_token!(command);
+                        index = command_index;
+                    }
                     "forall" => {
                         push_token!("forall");
                         index = command_index;
@@ -32803,6 +32807,32 @@ Fallback text.
             Some(
                 "a equiv b cong c simeq d propto e perp f parallel g << h >> i models J |- K -| L"
             )
+        );
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_named_symbols() {
+        let source =
+            r"\begin{document}Symbols \(\ell + \aleph + \hbar + \Re z + \Im z\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        let RenderEvent::InlineMath(math) = &inline_math.event else {
+            panic!("inline math event");
+        };
+
+        assert_eq!(math.raw_source, r"\ell + \aleph + \hbar + \Re z + \Im z");
+        assert_eq!(
+            math.normalized_text.as_deref(),
+            Some("ell + aleph + hbar + Re z + Im z")
         );
     }
 

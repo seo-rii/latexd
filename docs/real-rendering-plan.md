@@ -857,7 +857,8 @@ Current status:
   superscript/subscript braces, large-operator scripts including `substack`,
   style and limit controls such as `displaystyle`, `limits`, and `nolimits`,
   stack relation wrappers such as `overset`, `underset`, and `stackrel`, named
-  operators, common extended arrows such as `xrightarrow` and `xleftarrow`,
+  operators and symbols such as `ell`, `aleph`, `hbar`, `Re`, and `Im`, common
+  extended arrows such as `xrightarrow` and `xleftarrow`,
   common math alphabet wrappers, accent wrappers, brace grouping wrappers,
   delimiter commands including invisible `left.` / `right.` delimiters, ellipsis
   commands such as `ldots`, `cdots`, and `dots`, matrix/cases/array-style
