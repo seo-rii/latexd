@@ -22563,6 +22563,26 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!(&format!("binom({upper},{lower})"));
                         index = after_lower;
                     }
+                    "overset" | "underset" | "stackrel" => {
+                        let annotation_index = skip_ascii_whitespace(source, command_index);
+                        let Some((annotation, _, _, after_annotation)) =
+                            read_braced_source_argument(source, annotation_index)
+                        else {
+                            return None;
+                        };
+                        let base_index = skip_ascii_whitespace(source, after_annotation);
+                        let Some((base, _, _, after_base)) =
+                            read_braced_source_argument(source, base_index)
+                        else {
+                            return None;
+                        };
+                        let annotation = normalize_latex_math_text(annotation)
+                            .unwrap_or_else(|| normalize_latex_math_source(annotation));
+                        let base = normalize_latex_math_text(base)
+                            .unwrap_or_else(|| normalize_latex_math_source(base));
+                        push_token!(&format!("{command}({annotation}, {base})"));
+                        index = after_base;
+                    }
                     "sqrt" => {
                         let mut argument_index = skip_ascii_whitespace(source, command_index);
                         let root = if let Some((root, _, _, after_root)) =
@@ -32303,6 +32323,30 @@ Fallback text.
             math.normalized_text.as_deref(),
             Some("sum_{substack(i < j; j < k)}^{n} x_i + lim_{substack(x -> 0; y -> 0)} f(x, y)")
         );
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_stack_relation_wrappers() {
+        let source = r"\begin{document}Limits \(\overset{p}{\to} X + \underset{n\to\infty}{\lim} a_n + \stackrel{d}{=} Y\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math)
+                if math.raw_source
+                    == r"\overset{p}{\to} X + \underset{n\to\infty}{\lim} a_n + \stackrel{d}{=} Y"
+                    && math.normalized_text.as_deref()
+                        == Some("overset(p, ->) X + underset(n -> infinity, lim) a_n + stackrel(d, =) Y")
+        ));
     }
 
     #[test]

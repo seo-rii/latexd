@@ -5620,6 +5620,57 @@ fn math_substack_scripts_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_stack_relation_wrappers_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Limits \(\overset{p}{\to} X + \underset{n\to\infty}{\lim} a_n + \stackrel{d}{=} Y\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"\overset{p}{\to} X + \underset{n\to\infty}{\lim} a_n + \stackrel{d}{=} Y"
+                && normalized_text.as_deref()
+                    == Some("overset(p, ->) X + underset(n -> infinity, lim) a_n + stackrel(d, =) Y")
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text
+            .contains("overset(p, ->) X + underset(n -> infinity, lim) a_n + stackrel(d, =) Y"),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains(r"\overset"));
+    assert!(!display_list_text.contains(r"\underset"));
+    assert!(!display_list_text.contains(r"\stackrel"));
+}
+
+#[test]
 fn math_binomial_commands_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Choose \(\binom{n}{k} + \dbinom{a+b}{c_d} + \tbinom{\alpha}{2}\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
