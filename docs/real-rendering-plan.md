@@ -226,6 +226,9 @@ options.
 Floatrow figure boxes such as
 `\ffigbox[...][...]{\includegraphics...}{\caption{...}}` preserve the image and
 caption while consuming floatrow layout options.
+Floatrow table boxes such as `\ttabbox[...]{\begin{tabular}...\end{tabular}}`
+also preserve the nested table and caption without leaking floatrow width
+macros.
 `PageDisplayList::Image` now carries optional `ImageScale` metadata, and SVG
 debug artifacts expose that metadata as `data-image-scale-x` /
 `data-image-scale-y`. Nested graphic wrappers now thread outer sizing and scale
@@ -968,6 +971,8 @@ Status:
   path as `\subcaptionbox`;
 - floatrow `\ffigbox` commands preserve nested images and captions while
   suppressing floatrow layout options;
+- floatrow `\ttabbox` commands preserve nested tables and captions while
+  suppressing floatrow width macros;
 - table horizontal rules now produce renderer-visible display-list rule ops;
 - simple and repeated table column alignment specs survive into display-list
   text;

@@ -15939,6 +15939,32 @@ fn table_float_caption_and_tabular_body_build_table_ir() {
 }
 
 #[test]
+fn floatrow_ttabbox_preserves_table_and_caption_without_option_leakage() {
+    let capture =
+        capture_internal_render_ir("main.tex", FLOATROW_TTABBOX_SOURCE, &SemanticAux::default());
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("floatrow ttabbox table");
+
+    assert_eq!(table.caption.as_deref(), Some("Floatrow table."));
+    assert_eq!(table.rows[0].cells[0].text, "A");
+    assert_eq!(table.rows[0].cells[1].text, "B");
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Floatrow table."));
+    assert!(extracted_text.contains("A | B"));
+    for hidden in ["ttabbox", "FBwidth", "ll"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+}
+
+#[test]
 fn verbatim_fallback_preserves_raw_visible_text() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -19450,6 +19476,8 @@ const LINEBREAK_OPTIONAL_SOURCE: &str =
 const TABULAR_FALLBACK_SOURCE: &str = r"\begin{document}\begin{tabular}{ll}Alpha & Beta \\ Gamma & \textbf{Delta} \\\hline\end{tabular}\end{document}";
 
 const TABLE_FLOAT_BODY_SOURCE: &str = r"\def\caption#1{#1}\begin{document}\begin{table}\caption{Data table.}\begin{tabular}{ll}Alpha & Beta \\ Gamma & Delta\end{tabular}\end{table}\end{document}";
+
+const FLOATROW_TTABBOX_SOURCE: &str = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{table}\ttabbox[\FBwidth]{\begin{tabular}{ll}A & B\end{tabular}}{\caption{Floatrow table.}}\end{table}\end{document}";
 
 const LIST_SOURCE: &str = r"\begin{document}\begin{itemize}\item First \cite{key}\item[Custom] Second\end{itemize}\begin{enumerate}\item One\item Two\end{enumerate}\begin{description}\item[Term] Meaning \cite{key}\item[Other] More\end{description}\end{document}";
 

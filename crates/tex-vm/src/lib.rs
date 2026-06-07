@@ -190,6 +190,7 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\arrayrulecolor}[1]{}
 \providecommand{\FBwidth}{}
 \providecommand{\ffigbox}[4][]{#3#4}
+\providecommand{\ttabbox}[4][]{#3#4}
 \providecommand{\affil}[2][]{#2}
 \providecommand{\thanks}[1]{#1}
 \providecommand{\todo}[1]{}
@@ -28483,6 +28484,42 @@ Fallback text.
             &event.event,
             RenderEvent::Text(text)
                 if ["ffigbox", "FBwidth", "key"]
+                    .iter()
+                    .any(|hidden| text.text.contains(hidden))
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_floatrow_ttabbox() {
+        let source = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{table}\ttabbox[\FBwidth]{\begin{tabular}{ll}A & B\end{tabular}}{\caption{Floatrow table.}}\end{table}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package floatrow.sty"
+        }));
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && matches!(diagnostic.detail.as_str(), "ttabbox" | "FBwidth")
+        }));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("tabular")
+                    && fallback.normalized_visible_text.as_deref() == Some("A | B")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Floatrow table."
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if ["ttabbox", "FBwidth"]
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));
