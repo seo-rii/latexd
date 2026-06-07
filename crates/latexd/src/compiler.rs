@@ -408,6 +408,10 @@ fn convert_external_display_list_asset(
                     .page_selection
                     .as_ref()
                     .and_then(|selection| selection.page),
+                image
+                    .page_selection
+                    .as_ref()
+                    .and_then(|selection| selection.pagebox.as_deref()),
             )
             .ok()
         })
@@ -424,6 +428,10 @@ fn convert_external_display_list_asset(
                     .page_selection
                     .as_ref()
                     .and_then(|selection| selection.page),
+                image
+                    .page_selection
+                    .as_ref()
+                    .and_then(|selection| selection.pagebox.as_deref()),
             )
             .ok()
         })?;

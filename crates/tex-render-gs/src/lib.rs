@@ -514,6 +514,7 @@ pub fn convert_pdf_or_eps_asset_to_png_with_cli(
     asset_ref: &str,
     bytes: &[u8],
     page: Option<u32>,
+    pagebox: Option<&str>,
 ) -> Result<Vec<u8>> {
     let suffix = Path::new(asset_ref)
         .extension()
@@ -531,22 +532,27 @@ pub fn convert_pdf_or_eps_asset_to_png_with_cli(
     let page = page.filter(|page| *page > 0).unwrap_or(1);
     let first_page_arg = format!("-dFirstPage={page}");
     let last_page_arg = format!("-dLastPage={page}");
+    let pagebox_arg = ghostscript_pagebox_arg(pagebox);
+    let mut args = vec![
+        "-q",
+        "-dSAFER",
+        "-dBATCH",
+        "-dNOPAUSE",
+        "-dEPSCrop",
+        "-sDEVICE=pngalpha",
+        "-dTextAlphaBits=4",
+        "-dGraphicsAlphaBits=4",
+        first_page_arg.as_str(),
+        last_page_arg.as_str(),
+        "-r72",
+        "-sOutputFile=%stdout",
+    ];
+    if let Some(pagebox_arg) = pagebox_arg.as_deref() {
+        args.push(pagebox_arg);
+    }
 
     let output = std::process::Command::new(program)
-        .args([
-            "-q",
-            "-dSAFER",
-            "-dBATCH",
-            "-dNOPAUSE",
-            "-dEPSCrop",
-            "-sDEVICE=pngalpha",
-            "-dTextAlphaBits=4",
-            "-dGraphicsAlphaBits=4",
-            &first_page_arg,
-            &last_page_arg,
-            "-r72",
-            "-sOutputFile=%stdout",
-        ])
+        .args(args)
         .arg(input.path())
         .output()
         .map_err(|error| anyhow!("failed to run ghostscript {program} for {asset_ref}: {error}"))?;
@@ -566,6 +572,7 @@ pub fn convert_pdf_asset_to_png_with_pdftoppm(
     asset_ref: &str,
     bytes: &[u8],
     page: Option<u32>,
+    pagebox: Option<&str>,
 ) -> Result<Vec<u8>> {
     let input = tempfile::Builder::new()
         .prefix("latexd-asset-")
@@ -578,18 +585,22 @@ pub fn convert_pdf_asset_to_png_with_pdftoppm(
         .with_context(|| format!("failed to create temporary output dir for {asset_ref}"))?;
     let output_prefix = output_dir.path().join("page");
     let page = page.filter(|page| *page > 0).unwrap_or(1).to_string();
+    let mut args = vec![
+        "-q",
+        "-png",
+        "-singlefile",
+        "-f",
+        page.as_str(),
+        "-l",
+        page.as_str(),
+        "-r",
+        "72",
+    ];
+    if matches!(normalized_pagebox(pagebox).as_deref(), Some("cropbox")) {
+        args.push("-cropbox");
+    }
     let output = std::process::Command::new(program)
-        .args([
-            "-q",
-            "-png",
-            "-singlefile",
-            "-f",
-            page.as_str(),
-            "-l",
-            page.as_str(),
-            "-r",
-            "72",
-        ])
+        .args(args)
         .arg(input.path())
         .arg(&output_prefix)
         .output()
@@ -610,6 +621,24 @@ pub fn convert_pdf_asset_to_png_with_pdftoppm(
     image::load_from_memory_with_format(&png, image::ImageFormat::Png)
         .with_context(|| format!("pdftoppm output for {asset_ref} was not PNG"))?;
     Ok(png)
+}
+
+fn normalized_pagebox(pagebox: Option<&str>) -> Option<String> {
+    pagebox
+        .map(str::trim)
+        .filter(|pagebox| !pagebox.is_empty())
+        .map(|pagebox| pagebox.to_ascii_lowercase())
+}
+
+fn ghostscript_pagebox_arg(pagebox: Option<&str>) -> Option<String> {
+    match normalized_pagebox(pagebox).as_deref()? {
+        "cropbox" => Some("-dUseCropBox".to_string()),
+        "trimbox" => Some("-dUseTrimBox".to_string()),
+        "bleedbox" => Some("-dUseBleedBox".to_string()),
+        "artbox" => Some("-dUseArtBox".to_string()),
+        "mediabox" => None,
+        _ => None,
+    }
 }
 
 fn scaled_dimension(dimension: u32, scale: f32) -> u32 {
@@ -866,6 +895,44 @@ mod tests {
         fs::write(path, pdf).expect("write sample multipage pdf");
     }
 
+    fn write_sample_cropped_pdf(path: &std::path::Path) {
+        let stream = "BT /F1 12 Tf 18 18 Td (cropped page) Tj ET";
+        let mut pdf = Vec::new();
+        pdf.extend_from_slice(b"%PDF-1.4\n");
+        let objects = [
+            "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n".to_string(),
+            "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n".to_string(),
+            "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 144 72] /CropBox [0 0 72 36] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n".to_string(),
+            "4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n"
+                .to_string(),
+            format!(
+                "5 0 obj << /Length {} >> stream\n{}\nendstream\nendobj\n",
+                stream.len(),
+                stream
+            ),
+        ];
+        let mut offsets = vec![0usize];
+        for object in &objects {
+            offsets.push(pdf.len());
+            pdf.extend_from_slice(object.as_bytes());
+        }
+        let xref_offset = pdf.len();
+        pdf.extend_from_slice(format!("xref\n0 {}\n", objects.len() + 1).as_bytes());
+        pdf.extend_from_slice(b"0000000000 65535 f \n");
+        for offset in offsets.iter().skip(1) {
+            pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+        }
+        pdf.extend_from_slice(
+            format!(
+                "trailer << /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
+                objects.len() + 1,
+                xref_offset
+            )
+            .as_bytes(),
+        );
+        fs::write(path, pdf).expect("write sample cropped pdf");
+    }
+
     fn gs_page(program: &str) -> (NamedTempFile, PageRenderInput) {
         let pdf_file = NamedTempFile::new().expect("named temp file");
         write_sample_pdf(pdf_file.path(), 144, 72);
@@ -1067,6 +1134,7 @@ mod tests {
             "figures/vector.pdf",
             &pdf,
             None,
+            None,
         )
         .expect("convert pdf asset");
         let image =
@@ -1090,6 +1158,7 @@ mod tests {
             "figures/vector.pdf",
             &pdf,
             Some(2),
+            None,
         )
         .expect("convert selected pdf page");
         let image =
@@ -1097,6 +1166,30 @@ mod tests {
 
         assert_eq!(image.width(), 144);
         assert_eq!(image.height(), 72);
+    }
+
+    #[test]
+    fn cli_converter_uses_cropbox_pagebox_when_available() {
+        let Ok(program) = which::which("gs") else {
+            return;
+        };
+        let pdf_file = NamedTempFile::new().expect("named temp file");
+        write_sample_cropped_pdf(pdf_file.path());
+        let pdf = fs::read(pdf_file.path()).expect("read sample pdf");
+
+        let png = convert_pdf_or_eps_asset_to_png_with_cli(
+            program.to_string_lossy().as_ref(),
+            "figures/cropped.pdf",
+            &pdf,
+            None,
+            Some("cropbox"),
+        )
+        .expect("convert cropped pdf asset");
+        let image =
+            image::load_from_memory_with_format(&png, image::ImageFormat::Png).expect("decode png");
+
+        assert_eq!(image.width(), 72);
+        assert_eq!(image.height(), 36);
     }
 
     #[test]
@@ -1115,6 +1208,7 @@ showpage
             program.to_string_lossy().as_ref(),
             "figures/vector.eps",
             eps,
+            None,
             None,
         )
         .expect("convert eps asset");
@@ -1139,6 +1233,7 @@ showpage
             "figures/vector.pdf",
             &pdf,
             None,
+            None,
         )
         .expect("convert pdf asset");
         let image =
@@ -1162,6 +1257,7 @@ showpage
             "figures/vector.pdf",
             &pdf,
             Some(2),
+            None,
         )
         .expect("convert selected pdf page");
         let image =
@@ -1169,6 +1265,30 @@ showpage
 
         assert_eq!(image.width(), 144);
         assert_eq!(image.height(), 72);
+    }
+
+    #[test]
+    fn pdftoppm_converter_uses_cropbox_pagebox_when_available() {
+        let Ok(program) = which::which("pdftoppm") else {
+            return;
+        };
+        let pdf_file = NamedTempFile::new().expect("named temp file");
+        write_sample_cropped_pdf(pdf_file.path());
+        let pdf = fs::read(pdf_file.path()).expect("read sample pdf");
+
+        let png = convert_pdf_asset_to_png_with_pdftoppm(
+            program.to_string_lossy().as_ref(),
+            "figures/cropped.pdf",
+            &pdf,
+            None,
+            Some("cropbox"),
+        )
+        .expect("convert cropped pdf asset");
+        let image =
+            image::load_from_memory_with_format(&png, image::ImageFormat::Png).expect("decode png");
+
+        assert_eq!(image.width(), 72);
+        assert_eq!(image.height(), 36);
     }
 
     #[test]

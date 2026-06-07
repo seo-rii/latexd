@@ -50,6 +50,43 @@ fn tiny_jpeg_bytes() -> Vec<u8> {
     bytes
 }
 
+fn cropped_pdf_bytes() -> Vec<u8> {
+    let stream = "BT /F1 12 Tf 18 18 Td (cropped page) Tj ET";
+    let objects = [
+        "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n".to_string(),
+        "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n".to_string(),
+        "3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 144 72] /CropBox [0 0 72 36] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >> endobj\n".to_string(),
+        "4 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj\n".to_string(),
+        format!(
+            "5 0 obj << /Length {} >> stream\n{}\nendstream\nendobj\n",
+            stream.len(),
+            stream
+        ),
+    ];
+    let mut pdf = Vec::new();
+    pdf.extend_from_slice(b"%PDF-1.4\n");
+    let mut offsets = vec![0usize];
+    for object in &objects {
+        offsets.push(pdf.len());
+        pdf.extend_from_slice(object.as_bytes());
+    }
+    let xref_offset = pdf.len();
+    pdf.extend_from_slice(format!("xref\n0 {}\n", objects.len() + 1).as_bytes());
+    pdf.extend_from_slice(b"0000000000 65535 f \n");
+    for offset in offsets.iter().skip(1) {
+        pdf.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
+    }
+    pdf.extend_from_slice(
+        format!(
+            "trailer << /Size {} /Root 1 0 R >>\nstartxref\n{}\n%%EOF\n",
+            objects.len() + 1,
+            xref_offset
+        )
+        .as_bytes(),
+    );
+    pdf
+}
+
 #[test]
 fn compact_render_ir_capture_matches_goldens() {
     let capture = capture_internal_render_ir("main.tex", COMPACT_SOURCE, &SemanticAux::default());
@@ -3572,6 +3609,64 @@ fn project_root_render_ir_capture_converts_pdf_assets_in_debug_artifacts_when_gs
     assert!(display_list_svg.contains("data-image-embedded=\"true\""));
     assert!(display_list_svg.contains("href=\"data:image/png,%89PNG"));
     assert!(!display_list_svg.contains("[unsupported image: figures/plot.pdf]"));
+}
+
+#[test]
+fn project_root_pdf_pagebox_option_affects_converted_debug_asset() {
+    if which::which("gs").is_err() && which::which("pdftoppm").is_err() {
+        return;
+    }
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
+    fs::create_dir_all(root.join("figures").as_std_path()).expect("create figures dir");
+    fs::write(
+        root.join("main.tex").as_std_path(),
+        r"\begin{document}\includegraphics[pagebox=cropbox]{figures/cropped.pdf}\end{document}",
+    )
+    .expect("write source");
+    fs::write(
+        root.join("figures/cropped.pdf").as_std_path(),
+        cropped_pdf_bytes(),
+    )
+    .expect("write pdf");
+
+    let capture =
+        capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
+            .expect("capture project render ir");
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/cropped.pdf" => Some(image),
+            _ => None,
+        })
+        .expect("pdf image op");
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+
+    assert_eq!(
+        image
+            .page_selection
+            .as_ref()
+            .and_then(|selection| selection.pagebox.as_deref()),
+        Some("cropbox")
+    );
+    assert!(pdf_text.contains("/Subtype /Image"));
+    assert!(pdf_text.contains("/Width 72"));
+    assert!(pdf_text.contains("/Height 36"));
+    assert!(pdf_text.contains("/Im1 Do"));
+    assert!(!pdf_text.contains("[unsupported image: figures/cropped.pdf]"));
+
+    let output_dir = root.join("render-artifacts");
+    let paths = capture
+        .write_debug_artifacts(&output_dir)
+        .expect("write debug artifacts");
+    let display_list_svg =
+        fs::read_to_string(&paths.display_list_svgs[0]).expect("read display-list svg");
+    assert!(display_list_svg.contains("data-image-asset-ref=\"figures/cropped.pdf\""));
+    assert!(display_list_svg.contains("data-image-pagebox=\"cropbox\""));
+    assert!(display_list_svg.contains("data-image-converted-format=\"png\""));
+    assert!(display_list_svg.contains("data-image-embedded=\"true\""));
+    assert!(!display_list_svg.contains("[unsupported image: figures/cropped.pdf]"));
 }
 
 #[test]

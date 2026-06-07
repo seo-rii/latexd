@@ -164,8 +164,10 @@ additionally clips to the destination rect. Project-root render-IR artifacts
 cover both clipped and unclipped crop placement for bitmap assets, including
 starred `\includegraphics*` forms that imply `clip`. PDF `page` and `pagebox`
 graphic options now survive as renderer-neutral page-selection metadata through
-events, Document IR, and `PageDisplayList::Image`, and external PDF conversion
-uses the selected page when converting debug artifacts. Local `draft`
+events, Document IR, and `PageDisplayList::Image`; external PDF conversion uses
+the selected page and honors `cropbox`/other Ghostscript-supported page boxes
+when converting debug artifacts, with the Poppler fallback honoring `cropbox`.
+Local `draft`
 graphic options,
 package-level
 `\usepackage[draft]{graphicx}` options, and class-level
@@ -1061,7 +1063,8 @@ Status:
   instead of dropping the image;
 - PDF `page` / `pagebox` graphic options survive into `GraphicRef`,
   `GraphicBlock`, and `PageDisplayList::Image`, and debug PDF/SVG asset
-  conversion uses the selected page when available;
+  conversion uses the selected page and supported PDF page boxes when
+  available;
 - local, package-level, class-level, `PassOptionsToPackage`, and
   `\setkeys{Gin}{...}` `draft` graphic options force placeholders instead of
   embedding resolver-backed assets;
