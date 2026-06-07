@@ -9595,6 +9595,30 @@ impl<'i> Vm<'i> {
                     default_options,
                     inherited_options,
                 ),
+                "label" => {
+                    let label_index = skip_ascii_whitespace(source, command_index);
+                    if let Some((key, content_start, content_end, after_label)) =
+                        read_braced_source_argument(source, label_index)
+                        && after_label <= range_end
+                    {
+                        self.emit_render_event(
+                            RenderEvent::LabelDefinition(LabelDefinitionEvent {
+                                key: key.trim().to_string(),
+                                command: command.to_string(),
+                            }),
+                            Self::label_definition_provenance(
+                                source_path,
+                                command_start,
+                                after_label,
+                                content_start,
+                                content_end,
+                            ),
+                        );
+                        Some(after_label)
+                    } else {
+                        None
+                    }
+                }
                 "resizebox" | "scalebox" | "rotatebox" | "reflectbox" | "adjustbox"
                 | "centerline" | "makebox" | "framebox" | "fbox" | "mbox" | "raisebox"
                 | "parbox" | "colorbox" | "fcolorbox" | "shadowbox" | "ovalbox" | "doublebox" => {
@@ -30371,6 +30395,55 @@ Fallback text.
                     "0.25",
                     "0.4",
                     "textwidth",
+                ]
+                .iter()
+                .any(|hidden| text.text.contains(hidden)),
+                _ => false,
+            }
+        }));
+    }
+
+    #[test]
+    fn render_event_capture_records_subfloat_body_labels() {
+        let source = r"\begin{document}\begin{figure}\subfloat[Panel \cite{key}.]{\includegraphics[width=2cm]{figures/panel-label-a.pdf}\label{fig:subpanel}}\captionbox{Box \cite{key}.}{\includegraphics[width=2cm]{figures/panel-label-b.pdf}\label{fig:captionbox}}\end{figure}See \ref{fig:subpanel} and \ref{fig:captionbox}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for path in ["figures/panel-label-a.pdf", "figures/panel-label-b.pdf"] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::GraphicRef(graphic)
+                    if graphic.path == path && graphic.options.as_deref() == Some("width=2cm")
+            )));
+        }
+        for caption in ["Panel [?].", "Box [?]."] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Caption(event) if event.text == caption
+            )));
+        }
+        for key in ["fig:subpanel", "fig:captionbox"] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::LabelDefinition(label) if label.key == key
+            )));
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::InlineReference(reference) if reference.keys == [key.to_string()]
+            )));
+        }
+        assert!(!outcome.render_events.iter().any(|event| {
+            match &event.event {
+                RenderEvent::Text(text) => [
+                    "fig:subpanel",
+                    "fig:captionbox",
+                    "label",
+                    "subfloat",
+                    "captionbox",
+                    "key",
                 ]
                 .iter()
                 .any(|hidden| text.text.contains(hidden)),

@@ -18523,6 +18523,56 @@ fn starred_captionbox_commands_capture_without_star_or_option_leakage() {
 }
 
 #[test]
+fn subfloat_and_captionbox_body_labels_survive_capture() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        SUBFLOAT_BODY_LABEL_SOURCE,
+        &SemanticAux::default(),
+    );
+
+    for (path, caption) in [
+        ("figures/panel-label-a.pdf", "Panel [?]."),
+        ("figures/panel-label-b.pdf", "Box [?]."),
+    ] {
+        assert!(capture.document_ir.blocks.iter().any(|block| {
+            matches!(
+                block,
+                IrBlock::Graphic(graphic)
+                    if graphic.path == path
+                        && graphic.options.as_deref() == Some("width=2cm")
+                        && graphic.caption.as_deref() == Some(caption)
+            )
+        }));
+    }
+
+    for key in ["fig:subpanel", "fig:captionbox"] {
+        assert!(capture.events.events.iter().any(|event| {
+            matches!(&event.event, RenderEvent::LabelDefinition(label) if label.key == key)
+        }));
+        assert!(
+            capture
+                .document_ir
+                .labels
+                .iter()
+                .any(|label| label.key == key)
+        );
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("See [?] and [?]."));
+    for hidden in [
+        "fig:subpanel",
+        "fig:captionbox",
+        "label",
+        "subfloat",
+        "captionbox",
+        "key",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+}
+
+#[test]
 fn algorithm_environment_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -20266,6 +20316,8 @@ const SUBFLOAT_TWO_OPTIONAL_SOURCE: &str = r"\begin{document}\begin{figure}\subf
 const CAPTIONBOX_LEADING_OPTION_SOURCE: &str = r"\begin{document}\begin{figure}\subcaptionbox[Subcaption short \cite{key}.]{Subcaption long \cite{key}.}[0.3\textwidth]{\includegraphics[width=2cm]{figures/captionbox-leading-a.pdf}}\captionbox[Captionbox short \cite{key}.]{Captionbox long \cite{key}.}[0.4\textwidth]{\includegraphics[width=2cm]{figures/captionbox-leading-b.pdf}}\end{figure}\end{document}";
 
 const CAPTIONBOX_STARRED_SOURCE: &str = r"\begin{document}\begin{figure}\subcaptionbox*{Starred subcaption \cite{key}.}[0.25\textwidth]{\includegraphics[width=2cm]{figures/captionbox-star-a.pdf}}\captionbox*[Captionbox short \cite{key}.]{Starred box \cite{key}.}[0.4\textwidth]{\includegraphics[width=2cm]{figures/captionbox-star-b.pdf}}\end{figure}\end{document}";
+
+const SUBFLOAT_BODY_LABEL_SOURCE: &str = r"\begin{document}\begin{figure}\subfloat[Panel \cite{key}.]{\includegraphics[width=2cm]{figures/panel-label-a.pdf}\label{fig:subpanel}}\captionbox{Box \cite{key}.}{\includegraphics[width=2cm]{figures/panel-label-b.pdf}\label{fig:captionbox}}\end{figure}See \ref{fig:subpanel} and \ref{fig:captionbox}.\end{document}";
 
 const ALGORITHM_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{algorithm}\caption{Procedure.}\label{alg:first}Step text.\end{algorithm}\begin{algorithm*}Wide step.\end{algorithm*}\end{document}";
 
