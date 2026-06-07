@@ -214,9 +214,10 @@ preserve nested graphics without leaking layout dimensions into visible text.
 Color box wrappers such as `\colorbox` and `\fcolorbox` likewise preserve
 nested graphics while hiding color arguments, including optional color model
 selectors, from extracted text.
-`overpic` environments now preserve their backing image and graphic options
-without leaking overlay coordinates or package scaffolding into text; rendering
-the overlay annotations themselves is still deferred.
+`overpic` environments now preserve their backing image, graphic options, and
+simple `\put` / `\multiput` text payloads as visible overlay approximations
+without leaking overlay coordinates or package scaffolding into text; exact
+overlay geometry is still deferred.
 Legacy subfigure commands such as `\subfigure[...]{\includegraphics...}` share
 the subfloat capture path, preserving panel images and captions without leaking
 raw citation keys or layout arguments. Direct labels inside consumed
@@ -1015,8 +1016,9 @@ Status:
 - nested graphic wrappers preserve inherited sizing and scale hints;
 - color-box graphic wrappers preserve nested images without leaking color
   arguments or optional color model selectors into IR or display-list text;
-- `overpic` environments preserve backing images and graphic options without
-  emitting overlay coordinate commands as text;
+- `overpic` environments preserve backing images, graphic options, and simple
+  `\put` / `\multiput` text payloads without emitting overlay coordinate
+  commands as text;
 - legacy `\subfigure` commands preserve nested panel images and captions through
   the same event/IR/display-list path as `\subfloat`;
 - direct labels inside subfloat/subcaptionbox bodies survive as label
