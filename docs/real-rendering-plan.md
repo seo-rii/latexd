@@ -717,6 +717,9 @@ Implemented first slice:
 - table-cell spacing and visual-rule helpers such as `\strut`, `\bigstrut`,
   `\rule`, `\hrulefill`, and `\dotfill` are suppressed from fallback text so
   layout dimensions do not render as cell content.
+- table-local layout spacing helpers such as `\hspace{...}`, `\vspace{...}`,
+  `\pagebreak[...]`, `\hfill`, and `\smallskip` are consumed without leaking
+  spacing arguments into table text.
 - table environments inside box wrappers such as `\resizebox{...}{...}{...}`
   are still captured as table IR instead of being swallowed by wrapper handling.
 - `adjustbox` environments hide their option argument and allow nested tables to

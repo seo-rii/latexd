@@ -10209,6 +10209,30 @@ impl<'i> Vm<'i> {
                                 table_index = after;
                             }
                         }
+                        "vspace" | "hspace" => {
+                            table_index = skip_ascii_whitespace(table_body, command_end);
+                            if table_body[table_index..].starts_with('*') {
+                                table_index += 1;
+                                table_index = skip_ascii_whitespace(table_body, table_index);
+                            }
+                            if let Some((_, _, _, after)) =
+                                read_braced_source_argument(table_body, table_index)
+                            {
+                                table_index = after;
+                            }
+                        }
+                        "pagebreak" | "nopagebreak" | "linebreak" | "nolinebreak" => {
+                            table_index = skip_ascii_whitespace(table_body, command_end);
+                            if let Some((_, _, _, after)) =
+                                read_bracket_source_argument(table_body, table_index)
+                            {
+                                table_index = after;
+                            }
+                        }
+                        "smallskip" | "medskip" | "bigskip" | "noindent" | "indent" | "newpage"
+                        | "clearpage" | "cleardoublepage" | "vfill" | "hfill" => {
+                            table_index = command_end;
+                        }
                         "makecell" | "thead" | "shortstack" => {
                             let mut parsed = false;
                             let mut argument_index = skip_ascii_whitespace(table_body, command_end);
@@ -19922,6 +19946,61 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 scan_index = command_after;
                 continue;
             }
+        }
+        if matches!(command, "vspace" | "hspace") {
+            let mut argument_index = skip_ascii_whitespace(source, command_name_end);
+            if source[argument_index..].starts_with('*') {
+                argument_index += 1;
+                argument_index = skip_ascii_whitespace(source, argument_index);
+            }
+            if let Some((_, _, _, command_after)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                if !text.is_empty() && !text.ends_with(' ') {
+                    text.push(' ');
+                }
+                suppress_next_interword_space.set(true);
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
+        if matches!(
+            command,
+            "pagebreak" | "nopagebreak" | "linebreak" | "nolinebreak"
+        ) {
+            let mut command_after = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, after_option)) =
+                read_bracket_source_argument(source, command_after)
+            {
+                command_after = after_option;
+            }
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            found_structured_inline = true;
+            chunk_start = command_after;
+            scan_index = command_after;
+            continue;
+        }
+        if matches!(
+            command,
+            "smallskip"
+                | "medskip"
+                | "bigskip"
+                | "noindent"
+                | "indent"
+                | "newpage"
+                | "clearpage"
+                | "cleardoublepage"
+                | "vfill"
+                | "hfill"
+        ) {
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            found_structured_inline = true;
+            chunk_start = command_name_end;
+            scan_index = command_name_end;
+            continue;
         }
         if matches!(command, "strut" | "mathstrut" | "hrulefill" | "dotfill") {
             append_normalized_text(&mut text, &source[chunk_start..command_start]);
@@ -33141,7 +33220,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_omits_table_cell_spacing_and_rule_helpers() {
-        let source = r"\documentclass{article}\usepackage{bigstrut}\begin{document}\begin{tabular}{llll}A\strut & B\bigstrut[t] & C\rule[.5ex]{1em}{.4pt} & D\hrulefill\dotfill\end{tabular}\end{document}";
+        let source = r"\documentclass{article}\usepackage{bigstrut}\begin{document}\begin{tabular}{llll}A\strut\hspace*{1em} & B\bigstrut[t]\vspace{2pt} & C\rule[.5ex]{1em}{.4pt}\pagebreak[4] & D\hrulefill\dotfill\hfill\smallskip\end{tabular}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -33170,6 +33249,13 @@ Fallback text.
             ".5ex",
             "1em",
             ".4pt",
+            "2pt",
+            "[4]",
+            "hspace",
+            "vspace",
+            "pagebreak",
+            "hfill",
+            "smallskip",
             "[t]",
         ] {
             assert!(!visible_text.contains(hidden), "{visible_text:?}");

@@ -14083,7 +14083,7 @@ fn tabular_phantom_wrappers_hide_invisible_text() {
 fn tabular_spacing_and_rule_helpers_do_not_leak_into_text() {
     let capture = capture_internal_render_ir(
         "main.tex",
-        r"\documentclass{article}\usepackage{bigstrut}\begin{document}\begin{tabular}{llll}A\strut & B\bigstrut[t] & C\rule[.5ex]{1em}{.4pt} & D\hrulefill\dotfill\end{tabular}\end{document}",
+        r"\documentclass{article}\usepackage{bigstrut}\begin{document}\begin{tabular}{llll}A\strut\hspace*{1em} & B\bigstrut[t]\vspace{2pt} & C\rule[.5ex]{1em}{.4pt}\pagebreak[4] & D\hrulefill\dotfill\hfill\smallskip\end{tabular}\end{document}",
         &SemanticAux::default(),
     );
     let table = capture
@@ -14123,6 +14123,13 @@ fn tabular_spacing_and_rule_helpers_do_not_leak_into_text() {
         ".5ex",
         "1em",
         ".4pt",
+        "2pt",
+        "[4]",
+        "hspace",
+        "vspace",
+        "pagebreak",
+        "hfill",
+        "smallskip",
         "[t]",
     ] {
         assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
