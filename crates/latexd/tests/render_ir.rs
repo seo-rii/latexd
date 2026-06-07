@@ -3652,6 +3652,37 @@ fn overpic_inside_figure_preserves_image_and_caption() {
 }
 
 #[test]
+fn floatrow_ffigbox_preserves_image_and_caption_without_option_leakage() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        FLOATROW_FFIGBOX_SOURCE,
+        &SemanticAux::default(),
+        &[("figures/floatrow.pdf", "%PDF fake")],
+    );
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Graphic(graphic)
+                if graphic.path == "figures/floatrow.pdf"
+                    && graphic.options.as_deref() == Some("width=3cm")
+                    && graphic.caption.as_deref() == Some("Floatrow [?].")
+        )
+    }));
+    assert!(
+        capture.page_display_lists[0].ops.iter().any(
+            |op| matches!(op, DrawOp::Image(image) if image.asset_ref == "figures/floatrow.pdf")
+        )
+    );
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Floatrow [?]."));
+    for hidden in ["ffigbox", "FBwidth", "key"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+}
+
+#[test]
 fn starred_graphic_capture_derives_display_list_image_without_visible_star() {
     let capture =
         capture_internal_render_ir("main.tex", STARRED_GRAPHIC_SOURCE, &SemanticAux::default());
@@ -19182,6 +19213,8 @@ const GRAPHIC_COLOR_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\colorbox[rgb]{
 const OVERPIC_GRAPHIC_SOURCE: &str = r"\documentclass{article}\usepackage{overpic}\begin{document}\begin{overpic}[width=4cm,grid,tics=10]{figures/annotated.pdf}\put(5,5){Label}\end{overpic}\end{document}";
 
 const OVERPIC_FIGURE_SOURCE: &str = r"\documentclass{article}\usepackage{overpic}\begin{document}\begin{figure}\begin{overpic}[width=5cm]{figures/annotated.pdf}\put(5,5){Label}\end{overpic}\caption{Annotated figure.}\end{figure}\end{document}";
+
+const FLOATROW_FFIGBOX_SOURCE: &str = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{figure}\ffigbox[\FBwidth][c]{\includegraphics[width=3cm]{figures/floatrow.pdf}}{\caption{Floatrow \cite{key}.}}\end{figure}\end{document}";
 
 const STARRED_GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics*[width=3cm]{figures/starred.pdf}\caption{Starred plot.}\end{figure}\end{document}";
 

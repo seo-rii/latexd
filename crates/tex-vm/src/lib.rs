@@ -188,6 +188,8 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\showrowcolors}{}
 \providecommand{\columncolor}[2][]{}
 \providecommand{\arrayrulecolor}[1]{}
+\providecommand{\FBwidth}{}
+\providecommand{\ffigbox}[4][]{#3#4}
 \providecommand{\affil}[2][]{#2}
 \providecommand{\thanks}[1]{#1}
 \providecommand{\todo}[1]{}
@@ -294,6 +296,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "etoolbox.sty",
     "fancybox.sty",
     "float.sty",
+    "floatrow.sty",
     "flushend.sty",
     "fontenc.sty",
     "framed.sty",
@@ -3190,6 +3193,124 @@ impl<'i> Vm<'i> {
                                                             ),
                                                         );
                                                         body_index = after_subcaption;
+                                                        continue;
+                                                    }
+                                                }
+                                            }
+                                            "ffigbox" => {
+                                                let mut argument_index = body_command_index;
+                                                for _ in 0..2 {
+                                                    argument_index = skip_ascii_whitespace(
+                                                        source,
+                                                        argument_index,
+                                                    );
+                                                    let Some((_, _, _, after_option)) =
+                                                        read_bracket_source_argument(
+                                                            source,
+                                                            argument_index,
+                                                        )
+                                                    else {
+                                                        break;
+                                                    };
+                                                    if after_option > body_end {
+                                                        break;
+                                                    }
+                                                    argument_index = after_option;
+                                                }
+                                                argument_index =
+                                                    skip_ascii_whitespace(source, argument_index);
+                                                if let Some((
+                                                    _,
+                                                    graphic_body_start,
+                                                    graphic_body_end,
+                                                    after_graphic_body,
+                                                )) = read_braced_source_argument(
+                                                    source,
+                                                    argument_index,
+                                                ) && after_graphic_body <= body_end
+                                                {
+                                                    let caption_index = skip_ascii_whitespace(
+                                                        source,
+                                                        after_graphic_body,
+                                                    );
+                                                    if let Some((
+                                                        caption_body,
+                                                        caption_body_start,
+                                                        caption_body_end,
+                                                        after_caption_body,
+                                                    )) = read_braced_source_argument(
+                                                        source,
+                                                        caption_index,
+                                                    ) && after_caption_body <= body_end
+                                                    {
+                                                        self.capture_graphics_in_source_range(
+                                                            source_path,
+                                                            source,
+                                                            graphic_body_start,
+                                                            graphic_body_end,
+                                                            &scan_state.graphic_paths,
+                                                            &scan_state.graphic_extensions,
+                                                            scan_state
+                                                                .graphic_default_options
+                                                                .as_deref(),
+                                                            None,
+                                                        );
+                                                        let mut caption_command_index =
+                                                            caption_body_start;
+                                                        let mut emitted_caption = false;
+                                                        while caption_command_index
+                                                            < caption_body_end
+                                                        {
+                                                            let Some(relative_caption) = source
+                                                                [caption_command_index
+                                                                    ..caption_body_end]
+                                                                .find("\\caption")
+                                                            else {
+                                                                break;
+                                                            };
+                                                            let caption_command_start =
+                                                                caption_command_index
+                                                                    + relative_caption;
+                                                            let after_caption_command =
+                                                                caption_command_start
+                                                                    + "\\caption".len();
+                                                            if let Some(after) = self
+                                                                .capture_caption_event(
+                                                                    source_path,
+                                                                    source,
+                                                                    caption_command_start,
+                                                                    after_caption_command,
+                                                                    caption_body_end,
+                                                                )
+                                                            {
+                                                                emitted_caption = true;
+                                                                caption_command_index = after;
+                                                            } else {
+                                                                caption_command_index =
+                                                                    after_caption_command;
+                                                            }
+                                                        }
+                                                        if !emitted_caption {
+                                                            let caption_text =
+                                                                normalize_latex_text_with_inline_placeholders(
+                                                                    caption_body,
+                                                                );
+                                                            if !caption_text.is_empty() {
+                                                                self.emit_render_event(
+                                                                    RenderEvent::Caption(
+                                                                        CaptionEvent {
+                                                                            text: caption_text,
+                                                                        },
+                                                                    ),
+                                                                    SourceProvenance::file(
+                                                                        source_path.to_owned(),
+                                                                        caption_body_start as u32,
+                                                                        caption_body_end as u32,
+                                                                    ),
+                                                                );
+                                                            }
+                                                        }
+                                                        body_index = after_caption_body;
                                                         continue;
                                                     }
                                                 }
@@ -28329,6 +28450,39 @@ Fallback text.
             &event.event,
             RenderEvent::Text(text)
                 if ["overpic", "5cm", "put"]
+                    .iter()
+                    .any(|hidden| text.text.contains(hidden))
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_floatrow_ffigbox() {
+        let source = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{figure}\ffigbox[\FBwidth][c]{\includegraphics[width=3cm]{figures/floatrow.pdf}}{\caption{Floatrow \cite{key}.}}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("figures/floatrow.pdf", "%PDF fake");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package floatrow.sty"
+        }));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/floatrow.pdf"
+                    && graphic.options.as_deref() == Some("width=3cm")
+        )));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Floatrow [?]."
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if ["ffigbox", "FBwidth", "key"]
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));

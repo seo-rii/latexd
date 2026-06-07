@@ -223,6 +223,9 @@ raw citation keys or layout arguments.
 Caption package boxes such as `\captionbox{...}{\includegraphics...}` share the
 subcaptionbox capture path, preserving the image and caption while hiding width
 options.
+Floatrow figure boxes such as
+`\ffigbox[...][...]{\includegraphics...}{\caption{...}}` preserve the image and
+caption while consuming floatrow layout options.
 `PageDisplayList::Image` now carries optional `ImageScale` metadata, and SVG
 debug artifacts expose that metadata as `data-image-scale-x` /
 `data-image-scale-y`. Nested graphic wrappers now thread outer sizing and scale
@@ -963,6 +966,8 @@ Status:
   the same event/IR/display-list path as `\subfloat`;
 - `\captionbox` commands preserve nested images and captions through the same
   path as `\subcaptionbox`;
+- floatrow `\ffigbox` commands preserve nested images and captions while
+  suppressing floatrow layout options;
 - table horizontal rules now produce renderer-visible display-list rule ops;
 - simple and repeated table column alignment specs survive into display-list
   text;
