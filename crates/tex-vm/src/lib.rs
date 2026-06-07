@@ -22827,6 +22827,62 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("!=");
                         index = command_index;
                     }
+                    "in" => {
+                        push_operator!("in");
+                        index = command_index;
+                    }
+                    "notin" => {
+                        push_operator!("notin");
+                        index = command_index;
+                    }
+                    "ni" => {
+                        push_operator!("contains");
+                        index = command_index;
+                    }
+                    "subset" => {
+                        push_operator!("subset");
+                        index = command_index;
+                    }
+                    "subseteq" => {
+                        push_operator!("subseteq");
+                        index = command_index;
+                    }
+                    "supset" => {
+                        push_operator!("supset");
+                        index = command_index;
+                    }
+                    "supseteq" => {
+                        push_operator!("supseteq");
+                        index = command_index;
+                    }
+                    "cup" => {
+                        push_operator!("union");
+                        index = command_index;
+                    }
+                    "cap" => {
+                        push_operator!("intersect");
+                        index = command_index;
+                    }
+                    "setminus" => {
+                        push_operator!("setminus");
+                        index = command_index;
+                    }
+                    "land" | "wedge" => {
+                        push_operator!("and");
+                        index = command_index;
+                    }
+                    "lor" | "vee" => {
+                        push_operator!("or");
+                        index = command_index;
+                    }
+                    "implies" | "Rightarrow" => {
+                        push_operator!("=>");
+                        index = command_index;
+                    }
+                    "iff" | "Leftrightarrow" => {
+                        push_operator!("<=>");
+                        index = command_index;
+                    }
                     "approx" | "sim" => {
                         push_operator!("~");
                         index = command_index;
@@ -22984,6 +23040,22 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     }
                     "nabla" => {
                         push_token!("nabla");
+                        index = command_index;
+                    }
+                    "forall" => {
+                        push_token!("forall");
+                        index = command_index;
+                    }
+                    "exists" => {
+                        push_token!("exists");
+                        index = command_index;
+                    }
+                    "emptyset" | "varnothing" => {
+                        push_token!("emptyset");
+                        index = command_index;
+                    }
+                    "neg" | "lnot" => {
+                        push_token!("not");
                         index = command_index;
                     }
                     "alpha" | "beta" | "gamma" | "delta" | "epsilon" | "varepsilon" | "zeta"
@@ -32521,6 +32593,30 @@ Fallback text.
             RenderEvent::InlineMath(math)
                 if math.raw_source == r"\mathbb{R} + \mathcal{F} + \mathfrak{g} + \mathscr{L}"
                     && math.normalized_text.as_deref() == Some("R + F + g + L")
+        ));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_set_and_logical_operators() {
+        let source = r"\begin{document}Sets \(\forall x\in A\cup B,\exists y\notin\emptyset \land y\subseteq U \implies x\setminus y\subset U \iff y\supseteq C\cap D\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math)
+                if math.raw_source
+                    == r"\forall x\in A\cup B,\exists y\notin\emptyset \land y\subseteq U \implies x\setminus y\subset U \iff y\supseteq C\cap D"
+                    && math.normalized_text.as_deref()
+                        == Some("forall x in A union B, exists y notin emptyset and y subseteq U => x setminus y subset U <=> y supseteq C intersect D")
         ));
     }
 
