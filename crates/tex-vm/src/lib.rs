@@ -229,6 +229,7 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\listofalgorithms}{}
 \providecommand{\listof}[2]{}
 \providecommand{\tnote}[1]{[#1]}
+\providecommand{\tablefootnote}[2][]{#2}
 \providecommand{\piccaption}[1]{#1}
 \providecommand{\parpic}[2][]{#2}
 \providecommand{\diagbox}[3][]{#2/#3}
@@ -384,6 +385,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "subfig.sty",
     "subfigure.sty",
     "tabu.sty",
+    "tablefootnote.sty",
     "tabularx.sty",
     "tcolorbox.sty",
     "theorem.sty",
@@ -6048,10 +6050,11 @@ impl<'i> Vm<'i> {
                 }
                 "emph" | "textbf" | "textit" | "texttt" | "textsc" | "textrm" | "textsf"
                 | "underline" | "mbox" | "textsuperscript" | "textsubscript" | "citetext"
-                | "footnote" | "footnotetext"
+                | "footnote" | "footnotetext" | "tablefootnote"
                     if in_document =>
                 {
-                    let detached_note = matches!(command, "footnote" | "footnotetext");
+                    let detached_note =
+                        matches!(command, "footnote" | "footnotetext" | "tablefootnote");
                     index = skip_ascii_whitespace(source, index);
                     if detached_note
                         && let Some((_, _, _, after_option)) =
@@ -21969,6 +21972,25 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                     text.push_str(&marker);
                     text.push(']');
                 }
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
+        if command == "tablefootnote" {
+            let mut argument_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((_, _, _, after_option)) =
+                read_bracket_source_argument(source, argument_index)
+            {
+                argument_index = skip_ascii_whitespace(source, after_option);
+            }
+            if let Some((visible_text, _, _, command_after)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                let visible_text = normalize_latex_text_with_inline_placeholders(visible_text);
+                append_text(&mut text, &visible_text);
                 found_structured_inline = true;
                 chunk_start = command_after;
                 scan_index = command_after;
@@ -38192,6 +38214,46 @@ Fallback text.
         assert!(!outcome.diagnostics.iter().any(|diagnostic| {
             diagnostic.kind == VmDiagnosticKind::MissingFile
                 && diagnostic.detail == "package bigstrut.sty"
+        }));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_tablefootnote_in_table_cells() {
+        let source = r"\documentclass{article}\usepackage{tablefootnote}\begin{document}\begin{tabular}{ll}A\tablefootnote{Cell note \cite{key}.} & B\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible_text, "A Cell note [?]. | B");
+        for hidden in ["tablefootnote", "key", "{", "}"] {
+            assert!(!visible_text.contains(hidden), "{visible_text:?}");
+        }
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("tablefootnote.sty"))
+        );
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package tablefootnote.sty"
+        }));
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && diagnostic.detail == "tablefootnote"
         }));
     }
 

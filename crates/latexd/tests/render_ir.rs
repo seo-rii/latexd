@@ -16752,6 +16752,46 @@ fn tabular_phantom_wrappers_hide_invisible_text() {
 }
 
 #[test]
+fn tabular_tablefootnote_preserves_note_text_without_command_leakage() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{tablefootnote}\begin{document}\begin{tabular}{ll}A\tablefootnote{Cell note \cite{key}.} & B\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "A Cell note [?].");
+    assert_eq!(table.rows[0].cells[1].text, "B");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("A Cell note [?]. | B"));
+    for hidden in ["tablefootnote", "key", "{", "}"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("A Cell note [?]. | B"));
+    for hidden in ["tablefootnote", "key", "{", "}"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn tabular_spacing_and_rule_helpers_do_not_leak_into_text() {
     let capture = capture_internal_render_ir(
         "main.tex",

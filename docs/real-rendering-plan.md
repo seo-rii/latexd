@@ -827,6 +827,8 @@ Implemented first slice:
 - `threeparttable` note markers such as `\tnote{a}` normalize to readable
   bracketed markers while preserving `tablenotes` bodies without leaking note
   macro syntax or note layout options.
+- `tablefootnote` notes inside table cells preserve readable note text and
+  citation placeholders without leaking footnote command syntax into cell text.
 - simple table environments inside a table cell are flattened into readable cell
   text while keeping the outer table rows intact and hiding the nested table
   preamble/control text.
