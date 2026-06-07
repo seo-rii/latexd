@@ -4886,6 +4886,11 @@ impl<'i> Vm<'i> {
                 }
                 "textcolor" | "colorbox" if in_document => {
                     index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_option)) =
+                        read_bracket_source_argument(source, index)
+                    {
+                        index = skip_ascii_whitespace(source, after_option);
+                    }
                     if let Some((_, color_start, color_end, after_color)) =
                         read_braced_source_argument(source, index)
                     {
@@ -4942,6 +4947,11 @@ impl<'i> Vm<'i> {
                 }
                 "fcolorbox" if in_document => {
                     index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_option)) =
+                        read_bracket_source_argument(source, index)
+                    {
+                        index = skip_ascii_whitespace(source, after_option);
+                    }
                     if let Some((_, frame_start, frame_end, after_frame)) =
                         read_braced_source_argument(source, index)
                     {
@@ -28150,7 +28160,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_graphics_inside_color_box_wrappers() {
-        let source = r"\begin{document}\colorbox{yellow}{\includegraphics[width=3cm]{figures/highlight}}\fcolorbox{black}{white}{\includegraphics{figures/framed}}\end{document}";
+        let source = r"\begin{document}\colorbox[rgb]{1,1,0}{\includegraphics[width=3cm]{figures/highlight}}\fcolorbox[HTML]{000000}{FFFFFF}{\includegraphics{figures/framed}}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -28172,7 +28182,15 @@ Fallback text.
         assert!(!outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Text(text)
-                if ["colorbox", "fcolorbox", "yellow", "black", "white"]
+                if [
+                    "colorbox",
+                    "fcolorbox",
+                    "rgb",
+                    "1,1,0",
+                    "HTML",
+                    "000000",
+                    "FFFFFF"
+                ]
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));

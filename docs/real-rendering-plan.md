@@ -212,7 +212,8 @@ display-list image-box sizing, and `reflectbox` preserves reflection intent as
 `xscale=-1` for later renderer work. `raisebox` and `parbox` wrappers also
 preserve nested graphics without leaking layout dimensions into visible text.
 Color box wrappers such as `\colorbox` and `\fcolorbox` likewise preserve
-nested graphics while hiding color arguments from extracted text.
+nested graphics while hiding color arguments, including optional color model
+selectors, from extracted text.
 `PageDisplayList::Image` now carries optional `ImageScale` metadata, and SVG
 debug artifacts expose that metadata as `data-image-scale-x` /
 `data-image-scale-y`. Nested graphic wrappers now thread outer sizing and scale
@@ -946,7 +947,7 @@ Status:
   debug artifacts;
 - nested graphic wrappers preserve inherited sizing and scale hints;
 - color-box graphic wrappers preserve nested images without leaking color
-  arguments into IR or display-list text;
+  arguments or optional color model selectors into IR or display-list text;
 - table horizontal rules now produce renderer-visible display-list rule ops;
 - simple and repeated table column alignment specs survive into display-list
   text;

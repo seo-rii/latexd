@@ -3565,7 +3565,15 @@ fn graphic_color_box_wrappers_preserve_images_without_argument_leakage() {
         })
         .collect::<Vec<_>>()
         .join("");
-    for hidden in ["colorbox", "fcolorbox", "yellow", "black", "white"] {
+    for hidden in [
+        "colorbox",
+        "fcolorbox",
+        "rgb",
+        "1,1,0",
+        "HTML",
+        "000000",
+        "FFFFFF",
+    ] {
         assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
         assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
     }
@@ -19068,7 +19076,7 @@ const NESTED_GRAPHIC_LAYOUT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\resize
 
 const GRAPHIC_ALIGNMENT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\adjustbox{width=\textwidth,center}{\includegraphics{figures/plot}}\centerline{\includegraphics{figures/other}}\makebox[\textwidth][c]{\epsfbox{figures/third}}\end{document}";
 
-const GRAPHIC_COLOR_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\colorbox{yellow}{\includegraphics[width=3cm]{figures/highlight}}\fcolorbox{black}{white}{\includegraphics{figures/framed}}\end{document}";
+const GRAPHIC_COLOR_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\colorbox[rgb]{1,1,0}{\includegraphics[width=3cm]{figures/highlight}}\fcolorbox[HTML]{000000}{FFFFFF}{\includegraphics{figures/framed}}\end{document}";
 
 const STARRED_GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics*[width=3cm]{figures/starred.pdf}\caption{Starred plot.}\end{figure}\end{document}";
 
