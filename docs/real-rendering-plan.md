@@ -229,6 +229,9 @@ caption while consuming floatrow layout options, including caption-first
 argument order.
 Floatrow side-caption boxes such as `\fcapside[...]{...}{...}` now scan both
 braced arguments so the image and caption survive regardless of argument order.
+Generic floatrow boxes such as
+`\floatbox[\capbeside]{figure}[...][...]{...}{...}` likewise preserve nested
+graphics and captions while consuming float type and layout options.
 Floatrow table boxes such as `\ttabbox[...]{\begin{tabular}...\end{tabular}}`
 also preserve the nested table and caption without leaking floatrow width
 macros.
@@ -989,6 +992,8 @@ Status:
   suppressing floatrow layout options, including caption-first argument order;
 - floatrow `\fcapside` commands preserve nested images and captions while
   suppressing side-caption layout options;
+- generic floatrow `\floatbox` commands preserve nested images and captions
+  while suppressing float type and layout options;
 - floatrow `\ttabbox` commands preserve nested tables and captions while
   suppressing floatrow width macros;
 - legacy `epsf` sizing assignments are threaded into following `\epsfbox` /

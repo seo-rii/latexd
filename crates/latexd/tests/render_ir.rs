@@ -3845,6 +3845,31 @@ fn floatrow_ffigbox_caption_first_preserves_image_and_caption() {
 }
 
 #[test]
+fn floatrow_floatbox_preserves_image_and_caption_without_option_leakage() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        FLOATROW_FLOATBOX_SOURCE,
+        &SemanticAux::default(),
+        &[("figures/generic-floatbox.pdf", "%PDF fake")],
+    );
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Graphic(graphic)
+                if graphic.path == "figures/generic-floatbox.pdf"
+                    && graphic.options.as_deref() == Some("width=3cm")
+                    && graphic.caption.as_deref() == Some("Generic [?].")
+        )
+    }));
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Generic [?]."));
+    for hidden in ["floatbox", "capbeside", "FBwidth", "key"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+}
+
+#[test]
 fn starred_graphic_capture_derives_display_list_image_without_visible_star() {
     let capture =
         capture_internal_render_ir("main.tex", STARRED_GRAPHIC_SOURCE, &SemanticAux::default());
@@ -19548,6 +19573,8 @@ const FLOATROW_FFIGBOX_SOURCE: &str = r"\documentclass{article}\usepackage{float
 const FLOATROW_FFIGBOX_CAPTION_FIRST_SOURCE: &str = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{figure}\ffigbox{\caption{Reversed \cite{key}.}}{\includegraphics[width=3cm]{figures/reversed.pdf}}\end{figure}\end{document}";
 
 const FLOATROW_FCAPSIDE_SOURCE: &str = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{figure}\fcapside[\FBwidth]{\caption{Side float \cite{key}.}}{\includegraphics[width=3cm]{figures/fcapside.pdf}}\end{figure}\end{document}";
+
+const FLOATROW_FLOATBOX_SOURCE: &str = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{figure}\floatbox[\capbeside]{figure}[\FBwidth][c]{\includegraphics[width=3cm]{figures/generic-floatbox.pdf}}{\caption{Generic \cite{key}.}}\end{figure}\end{document}";
 
 const STARRED_GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics*[width=3cm]{figures/starred.pdf}\caption{Starred plot.}\end{figure}\end{document}";
 
