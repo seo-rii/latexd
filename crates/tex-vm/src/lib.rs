@@ -196,6 +196,7 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\hl}[1]{#1}
 \providecommand{\nicefrac}[2]{#1/#2}
 \providecommand{\subfloat}[2][]{#2}
+\providecommand{\subfigure}[2][]{#2}
 \providecommand{\subcaptionbox}[2]{#2}
 \providecommand{\diagbox}[3][]{#2/#3}
 \providecommand{\slashbox}[2]{#1/#2}
@@ -3043,7 +3044,7 @@ impl<'i> Vm<'i> {
                                                     continue;
                                                 }
                                             }
-                                            "subfloat" => {
+                                            "subfloat" | "subfigure" => {
                                                 let mut argument_index = skip_ascii_whitespace(
                                                     source,
                                                     body_command_index,
@@ -28745,14 +28746,14 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_subfloat_commands_without_option_leakage() {
-        let source = r"\documentclass{article}\usepackage{subfig}\usepackage{subcaption}\begin{document}\begin{figure}\subfloat[Panel \cite{key}.]{\includegraphics[width=3cm]{figures/a.pdf}}\subcaptionbox{Box \cite{key}.}[0.4\textwidth]{\includegraphics[width=2cm]{figures/b.pdf}}\end{figure}\end{document}";
+        let source = r"\documentclass{article}\usepackage{subfig}\usepackage{subcaption}\usepackage{subfigure}\begin{document}\begin{figure}\subfloat[Panel \cite{key}.]{\includegraphics[width=3cm]{figures/a.pdf}}\subcaptionbox{Box \cite{key}.}[0.4\textwidth]{\includegraphics[width=2cm]{figures/b.pdf}}\subfigure[Legacy \cite{key}.]{\includegraphics[width=1cm]{figures/c.pdf}}\end{figure}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
 
-        for package in ["subfig.sty", "subcaption.sty"] {
+        for package in ["subfig.sty", "subcaption.sty", "subfigure.sty"] {
             assert!(!outcome.diagnostics.iter().any(|diagnostic| {
                 diagnostic.kind == VmDiagnosticKind::MissingFile
                     && diagnostic.detail == format!("package {package}")
@@ -28761,11 +28762,15 @@ Fallback text.
         }
         assert!(!outcome.diagnostics.iter().any(|diagnostic| {
             diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
-                && matches!(diagnostic.detail.as_str(), "subfloat" | "subcaptionbox")
+                && matches!(
+                    diagnostic.detail.as_str(),
+                    "subfloat" | "subcaptionbox" | "subfigure"
+                )
         }));
         for (path, options) in [
             ("figures/a.pdf", Some("width=3cm")),
             ("figures/b.pdf", Some("width=2cm")),
+            ("figures/c.pdf", Some("width=1cm")),
         ] {
             assert!(outcome.render_events.iter().any(|event| matches!(
                 &event.event,
@@ -28773,7 +28778,7 @@ Fallback text.
                     if graphic.path == path && graphic.options.as_deref() == options
             )));
         }
-        for caption in ["Panel [?].", "Box [?]."] {
+        for caption in ["Panel [?].", "Box [?].", "Legacy [?]."] {
             assert!(outcome.render_events.iter().any(|event| matches!(
                 &event.event,
                 RenderEvent::Caption(event) if event.text == caption
@@ -28782,7 +28787,14 @@ Fallback text.
         assert!(!outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Text(text)
-                if ["subfloat", "subcaptionbox", "0.4", "textwidth", "key"]
+                if [
+                    "subfloat",
+                    "subfigure",
+                    "subcaptionbox",
+                    "0.4",
+                    "textwidth",
+                    "key"
+                ]
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));
