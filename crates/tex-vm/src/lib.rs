@@ -228,6 +228,7 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\listoftables}{}
 \providecommand{\listofalgorithms}{}
 \providecommand{\listof}[2]{}
+\providecommand{\tnote}[1]{[#1]}
 \providecommand{\piccaption}[1]{#1}
 \providecommand{\parpic}[2][]{#2}
 \providecommand{\diagbox}[3][]{#2/#3}
@@ -8489,6 +8490,35 @@ impl<'i> Vm<'i> {
                             self.emit_render_event(
                                 RenderEvent::Text(TextEvent {
                                     text: normalize_latex_text(text),
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    content_start as u32,
+                                    content_end as u32,
+                                )
+                                .with_related(
+                                    SourceSpanRole::Invocation,
+                                    ProvenanceSpan::File(SourceSpan {
+                                        path: source_path.to_owned(),
+                                        start_utf8: command_start as u32,
+                                        end_utf8: after as u32,
+                                    }),
+                                ),
+                            );
+                        }
+                        index = after;
+                    }
+                }
+                "tnote" if in_document => {
+                    index = skip_ascii_whitespace(source, index);
+                    if let Some((marker, content_start, content_end, after)) =
+                        read_braced_source_argument(source, index)
+                    {
+                        let marker = normalize_latex_text_with_inline_placeholders(marker);
+                        if !marker.is_empty() {
+                            self.emit_render_event(
+                                RenderEvent::Text(TextEvent {
+                                    text: format!("[{marker}]"),
                                 }),
                                 SourceProvenance::file(
                                     source_path.to_owned(),
@@ -21927,6 +21957,24 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 }
             }
         }
+        if command == "tnote" {
+            let argument_index = skip_ascii_whitespace(source, command_name_end);
+            if let Some((marker, _, _, command_after)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                let marker = normalize_latex_text_with_inline_placeholders(marker);
+                if !marker.is_empty() {
+                    text.push('[');
+                    text.push_str(&marker);
+                    text.push(']');
+                }
+                found_structured_inline = true;
+                chunk_start = command_after;
+                scan_index = command_after;
+                continue;
+            }
+        }
         if matches!(
             command,
             "NoCaseChange"
@@ -31591,6 +31639,53 @@ Fallback text.
                 _ => false,
             }
         }));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_threeparttable_tnote_markers() {
+        let source = r"\documentclass{article}\usepackage{threeparttable}\begin{document}\begin{threeparttable}\caption{Measured\tnote{a} table.}\begin{tabular}{ll}A\tnote{a} & B \\\end{tabular}\begin{tablenotes}[flushleft]\item[a] Note \cite{key}.\end{tablenotes}\end{threeparttable}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && diagnostic.detail == "tnote"
+        }));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Caption(caption) if caption.text == "Measured[a] table."
+        )));
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        assert_eq!(visible, "A[a] | B");
+
+        let text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(text.contains("Note"));
+        for hidden in ["tnote", "key", "{a}"] {
+            assert!(!text.contains(hidden), "{text}");
+            assert!(!visible.contains(hidden), "{visible}");
+        }
     }
 
     #[test]

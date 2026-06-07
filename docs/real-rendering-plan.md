@@ -824,6 +824,9 @@ Implemented first slice:
   are still captured as table IR instead of being swallowed by wrapper handling.
 - `adjustbox` environments hide their option argument and allow nested tables to
   use the normal table fallback/IR path.
+- `threeparttable` note markers such as `\tnote{a}` normalize to readable
+  bracketed markers while preserving `tablenotes` bodies without leaking note
+  macro syntax or note layout options.
 - simple table environments inside a table cell are flattened into readable cell
   text while keeping the outer table rows intact and hiding the nested table
   preamble/control text.

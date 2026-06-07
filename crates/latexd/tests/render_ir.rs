@@ -20148,6 +20148,38 @@ fn threeparttable_capture_preserves_caption_and_notes_without_option_leakage() {
 }
 
 #[test]
+fn threeparttable_tnote_markers_survive_without_command_leakage() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        THREEPARTTABLE_TNOTE_SOURCE,
+        &SemanticAux::default(),
+    );
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Measured[a] table."));
+    assert!(extracted_text.contains("A[a] | B"));
+    assert!(extracted_text.contains("Note [?]."));
+    for hidden in ["tnote", "{a}", "flushleft", "key"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Measured[a] table."));
+    assert!(display_list_text.contains("A[a] | B"));
+    assert!(display_list_text.contains("Note [?]."));
+    for hidden in ["tnote", "{a}", "flushleft", "key"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn measuredfigure_capture_preserves_image_and_caption_as_graphic_block() {
     let capture =
         capture_internal_render_ir("main.tex", MEASURED_FIGURE_SOURCE, &SemanticAux::default());
@@ -22372,6 +22404,8 @@ const MULTICOLS_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{multicols}{2
 const PARACOL_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{paracol}{2}Column \cite{key} text.\end{paracol}\begin{paracol*}{3}Wide text.\end{paracol*}\end{document}";
 
 const THREEPARTTABLE_SOURCE: &str = r"\begin{document}\begin{threeparttable}\caption{Measured table.}\begin{tabular}{ll}A & B \\\end{tabular}\begin{tablenotes}[flushleft]\item Note \cite{key}.\end{tablenotes}\end{threeparttable}\end{document}";
+
+const THREEPARTTABLE_TNOTE_SOURCE: &str = r"\begin{document}\begin{threeparttable}\caption{Measured\tnote{a} table.}\begin{tabular}{ll}A\tnote{a} & B \\\end{tabular}\begin{tablenotes}[flushleft]\item[a] Note \cite{key}.\end{tablenotes}\end{threeparttable}\end{document}";
 
 const MEASURED_FIGURE_SOURCE: &str = r"\documentclass{article}\usepackage{threeparttable}\begin{document}\begin{measuredfigure}\includegraphics[width=3cm]{figures/measured.pdf}\caption{Measured \cite{key}.}\label{fig:measured}\end{measuredfigure}\end{document}";
 
