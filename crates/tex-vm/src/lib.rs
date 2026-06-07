@@ -2881,7 +2881,8 @@ impl<'i> Vm<'i> {
                                             }
                                             "resizebox" | "scalebox" | "rotatebox"
                                             | "reflectbox" | "adjustbox" | "centerline"
-                                            | "makebox" | "framebox" | "fbox" | "mbox" => {
+                                            | "makebox" | "framebox" | "fbox" | "mbox"
+                                            | "raisebox" | "parbox" => {
                                                 if let Some(after) = self
                                                     .capture_graphic_box_wrapper_events(
                                                         source_path,
@@ -7517,7 +7518,8 @@ impl<'i> Vm<'i> {
                     }
                 }
                 "resizebox" | "scalebox" | "rotatebox" | "reflectbox" | "adjustbox"
-                | "centerline" | "makebox" | "framebox" | "fbox" | "mbox"
+                | "centerline" | "makebox" | "framebox" | "fbox" | "mbox" | "raisebox"
+                | "parbox"
                     if in_document =>
                 {
                     if let Some(after) = self.capture_graphic_box_wrapper_events(
@@ -8400,18 +8402,18 @@ impl<'i> Vm<'i> {
                     inherited_options,
                 ),
                 "resizebox" | "scalebox" | "rotatebox" | "reflectbox" | "adjustbox"
-                | "centerline" | "makebox" | "framebox" | "fbox" | "mbox" => self
-                    .capture_graphic_box_wrapper_events(
-                        source_path,
-                        source,
-                        command,
-                        command_index,
-                        range_end,
-                        graphic_paths,
-                        graphic_extensions,
-                        default_options,
-                        inherited_options,
-                    ),
+                | "centerline" | "makebox" | "framebox" | "fbox" | "mbox" | "raisebox"
+                | "parbox" => self.capture_graphic_box_wrapper_events(
+                    source_path,
+                    source,
+                    command,
+                    command_index,
+                    range_end,
+                    graphic_paths,
+                    graphic_extensions,
+                    default_options,
+                    inherited_options,
+                ),
                 _ => None,
             };
             range_index = after.unwrap_or(command_index);
@@ -8671,6 +8673,61 @@ impl<'i> Vm<'i> {
                     return None;
                 }
                 capture_wrapper_body(self, body_start, body_end, None);
+                Some(after_body)
+            }
+            "raisebox" => {
+                let (_, _, _, after_lift) = read_braced_source_argument(source, argument_index)?;
+                if after_lift > limit {
+                    return None;
+                }
+                let mut body_index = after_lift;
+                loop {
+                    body_index = skip_ascii_whitespace(source, body_index);
+                    let Some((_, _, _, after_option)) =
+                        read_bracket_source_argument(source, body_index)
+                    else {
+                        break;
+                    };
+                    if after_option > limit {
+                        return None;
+                    }
+                    body_index = after_option;
+                }
+                body_index = skip_ascii_whitespace(source, body_index);
+                let (_, body_start, body_end, after_body) =
+                    read_braced_source_argument(source, body_index)?;
+                if after_body > limit {
+                    return None;
+                }
+                capture_wrapper_body(self, body_start, body_end, outer_options);
+                Some(after_body)
+            }
+            "parbox" => {
+                let mut width_index = argument_index;
+                loop {
+                    width_index = skip_ascii_whitespace(source, width_index);
+                    let Some((_, _, _, after_option)) =
+                        read_bracket_source_argument(source, width_index)
+                    else {
+                        break;
+                    };
+                    if after_option > limit {
+                        return None;
+                    }
+                    width_index = after_option;
+                }
+                width_index = skip_ascii_whitespace(source, width_index);
+                let (_, _, _, after_width) = read_braced_source_argument(source, width_index)?;
+                if after_width > limit {
+                    return None;
+                }
+                let body_index = skip_ascii_whitespace(source, after_width);
+                let (_, body_start, body_end, after_body) =
+                    read_braced_source_argument(source, body_index)?;
+                if after_body > limit {
+                    return None;
+                }
+                capture_wrapper_body(self, body_start, body_end, outer_options);
                 Some(after_body)
             }
             _ => None,
@@ -27787,7 +27844,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_graphics_inside_layout_box_wrappers() {
-        let source = r"\begin{document}\resizebox{0.8\textwidth}{0.4\textheight}{\includegraphics[width=5cm]{figures/plot}}\scalebox{0.5}[2]{\epsfbox{figures/other}}\rotatebox[origin=c]{90}{\psfig{figure=figures/third.eps,width=2cm}}\reflectbox{\includegraphics{figures/reflected}}\end{document}";
+        let source = r"\begin{document}\resizebox{0.8\textwidth}{0.4\textheight}{\includegraphics[width=5cm]{figures/plot}}\scalebox{0.5}[2]{\epsfbox{figures/other}}\rotatebox[origin=c]{90}{\psfig{figure=figures/third.eps,width=2cm}}\reflectbox{\includegraphics{figures/reflected}}\raisebox{0.5ex}[1ex][0pt]{\includegraphics{figures/raised}}\parbox[t]{4cm}{\includegraphics{figures/boxed}}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -27795,6 +27852,8 @@ Fallback text.
         vm.mount_file("figures/other.eps", "fake eps");
         vm.mount_file("figures/third.eps", "fake eps");
         vm.mount_file("figures/reflected.pdf", "%PDF fake");
+        vm.mount_file("figures/raised.pdf", "%PDF fake");
+        vm.mount_file("figures/boxed.pdf", "%PDF fake");
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
 
@@ -27803,6 +27862,8 @@ Fallback text.
             "figures/other.eps",
             "figures/third.eps",
             "figures/reflected.pdf",
+            "figures/raised.pdf",
+            "figures/boxed.pdf",
         ] {
             assert!(outcome.render_events.iter().any(|event| matches!(
                 &event.event,
@@ -27838,7 +27899,20 @@ Fallback text.
         assert!(!outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::Text(text)
-                if ["0.8", "0.4", "0.5", "origin", "90", "textwidth", "textheight", "reflectbox"]
+                if [
+                    "0.8",
+                    "0.4",
+                    "0.5",
+                    "origin",
+                    "90",
+                    "textwidth",
+                    "textheight",
+                    "reflectbox",
+                    "raisebox",
+                    "parbox",
+                    "1ex",
+                    "4cm"
+                ]
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));

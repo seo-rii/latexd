@@ -3297,10 +3297,18 @@ fn graphic_layout_box_wrappers_preserve_images_without_argument_leakage() {
             ("figures/plot.pdf", "%PDF fake"),
             ("figures/other.eps", "fake eps"),
             ("figures/third.eps", "fake eps"),
+            ("figures/raised.pdf", "%PDF fake"),
+            ("figures/boxed.pdf", "%PDF fake"),
         ],
     );
 
-    for path in ["figures/plot.pdf", "figures/other.eps", "figures/third.eps"] {
+    for path in [
+        "figures/plot.pdf",
+        "figures/other.eps",
+        "figures/third.eps",
+        "figures/raised.pdf",
+        "figures/boxed.pdf",
+    ] {
         assert!(capture.document_ir.blocks.iter().any(|block| {
             matches!(
                 block,
@@ -3382,6 +3390,10 @@ fn graphic_layout_box_wrappers_preserve_images_without_argument_leakage() {
         "90",
         "textwidth",
         "textheight",
+        "raisebox",
+        "parbox",
+        "1ex",
+        "4cm",
     ] {
         assert!(!extracted_text.contains(hidden));
         assert!(!display_list_text.contains(hidden));
@@ -18917,7 +18929,7 @@ const LEGACY_EPSFIG_SOURCE: &str = r"\begin{document}\begin{figure}\epsfig{file=
 
 const LEGACY_EPSF_FILE_SOURCE: &str = r"\begin{document}\begin{figure}\epsfbox{figures/plot}\caption{Plot caption.}\end{figure}\end{document}";
 
-const GRAPHIC_LAYOUT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\resizebox{0.8\textwidth}{0.4\textheight}{\includegraphics[width=5cm]{figures/plot}}\scalebox{0.5}[2]{\epsfbox{figures/other}}\rotatebox[origin=c]{90}{\psfig{figure=figures/third.eps,width=2cm}}\end{document}";
+const GRAPHIC_LAYOUT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\resizebox{0.8\textwidth}{0.4\textheight}{\includegraphics[width=5cm]{figures/plot}}\scalebox{0.5}[2]{\epsfbox{figures/other}}\rotatebox[origin=c]{90}{\psfig{figure=figures/third.eps,width=2cm}}\raisebox{0.5ex}[1ex][0pt]{\includegraphics{figures/raised}}\parbox[t]{4cm}{\includegraphics{figures/boxed}}\end{document}";
 
 const NESTED_GRAPHIC_LAYOUT_BOX_WRAPPER_SOURCE: &str = r"\begin{document}\resizebox{0.5\textwidth}{!}{\scalebox{0.5}[2]{\includegraphics{figures/nested}}}\reflectbox{\resizebox{2cm}{!}{\includegraphics{figures/reflected}}}\end{document}";
 
