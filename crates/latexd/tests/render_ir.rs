@@ -6296,6 +6296,60 @@ fn math_special_symbols_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_delimiter_and_punctuation_symbols_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Symbols \(\lceil x \rceil + \lfloor y \rfloor + f\colon A\to B + a \mod n + b \bmod m + x \gets y + p \nleftrightarrow q + r \triangleright s\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"\lceil x \rceil + \lfloor y \rfloor + f\colon A\to B + a \mod n + b \bmod m + x \gets y + p \nleftrightarrow q + r \triangleright s"
+                && normalized_text.as_deref()
+                    == Some(
+                        "ceil(x) + floor(y) + f: A -> B + a mod n + b mod m + x <- y + p not <-> q + r triangleright s"
+                    )
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text.contains(
+            "ceil(x) + floor(y) + f: A -> B + a mod n + b mod m + x <- y + p not <-> q + r triangleright s"
+        ),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains(r"\lceil"));
+    assert!(!display_list_text.contains(r"\colon"));
+    assert!(!display_list_text.contains(r"\nleftrightarrow"));
+}
+
+#[test]
 fn math_binary_and_large_operators_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Ops \(A\oplus B \otimes C \odot D \ominus E \oslash F \circ G \bullet H \star I \diamond J + \bigcup_{i=1}^{n} U_i + \bigcap_{j=1}^{m} V_j + \bigoplus_{k=1}^{r} W_k\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

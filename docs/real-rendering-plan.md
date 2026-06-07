@@ -864,8 +864,10 @@ Current status:
   extended arrows such as `xrightarrow` and `xleftarrow`, and arrow variants
   such as `Longrightarrow`, `leftrightarrow`, and `hookrightarrow`,
   common math alphabet wrappers, accent wrappers, brace grouping wrappers,
-  delimiter commands including invisible `left.` / `right.` delimiters, ellipsis
-  commands such as `ldots`, `cdots`, and `dots`, matrix/cases/array-style
+  delimiter commands including invisible `left.` / `right.` delimiters and
+  `lceil` / `lfloor` pairs, punctuation/remainder symbols such as `colon`,
+  `mod`, `gets`, `nleftrightarrow`, and `triangleright`, ellipsis commands such
+  as `ldots`, `cdots`, and `dots`, matrix/cases/array-style
   environments, alignment markers,
   and multiline row separators, plus nested amsmath environments such as
   `split`, `gathered`, and `alignedat`;

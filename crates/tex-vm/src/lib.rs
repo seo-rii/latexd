@@ -22790,6 +22790,22 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!("||");
                         index = command_index;
                     }
+                    "lceil" => {
+                        push_token!("ceil(");
+                        index = command_index;
+                    }
+                    "rceil" => {
+                        push_token!(")");
+                        index = command_index;
+                    }
+                    "lfloor" => {
+                        push_token!("floor(");
+                        index = command_index;
+                    }
+                    "rfloor" => {
+                        push_token!(")");
+                        index = command_index;
+                    }
                     "lbrace" => {
                         push_token!("{");
                         index = command_index;
@@ -22983,6 +22999,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("<->");
                         index = command_index;
                     }
+                    "nleftrightarrow" => {
+                        push_operator!("not <->");
+                        index = command_index;
+                    }
                     "approx" | "sim" => {
                         push_operator!("~");
                         index = command_index;
@@ -23020,7 +23040,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("->");
                         index = command_index;
                     }
-                    "leftarrow" => {
+                    "leftarrow" | "gets" => {
                         push_operator!("<-");
                         index = command_index;
                     }
@@ -23174,6 +23194,18 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     | "min" | "max" | "arg" | "deg" | "det" | "dim" | "gcd" | "hom" | "ker"
                     | "Pr" | "sup" | "inf" => {
                         push_token!(command);
+                        index = command_index;
+                    }
+                    "mod" | "bmod" => {
+                        push_operator!("mod");
+                        index = command_index;
+                    }
+                    "colon" => {
+                        push_token!(":");
+                        index = command_index;
+                    }
+                    "triangleright" => {
+                        push_operator!("triangleright");
                         index = command_index;
                     }
                     "partial" => {
@@ -32994,6 +33026,36 @@ Fallback text.
         assert_eq!(
             math.normalized_text.as_deref(),
             Some("f^prime(x) + A^dagger + B^dag + C bigcirc D + X backslash Y")
+        );
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_delimiter_and_punctuation_symbols() {
+        let source = r"\begin{document}Symbols \(\lceil x \rceil + \lfloor y \rfloor + f\colon A\to B + a \mod n + b \bmod m + x \gets y + p \nleftrightarrow q + r \triangleright s\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        let RenderEvent::InlineMath(math) = &inline_math.event else {
+            panic!("inline math event");
+        };
+
+        assert_eq!(
+            math.raw_source,
+            r"\lceil x \rceil + \lfloor y \rfloor + f\colon A\to B + a \mod n + b \bmod m + x \gets y + p \nleftrightarrow q + r \triangleright s"
+        );
+        assert_eq!(
+            math.normalized_text.as_deref(),
+            Some(
+                "ceil(x) + floor(y) + f: A -> B + a mod n + b mod m + x <- y + p not <-> q + r triangleright s"
+            )
         );
     }
 
