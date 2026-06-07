@@ -278,6 +278,88 @@ pub fn render_display_list_pdf_with_converted_assets(
                             placeholder_status,
                         );
                     } else if let Some(bytes) = resolve_asset(&image.asset_ref) {
+                        let mut rendered_svg_vector = false;
+                        if image.asset_format == Some(GraphicAssetFormat::Svg)
+                            && let Ok(svg_text) = std::str::from_utf8(&bytes)
+                            && let Some(svg) = parse_simple_svg_asset(svg_text)
+                            && !svg.rects.is_empty()
+                        {
+                            let (natural_width, natural_height) = image_natural_size_or_fallback(
+                                image,
+                                svg.natural_width_pt,
+                                svg.natural_height_pt,
+                            );
+                            let dest_x = image.rect.x;
+                            let dest_y = page.height_pt - image.rect.y - image.rect.height;
+                            let draw = image_draw_placement(
+                                Rect {
+                                    x: dest_x,
+                                    y: dest_y,
+                                    width: image.rect.width,
+                                    height: image.rect.height,
+                                },
+                                image.crop,
+                                natural_width,
+                                natural_height,
+                                false,
+                            );
+                            let rotated =
+                                push_pdf_image_rotation(&mut stream, page.height_pt, image);
+                            if draw.clip_to_dest {
+                                stream.push_str(&format!(
+                                    "q {} {} {} {} re W n q ",
+                                    dest_x, dest_y, image.rect.width, image.rect.height
+                                ));
+                            } else {
+                                stream.push_str("q ");
+                            }
+                            let scale_x = draw.rect.width / natural_width;
+                            let scale_y = draw.rect.height / natural_height;
+                            if scale_x.is_finite()
+                                && scale_y.is_finite()
+                                && scale_x > 0.0
+                                && scale_y > 0.0
+                            {
+                                for rect in svg.rects {
+                                    let rect_x =
+                                        draw.rect.x + rect.x_ratio * natural_width * scale_x;
+                                    let rect_y = draw.rect.y
+                                        + (1.0 - rect.y_ratio - rect.height_ratio)
+                                            * natural_height
+                                            * scale_y;
+                                    let rect_width = rect.width_ratio * natural_width * scale_x;
+                                    let rect_height = rect.height_ratio * natural_height * scale_y;
+                                    if rect_width.is_finite()
+                                        && rect_height.is_finite()
+                                        && rect_width > 0.0
+                                        && rect_height > 0.0
+                                    {
+                                        stream.push_str(&format!(
+                                            "{} {} {} rg {} {} {} {} re f ",
+                                            rect.fill_rgb.0,
+                                            rect.fill_rgb.1,
+                                            rect.fill_rgb.2,
+                                            rect_x,
+                                            rect_y,
+                                            rect_width,
+                                            rect_height
+                                        ));
+                                    }
+                                }
+                                rendered_svg_vector = true;
+                            }
+                            if draw.clip_to_dest {
+                                stream.push_str("Q Q ");
+                            } else {
+                                stream.push_str("Q ");
+                            }
+                            if rotated {
+                                stream.push_str("Q ");
+                            }
+                        }
+                        if rendered_svg_vector {
+                            continue;
+                        }
                         let decoded = decode_pdf_image(&bytes).or_else(|| {
                             convert_asset(image, &bytes).and_then(|converted| {
                                 match converted.format {
@@ -444,6 +526,22 @@ struct ImageDrawPlacement {
     clip_to_dest: bool,
 }
 
+#[derive(Debug, Clone)]
+struct SimpleSvgAsset {
+    natural_width_pt: f32,
+    natural_height_pt: f32,
+    rects: Vec<SimpleSvgRect>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SimpleSvgRect {
+    x_ratio: f32,
+    y_ratio: f32,
+    width_ratio: f32,
+    height_ratio: f32,
+    fill_rgb: (f32, f32, f32),
+}
+
 fn image_natural_size_pt(image: &PositionedImage) -> Option<(f32, f32)> {
     let width = image.natural_width_pt?;
     let height = image.natural_height_pt?;
@@ -457,6 +555,191 @@ fn image_natural_size_or_fallback(
     fallback_height: f32,
 ) -> (f32, f32) {
     image_natural_size_pt(image).unwrap_or((fallback_width, fallback_height))
+}
+
+fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
+    let tag_start = text.find("<svg")?;
+    let tag_tail = &text[tag_start..];
+    let tag_end = tag_tail.find('>')?;
+    let svg_tag = &tag_tail[..tag_end];
+    let attr_value = |tag: &str, name: &str| -> Option<String> {
+        let mut offset = 0usize;
+        while let Some(relative) = tag[offset..].find(name) {
+            let index = offset + relative;
+            let before = tag[..index].chars().next_back();
+            if before
+                .is_some_and(|ch| !(ch.is_whitespace() || matches!(ch, '<' | '/' | '\'' | '"')))
+            {
+                offset = index + name.len();
+                continue;
+            }
+            let after = tag[index + name.len()..].trim_start();
+            let after = after.strip_prefix('=')?.trim_start();
+            let quote = after.chars().next()?;
+            if quote != '"' && quote != '\'' {
+                return None;
+            }
+            let value_start = quote.len_utf8();
+            let value_end = after[value_start..].find(quote)? + value_start;
+            return Some(after[value_start..value_end].to_string());
+        }
+        None
+    };
+    let parse_number_prefix = |raw: &str| -> Option<f32> {
+        let raw = raw.trim();
+        if raw.is_empty() || raw.ends_with('%') {
+            return None;
+        }
+        let split_at = raw
+            .find(|ch: char| !(ch.is_ascii_digit() || matches!(ch, '.' | '+' | '-')))
+            .unwrap_or(raw.len());
+        raw[..split_at]
+            .parse::<f32>()
+            .ok()
+            .filter(|value| value.is_finite())
+    };
+    let parse_length_pt = |raw: &str| -> Option<f32> {
+        let value = parse_number_prefix(raw)?;
+        let unit = raw
+            .trim()
+            .trim_start_matches(|ch: char| ch.is_ascii_digit() || matches!(ch, '.' | '+' | '-'))
+            .trim();
+        let multiplier = match unit {
+            "" | "px" => 72.0 / 96.0,
+            "pt" | "bp" => 1.0,
+            "in" => 72.0,
+            "cm" => 72.0 / 2.54,
+            "mm" => 72.0 / 25.4,
+            "pc" => 12.0,
+            _ => return None,
+        };
+        Some(value * multiplier)
+    };
+    let width_raw = attr_value(svg_tag, "width");
+    let height_raw = attr_value(svg_tag, "height");
+    let width_pt = width_raw.as_deref().and_then(parse_length_pt);
+    let height_pt = height_raw.as_deref().and_then(parse_length_pt);
+    let view_box = attr_value(svg_tag, "viewBox")
+        .or_else(|| attr_value(svg_tag, "viewbox"))
+        .and_then(|view_box| {
+            let values = view_box
+                .split(|ch: char| ch.is_whitespace() || ch == ',')
+                .filter_map(|part| part.parse::<f32>().ok())
+                .collect::<Vec<_>>();
+            (values.len() >= 4
+                && values[2].is_finite()
+                && values[3].is_finite()
+                && values[2] > 0.0
+                && values[3] > 0.0)
+                .then_some((values[0], values[1], values[2], values[3]))
+        });
+    let natural_size = if let (Some(width), Some(height)) = (width_pt, height_pt)
+        && width.is_finite()
+        && height.is_finite()
+        && width > 0.0
+        && height > 0.0
+    {
+        Some((width, height))
+    } else {
+        view_box.map(|(_, _, width, height)| (width * 72.0 / 96.0, height * 72.0 / 96.0))
+    }?;
+    let view_box = view_box.unwrap_or_else(|| {
+        let width = width_raw
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(natural_size.0);
+        let height = height_raw
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(natural_size.1);
+        (0.0, 0.0, width.max(1.0), height.max(1.0))
+    });
+    let parse_fill = |raw: Option<String>| -> Option<(f32, f32, f32)> {
+        let raw = raw.unwrap_or_else(|| "black".to_string());
+        let raw = raw.trim();
+        if raw.eq_ignore_ascii_case("none") {
+            return None;
+        }
+        if let Some(hex) = raw.strip_prefix('#') {
+            if hex.len() == 6 {
+                let r = u8::from_str_radix(&hex[0..2], 16).ok()? as f32 / 255.0;
+                let g = u8::from_str_radix(&hex[2..4], 16).ok()? as f32 / 255.0;
+                let b = u8::from_str_radix(&hex[4..6], 16).ok()? as f32 / 255.0;
+                return Some((r, g, b));
+            }
+            if hex.len() == 3 {
+                let r = u8::from_str_radix(&hex[0..1].repeat(2), 16).ok()? as f32 / 255.0;
+                let g = u8::from_str_radix(&hex[1..2].repeat(2), 16).ok()? as f32 / 255.0;
+                let b = u8::from_str_radix(&hex[2..3].repeat(2), 16).ok()? as f32 / 255.0;
+                return Some((r, g, b));
+            }
+        }
+        match raw.to_ascii_lowercase().as_str() {
+            "black" => Some((0.0, 0.0, 0.0)),
+            "white" => Some((1.0, 1.0, 1.0)),
+            "gray" | "grey" => Some((0.5, 0.5, 0.5)),
+            "red" => Some((1.0, 0.0, 0.0)),
+            "green" => Some((0.0, 0.5, 0.0)),
+            "blue" => Some((0.0, 0.0, 1.0)),
+            _ => Some((0.0, 0.0, 0.0)),
+        }
+    };
+    let svg_content_start = tag_start + tag_end + 1;
+    let svg_content_end = text[svg_content_start..]
+        .find("</svg>")
+        .map(|relative| svg_content_start + relative)
+        .unwrap_or(text.len());
+    let svg_content = &text[svg_content_start..svg_content_end];
+    let mut rects = Vec::new();
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<rect") {
+        let rect_start = search_index + relative;
+        let rect_tail = &svg_content[rect_start..];
+        let Some(rect_end) = rect_tail.find('>') else {
+            break;
+        };
+        let rect_tag = &rect_tail[..rect_end];
+        let x = attr_value(rect_tag, "x")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let y = attr_value(rect_tag, "y")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let Some(width) = attr_value(rect_tag, "width")
+            .as_deref()
+            .and_then(parse_number_prefix)
+        else {
+            search_index = rect_start + rect_end + 1;
+            continue;
+        };
+        let Some(height) = attr_value(rect_tag, "height")
+            .as_deref()
+            .and_then(parse_number_prefix)
+        else {
+            search_index = rect_start + rect_end + 1;
+            continue;
+        };
+        if width > 0.0
+            && height > 0.0
+            && let Some(fill_rgb) = parse_fill(attr_value(rect_tag, "fill"))
+        {
+            rects.push(SimpleSvgRect {
+                x_ratio: (x - view_box.0) / view_box.2,
+                y_ratio: (y - view_box.1) / view_box.3,
+                width_ratio: width / view_box.2,
+                height_ratio: height / view_box.3,
+                fill_rgb,
+            });
+        }
+        search_index = rect_start + rect_end + 1;
+    }
+    Some(SimpleSvgAsset {
+        natural_width_pt: natural_size.0,
+        natural_height_pt: natural_size.1,
+        rects,
+    })
 }
 
 fn image_draw_placement(
@@ -1017,104 +1300,18 @@ pub fn render_display_list_svg_with_converted_assets(
                         let mut converted_format = None;
                         let (media_type, natural_size, data_bytes) = match image.asset_format {
                             Some(GraphicAssetFormat::Svg) => {
-                                let is_svg = std::str::from_utf8(&bytes)
+                                let parsed_svg = std::str::from_utf8(&bytes)
                                     .ok()
-                                    .is_some_and(|text| text.contains("<svg"));
-                                if !is_svg {
+                                    .and_then(parse_simple_svg_asset);
+                                let Some(parsed_svg) = parsed_svg else {
                                     embedded_decode_failure = true;
                                     return None;
-                                }
-                                let parsed_natural_size =
-                                    std::str::from_utf8(&bytes).ok().and_then(|text| {
-                                        let tag_start = text.find("<svg")?;
-                                        let tag_tail = &text[tag_start..];
-                                        let tag_end = tag_tail.find('>')?;
-                                        let tag = &tag_tail[..tag_end];
-                                        let attr_value = |name: &str| -> Option<&str> {
-                                            let mut offset = 0usize;
-                                            while let Some(relative) = tag[offset..].find(name) {
-                                                let index = offset + relative;
-                                                let before = tag[..index].chars().next_back();
-                                                if before.is_some_and(|ch| {
-                                                    !(ch.is_whitespace()
-                                                        || matches!(ch, '<' | '/' | '\'' | '"'))
-                                                }) {
-                                                    offset = index + name.len();
-                                                    continue;
-                                                }
-                                                let after = tag[index + name.len()..].trim_start();
-                                                let after = after.strip_prefix('=')?.trim_start();
-                                                let quote = after.chars().next()?;
-                                                if quote != '"' && quote != '\'' {
-                                                    return None;
-                                                }
-                                                let value_start = quote.len_utf8();
-                                                let value_end =
-                                                    after[value_start..].find(quote)? + value_start;
-                                                return Some(&after[value_start..value_end]);
-                                            }
-                                            None
-                                        };
-                                        let parse_length = |raw: &str| -> Option<f32> {
-                                            let raw = raw.trim();
-                                            if raw.ends_with('%') {
-                                                return None;
-                                            }
-                                            let split_at = raw
-                                                .find(|ch: char| {
-                                                    !(ch.is_ascii_digit()
-                                                        || matches!(ch, '.' | '+' | '-'))
-                                                })
-                                                .unwrap_or(raw.len());
-                                            let value = raw[..split_at].parse::<f32>().ok()?;
-                                            let unit = raw[split_at..].trim();
-                                            let multiplier = match unit {
-                                                "" | "px" => 72.0 / 96.0,
-                                                "pt" | "bp" => 1.0,
-                                                "in" => 72.0,
-                                                "cm" => 72.0 / 2.54,
-                                                "mm" => 72.0 / 25.4,
-                                                "pc" => 12.0,
-                                                _ => return None,
-                                            };
-                                            Some(value * multiplier)
-                                        };
-                                        let width = attr_value("width").and_then(parse_length);
-                                        let height = attr_value("height").and_then(parse_length);
-                                        if let (Some(width), Some(height)) = (width, height)
-                                            && width.is_finite()
-                                            && height.is_finite()
-                                            && width > 0.0
-                                            && height > 0.0
-                                        {
-                                            return Some((width, height));
-                                        }
-                                        let view_box = attr_value("viewBox")
-                                            .or_else(|| attr_value("viewbox"))?;
-                                        let values = view_box
-                                            .split(|ch: char| ch.is_whitespace() || ch == ',')
-                                            .filter_map(|part| part.parse::<f32>().ok())
-                                            .collect::<Vec<_>>();
-                                        if values.len() >= 4
-                                            && values[2].is_finite()
-                                            && values[3].is_finite()
-                                            && values[2] > 0.0
-                                            && values[3] > 0.0
-                                        {
-                                            Some((values[2] * 72.0 / 96.0, values[3] * 72.0 / 96.0))
-                                        } else {
-                                            None
-                                        }
-                                    });
-                                let natural_size = parsed_natural_size
-                                    .map(|(natural_width, natural_height)| {
-                                        image_natural_size_or_fallback(
-                                            image,
-                                            natural_width,
-                                            natural_height,
-                                        )
-                                    })
-                                    .or_else(|| image_natural_size_pt(image));
+                                };
+                                let natural_size = Some(image_natural_size_or_fallback(
+                                    image,
+                                    parsed_svg.natural_width_pt,
+                                    parsed_svg.natural_height_pt,
+                                ));
                                 ("image/svg+xml;charset=utf-8", natural_size, bytes)
                             }
                             Some(GraphicAssetFormat::Png) => {
@@ -2073,6 +2270,47 @@ mod tests {
         assert!(svg.contains("href=\"data:image/svg+xml;charset=utf-8,%3Csvg"));
         assert!(!svg.contains("[image: figures/vector.svg]"));
         assert!(!svg.contains("data-image-placeholder-kind="));
+    }
+
+    #[test]
+    fn renders_simple_svg_rect_assets_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/vector.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/vector.svg").then(|| {
+                br#"<svg width="20" height="10"><rect width="20" height="10"/></svg>"#.to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 0 rg 72 642 144 72 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/vector.svg]"));
+        assert!(!pdf_text.contains("[image: figures/vector.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
     #[test]

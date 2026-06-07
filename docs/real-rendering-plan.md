@@ -184,7 +184,10 @@ annotate `PageDisplayList::Image`, debug PDF placeholder text, and SVG debug
 unsupported-image placeholders, while resolved PDF/EPS assets can be converted
 to PNG for debug display-list PDF/SVG artifacts through Ghostscript or Poppler.
 Resolver-backed SVG and PNG/JPEG bitmap assets are embedded as data-URI
-`<image>` elements in project-root display-list SVG debug artifacts. The
+`<image>` elements in project-root display-list SVG debug artifacts. Simple
+resolver-backed SVG `<rect>` content is also rendered directly as vector
+rectangle fill operations in display-list PDF artifacts instead of falling back
+to unsupported-image placeholders. The
 display-list image op now carries the resolved natural point size separately
 from the destination rectangle, so PDF/SVG debug crop placement uses the
 original asset coordinate space even when a PDF/EPS asset is rendered through a
@@ -610,6 +613,8 @@ Implemented first slice:
   crop metadata reflected in the debug SVG for bitmap assets, simple SVG
   assets with parseable natural dimensions, and converted PDF/EPS debug assets
   whose display-list ops carry resolved natural point dimensions;
+- display-list PDF artifacts can render simple resolver-provided SVG `<rect>`
+  content as vector rectangle fill operations;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
   display-list PDF and debug SVG artifacts;
 - missing or undecodable assets still render as bounded placeholders in both
@@ -1025,6 +1030,8 @@ Status:
 - project-root display-list SVG debug artifacts can embed resolver-backed SVG
   and PNG/JPEG bitmap assets, including clip-enabled crop visualization for
   bitmap assets and simple SVG assets with parseable natural dimensions;
+- project-root display-list PDF debug artifacts render simple resolver-backed
+  SVG rectangle content as vector PDF rectangle fills;
 - `latexd render-ir --root ... --input ... --output-dir ...` exposes the
   event/IR/display-list artifact pipeline without replacing the serve preview
   path;

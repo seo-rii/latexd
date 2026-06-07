@@ -2495,7 +2495,7 @@ fn project_root_render_ir_capture_embeds_png_assets_in_debug_pdf() {
 }
 
 #[test]
-fn project_root_render_ir_capture_embeds_svg_assets_in_debug_svg() {
+fn project_root_render_ir_capture_embeds_svg_assets_in_debug_artifacts() {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
     fs::create_dir_all(root.join("figures").as_std_path()).expect("create figures dir");
@@ -2524,13 +2524,28 @@ fn project_root_render_ir_capture_embeds_svg_assets_in_debug_svg() {
 
     assert_eq!(image.asset_format, Some(GraphicAssetFormat::Svg));
     assert!(image.diagnostic.is_none(), "{:?}", image.diagnostic);
+    let expected_pdf_rect = format!(
+        "0 0 0 rg {} {} {} {} re f",
+        image.rect.x,
+        capture.page_display_lists[0].height_pt - image.rect.y - image.rect.height,
+        image.rect.width,
+        image.rect.height
+    );
     let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
-    assert!(pdf_text.contains("[unsupported image: figures/vector.svg]"));
+    assert!(pdf_text.contains(&expected_pdf_rect), "{pdf_text}");
+    assert!(!pdf_text.contains("[unsupported image: figures/vector.svg]"));
 
     let output_dir = root.join("render-artifacts");
     let paths = capture
         .write_debug_artifacts(&output_dir)
         .expect("write debug artifacts");
+    let artifact_pdf = fs::read(paths.display_list_pdf).expect("read display-list pdf");
+    let artifact_pdf_text = String::from_utf8_lossy(&artifact_pdf);
+    assert!(
+        artifact_pdf_text.contains(&expected_pdf_rect),
+        "{artifact_pdf_text}"
+    );
+    assert!(!artifact_pdf_text.contains("[unsupported image: figures/vector.svg]"));
     let display_list_svg =
         fs::read_to_string(&paths.display_list_svgs[0]).expect("read display-list svg");
 
