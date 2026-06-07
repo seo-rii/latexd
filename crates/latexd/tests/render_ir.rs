@@ -16491,6 +16491,49 @@ fn tabular_rotated_makecell_helpers_preserve_visible_text() {
 }
 
 #[test]
+fn tabular_pbox_helper_preserves_visible_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{pbox}\begin{document}\begin{tabular}{ll}\pbox[t]{2cm}{Top\\Bottom \cite{key}} & Tail\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "Top Bottom [?]");
+    assert_eq!(table.rows[0].cells[1].text, "Tail");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Top Bottom [?] | Tail"));
+    for hidden in ["pbox", "2cm", "[t]", "key", r"\\"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        display_list_text.contains("Top Bottom [?] | Tail"),
+        "{display_list_text}"
+    );
+    for hidden in ["pbox", "2cm", "[t]", "key", r"\\"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn tabular_makecell_gaped_helpers_preserve_visible_text() {
     let capture = capture_internal_render_ir(
         "main.tex",

@@ -237,6 +237,7 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\thead}[2][]{#2}
 \providecommand{\rotcell}[2][]{#2}
 \providecommand{\rothead}[2][]{#2}
+\providecommand{\pbox}[3][]{#3}
 \providecommand{\gape}[2][]{#2}
 \providecommand{\Gape}[2][]{#2}
 \providecommand{\makegapedcells}{}
@@ -358,6 +359,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "overpic.sty",
     "paracol.sty",
     "pdflscape.sty",
+    "pbox.sty",
     "picins.sty",
     "picinpar.sty",
     "placeins.sty",
@@ -11901,6 +11903,82 @@ impl<'i> Vm<'i> {
                                 table_index = command_end;
                             }
                         }
+                        "pbox" => {
+                            let mut parsed = false;
+                            let mut argument_index = skip_ascii_whitespace(table_body, command_end);
+                            loop {
+                                argument_index = skip_ascii_whitespace(table_body, argument_index);
+                                let Some((_, _, _, after_option)) =
+                                    read_bracket_source_argument(table_body, argument_index)
+                                else {
+                                    break;
+                                };
+                                argument_index = after_option;
+                            }
+                            if let Some((_, _, _, after_width)) =
+                                read_braced_source_argument(table_body, argument_index)
+                            {
+                                let content_index = skip_ascii_whitespace(table_body, after_width);
+                                if let Some((content, _, _, after_content)) =
+                                    read_braced_source_argument(table_body, content_index)
+                                {
+                                    let mut cell_content = String::new();
+                                    let mut content_index = 0usize;
+                                    while content_index < content.len() {
+                                        if content.as_bytes().get(content_index).copied()
+                                            == Some(b'\\')
+                                        {
+                                            if content.as_bytes().get(content_index + 1).copied()
+                                                == Some(b'\\')
+                                            {
+                                                cell_content.push(' ');
+                                                content_index += 2;
+                                                if let Some((_, _, _, after_option)) =
+                                                    read_bracket_source_argument(
+                                                        content,
+                                                        content_index,
+                                                    )
+                                                {
+                                                    content_index = after_option;
+                                                }
+                                                continue;
+                                            }
+                                            if content[content_index + 1..]
+                                                .starts_with("tabularnewline")
+                                            {
+                                                cell_content.push(' ');
+                                                content_index += "\\tabularnewline".len();
+                                                if let Some((_, _, _, after_option)) =
+                                                    read_bracket_source_argument(
+                                                        content,
+                                                        content_index,
+                                                    )
+                                                {
+                                                    content_index = after_option;
+                                                }
+                                                continue;
+                                            }
+                                        }
+                                        let ch = content[content_index..]
+                                            .chars()
+                                            .next()
+                                            .expect("pbox table cell content char");
+                                        cell_content.push(ch);
+                                        content_index += ch.len_utf8();
+                                    }
+                                    rewritten.push_str(&cell_content);
+                                    row_has_visible_content = true;
+                                    table_index = after_content;
+                                    parsed = true;
+                                }
+                            }
+                            if !parsed {
+                                rewritten.push('\\');
+                                rewritten.push_str(command);
+                                row_has_visible_content = true;
+                                table_index = command_end;
+                            }
+                        }
                         "makegapedcells" | "nomakegapedcells" => {
                             table_index = command_end;
                         }
@@ -21576,6 +21654,69 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
                 chunk_start = command_after;
                 scan_index = command_after;
                 continue;
+            }
+        }
+        if command == "pbox" {
+            let mut argument_index = skip_ascii_whitespace(source, command_name_end);
+            loop {
+                argument_index = skip_ascii_whitespace(source, argument_index);
+                let Some((_, _, _, after_option)) =
+                    read_bracket_source_argument(source, argument_index)
+                else {
+                    break;
+                };
+                argument_index = after_option;
+            }
+            if let Some((_, _, _, after_width)) =
+                read_braced_source_argument(source, argument_index)
+            {
+                let content_index = skip_ascii_whitespace(source, after_width);
+                if let Some((visible_text, _, _, command_after)) =
+                    read_braced_source_argument(source, content_index)
+                {
+                    append_normalized_text(&mut text, &source[chunk_start..command_start]);
+                    let mut visible_source = String::new();
+                    let mut visible_index = 0usize;
+                    while visible_index < visible_text.len() {
+                        if visible_text.as_bytes().get(visible_index).copied() == Some(b'\\') {
+                            if visible_text.as_bytes().get(visible_index + 1).copied()
+                                == Some(b'\\')
+                            {
+                                visible_source.push(' ');
+                                visible_index += 2;
+                                if let Some((_, _, _, after_option)) =
+                                    read_bracket_source_argument(visible_text, visible_index)
+                                {
+                                    visible_index = after_option;
+                                }
+                                continue;
+                            }
+                            if visible_text[visible_index + 1..].starts_with("tabularnewline") {
+                                visible_source.push(' ');
+                                visible_index += "\\tabularnewline".len();
+                                if let Some((_, _, _, after_option)) =
+                                    read_bracket_source_argument(visible_text, visible_index)
+                                {
+                                    visible_index = after_option;
+                                }
+                                continue;
+                            }
+                        }
+                        let ch = visible_text[visible_index..]
+                            .chars()
+                            .next()
+                            .expect("pbox cell helper content char");
+                        visible_source.push(ch);
+                        visible_index += ch.len_utf8();
+                    }
+                    let visible_text =
+                        normalize_latex_text_with_inline_placeholders(&visible_source);
+                    append_text(&mut text, &visible_text);
+                    found_structured_inline = true;
+                    chunk_start = command_after;
+                    scan_index = command_after;
+                    continue;
+                }
             }
         }
         if matches!(command, "makegapedcells" | "nomakegapedcells") {
@@ -37913,6 +38054,42 @@ Fallback text.
         assert!(!outcome.diagnostics.iter().any(|diagnostic| {
             diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
                 && matches!(diagnostic.detail.as_str(), "rotcell" | "rothead")
+        }));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_pbox_table_helpers() {
+        let source = r"\documentclass{article}\usepackage{pbox}\begin{document}\begin{tabular}{ll}\pbox[t]{2cm}{Top\\Bottom \cite{key}} & Tail\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible_text, "Top Bottom [?] | Tail");
+        for hidden in ["pbox", "2cm", "[t]", "key", "\\\\"] {
+            assert!(!visible_text.contains(hidden), "{visible_text:?}");
+        }
+        assert!(
+            outcome
+                .loaded_modules
+                .contains(&Utf8PathBuf::from("pbox.sty"))
+        );
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package pbox.sty"
         }));
     }
 

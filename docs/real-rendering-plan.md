@@ -793,6 +793,8 @@ Implemented first slice:
 - `makecell` gaped-cell helpers such as `\Gape`, `\gape`,
   `\makegapedcells`, and `\setcellgapes` preserve visible cell text without
   leaking gape dimensions or helper names.
+- `pbox` table-cell helpers preserve visible body text and internal line breaks
+  without leaking width or vertical-position arguments.
 - `makecell` rule helpers `\Xhline{...}` and `\Xcline{...}{...}` are
   normalized to full/partial table rule metadata without leaking rule widths.
 - diagonal table header helpers `\diagbox`, `\slashbox`, and `\backslashbox`
