@@ -380,6 +380,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "threeparttable.sty",
     "tikz.sty",
     "times.sty",
+    "tocloft.sty",
     "todonotes.sty",
     "ulem.sty",
     "upgreek.sty",
@@ -34612,13 +34613,6 @@ Fallback text.
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
 
-        for package in ["algorithm.sty", "tocloft.sty"] {
-            assert!(!outcome.diagnostics.iter().any(|diagnostic| {
-                diagnostic.kind == VmDiagnosticKind::MissingFile
-                    && diagnostic.detail == format!("package {package}")
-            }));
-            assert!(outcome.loaded_modules.contains(&Utf8PathBuf::from(package)));
-        }
         let visible_text = outcome
             .render_events
             .iter()
@@ -36427,6 +36421,13 @@ Fallback text.
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
 
+        for package in ["algorithm.sty", "tocloft.sty"] {
+            assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+                diagnostic.kind == VmDiagnosticKind::MissingFile
+                    && diagnostic.detail == format!("package {package}")
+            }));
+            assert!(outcome.loaded_modules.contains(&Utf8PathBuf::from(package)));
+        }
         let visible_text = outcome
             .render_events
             .iter()
