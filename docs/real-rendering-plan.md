@@ -855,6 +855,7 @@ Current status:
   roots,
   text/operator wrappers, simple
   superscript/subscript braces, large-operator scripts including `substack`,
+  style and limit controls such as `displaystyle`, `limits`, and `nolimits`,
   stack relation wrappers such as `overset`, `underset`, and `stackrel`, named
   operators, common extended arrows such as `xrightarrow` and `xleftarrow`,
   common math alphabet wrappers, accent wrappers, brace grouping wrappers,

@@ -5570,6 +5570,51 @@ fn math_invisible_delimiters_do_not_leak_visible_dots() {
 }
 
 #[test]
+fn math_style_and_limit_controls_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Controls \(\displaystyle\sum\limits_{i=1}^{n} x_i + \textstyle\int\nolimits_{0}^{1} f(x)\,dx + \scriptstyle a + \scriptscriptstyle b\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"\displaystyle\sum\limits_{i=1}^{n} x_i + \textstyle\int\nolimits_{0}^{1} f(x)\,dx + \scriptstyle a + \scriptscriptstyle b"
+                && normalized_text.as_deref()
+                    == Some("sum_{i = 1}^{n} x_i + int_{0}^{1} f(x) dx + a + b")
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("sum_{i = 1}^{n} x_i"));
+    assert!(display_list_text.contains("int_{0}^{1} f(x) dx"));
+    assert!(display_list_text.contains("a + b"));
+    assert!(!display_list_text.contains(r"\displaystyle"));
+    assert!(!display_list_text.contains(r"\limits"));
+    assert!(!display_list_text.contains(r"\nolimits"));
+}
+
+#[test]
 fn math_operators_and_scripts_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Series \(\sum_{i=1}^{n} x_i + \int_{0}^{1} f(x)\,dx + \sin \theta\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

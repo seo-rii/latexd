@@ -22819,6 +22819,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     "!" => {
                         index = command_index;
                     }
+                    "displaystyle" | "textstyle" | "scriptstyle" | "scriptscriptstyle"
+                    | "limits" | "nolimits" => {
+                        index = command_index;
+                    }
                     "le" | "leq" => {
                         push_operator!("<=");
                         index = command_index;
@@ -22999,6 +23003,21 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     }
                     "sum" | "prod" | "int" | "lim" => {
                         let mut script_index = skip_ascii_whitespace(source, command_index);
+                        if script_index < bytes.len() && bytes[script_index] == b'\\' {
+                            let mut limit_command_index = script_index + 1;
+                            let limit_command_start = limit_command_index;
+                            while limit_command_index < bytes.len()
+                                && bytes[limit_command_index].is_ascii_alphabetic()
+                            {
+                                limit_command_index += 1;
+                            }
+                            if matches!(
+                                &source[limit_command_start..limit_command_index],
+                                "limits" | "nolimits"
+                            ) {
+                                script_index = skip_ascii_whitespace(source, limit_command_index);
+                            }
+                        }
                         let mut lower = None;
                         let mut upper = None;
                         for _ in 0..2 {
@@ -32505,6 +32524,34 @@ Fallback text.
         assert_eq!(
             math.normalized_text.as_deref(),
             Some("d/dx f(x) |_x = 0 + (y")
+        );
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_style_and_limit_controls() {
+        let source = r"\begin{document}Controls \(\displaystyle\sum\limits_{i=1}^{n} x_i + \textstyle\int\nolimits_{0}^{1} f(x)\,dx + \scriptstyle a + \scriptscriptstyle b\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        let RenderEvent::InlineMath(math) = &inline_math.event else {
+            panic!("inline math event");
+        };
+
+        assert_eq!(
+            math.raw_source,
+            r"\displaystyle\sum\limits_{i=1}^{n} x_i + \textstyle\int\nolimits_{0}^{1} f(x)\,dx + \scriptstyle a + \scriptscriptstyle b"
+        );
+        assert_eq!(
+            math.normalized_text.as_deref(),
+            Some("sum_{i = 1}^{n} x_i + int_{0}^{1} f(x) dx + a + b")
         );
     }
 
