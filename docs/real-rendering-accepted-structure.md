@@ -1074,6 +1074,10 @@ pub struct CitationInline {
 First-slice rendering policy:
 
 - resolved numeric labels render as `[1]` or `[1,2]`;
+- resolved nonnumeric textual labels render as their formatted label text,
+  for example `Alpha 2024a`;
+- resolved nonnumeric parenthetical labels render as bracketed formatted label
+  text, for example `[Alpha 2024a]`;
 - unresolved citations render as `[?]`;
 - author-year intent is preserved, but renders as `[?]` unless an already
   formatted label exists;

@@ -20054,6 +20054,73 @@ fn aux_natexlab_labels_are_normalized_in_ir_and_display_list() {
 }
 
 #[test]
+fn aux_textual_author_year_citation_labels_are_not_bracketed() {
+    let mut aux = SemanticAux::default();
+    aux.bibliography.push(BibliographyEntry {
+        key: "alpha".to_string(),
+        text: "Alpha entry.".to_string(),
+        label: Some(r"Alpha 2024\natexlab{a}".to_string()),
+        file: Utf8PathBuf::from("refs.bbl"),
+    });
+
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}See \citet{alpha} and \citep{alpha}.\end{document}",
+        &aux,
+    );
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let citations = paragraph
+        .content
+        .iter()
+        .filter_map(|node| match node {
+            InlineNode::Citation(citation) => Some(citation),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    assert_eq!(citations.len(), 2);
+    assert_eq!(citations[0].style_hint, CitationStyleHint::Textual);
+    assert_eq!(citations[0].resolved_label.as_deref(), Some("Alpha 2024a"));
+    assert_eq!(citations[0].display_text, "Alpha 2024a");
+    assert_eq!(citations[1].style_hint, CitationStyleHint::Parenthetical);
+    assert_eq!(
+        citations[1].resolved_label.as_deref(),
+        Some("[Alpha 2024a]")
+    );
+    assert_eq!(citations[1].display_text, "[Alpha 2024a]");
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(
+        extracted_text.contains("See Alpha 2024a and [Alpha 2024a]."),
+        "{extracted_text}"
+    );
+    assert!(!extracted_text.contains("alpha"));
+    assert!(!extracted_text.contains("natexlab"));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("See Alpha 2024a and [Alpha 2024a]."),
+        "{display_list_text}"
+    );
+}
+
+#[test]
 fn label_definition_capture_survives_ir_without_visible_key() {
     let capture = capture_internal_render_ir("main.tex", LABEL_SOURCE, &SemanticAux::default());
 

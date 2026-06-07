@@ -1,9 +1,10 @@
 use tex_render_model::{
-    AbstractBlock, AuxView, BibliographyBlock, BibliographyItemIr, CitationInline, DocumentIr,
-    EnvironmentBlock, GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr,
-    LinkInline, ListBlock, ListItemIr, ListKind, MetadataField, ParagraphBlock, ReferenceInline,
-    RenderEvent, RenderEventEnvelope, RenderEventStream, SourceProvenance, SourceSpanRole,
-    TableBlock, TableCell, TableRow, TableRulePosition, TitleBlock,
+    AbstractBlock, AuxView, BibliographyBlock, BibliographyItemIr, CitationInline,
+    CitationStyleHint, DocumentIr, EnvironmentBlock, GraphicBlock, HeadingBlock, InlineNode,
+    IrBlock, LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind, MetadataField,
+    ParagraphBlock, ReferenceInline, RenderEvent, RenderEventEnvelope, RenderEventStream,
+    SourceProvenance, SourceSpanRole, TableBlock, TableCell, TableRow, TableRulePosition,
+    TitleBlock,
 };
 
 pub fn build_document_ir(stream: &RenderEventStream, aux: &impl AuxView) -> DocumentIr {
@@ -287,6 +288,8 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         }
                     }
                     let resolved_label = if labels.len() == event.keys.len() && !labels.is_empty() {
+                        let all_labels_numeric =
+                            labels.iter().all(|label| label.parse::<i64>().is_ok());
                         let mut compacted_labels = Vec::new();
                         let mut index = 0usize;
                         while index < labels.len() {
@@ -310,7 +313,12 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             }
                             index = end_index + 1;
                         }
-                        Some(format!("[{}]", compacted_labels.join(",")))
+                        let joined = compacted_labels.join(",");
+                        if event.style_hint == CitationStyleHint::Textual && !all_labels_numeric {
+                            Some(joined)
+                        } else {
+                            Some(format!("[{joined}]"))
+                        }
                     } else {
                         None
                     };
