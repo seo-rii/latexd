@@ -16448,6 +16448,49 @@ fn tabular_cell_linebreak_helpers_stay_inside_cells() {
 }
 
 #[test]
+fn tabular_rotated_makecell_helpers_preserve_visible_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\documentclass{article}\usepackage{makecell}\begin{document}\begin{tabular}{ll}\rotcell[45]{Rotated \cite{key}} & \rothead{Head\\Line}\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "Rotated [?]");
+    assert_eq!(table.rows[0].cells[1].text, "Head Line");
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Rotated [?] | Head Line"));
+    for hidden in ["rotcell", "rothead", "45", r"\\"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        display_list_text.contains("Rotated [?] | Head Line"),
+        "{display_list_text}"
+    );
+    for hidden in ["rotcell", "rothead", "45", r"\\"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn tabular_makecell_gaped_helpers_preserve_visible_text() {
     let capture = capture_internal_render_ir(
         "main.tex",

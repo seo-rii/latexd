@@ -788,6 +788,8 @@ Implemented first slice:
   normalized to visible cell text without leaking helper command names.
 - `makecell` / `thead` / `shortstack` internal line breaks are consumed inside
   the current cell and rendered as spaces in the readable fallback.
+- rotated `makecell` helpers such as `\rotcell[...]{...}` and `\rothead{...}`
+  preserve visible cell text without leaking rotation options.
 - `makecell` gaped-cell helpers such as `\Gape`, `\gape`,
   `\makegapedcells`, and `\setcellgapes` preserve visible cell text without
   leaking gape dimensions or helper names.
