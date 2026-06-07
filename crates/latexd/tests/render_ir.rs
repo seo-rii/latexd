@@ -4470,6 +4470,50 @@ fn caption_package_setup_helpers_do_not_leak_into_ir_or_display_list() {
 }
 
 #[test]
+fn caption_like_commands_capture_as_float_captions_without_option_leakage() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        CAPTION_LIKE_COMMAND_SOURCE,
+        &SemanticAux::default(),
+    );
+
+    for (path, caption) in [
+        ("figures/subcaption-command.pdf", "Visible sub [?]."),
+        ("figures/caption-above.pdf", "Visible above [?]."),
+        ("figures/caption-below.pdf", "Visible below [?]."),
+    ] {
+        assert!(capture.document_ir.blocks.iter().any(|block| {
+            matches!(
+                block,
+                IrBlock::Graphic(graphic)
+                    if graphic.path == path
+                        && graphic.options.as_deref() == Some("width=2cm")
+                        && graphic.caption.as_deref() == Some(caption)
+            )
+        }));
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    for visible in [
+        "Visible sub [?].",
+        "Visible above [?].",
+        "Visible below [?].",
+    ] {
+        assert!(extracted_text.contains(visible), "{extracted_text:?}");
+    }
+    for hidden in [
+        "Short sub",
+        "Short above",
+        "subcaption",
+        "captionabove",
+        "captionbelow",
+        "key",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+}
+
+#[test]
 fn captionof_provenance_preserves_long_caption_and_invocation_spans() {
     let capture = capture_internal_render_ir("main.tex", CAPTIONOF_SOURCE, &SemanticAux::default());
 
@@ -20113,6 +20157,8 @@ const FIGURE_TABLE_LABEL_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\de
 const CAPTIONOF_SOURCE: &str = r"\begin{document}\captionof{figure}[Short Figure]{Long Figure Title}\label{fig:first}See \autoref{fig:first}.\captionof*{table}{Long Table Title}\label{tab:first}See \autoref{tab:first}.\end{document}";
 
 const CAPTION_SETUP_SOURCE: &str = r"\documentclass{article}\usepackage{caption,subcaption}\begin{document}\captionsetup[figure]{labelfont=bf,skip=2pt}\subcaptionsetup{justification=centering}\begin{figure}\ContinuedFloat\captionlistentry{Hidden entry}\includegraphics[width=2cm]{figures/caption-setup.pdf}\caption{Visible \cite{key}.}\end{figure}After.\end{document}";
+
+const CAPTION_LIKE_COMMAND_SOURCE: &str = r"\documentclass{article}\usepackage{caption,subcaption}\begin{document}\begin{figure}\includegraphics[width=2cm]{figures/subcaption-command.pdf}\subcaption[Short sub \cite{key}.]{Visible sub \cite{key}.}\end{figure}\begin{figure}\includegraphics[width=2cm]{figures/caption-above.pdf}\captionabove[Short above \cite{key}.]{Visible above \cite{key}.}\end{figure}\begin{figure}\includegraphics[width=2cm]{figures/caption-below.pdf}\captionbelow*{Visible below \cite{key}.}\end{figure}\end{document}";
 
 const STARRED_CAPTION_SOURCE: &str = r"\begin{document}\begin{figure}\caption*{Unnumbered Figure Caption}\label{fig:starred}\end{figure}See \autoref{fig:starred}.\end{document}";
 

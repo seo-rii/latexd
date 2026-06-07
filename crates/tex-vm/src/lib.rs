@@ -213,6 +213,9 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\nicefrac}[2]{#1/#2}
 \providecommand{\subfloat}[2][]{#2}
 \providecommand{\subfigure}[2][]{#2}
+\providecommand{\subcaption}[2][]{#2}
+\providecommand{\captionabove}[2][]{#2}
+\providecommand{\captionbelow}[2][]{#2}
 \providecommand{\captionbox}[2]{#2}
 \providecommand{\subcaptionbox}[2]{#2}
 \providecommand{\captionsetup}[2][]{}
@@ -3124,7 +3127,8 @@ impl<'i> Vm<'i> {
                                                     continue;
                                                 }
                                             }
-                                            "caption" => {
+                                            "caption" | "subcaption" | "captionabove"
+                                            | "captionbelow" => {
                                                 if let Some(after) = self.capture_caption_event(
                                                     source_path,
                                                     source,
@@ -3475,7 +3479,8 @@ impl<'i> Vm<'i> {
                                                     }
                                                 }
                                             }
-                                            "caption" => {
+                                            "caption" | "subcaption" | "captionabove"
+                                            | "captionbelow" => {
                                                 if let Some(after) = self.capture_caption_event(
                                                     source_path,
                                                     source,
@@ -8762,7 +8767,7 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
-                "caption" if in_document => {
+                "caption" | "subcaption" | "captionabove" | "captionbelow" if in_document => {
                     if let Some(after) = self.capture_caption_event(
                         source_path,
                         source,
@@ -31015,6 +31020,73 @@ Fallback text.
             "justification",
             "centering",
             "skip",
+            "key",
+        ] {
+            assert!(!visible_text.contains(hidden), "{visible_text:?}");
+        }
+    }
+
+    #[test]
+    fn render_event_capture_records_caption_like_commands() {
+        let source = r"\documentclass{article}\usepackage{caption,subcaption}\begin{document}\begin{figure}\includegraphics[width=2cm]{figures/subcaption-command.pdf}\subcaption[Short sub \cite{key}.]{Visible sub \cite{key}.}\end{figure}\begin{figure}\includegraphics[width=2cm]{figures/caption-above.pdf}\captionabove[Short above \cite{key}.]{Visible above \cite{key}.}\end{figure}\begin{figure}\includegraphics[width=2cm]{figures/caption-below.pdf}\captionbelow*{Visible below \cite{key}.}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for package in ["caption.sty", "subcaption.sty"] {
+            assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+                diagnostic.kind == VmDiagnosticKind::MissingFile
+                    && diagnostic.detail == format!("package {package}")
+            }));
+        }
+        for path in [
+            "figures/subcaption-command.pdf",
+            "figures/caption-above.pdf",
+            "figures/caption-below.pdf",
+        ] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::GraphicRef(graphic)
+                    if graphic.path == path && graphic.options.as_deref() == Some("width=2cm")
+            )));
+        }
+        for caption in [
+            "Visible sub [?].",
+            "Visible above [?].",
+            "Visible below [?].",
+        ] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Caption(event) if event.text == caption
+            )));
+        }
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Caption(caption) => Some(caption.text.as_str()),
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        for visible in [
+            "Visible sub [?].",
+            "Visible above [?].",
+            "Visible below [?].",
+        ] {
+            assert!(visible_text.contains(visible), "{visible_text:?}");
+        }
+        for hidden in [
+            "Short sub",
+            "Short above",
+            "subcaption",
+            "captionabove",
+            "captionbelow",
             "key",
         ] {
             assert!(!visible_text.contains(hidden), "{visible_text:?}");
