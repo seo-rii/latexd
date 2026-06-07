@@ -23058,6 +23058,11 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!("not");
                         index = command_index;
                     }
+                    "ldots" | "cdots" | "dots" | "dotsc" | "dotsb" | "dotsm" | "dotsi"
+                    | "dotso" => {
+                        push_operator!("...");
+                        index = command_index;
+                    }
                     "alpha" | "beta" | "gamma" | "delta" | "epsilon" | "varepsilon" | "zeta"
                     | "eta" | "theta" | "vartheta" | "iota" | "kappa" | "lambda" | "mu" | "nu"
                     | "xi" | "pi" | "varpi" | "rho" | "varrho" | "sigma" | "varsigma" | "tau"
@@ -32618,6 +32623,34 @@ Fallback text.
                     && math.normalized_text.as_deref()
                         == Some("forall x in A union B, exists y notin emptyset and y subseteq U => x setminus y subset U <=> y supseteq C intersect D")
         ));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_ellipsis_commands() {
+        let source = r"\begin{document}Series \(x_1,\ldots,x_n + a_1+\cdots+a_n + b_1,\dots,b_k\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        let RenderEvent::InlineMath(math) = &inline_math.event else {
+            panic!("inline math event");
+        };
+
+        assert_eq!(
+            math.raw_source,
+            r"x_1,\ldots,x_n + a_1+\cdots+a_n + b_1,\dots,b_k"
+        );
+        assert_eq!(
+            math.normalized_text.as_deref(),
+            Some("x_1, ..., x_n + a_1 + ... + a_n + b_1, ..., b_k")
+        );
     }
 
     #[test]

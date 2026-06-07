@@ -857,7 +857,8 @@ Current status:
   stack relation wrappers such as `overset`, `underset`, and `stackrel`, named
   operators, common extended arrows such as `xrightarrow` and `xleftarrow`,
   common math alphabet wrappers, accent wrappers, brace grouping wrappers,
-  delimiter commands, matrix/cases/array-style environments, alignment markers,
+  delimiter commands, ellipsis commands such as `ldots`, `cdots`, and `dots`,
+  matrix/cases/array-style environments, alignment markers,
   and multiline row separators, plus nested amsmath environments such as
   `split`, `gathered`, and `alignedat`;
 - document IR and page display lists already prefer normalized math text when

@@ -5895,6 +5895,55 @@ fn math_set_and_logical_operators_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_ellipsis_commands_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Series \(x_1,\ldots,x_n + a_1+\cdots+a_n + b_1,\dots,b_k\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source == r"x_1,\ldots,x_n + a_1+\cdots+a_n + b_1,\dots,b_k"
+                && normalized_text.as_deref()
+                    == Some("x_1, ..., x_n + a_1 + ... + a_n + b_1, ..., b_k")
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text.contains("x_1, ..., x_n + a_1 + ... + a_n + b_1, ..., b_k"),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains(r"\ldots"));
+    assert!(!display_list_text.contains(r"\cdots"));
+    assert!(!display_list_text.contains(r"\dots"));
+}
+
+#[test]
 fn unknown_math_commands_use_raw_source_without_lossy_normalization() {
     let source = r"\begin{document}Set \(\mathbb{R} + \unknownmath{x}\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
