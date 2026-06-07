@@ -12499,8 +12499,25 @@ impl<'i> Vm<'i> {
             if after > limit {
                 return None;
             }
-            options = Some(value.trim().to_string());
             argument_index = after;
+            let second_option_index = skip_ascii_whitespace(source, argument_index);
+            if let Some((upper_right, _, _, after_upper_right)) =
+                read_bracket_source_argument(source, second_option_index)
+            {
+                if after_upper_right > limit {
+                    return None;
+                }
+                let normalize_bbox_option = |value: &str| {
+                    let value = value.replace(',', " ");
+                    value.split_whitespace().collect::<Vec<_>>().join(" ")
+                };
+                let lower_left = normalize_bbox_option(value);
+                let upper_right = normalize_bbox_option(upper_right);
+                options = Some(format!("viewport={lower_left} {upper_right}"));
+                argument_index = after_upper_right;
+            } else {
+                options = Some(value.trim().to_string());
+            }
         }
         let Some((path, path_start, path_end, after)) =
             read_braced_source_argument(source, argument_index)
@@ -29432,6 +29449,28 @@ Fallback text.
                 if graphic.path == "figures/plot.pdf"
                     && graphic.options.as_deref()
                         == Some(r"width=0.5\linewidth,height=0.25\textheight")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_records_two_optional_includegraphics_bounding_box() {
+        let source = r"\begin{document}\includegraphics[0pt,0pt][144pt,72pt]{figures/plot.pdf}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::GraphicRef(graphic)
+                if graphic.path == "figures/plot.pdf"
+                    && graphic.options.as_deref() == Some("viewport=0pt 0pt 144pt 72pt")
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text)
+                if text.text.contains("0pt,0pt") || text.text.contains("144pt,72pt")
         )));
     }
 

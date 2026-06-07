@@ -1016,6 +1016,9 @@ Status:
   image-box sizing;
 - individual `bbllx` / `bblly` / `bburx` / `bbury` options are normalized to
   viewport metadata for default image-box sizing;
+- legacy `graphics` two-optional bounding-box syntax
+  `\includegraphics[llx,lly][urx,ury]{...}` is normalized to viewport metadata
+  instead of dropping the image;
 - local, package-level, class-level, `PassOptionsToPackage`, and
   `\setkeys{Gin}{...}` `draft` graphic options force placeholders instead of
   embedding resolver-backed assets;
