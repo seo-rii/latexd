@@ -3741,46 +3741,21 @@ impl<'i> Vm<'i> {
                                                             None,
                                                         );
                                                         let mut emitted_caption = false;
-                                                        'caption_scan: for (
+                                                        for (
                                                             caption_body_start,
                                                             caption_body_end,
                                                         ) in [
                                                             (first_body_start, first_body_end),
                                                             (second_body_start, second_body_end),
                                                         ] {
-                                                            let mut caption_command_index =
-                                                                caption_body_start;
-                                                            while caption_command_index
-                                                                < caption_body_end
-                                                            {
-                                                                let Some(relative_caption) = source
-                                                                    [caption_command_index
-                                                                        ..caption_body_end]
-                                                                    .find("\\caption")
-                                                                else {
-                                                                    break;
-                                                                };
-                                                                let caption_command_start =
-                                                                    caption_command_index
-                                                                        + relative_caption;
-                                                                let after_caption_command =
-                                                                    caption_command_start
-                                                                        + "\\caption".len();
-                                                                if self
-                                                                    .capture_caption_event(
-                                                                        source_path,
-                                                                        source,
-                                                                        caption_command_start,
-                                                                        after_caption_command,
-                                                                        caption_body_end,
-                                                                    )
-                                                                    .is_some()
-                                                                {
-                                                                    emitted_caption = true;
-                                                                    break 'caption_scan;
-                                                                }
-                                                                caption_command_index =
-                                                                    after_caption_command;
+                                                            if self.capture_first_caption_like_command_in_source_range(
+                                                                source_path,
+                                                                source,
+                                                                caption_body_start,
+                                                                caption_body_end,
+                                                            ) {
+                                                                emitted_caption = true;
+                                                                break;
                                                             }
                                                         }
                                                         if !emitted_caption {
@@ -3901,45 +3876,20 @@ impl<'i> Vm<'i> {
                                                                 .as_deref(),
                                                             None,
                                                         );
-                                                        'caption_scan: for (
+                                                        for (
                                                             caption_body_start,
                                                             caption_body_end,
                                                         ) in [
                                                             (first_body_start, first_body_end),
                                                             (second_body_start, second_body_end),
                                                         ] {
-                                                            let mut caption_command_index =
-                                                                caption_body_start;
-                                                            while caption_command_index
-                                                                < caption_body_end
-                                                            {
-                                                                let Some(relative_caption) = source
-                                                                    [caption_command_index
-                                                                        ..caption_body_end]
-                                                                    .find("\\caption")
-                                                                else {
-                                                                    break;
-                                                                };
-                                                                let caption_command_start =
-                                                                    caption_command_index
-                                                                        + relative_caption;
-                                                                let after_caption_command =
-                                                                    caption_command_start
-                                                                        + "\\caption".len();
-                                                                if self
-                                                                    .capture_caption_event(
-                                                                        source_path,
-                                                                        source,
-                                                                        caption_command_start,
-                                                                        after_caption_command,
-                                                                        caption_body_end,
-                                                                    )
-                                                                    .is_some()
-                                                                {
-                                                                    break 'caption_scan;
-                                                                }
-                                                                caption_command_index =
-                                                                    after_caption_command;
+                                                            if self.capture_first_caption_like_command_in_source_range(
+                                                                source_path,
+                                                                source,
+                                                                caption_body_start,
+                                                                caption_body_end,
+                                                            ) {
+                                                                break;
                                                             }
                                                         }
                                                         body_index = after_second_body;
@@ -4046,46 +3996,21 @@ impl<'i> Vm<'i> {
                                                             None,
                                                         );
                                                         let mut emitted_caption = false;
-                                                        'caption_scan: for (
+                                                        for (
                                                             caption_body_start,
                                                             caption_body_end,
                                                         ) in [
                                                             (first_body_start, first_body_end),
                                                             (second_body_start, second_body_end),
                                                         ] {
-                                                            let mut caption_command_index =
-                                                                caption_body_start;
-                                                            while caption_command_index
-                                                                < caption_body_end
-                                                            {
-                                                                let Some(relative_caption) = source
-                                                                    [caption_command_index
-                                                                        ..caption_body_end]
-                                                                    .find("\\caption")
-                                                                else {
-                                                                    break;
-                                                                };
-                                                                let caption_command_start =
-                                                                    caption_command_index
-                                                                        + relative_caption;
-                                                                let after_caption_command =
-                                                                    caption_command_start
-                                                                        + "\\caption".len();
-                                                                if self
-                                                                    .capture_caption_event(
-                                                                        source_path,
-                                                                        source,
-                                                                        caption_command_start,
-                                                                        after_caption_command,
-                                                                        caption_body_end,
-                                                                    )
-                                                                    .is_some()
-                                                                {
-                                                                    emitted_caption = true;
-                                                                    break 'caption_scan;
-                                                                }
-                                                                caption_command_index =
-                                                                    after_caption_command;
+                                                            if self.capture_first_caption_like_command_in_source_range(
+                                                                source_path,
+                                                                source,
+                                                                caption_body_start,
+                                                                caption_body_end,
+                                                            ) {
+                                                                emitted_caption = true;
+                                                                break;
                                                             }
                                                         }
                                                         if !emitted_caption {
@@ -12589,6 +12514,53 @@ impl<'i> Vm<'i> {
             ),
         );
         Some(after)
+    }
+
+    fn capture_first_caption_like_command_in_source_range(
+        &mut self,
+        source_path: &Utf8Path,
+        source: &str,
+        range_start: usize,
+        range_end: usize,
+    ) -> bool {
+        let mut index = range_start;
+        while index < range_end {
+            let Some(relative_command) = source[index..range_end].find('\\') else {
+                break;
+            };
+            let command_start = index + relative_command;
+            let mut command_index = command_start + 1;
+            if command_index >= range_end {
+                break;
+            }
+            let command = if source.as_bytes()[command_index].is_ascii_alphabetic()
+                || source.as_bytes()[command_index] == b'@'
+            {
+                let start = command_index;
+                while command_index < range_end
+                    && (source.as_bytes()[command_index].is_ascii_alphabetic()
+                        || source.as_bytes()[command_index] == b'@')
+                {
+                    command_index += 1;
+                }
+                &source[start..command_index]
+            } else {
+                command_index += 1;
+                index = command_index;
+                continue;
+            };
+            if matches!(
+                command,
+                "caption" | "subcaption" | "captionabove" | "captionbelow"
+            ) && self
+                .capture_caption_event(source_path, source, command_start, command_index, range_end)
+                .is_some()
+            {
+                return true;
+            }
+            index = command_index;
+        }
+        false
     }
 
     fn capture_captionof_event(
@@ -29715,6 +29687,72 @@ Fallback text.
                     .iter()
                     .any(|hidden| text.text.contains(hidden))
         )));
+    }
+
+    #[test]
+    fn render_event_capture_records_floatrow_caption_like_commands() {
+        let source = r"\documentclass{article}\usepackage{floatrow,caption,subcaption}\begin{document}\begin{figure}\ffigbox{\includegraphics[width=3cm]{figures/ffigbox-like.pdf}}{\captionabove[Short above \cite{key}.]{Above floatrow \cite{key}.}}\end{figure}\begin{figure}\fcapside{\subcaption[Short sub \cite{key}.]{Side sub \cite{key}.}}{\includegraphics[width=3cm]{figures/fcapside-like.pdf}}\end{figure}\begin{figure}\floatbox{figure}{\includegraphics[width=3cm]{figures/floatbox-like.pdf}}{\captionbelow*{Below generic \cite{key}.}}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        for path in [
+            "figures/ffigbox-like.pdf",
+            "figures/fcapside-like.pdf",
+            "figures/floatbox-like.pdf",
+        ] {
+            vm.mount_file(path, "%PDF fake");
+        }
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        for package in ["floatrow.sty", "caption.sty", "subcaption.sty"] {
+            assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+                diagnostic.kind == VmDiagnosticKind::MissingFile
+                    && diagnostic.detail == format!("package {package}")
+            }));
+        }
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && matches!(
+                    diagnostic.detail.as_str(),
+                    "ffigbox" | "fcapside" | "floatbox" | "captionabove" | "captionbelow"
+                )
+        }));
+        for path in [
+            "figures/ffigbox-like.pdf",
+            "figures/fcapside-like.pdf",
+            "figures/floatbox-like.pdf",
+        ] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::GraphicRef(graphic)
+                    if graphic.path == path && graphic.options.as_deref() == Some("width=3cm")
+            )));
+        }
+        for caption in ["Above floatrow [?].", "Side sub [?].", "Below generic [?]."] {
+            assert!(outcome.render_events.iter().any(|event| matches!(
+                &event.event,
+                RenderEvent::Caption(event) if event.text == caption
+            )));
+        }
+        assert!(!outcome.render_events.iter().any(|event| {
+            match &event.event {
+                RenderEvent::Text(text) => [
+                    "Short above",
+                    "Short sub",
+                    "captionabove",
+                    "subcaption",
+                    "captionbelow",
+                    "ffigbox",
+                    "fcapside",
+                    "floatbox",
+                    "key",
+                ]
+                .iter()
+                .any(|hidden| text.text.contains(hidden)),
+                _ => false,
+            }
+        }));
     }
 
     #[test]

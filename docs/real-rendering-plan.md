@@ -239,7 +239,8 @@ Caption package setup/list-entry helpers such as `\captionsetup`,
 non-visible float metadata rather than emitted as body text.
 Caption-like commands such as `\subcaption`, `\captionabove`, and
 `\captionbelow` now enter the same caption event path as `\caption`, including
-short-caption suppression and citation-key redaction.
+short-caption suppression and citation-key redaction, including when they occur
+inside floatrow caption arguments.
 Floatrow figure boxes such as
 `\ffigbox[...][...]{\includegraphics...}{\caption{...}}` preserve the image and
 caption while consuming floatrow layout options, including caption-first
@@ -1030,7 +1031,8 @@ Status:
 - caption package setup/list-entry helpers are suppressed without leaking
   option or entry payloads;
 - `\subcaption`, `\captionabove`, and `\captionbelow` are captured as captions
-  without leaking short captions or raw citation keys;
+  without leaking short captions or raw citation keys, including inside
+  floatrow boxes;
 - floatrow `\ffigbox` commands preserve nested images and captions while
   suppressing floatrow layout options, including caption-first argument order;
 - floatrow `\fcapside` commands preserve nested images and captions while

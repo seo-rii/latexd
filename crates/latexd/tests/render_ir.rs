@@ -3870,6 +3870,54 @@ fn floatrow_floatbox_preserves_image_and_caption_without_option_leakage() {
 }
 
 #[test]
+fn floatrow_caption_like_commands_preserve_captions_without_option_leakage() {
+    let capture = capture_internal_render_ir_with_mounted_files(
+        "main.tex",
+        FLOATROW_CAPTION_LIKE_SOURCE,
+        &SemanticAux::default(),
+        &[
+            ("figures/ffigbox-like.pdf", "%PDF fake"),
+            ("figures/fcapside-like.pdf", "%PDF fake"),
+            ("figures/floatbox-like.pdf", "%PDF fake"),
+        ],
+    );
+
+    for (path, caption) in [
+        ("figures/ffigbox-like.pdf", "Above floatrow [?]."),
+        ("figures/fcapside-like.pdf", "Side sub [?]."),
+        ("figures/floatbox-like.pdf", "Below generic [?]."),
+    ] {
+        assert!(capture.document_ir.blocks.iter().any(|block| {
+            matches!(
+                block,
+                IrBlock::Graphic(graphic)
+                    if graphic.path == path
+                        && graphic.options.as_deref() == Some("width=3cm")
+                        && graphic.caption.as_deref() == Some(caption)
+            )
+        }));
+    }
+
+    let extracted_text = capture.document_ir.extracted_text();
+    for visible in ["Above floatrow [?].", "Side sub [?].", "Below generic [?]."] {
+        assert!(extracted_text.contains(visible), "{extracted_text:?}");
+    }
+    for hidden in [
+        "Short above",
+        "Short sub",
+        "captionabove",
+        "subcaption",
+        "captionbelow",
+        "ffigbox",
+        "fcapside",
+        "floatbox",
+        "key",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+}
+
+#[test]
 fn starred_graphic_capture_derives_display_list_image_without_visible_star() {
     let capture =
         capture_internal_render_ir("main.tex", STARRED_GRAPHIC_SOURCE, &SemanticAux::default());
@@ -20131,6 +20179,8 @@ const FLOATROW_FFIGBOX_CAPTION_FIRST_SOURCE: &str = r"\documentclass{article}\us
 const FLOATROW_FCAPSIDE_SOURCE: &str = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{figure}\fcapside[\FBwidth]{\caption{Side float \cite{key}.}}{\includegraphics[width=3cm]{figures/fcapside.pdf}}\end{figure}\end{document}";
 
 const FLOATROW_FLOATBOX_SOURCE: &str = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{figure}\floatbox[\capbeside]{figure}[\FBwidth][c]{\includegraphics[width=3cm]{figures/generic-floatbox.pdf}}{\caption{Generic \cite{key}.}}\end{figure}\end{document}";
+
+const FLOATROW_CAPTION_LIKE_SOURCE: &str = r"\documentclass{article}\usepackage{floatrow,caption,subcaption}\begin{document}\begin{figure}\ffigbox{\includegraphics[width=3cm]{figures/ffigbox-like.pdf}}{\captionabove[Short above \cite{key}.]{Above floatrow \cite{key}.}}\end{figure}\begin{figure}\fcapside{\subcaption[Short sub \cite{key}.]{Side sub \cite{key}.}}{\includegraphics[width=3cm]{figures/fcapside-like.pdf}}\end{figure}\begin{figure}\floatbox{figure}{\includegraphics[width=3cm]{figures/floatbox-like.pdf}}{\captionbelow*{Below generic \cite{key}.}}\end{figure}\end{document}";
 
 const STARRED_GRAPHIC_SOURCE: &str = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure}\includegraphics*[width=3cm]{figures/starred.pdf}\caption{Starred plot.}\end{figure}\end{document}";
 
