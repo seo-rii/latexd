@@ -384,30 +384,108 @@ pub fn render_display_list_pdf_with_converted_assets(
                             );
                             let rotated =
                                 push_pdf_image_rotation(&mut stream, page.height_pt, image);
-                            if draw.clip_to_dest {
+                            let svg_clip_to_viewport =
+                                svg.preserve_aspect_ratio.scale == SimpleSvgAspectScale::Slice;
+                            if draw.clip_to_dest || svg_clip_to_viewport {
+                                let clip_rect = if draw.clip_to_dest {
+                                    Rect {
+                                        x: dest_x,
+                                        y: dest_y,
+                                        width: image.rect.width,
+                                        height: image.rect.height,
+                                    }
+                                } else {
+                                    draw.rect
+                                };
                                 stream.push_str(&format!(
                                     "q {} {} {} {} re W n q ",
-                                    dest_x, dest_y, image.rect.width, image.rect.height
+                                    clip_rect.x, clip_rect.y, clip_rect.width, clip_rect.height
                                 ));
                             } else {
                                 stream.push_str("q ");
                             }
-                            let scale_x = draw.rect.width / natural_width;
-                            let scale_y = draw.rect.height / natural_height;
-                            if scale_x.is_finite()
-                                && scale_y.is_finite()
-                                && scale_x > 0.0
-                                && scale_y > 0.0
+                            let mut svg_rect = draw.rect;
+                            if svg.preserve_aspect_ratio.scale != SimpleSvgAspectScale::None
+                                && svg.view_box_aspect_ratio.is_finite()
+                                && svg.view_box_aspect_ratio > 0.0
+                                && draw.rect.width.is_finite()
+                                && draw.rect.height.is_finite()
+                                && draw.rect.width > 0.0
+                                && draw.rect.height > 0.0
+                            {
+                                let viewport_aspect = draw.rect.width / draw.rect.height;
+                                let fit_width = match svg.preserve_aspect_ratio.scale {
+                                    SimpleSvgAspectScale::None => draw.rect.width,
+                                    SimpleSvgAspectScale::Meet => {
+                                        if viewport_aspect > svg.view_box_aspect_ratio {
+                                            draw.rect.height * svg.view_box_aspect_ratio
+                                        } else {
+                                            draw.rect.width
+                                        }
+                                    }
+                                    SimpleSvgAspectScale::Slice => {
+                                        if viewport_aspect > svg.view_box_aspect_ratio {
+                                            draw.rect.width
+                                        } else {
+                                            draw.rect.height * svg.view_box_aspect_ratio
+                                        }
+                                    }
+                                };
+                                let fit_height = match svg.preserve_aspect_ratio.scale {
+                                    SimpleSvgAspectScale::None => draw.rect.height,
+                                    SimpleSvgAspectScale::Meet => {
+                                        if viewport_aspect > svg.view_box_aspect_ratio {
+                                            draw.rect.height
+                                        } else {
+                                            draw.rect.width / svg.view_box_aspect_ratio
+                                        }
+                                    }
+                                    SimpleSvgAspectScale::Slice => {
+                                        if viewport_aspect > svg.view_box_aspect_ratio {
+                                            draw.rect.width / svg.view_box_aspect_ratio
+                                        } else {
+                                            draw.rect.height
+                                        }
+                                    }
+                                };
+                                if fit_width.is_finite()
+                                    && fit_height.is_finite()
+                                    && fit_width > 0.0
+                                    && fit_height > 0.0
+                                {
+                                    let remaining_x = draw.rect.width - fit_width;
+                                    let remaining_y = draw.rect.height - fit_height;
+                                    let offset_x = match svg.preserve_aspect_ratio.x_align {
+                                        SimpleSvgAspectAlign::Min => 0.0,
+                                        SimpleSvgAspectAlign::Mid => remaining_x / 2.0,
+                                        SimpleSvgAspectAlign::Max => remaining_x,
+                                    };
+                                    let offset_y = match svg.preserve_aspect_ratio.y_align {
+                                        SimpleSvgAspectAlign::Min => remaining_y,
+                                        SimpleSvgAspectAlign::Mid => remaining_y / 2.0,
+                                        SimpleSvgAspectAlign::Max => 0.0,
+                                    };
+                                    svg_rect = Rect {
+                                        x: draw.rect.x + offset_x,
+                                        y: draw.rect.y + offset_y,
+                                        width: fit_width,
+                                        height: fit_height,
+                                    };
+                                }
+                            }
+                            let svg_width = svg_rect.width;
+                            let svg_height = svg_rect.height;
+                            if svg_width.is_finite()
+                                && svg_height.is_finite()
+                                && svg_width > 0.0
+                                && svg_height > 0.0
                             {
                                 for rect in svg.rects {
-                                    let rect_x =
-                                        draw.rect.x + rect.x_ratio * natural_width * scale_x;
-                                    let rect_y = draw.rect.y
-                                        + (1.0 - rect.y_ratio - rect.height_ratio)
-                                            * natural_height
-                                            * scale_y;
-                                    let rect_width = rect.width_ratio * natural_width * scale_x;
-                                    let rect_height = rect.height_ratio * natural_height * scale_y;
+                                    let rect_x = svg_rect.x + rect.x_ratio * svg_width;
+                                    let rect_y = svg_rect.y
+                                        + (1.0 - rect.y_ratio - rect.height_ratio) * svg_height;
+                                    let rect_width = rect.width_ratio * svg_width;
+                                    let rect_height = rect.height_ratio * svg_height;
                                     if rect_width.is_finite()
                                         && rect_height.is_finite()
                                         && rect_width > 0.0
@@ -436,14 +514,13 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             }
                                         }
                                         if let Some(stroke) = rect.stroke {
-                                            let stroke_width =
-                                                rect.stroke_width_ratio * natural_width * scale_x;
+                                            let stroke_width = rect.stroke_width_ratio * svg_width;
                                             if stroke_width.is_finite() && stroke_width > 0.0 {
                                                 let scoped_stroke_state = push_pdf_stroke_state(
                                                     &mut stream,
                                                     rect.stroke_dasharray,
                                                     rect.stroke_style,
-                                                    natural_width * scale_x,
+                                                    svg_width,
                                                 );
                                                 let scoped_opacity = push_pdf_paint_opacity(
                                                     &mut stream,
@@ -472,14 +549,11 @@ pub fn render_display_list_pdf_with_converted_assets(
                                     }
                                 }
                                 for line in svg.lines {
-                                    let x1 = draw.rect.x + line.x1_ratio * natural_width * scale_x;
-                                    let y1 = draw.rect.y
-                                        + (1.0 - line.y1_ratio) * natural_height * scale_y;
-                                    let x2 = draw.rect.x + line.x2_ratio * natural_width * scale_x;
-                                    let y2 = draw.rect.y
-                                        + (1.0 - line.y2_ratio) * natural_height * scale_y;
-                                    let stroke_width =
-                                        line.stroke_width_ratio * natural_width * scale_x;
+                                    let x1 = svg_rect.x + line.x1_ratio * svg_width;
+                                    let y1 = svg_rect.y + (1.0 - line.y1_ratio) * svg_height;
+                                    let x2 = svg_rect.x + line.x2_ratio * svg_width;
+                                    let y2 = svg_rect.y + (1.0 - line.y2_ratio) * svg_height;
+                                    let stroke_width = line.stroke_width_ratio * svg_width;
                                     if x1.is_finite()
                                         && y1.is_finite()
                                         && x2.is_finite()
@@ -491,7 +565,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             &mut stream,
                                             line.stroke_dasharray,
                                             line.stroke_style,
-                                            natural_width * scale_x,
+                                            svg_width,
                                         );
                                         let scoped_opacity = push_pdf_paint_opacity(
                                             &mut stream,
@@ -518,12 +592,11 @@ pub fn render_display_list_pdf_with_converted_assets(
                                     }
                                 }
                                 for ellipse in svg.ellipses {
-                                    let center_x =
-                                        draw.rect.x + ellipse.cx_ratio * natural_width * scale_x;
-                                    let center_y = draw.rect.y
-                                        + (1.0 - ellipse.cy_ratio) * natural_height * scale_y;
-                                    let radius_x = ellipse.rx_ratio * natural_width * scale_x;
-                                    let radius_y = ellipse.ry_ratio * natural_height * scale_y;
+                                    let center_x = svg_rect.x + ellipse.cx_ratio * svg_width;
+                                    let center_y =
+                                        svg_rect.y + (1.0 - ellipse.cy_ratio) * svg_height;
+                                    let radius_x = ellipse.rx_ratio * svg_width;
+                                    let radius_y = ellipse.ry_ratio * svg_height;
                                     if center_x.is_finite()
                                         && center_y.is_finite()
                                         && radius_x.is_finite()
@@ -582,15 +655,14 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             }
                                         }
                                         if let Some(stroke) = ellipse.stroke {
-                                            let stroke_width = ellipse.stroke_width_ratio
-                                                * natural_width
-                                                * scale_x;
+                                            let stroke_width =
+                                                ellipse.stroke_width_ratio * svg_width;
                                             if stroke_width.is_finite() && stroke_width > 0.0 {
                                                 let scoped_stroke_state = push_pdf_stroke_state(
                                                     &mut stream,
                                                     ellipse.stroke_dasharray,
                                                     ellipse.stroke_style,
-                                                    natural_width * scale_x,
+                                                    svg_width,
                                                 );
                                                 let scoped_opacity = push_pdf_paint_opacity(
                                                     &mut stream,
@@ -624,18 +696,16 @@ pub fn render_display_list_pdf_with_converted_assets(
                                     let Some(first) = points.next() else {
                                         continue;
                                     };
-                                    let first_x = draw.rect.x + first.0 * natural_width * scale_x;
-                                    let first_y =
-                                        draw.rect.y + (1.0 - first.1) * natural_height * scale_y;
+                                    let first_x = svg_rect.x + first.0 * svg_width;
+                                    let first_y = svg_rect.y + (1.0 - first.1) * svg_height;
                                     if !first_x.is_finite() || !first_y.is_finite() {
                                         continue;
                                     }
                                     path.push_str(&format!("{first_x} {first_y} m "));
                                     let mut valid = true;
                                     for point in points {
-                                        let x = draw.rect.x + point.0 * natural_width * scale_x;
-                                        let y = draw.rect.y
-                                            + (1.0 - point.1) * natural_height * scale_y;
+                                        let x = svg_rect.x + point.0 * svg_width;
+                                        let y = svg_rect.y + (1.0 - point.1) * svg_height;
                                         if !x.is_finite() || !y.is_finite() {
                                             valid = false;
                                             break;
@@ -664,14 +734,13 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         }
                                     }
                                     if let Some(stroke) = poly.stroke {
-                                        let stroke_width =
-                                            poly.stroke_width_ratio * natural_width * scale_x;
+                                        let stroke_width = poly.stroke_width_ratio * svg_width;
                                         if stroke_width.is_finite() && stroke_width > 0.0 {
                                             let scoped_stroke_state = push_pdf_stroke_state(
                                                 &mut stream,
                                                 poly.stroke_dasharray,
                                                 poly.stroke_style,
-                                                natural_width * scale_x,
+                                                svg_width,
                                             );
                                             let scoped_opacity = push_pdf_paint_opacity(
                                                 &mut stream,
@@ -704,10 +773,8 @@ pub fn render_display_list_pdf_with_converted_assets(
                                     for op in &svg_path.ops {
                                         match op {
                                             SimpleSvgPathOp::MoveTo(point) => {
-                                                let x =
-                                                    draw.rect.x + point.0 * natural_width * scale_x;
-                                                let y = draw.rect.y
-                                                    + (1.0 - point.1) * natural_height * scale_y;
+                                                let x = svg_rect.x + point.0 * svg_width;
+                                                let y = svg_rect.y + (1.0 - point.1) * svg_height;
                                                 if !x.is_finite() || !y.is_finite() {
                                                     valid = false;
                                                     break;
@@ -715,10 +782,8 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                 path.push_str(&format!("{x} {y} m "));
                                             }
                                             SimpleSvgPathOp::LineTo(point) => {
-                                                let x =
-                                                    draw.rect.x + point.0 * natural_width * scale_x;
-                                                let y = draw.rect.y
-                                                    + (1.0 - point.1) * natural_height * scale_y;
+                                                let x = svg_rect.x + point.0 * svg_width;
+                                                let y = svg_rect.y + (1.0 - point.1) * svg_height;
                                                 if !x.is_finite() || !y.is_finite() {
                                                     valid = false;
                                                     break;
@@ -726,18 +791,14 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                 path.push_str(&format!("{x} {y} l "));
                                             }
                                             SimpleSvgPathOp::CubicTo { ctrl1, ctrl2, to } => {
-                                                let ctrl1_x =
-                                                    draw.rect.x + ctrl1.0 * natural_width * scale_x;
-                                                let ctrl1_y = draw.rect.y
-                                                    + (1.0 - ctrl1.1) * natural_height * scale_y;
-                                                let ctrl2_x =
-                                                    draw.rect.x + ctrl2.0 * natural_width * scale_x;
-                                                let ctrl2_y = draw.rect.y
-                                                    + (1.0 - ctrl2.1) * natural_height * scale_y;
-                                                let to_x =
-                                                    draw.rect.x + to.0 * natural_width * scale_x;
-                                                let to_y = draw.rect.y
-                                                    + (1.0 - to.1) * natural_height * scale_y;
+                                                let ctrl1_x = svg_rect.x + ctrl1.0 * svg_width;
+                                                let ctrl1_y =
+                                                    svg_rect.y + (1.0 - ctrl1.1) * svg_height;
+                                                let ctrl2_x = svg_rect.x + ctrl2.0 * svg_width;
+                                                let ctrl2_y =
+                                                    svg_rect.y + (1.0 - ctrl2.1) * svg_height;
+                                                let to_x = svg_rect.x + to.0 * svg_width;
+                                                let to_y = svg_rect.y + (1.0 - to.1) * svg_height;
                                                 if !ctrl1_x.is_finite()
                                                     || !ctrl1_y.is_finite()
                                                     || !ctrl2_x.is_finite()
@@ -776,14 +837,13 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         }
                                     }
                                     if let Some(stroke) = svg_path.stroke {
-                                        let stroke_width =
-                                            svg_path.stroke_width_ratio * natural_width * scale_x;
+                                        let stroke_width = svg_path.stroke_width_ratio * svg_width;
                                         if stroke_width.is_finite() && stroke_width > 0.0 {
                                             let scoped_stroke_state = push_pdf_stroke_state(
                                                 &mut stream,
                                                 svg_path.stroke_dasharray,
                                                 svg_path.stroke_style,
-                                                natural_width * scale_x,
+                                                svg_width,
                                             );
                                             let scoped_opacity = push_pdf_paint_opacity(
                                                 &mut stream,
@@ -1009,11 +1069,34 @@ struct ImageDrawPlacement {
 struct SimpleSvgAsset {
     natural_width_pt: f32,
     natural_height_pt: f32,
+    view_box_aspect_ratio: f32,
+    preserve_aspect_ratio: SimpleSvgPreserveAspectRatio,
     rects: Vec<SimpleSvgRect>,
     lines: Vec<SimpleSvgLine>,
     ellipses: Vec<SimpleSvgEllipse>,
     polys: Vec<SimpleSvgPoly>,
     paths: Vec<SimpleSvgPath>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SimpleSvgPreserveAspectRatio {
+    x_align: SimpleSvgAspectAlign,
+    y_align: SimpleSvgAspectAlign,
+    scale: SimpleSvgAspectScale,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SimpleSvgAspectAlign {
+    Min,
+    Mid,
+    Max,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SimpleSvgAspectScale {
+    None,
+    Meet,
+    Slice,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1247,6 +1330,54 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .unwrap_or(natural_size.1);
         (0.0, 0.0, width.max(1.0), height.max(1.0))
     });
+    let preserve_aspect_ratio = attr_value(svg_tag, "preserveAspectRatio")
+        .as_deref()
+        .and_then(|raw| {
+            let parts = raw
+                .split(|ch: char| ch.is_whitespace() || ch == ',')
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>();
+            let align_index = usize::from(
+                parts
+                    .first()
+                    .is_some_and(|part| part.eq_ignore_ascii_case("defer")),
+            );
+            let align = parts.get(align_index)?;
+            if align.eq_ignore_ascii_case("none") {
+                return Some(SimpleSvgPreserveAspectRatio {
+                    x_align: SimpleSvgAspectAlign::Mid,
+                    y_align: SimpleSvgAspectAlign::Mid,
+                    scale: SimpleSvgAspectScale::None,
+                });
+            }
+            let (x_align, y_align) = match *align {
+                "xMinYMin" => (SimpleSvgAspectAlign::Min, SimpleSvgAspectAlign::Min),
+                "xMidYMin" => (SimpleSvgAspectAlign::Mid, SimpleSvgAspectAlign::Min),
+                "xMaxYMin" => (SimpleSvgAspectAlign::Max, SimpleSvgAspectAlign::Min),
+                "xMinYMid" => (SimpleSvgAspectAlign::Min, SimpleSvgAspectAlign::Mid),
+                "xMidYMid" => (SimpleSvgAspectAlign::Mid, SimpleSvgAspectAlign::Mid),
+                "xMaxYMid" => (SimpleSvgAspectAlign::Max, SimpleSvgAspectAlign::Mid),
+                "xMinYMax" => (SimpleSvgAspectAlign::Min, SimpleSvgAspectAlign::Max),
+                "xMidYMax" => (SimpleSvgAspectAlign::Mid, SimpleSvgAspectAlign::Max),
+                "xMaxYMax" => (SimpleSvgAspectAlign::Max, SimpleSvgAspectAlign::Max),
+                _ => return None,
+            };
+            let scale = match parts.get(align_index + 1).copied().unwrap_or("meet") {
+                "meet" => SimpleSvgAspectScale::Meet,
+                "slice" => SimpleSvgAspectScale::Slice,
+                _ => return None,
+            };
+            Some(SimpleSvgPreserveAspectRatio {
+                x_align,
+                y_align,
+                scale,
+            })
+        })
+        .unwrap_or(SimpleSvgPreserveAspectRatio {
+            x_align: SimpleSvgAspectAlign::Mid,
+            y_align: SimpleSvgAspectAlign::Mid,
+            scale: SimpleSvgAspectScale::Meet,
+        });
     let declaration_value = |declarations: &str, name: &str| -> Option<String> {
         for declaration in declarations.split(';') {
             let Some((key, value)) = declaration.split_once(':') else {
@@ -3236,6 +3367,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     Some(SimpleSvgAsset {
         natural_width_pt: natural_size.0,
         natural_height_pt: natural_size.1,
+        view_box_aspect_ratio: view_box.2 / view_box.3,
+        preserve_aspect_ratio,
         rects,
         lines,
         ellipses,
@@ -4816,6 +4949,79 @@ mod tests {
     }
 
     #[test]
+    fn renders_simple_svg_preserve_aspect_ratio_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![
+                DrawOp::Image(PositionedImage {
+                    rect: Rect {
+                        x: 10.0,
+                        y: 20.0,
+                        width: 200.0,
+                        height: 100.0,
+                    },
+                    asset_ref: "figures/aspect-meet.svg".to_string(),
+                    asset_format: Some(GraphicAssetFormat::Svg),
+                    page_selection: None,
+                    asset_hash: Some("blake3:aspect-meet".to_string()),
+                    natural_width_pt: None,
+                    natural_height_pt: None,
+                    crop: None,
+                    scale: None,
+                    rotation: None,
+                    diagnostic: None,
+                    source: SourceProvenance::file("main.tex", 0, 10),
+                }),
+                DrawOp::Image(PositionedImage {
+                    rect: Rect {
+                        x: 10.0,
+                        y: 140.0,
+                        width: 200.0,
+                        height: 100.0,
+                    },
+                    asset_ref: "figures/aspect-none.svg".to_string(),
+                    asset_format: Some(GraphicAssetFormat::Svg),
+                    page_selection: None,
+                    asset_hash: Some("blake3:aspect-none".to_string()),
+                    natural_width_pt: None,
+                    natural_height_pt: None,
+                    crop: None,
+                    scale: None,
+                    rotation: None,
+                    diagnostic: None,
+                    source: SourceProvenance::file("main.tex", 0, 10),
+                }),
+            ],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| match asset_ref {
+            "figures/aspect-meet.svg" => Some(
+                br##"<svg width="20" height="10" viewBox="0 0 20 20">
+  <rect width="20" height="20" fill="#ff0000"/>
+</svg>"##
+                    .to_vec(),
+            ),
+            "figures/aspect-none.svg" => Some(
+                br##"<svg width="20" height="10" viewBox="0 0 20 20" preserveAspectRatio="none">
+  <rect width="20" height="20" fill="#0000ff"/>
+</svg>"##
+                    .to_vec(),
+            ),
+            _ => None,
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 60 180 100 100 re f"));
+        assert!(pdf_text.contains("0 0 1 rg 10 60 200 100 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/aspect-meet.svg]"));
+        assert!(!pdf_text.contains("[unsupported image: figures/aspect-none.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn renders_simple_svg_style_strokes_and_lines_as_pdf_vector_content() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
@@ -5178,7 +5384,7 @@ mod tests {
             "0 1 0 RG 10 w 10 230 m 60 280 110 280 110 230 c 110 180 160 180 210 230 c S"
         ));
         assert!(pdf_text.contains(
-            "0 0 1 RG 10 w 10 220 m 50 260 90 260 130 220 c 170 180 210 180 250 220 c S"
+            "0 0 1 RG 10 w 10 220 m 50 260 90 260 130 220 c 170 180 210 180 250.00002 220 c S"
         ));
         assert!(pdf_text.contains(
             "1 0 0 RG 10 w 30 230 m 70 270 110 270 150 230 c 190 190 230 190 270 230 c S"

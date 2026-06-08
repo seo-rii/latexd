@@ -195,6 +195,7 @@ multiple closed subpaths in one path element, including
 basic presentation/style fill and stroke metadata, simple `translate` /
 `scale` transform attributes, simple nested group transforms, inherited
 root/group-level fill/stroke/stroke-width presentation metadata, simple
+root `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`,
 comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
 class/id selector fill/stroke/stroke-width rules with basic specificity and
 source-order cascade, hex/common named/`rgb(...)` color forms, and transparent
@@ -642,7 +643,8 @@ Implemented first slice:
   commands, including multiple closed subpaths in one path element, basic
   presentation/style fill and stroke metadata plus
   simple `translate` / `scale` transforms, simple nested group transforms, and
-  inherited root/group-level fill/stroke/stroke-width metadata, simple
+  inherited root/group-level fill/stroke/stroke-width metadata, simple root
+  `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`, simple
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
   class/id selector fill/stroke/stroke-width rules with basic specificity and
   source-order cascade plus hex/common named/`rgb(...)` color forms and
@@ -1078,7 +1080,8 @@ Status:
   including multiple closed subpaths in one path element, basic
   presentation/style fill and stroke metadata plus simple
   `translate` / `scale` transform attributes, simple nested group transforms,
-  inherited root/group-level fill/stroke/stroke-width metadata, simple
+  inherited root/group-level fill/stroke/stroke-width metadata, simple root
+  `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`, simple
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
   class/id selector fill/stroke/stroke-width rules with basic specificity and
   source-order cascade plus hex/common named/`rgb(...)` color forms and
