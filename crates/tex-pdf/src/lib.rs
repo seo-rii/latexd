@@ -914,13 +914,72 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         &mut opacity_resource_keys,
                                         fill.opacity,
                                     );
-                                    let font_resource =
-                                        match (svg_text.font_series, svg_text.font_shape) {
-                                            (FontSeries::Regular, FontShape::Upright) => "F1",
-                                            (FontSeries::Bold, FontShape::Upright) => "F2",
-                                            (FontSeries::Regular, FontShape::Italic) => "F3",
-                                            (FontSeries::Bold, FontShape::Italic) => "F4",
-                                        };
+                                    let font_resource = match (
+                                        svg_text.font_family,
+                                        svg_text.font_series,
+                                        svg_text.font_shape,
+                                    ) {
+                                        (
+                                            SimpleSvgFontFamily::Serif,
+                                            FontSeries::Regular,
+                                            FontShape::Upright,
+                                        ) => "F1",
+                                        (
+                                            SimpleSvgFontFamily::Serif,
+                                            FontSeries::Bold,
+                                            FontShape::Upright,
+                                        ) => "F2",
+                                        (
+                                            SimpleSvgFontFamily::Serif,
+                                            FontSeries::Regular,
+                                            FontShape::Italic,
+                                        ) => "F3",
+                                        (
+                                            SimpleSvgFontFamily::Serif,
+                                            FontSeries::Bold,
+                                            FontShape::Italic,
+                                        ) => "F4",
+                                        (
+                                            SimpleSvgFontFamily::Sans,
+                                            FontSeries::Regular,
+                                            FontShape::Upright,
+                                        ) => "F5",
+                                        (
+                                            SimpleSvgFontFamily::Sans,
+                                            FontSeries::Bold,
+                                            FontShape::Upright,
+                                        ) => "F6",
+                                        (
+                                            SimpleSvgFontFamily::Sans,
+                                            FontSeries::Regular,
+                                            FontShape::Italic,
+                                        ) => "F7",
+                                        (
+                                            SimpleSvgFontFamily::Sans,
+                                            FontSeries::Bold,
+                                            FontShape::Italic,
+                                        ) => "F8",
+                                        (
+                                            SimpleSvgFontFamily::Mono,
+                                            FontSeries::Regular,
+                                            FontShape::Upright,
+                                        ) => "F9",
+                                        (
+                                            SimpleSvgFontFamily::Mono,
+                                            FontSeries::Bold,
+                                            FontShape::Upright,
+                                        ) => "F10",
+                                        (
+                                            SimpleSvgFontFamily::Mono,
+                                            FontSeries::Regular,
+                                            FontShape::Italic,
+                                        ) => "F11",
+                                        (
+                                            SimpleSvgFontFamily::Mono,
+                                            FontSeries::Bold,
+                                            FontShape::Italic,
+                                        ) => "F12",
+                                    };
                                     stream.push_str(&format!(
                                         "{} {} {} rg BT /{} {} Tf 1 0 0 1 {} {} Tm (",
                                         fill.rgb.0,
@@ -1279,6 +1338,7 @@ struct SimpleSvgText {
     y_ratio: f32,
     font_size_ratio: f32,
     anchor: SimpleSvgTextAnchor,
+    font_family: SimpleSvgFontFamily,
     font_series: FontSeries,
     font_shape: FontShape,
     fill: Option<SimpleSvgPaint>,
@@ -1290,6 +1350,13 @@ enum SimpleSvgTextAnchor {
     Start,
     Middle,
     End,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SimpleSvgFontFamily {
+    Serif,
+    Sans,
+    Mono,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1576,6 +1643,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         stroke_opacity: Option<f32>,
         text_anchor: Option<SimpleSvgTextAnchor>,
         font_size: Option<f32>,
+        font_family: Option<SimpleSvgFontFamily>,
         font_series: Option<FontSeries>,
         font_shape: Option<FontShape>,
         text_baseline: Option<SimpleSvgTextBaseline>,
@@ -1680,6 +1748,24 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             _ => None,
         }
     };
+    let parse_font_family = |raw: &str| -> Option<SimpleSvgFontFamily> {
+        raw.split(',').find_map(|family| {
+            let family = family
+                .trim()
+                .trim_matches(|ch| ch == '\'' || ch == '"')
+                .to_ascii_lowercase();
+            match family.as_str() {
+                "serif" | "times" | "times new roman" | "dejavu serif" | "liberation serif" => {
+                    Some(SimpleSvgFontFamily::Serif)
+                }
+                "sans" | "sans-serif" | "helvetica" | "arial" | "dejavu sans"
+                | "liberation sans" => Some(SimpleSvgFontFamily::Sans),
+                "mono" | "monospace" | "courier" | "courier new" | "dejavu sans mono"
+                | "liberation mono" => Some(SimpleSvgFontFamily::Mono),
+                _ => None,
+            }
+        })
+    };
     let first_some = |left: Option<String>, right: Option<String>| left.or(right);
     let presentation_from_values = |fill: Option<String>,
                                     fill_rule: Option<String>,
@@ -1695,6 +1781,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     stroke_opacity: Option<String>,
                                     text_anchor: Option<String>,
                                     font_size: Option<String>,
+                                    font_family: Option<String>,
                                     font_weight: Option<String>,
                                     font_style: Option<String>,
                                     text_baseline: Option<String>|
@@ -1726,6 +1813,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .as_deref()
                 .and_then(parse_number_prefix)
                 .filter(|font_size| *font_size > 0.0),
+            font_family: font_family.as_deref().and_then(parse_font_family),
             font_series: font_weight.as_deref().and_then(parse_font_series),
             font_shape: font_style.as_deref().and_then(parse_font_shape),
             text_baseline: text_baseline.as_deref().and_then(parse_text_baseline),
@@ -1747,6 +1835,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             attr_value(tag, "stroke-opacity"),
             attr_value(tag, "text-anchor"),
             attr_value(tag, "font-size"),
+            attr_value(tag, "font-family"),
             attr_value(tag, "font-weight"),
             attr_value(tag, "font-style"),
             first_some(
@@ -1771,6 +1860,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             style_value(tag, "stroke-opacity"),
             style_value(tag, "text-anchor"),
             style_value(tag, "font-size"),
+            style_value(tag, "font-family"),
             style_value(tag, "font-weight"),
             style_value(tag, "font-style"),
             first_some(
@@ -1795,6 +1885,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             declaration_value(declarations, "stroke-opacity"),
             declaration_value(declarations, "text-anchor"),
             declaration_value(declarations, "font-size"),
+            declaration_value(declarations, "font-family"),
             declaration_value(declarations, "font-weight"),
             declaration_value(declarations, "font-style"),
             first_some(
@@ -1974,6 +2065,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 stroke_opacity: local.stroke_opacity.or(base.stroke_opacity),
                 text_anchor: local.text_anchor.or(base.text_anchor),
                 font_size: local.font_size.or(base.font_size),
+                font_family: local.font_family.or(base.font_family),
                 font_series: local.font_series.or(base.font_series),
                 font_shape: local.font_shape.or(base.font_shape),
                 text_baseline: local.text_baseline.or(base.text_baseline),
@@ -2002,6 +2094,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 stroke_opacity: local.stroke_opacity.or(parent.stroke_opacity),
                 text_anchor: local.text_anchor.or(parent.text_anchor),
                 font_size: local.font_size.or(parent.font_size),
+                font_family: local.font_family.or(parent.font_family),
                 font_series: local.font_series.or(parent.font_series),
                 font_shape: local.font_shape.or(parent.font_shape),
                 text_baseline: local.text_baseline.or(parent.text_baseline),
@@ -2044,6 +2137,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut stroke_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut text_anchor: Option<SimpleSvgCascadeValue<SimpleSvgTextAnchor>> = None;
         let mut font_size: Option<SimpleSvgCascadeValue<f32>> = None;
+        let mut font_family: Option<SimpleSvgCascadeValue<SimpleSvgFontFamily>> = None;
         let mut font_series: Option<SimpleSvgCascadeValue<FontSeries>> = None;
         let mut font_shape: Option<SimpleSvgCascadeValue<FontShape>> = None;
         let mut text_baseline: Option<SimpleSvgCascadeValue<SimpleSvgTextBaseline>> = None;
@@ -2223,6 +2317,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
+                if let Some(value) = rule.presentation.font_family {
+                    let current = font_family.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        font_family = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
                 if let Some(value) = rule.presentation.font_series {
                     let current = font_series.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
@@ -2270,6 +2374,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             stroke_opacity: stroke_opacity.map(|value| value.value),
             text_anchor: text_anchor.map(|value| value.value),
             font_size: font_size.map(|value| value.value),
+            font_family: font_family.map(|value| value.value),
             font_series: font_series.map(|value| value.value),
             font_shape: font_shape.map(|value| value.value),
             text_baseline: text_baseline.map(|value| value.value),
@@ -3917,6 +4022,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     anchor: presentation
                         .text_anchor
                         .unwrap_or(SimpleSvgTextAnchor::Start),
+                    font_family: presentation
+                        .font_family
+                        .unwrap_or(SimpleSvgFontFamily::Serif),
                     font_series: presentation.font_series.unwrap_or(FontSeries::Regular),
                     font_shape: presentation.font_shape.unwrap_or(FontShape::Upright),
                     fill: fill_paint(presentation, Some((0.0, 0.0, 0.0))),
@@ -5703,6 +5811,56 @@ mod tests {
         assert!(pdf_text.contains("0 0 0 rg BT /F3 14.400001 Tf 1 0 0 1 144 670.8 Tm (I) Tj ET"));
         assert!(pdf_text.contains("0 0 0 rg BT /F4 14.400001 Tf 1 0 0 1 144 656.4 Tm (BI) Tj ET"));
         assert!(!pdf_text.contains("[unsupported image: figures/font-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_text_font_family_as_pdf_font_resources() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/font-family.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:font-family".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/font-family.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    text.sans { fill: #000000; font-family: Arial, sans-serif; font-size: 2; font-weight: bold; }
+  </style>
+  <text class="sans" x="10" y="4">S</text>
+  <text x="10" y="6" font-family="'Courier New', monospace" font-style="italic" font-size="2">M</text>
+  <text x="10" y="8" font-family="Helvetica" font-size="2"><tspan font-weight="bold" font-style="italic">BI</tspan></text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 0 rg BT /F6 14.400001 Tf 1 0 0 1 144 685.2 Tm (S) Tj ET"));
+        assert!(pdf_text.contains("0 0 0 rg BT /F11 14.400001 Tf 1 0 0 1 144 670.8 Tm (M) Tj ET"));
+        assert!(pdf_text.contains("0 0 0 rg BT /F8 14.400001 Tf 1 0 0 1 144 656.4 Tm (BI) Tj ET"));
+        assert!(!pdf_text.contains("[unsupported image: figures/font-family.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
