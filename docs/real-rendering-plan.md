@@ -84,7 +84,9 @@ specs also survive as row-scoped cell-level vertical rule metadata and emit
 renderer-visible rule rectangles. Column-level vertical borders now also span
 horizontal rule-only rows so table borders do not break across coarse `\hline`
 or partial-rule display-list rows, while top/bottom rule-only rows trim those
-vertical rectangles to the visible horizontal boundary.
+vertical rectangles to the visible horizontal boundary. Partial horizontal rule
+rows now suppress vertical-rule stubs outside the visible partial rule span, so
+coarse borders do not extend across whitespace-only rule gaps.
 Simple visible `>{...}` / `<{...}` hooks and non-rule `@{...}` / `!{...}`
 separator hooks in multicolumn specs now survive as cell-level prefix/suffix
 metadata and decorate display-list cell text.
@@ -226,9 +228,9 @@ the converted bitmap pixel size. Driver-accurate crop/clip rendering for
 production PDF/SVG vector output and raster backends, TeX-exact rotated-box
 reflow, broader SVG style cascade beyond root/group/class fill/stroke/stroke-width
 support, programmable table preamble hooks, exact
-vertical border trimming, exact table rule trimming, actual multirow geometry,
-exact nested table layout/reflow, and full TeX alignment policy are still
-deferred.
+residual vertical border trimming, exact table rule trimming, actual multirow
+geometry, exact nested table layout/reflow, and full TeX alignment policy are
+still deferred.
 Rotation intent is no longer dropped: `angle` /
 `origin` options and simple `\rotatebox` wrappers are preserved as
 renderer-neutral `ImageRotation` metadata. The display-list PDF path applies
@@ -770,7 +772,9 @@ Implemented first slice:
   separator is whitespace rather than a searchable `|` glyph. Adjacent
   same-position vertical rule rects from consecutive table and horizontal-rule
   rows are merged into longer display-list rule ops, so coarse borders stay
-  continuous across `\hline`, `\cline`, and `\cmidrule` rows.
+  continuous across `\hline`, `\cline`, and `\cmidrule` rows. Partial
+  horizontal rule rows filter those vertical-rule stubs to the visible dash span
+  instead of extending them across whitespace-only gaps.
 - common `booktabs` spacing and rule-control commands such as optional-width
   `\toprule` / `\midrule` / `\bottomrule`, `\addlinespace`,
   `\morecmidrules`, and `\specialrule` are suppressed from visible table text
