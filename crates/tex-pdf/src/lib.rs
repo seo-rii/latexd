@@ -3371,6 +3371,18 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .iter()
             .any(|(start, end)| *start <= element_start && element_start < *end)
     };
+    let is_start_tag_named = |tag_tail: &str, element_name: &str| {
+        let Some(after_lt) = tag_tail.strip_prefix('<') else {
+            return false;
+        };
+        let Some(after_name) = after_lt.strip_prefix(element_name) else {
+            return false;
+        };
+        after_name
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_whitespace() || matches!(ch, '>' | '/'))
+    };
     #[derive(Debug, Clone, Copy)]
     struct SimpleSvgGroupTransform {
         content_start: usize,
@@ -3482,6 +3494,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     while let Some(relative) = svg_content[search_index..].find("<rect") {
         let rect_start = search_index + relative;
         let rect_tail = &svg_content[rect_start..];
+        if !is_start_tag_named(rect_tail, "rect") {
+            search_index = rect_start + "<rect".len();
+            continue;
+        }
         let Some(rect_end) = rect_tail.find('>') else {
             break;
         };
@@ -3723,6 +3739,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     while let Some(relative) = svg_content[search_index..].find("<line") {
         let line_start = search_index + relative;
         let line_tail = &svg_content[line_start..];
+        if !is_start_tag_named(line_tail, "line") {
+            search_index = line_start + "<line".len();
+            continue;
+        }
         let Some(line_end) = line_tail.find('>') else {
             break;
         };
@@ -3792,6 +3812,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     while let Some(relative) = svg_content[search_index..].find("<circle") {
         let circle_start = search_index + relative;
         let circle_tail = &svg_content[circle_start..];
+        if !is_start_tag_named(circle_tail, "circle") {
+            search_index = circle_start + "<circle".len();
+            continue;
+        }
         let Some(circle_end) = circle_tail.find('>') else {
             break;
         };
@@ -3875,6 +3899,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     while let Some(relative) = svg_content[search_index..].find("<ellipse") {
         let ellipse_start = search_index + relative;
         let ellipse_tail = &svg_content[ellipse_start..];
+        if !is_start_tag_named(ellipse_tail, "ellipse") {
+            search_index = ellipse_start + "<ellipse".len();
+            continue;
+        }
         let Some(ellipse_end) = ellipse_tail.find('>') else {
             break;
         };
@@ -3966,6 +3994,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     while let Some(relative) = svg_content[search_index..].find("<polyline") {
         let poly_start = search_index + relative;
         let poly_tail = &svg_content[poly_start..];
+        if !is_start_tag_named(poly_tail, "polyline") {
+            search_index = poly_start + "<polyline".len();
+            continue;
+        }
         let Some(poly_end) = poly_tail.find('>') else {
             break;
         };
@@ -4000,6 +4032,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     while let Some(relative) = svg_content[search_index..].find("<polygon") {
         let poly_start = search_index + relative;
         let poly_tail = &svg_content[poly_start..];
+        if !is_start_tag_named(poly_tail, "polygon") {
+            search_index = poly_start + "<polygon".len();
+            continue;
+        }
         let Some(poly_end) = poly_tail.find('>') else {
             break;
         };
@@ -4070,6 +4106,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     while let Some(relative) = svg_content[search_index..].find("<path") {
         let path_start = search_index + relative;
         let path_tail = &svg_content[path_start..];
+        if !is_start_tag_named(path_tail, "path") {
+            search_index = path_start + "<path".len();
+            continue;
+        }
         let Some(path_end) = path_tail.find('>') else {
             break;
         };
@@ -4094,6 +4134,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     while let Some(relative) = svg_content[search_index..].find("<rect") {
         let rect_start = search_index + relative;
         let rect_tail = &svg_content[rect_start..];
+        if !is_start_tag_named(rect_tail, "rect") {
+            search_index = rect_start + "<rect".len();
+            continue;
+        }
         let Some(rect_end) = rect_tail.find('>') else {
             break;
         };
@@ -4146,6 +4190,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     while let Some(relative) = svg_content[search_index..].find("<circle") {
         let circle_start = search_index + relative;
         let circle_tail = &svg_content[circle_start..];
+        if !is_start_tag_named(circle_tail, "circle") {
+            search_index = circle_start + "<circle".len();
+            continue;
+        }
         let Some(circle_end) = circle_tail.find('>') else {
             break;
         };
@@ -4183,6 +4231,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     while let Some(relative) = svg_content[search_index..].find("<ellipse") {
         let ellipse_start = search_index + relative;
         let ellipse_tail = &svg_content[ellipse_start..];
+        if !is_start_tag_named(ellipse_tail, "ellipse") {
+            search_index = ellipse_start + "<ellipse".len();
+            continue;
+        }
         let Some(ellipse_end) = ellipse_tail.find('>') else {
             break;
         };
@@ -4223,14 +4275,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     while let Some(relative) = svg_content[search_index..].find("<line") {
         let line_start = search_index + relative;
         let line_tail = &svg_content[line_start..];
-        let Some(after_name) = line_tail.get("<line".len()..) else {
-            break;
-        };
-        if after_name
-            .chars()
-            .next()
-            .is_some_and(|ch| !(ch.is_whitespace() || matches!(ch, '>' | '/')))
-        {
+        if !is_start_tag_named(line_tail, "line") {
             search_index = line_start + "<line".len();
             continue;
         }
@@ -4271,6 +4316,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     while let Some(relative) = svg_content[search_index..].find("<polyline") {
         let poly_start = search_index + relative;
         let poly_tail = &svg_content[poly_start..];
+        if !is_start_tag_named(poly_tail, "polyline") {
+            search_index = poly_start + "<polyline".len();
+            continue;
+        }
         let Some(poly_end) = poly_tail.find('>') else {
             break;
         };
@@ -4298,6 +4347,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     while let Some(relative) = svg_content[search_index..].find("<polygon") {
         let poly_start = search_index + relative;
         let poly_tail = &svg_content[poly_start..];
+        if !is_start_tag_named(poly_tail, "polygon") {
+            search_index = poly_start + "<polygon".len();
+            continue;
+        }
         let Some(poly_end) = poly_tail.find('>') else {
             break;
         };
@@ -4325,6 +4378,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     while let Some(relative) = svg_content[search_index..].find("<path") {
         let path_start = search_index + relative;
         let path_tail = &svg_content[path_start..];
+        if !is_start_tag_named(path_tail, "path") {
+            search_index = path_start + "<path".len();
+            continue;
+        }
         let Some(path_end) = path_tail.find('>') else {
             break;
         };
@@ -4344,14 +4401,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     while let Some(relative) = svg_content[search_index..].find("<use") {
         let use_start = search_index + relative;
         let use_tail = &svg_content[use_start..];
-        let Some(after_name) = use_tail.get("<use".len()..) else {
-            break;
-        };
-        if after_name
-            .chars()
-            .next()
-            .is_some_and(|ch| !(ch.is_whitespace() || matches!(ch, '>' | '/')))
-        {
+        if !is_start_tag_named(use_tail, "use") {
             search_index = use_start + "<use".len();
             continue;
         }
@@ -4427,14 +4477,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     while let Some(relative) = svg_content[search_index..].find("<text") {
         let text_start = search_index + relative;
         let text_tail = &svg_content[text_start..];
-        let Some(after_name) = text_tail.get("<text".len()..) else {
-            break;
-        };
-        if after_name
-            .chars()
-            .next()
-            .is_some_and(|ch| !(ch.is_whitespace() || matches!(ch, '>' | '/')))
-        {
+        if !is_start_tag_named(text_tail, "text") {
             search_index = text_start + "<text".len();
             continue;
         }
@@ -4506,13 +4549,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     break;
                 }
                 let tspan_tail = &remaining[tspan_start..];
-                let after_name = tspan_tail.get("<tspan".len()..);
-                if after_name.is_some_and(|after_name| {
-                    after_name
-                        .chars()
-                        .next()
-                        .is_some_and(|ch| !(ch.is_whitespace() || matches!(ch, '>' | '/')))
-                }) {
+                if !is_start_tag_named(tspan_tail, "tspan") {
                     valid_tspans = false;
                     break;
                 }
@@ -8042,6 +8079,53 @@ mod tests {
         assert!(pdf_text.contains("0 1 1 RG 10 w 20 250 20 20 re S"));
         assert!(pdf_text.contains("1 0 1 RG 20 w 10 260 m 60 260 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/named-color-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn ignores_simple_svg_element_name_prefix_false_positives() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/prefix-elements.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:prefix-elements".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/prefix-elements.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <linearGradient id="g" x1="0" y1="0" x2="5" y2="0" stroke="#ff0000" stroke-width="1">
+    <stop offset="0" stop-color="#ffffff"/>
+  </linearGradient>
+  <rect x="1" y="1" width="2" height="2" fill="#00ff00"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("1 0 0 RG 10 w 10 280 m 60 280 l S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/prefix-elements.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

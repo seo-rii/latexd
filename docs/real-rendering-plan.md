@@ -1102,7 +1102,9 @@ Status:
   `stroke-linecap` / `stroke-linejoin` / `stroke-miterlimit` mapped to PDF
   graphics state, and path-like `matrix` / `rotate` transform attributes plus
   non-axis-aligned transformed rectangles and transformed circle/ellipse cubic
-  paths, as vector PDF drawing operations;
+  paths, with element scanners requiring tag-name boundaries to avoid prefix
+  false positives such as `linearGradient` as `line`, as vector PDF drawing
+  operations;
 - `latexd render-ir --root ... --input ... --output-dir ...` exposes the
   event/IR/display-list artifact pipeline without replacing the serve preview
   path;
