@@ -1848,6 +1848,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             ))
         };
     let mut rects = Vec::new();
+    let mut rect_polys = Vec::new();
     let mut search_index = 0usize;
     while let Some(relative) = svg_content[search_index..].find("<rect") {
         let rect_start = search_index + relative;
@@ -1883,7 +1884,39 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 search_index = rect_start + rect_end + 1;
                 continue;
             };
+            let fill_rgb = presentation.fill.unwrap_or(Some((0.0, 0.0, 0.0)));
+            let stroke_rgb = presentation.stroke.unwrap_or(None);
             if !transform.axis_aligned {
+                let Some(corner_a) = apply_transform(transform, x, y) else {
+                    search_index = rect_start + rect_end + 1;
+                    continue;
+                };
+                let Some(corner_b) = apply_transform(transform, x + width, y) else {
+                    search_index = rect_start + rect_end + 1;
+                    continue;
+                };
+                let Some(corner_c) = apply_transform(transform, x + width, y + height) else {
+                    search_index = rect_start + rect_end + 1;
+                    continue;
+                };
+                let Some(corner_d) = apply_transform(transform, x, y + height) else {
+                    search_index = rect_start + rect_end + 1;
+                    continue;
+                };
+                if fill_rgb.is_some() || stroke_rgb.is_some() {
+                    rect_polys.push(SimpleSvgPoly {
+                        points: vec![
+                            normalize_point(corner_a),
+                            normalize_point(corner_b),
+                            normalize_point(corner_c),
+                            normalize_point(corner_d),
+                        ],
+                        closed: true,
+                        fill_rgb,
+                        stroke_rgb,
+                        stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
+                    });
+                }
                 search_index = rect_start + rect_end + 1;
                 continue;
             }
@@ -1899,8 +1932,6 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             let y = corner_a.1.min(corner_b.1);
             let width = (corner_b.0 - corner_a.0).abs();
             let height = (corner_b.1 - corner_a.1).abs();
-            let fill_rgb = presentation.fill.unwrap_or(Some((0.0, 0.0, 0.0)));
-            let stroke_rgb = presentation.stroke.unwrap_or(None);
             if width > 0.0 && height > 0.0 && (fill_rgb.is_some() || stroke_rgb.is_some()) {
                 rects.push(SimpleSvgRect {
                     x_ratio: (x - view_box.0) / view_box.2,
@@ -2112,7 +2143,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         search_index = ellipse_start + ellipse_end + 1;
     }
-    let mut polys = Vec::new();
+    let mut polys = rect_polys;
     let mut search_index = 0usize;
     while let Some(relative) = svg_content[search_index..].find("<polyline") {
         let poly_start = search_index + relative;
@@ -4187,7 +4218,6 @@ mod tests {
                 br##"<svg width="20" height="10">
   <line x1="5" y1="5" x2="10" y2="5" transform="rotate(90 5 5)" stroke-width="1" stroke="#00ff00"/>
   <path d="M 0 0 L 5 0" transform="matrix(1 0 0 1 2 1)" fill="none" stroke-width="1" stroke="#ff0000"/>
-  <rect x="0" y="0" width="5" height="2" transform="rotate(45)" fill="#0000ff"/>
 </svg>"##
                     .to_vec()
             })
@@ -4196,8 +4226,51 @@ mod tests {
 
         assert!(pdf_text.contains("0 1 0 RG 10 w 60 230 m 60 180 l S"));
         assert!(pdf_text.contains("1 0 0 RG 10 w 30 270 m 80 270 l S"));
-        assert!(!pdf_text.contains("0 0 1 rg"));
         assert!(!pdf_text.contains("[unsupported image: figures/affine.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_transformed_rectangles_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/rotated-rect.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:rotated-rect".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/rotated-rect.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <rect x="0" y="0" width="5" height="2" transform="matrix(0 1 -1 0 10 0)" fill="#ff0000" stroke="#0000ff" stroke-width="1"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 110 280 m 110 230 l 90 230 l 90 280 l h f"));
+        assert!(pdf_text.contains("0 0 1 RG 10 w 110 280 m 110 230 l 90 230 l 90 280 l h S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/rotated-rect.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
