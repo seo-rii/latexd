@@ -2744,6 +2744,40 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         (sx.abs() + sy.abs()) / 2.0,
                     )
                 }
+                "skewX" => {
+                    if values.len() != 1 {
+                        return None;
+                    }
+                    let skew = values[0].to_radians().tan();
+                    if !skew.is_finite() {
+                        return None;
+                    }
+                    (
+                        SimpleSvgTransform {
+                            c: skew,
+                            axis_aligned: skew.abs() <= f32::EPSILON,
+                            ..identity_transform
+                        },
+                        (1.0 + skew.hypot(1.0)) / 2.0,
+                    )
+                }
+                "skewY" => {
+                    if values.len() != 1 {
+                        return None;
+                    }
+                    let skew = values[0].to_radians().tan();
+                    if !skew.is_finite() {
+                        return None;
+                    }
+                    (
+                        SimpleSvgTransform {
+                            b: skew,
+                            axis_aligned: skew.abs() <= f32::EPSILON,
+                            ..identity_transform
+                        },
+                        (skew.hypot(1.0) + 1.0) / 2.0,
+                    )
+                }
                 _ => return None,
             };
             transform = compose_transform(transform, next, next_stroke_scale);
@@ -7431,6 +7465,51 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 RG 10 w 60 230 m 60 180 l S"));
         assert!(pdf_text.contains("1 0 0 RG 10 w 30 270 m 80 270 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/affine.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_skew_transforms_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/skew.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:skew".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/skew.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <path d="M 0 2 L 5 2" transform="skewX(45)" fill="none" stroke-width="1" stroke="#ff0000"/>
+  <path d="M 2 0 L 2 5" transform="skewY(45)" fill="none" stroke-width="1" stroke="#0000ff"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("30 260 m 80 260 l S"));
+        assert!(pdf_text.contains("30 260 m 30 210 l S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/skew.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

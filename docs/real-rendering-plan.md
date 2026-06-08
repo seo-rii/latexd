@@ -192,8 +192,8 @@ resolver-backed SVG `<rect>`, `<line>`, `<circle>`, `<ellipse>`, `<polyline>`,
 `<polygon>`, and `<path>` content with line, cubic/smooth cubic, and
 quadratic/smooth quadratic commands plus endpoint-parameterized arcs and
 multiple closed subpaths in one path element, including
-basic presentation/style fill and stroke metadata, simple `translate` /
-`scale` transform attributes, simple nested group transforms, inherited
+    basic presentation/style fill and stroke metadata, simple `translate` /
+    `scale` / `skewX` / `skewY` transform attributes, simple nested group transforms, inherited
 root/group-level fill/stroke/stroke-width presentation metadata, simple
 root `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`,
 comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
@@ -204,7 +204,7 @@ operators, simple `opacity` / `fill-opacity` / `stroke-opacity` mapped to PDF
 ExtGState resources, simple `stroke-dasharray` mapped to PDF dash patterns with
 `stroke-dashoffset` phase support, simple `stroke-linecap` /
 `stroke-linejoin` / `stroke-miterlimit` mapped to PDF graphics state, and
-`matrix` / `rotate` transforms for path-like line/poly/path
+    `matrix` / `rotate` / `skewX` / `skewY` transforms for path-like line/poly/path
 primitives, plus non-axis-aligned transformed rectangles rendered as closed
 vector polygons and transformed circle/ellipse primitives rendered as cubic
 vector paths, is also rendered directly as vector PDF drawing operations in
@@ -642,7 +642,7 @@ Implemented first slice:
   content with line, cubic/smooth cubic, quadratic/smooth quadratic, and arc
   commands, including multiple closed subpaths in one path element, basic
   presentation/style fill and stroke metadata plus
-  simple `translate` / `scale` transforms, simple nested group transforms, and
+  simple `translate` / `scale` / `skewX` / `skewY` transforms, simple nested group transforms, and
   inherited root/group-level fill/stroke/stroke-width metadata, simple root
   `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`, simple
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
@@ -653,7 +653,7 @@ Implemented first slice:
   `stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray`
   mapped to PDF dash patterns with `stroke-dashoffset` phase support, simple
   `stroke-linecap` / `stroke-linejoin` / `stroke-miterlimit` mapped to PDF
-  graphics state, path-like `matrix` / `rotate` transforms, non-axis-aligned
+  graphics state, path-like `matrix` / `rotate` / `skewX` / `skewY` transforms, non-axis-aligned
   transformed rectangles, and transformed circle/ellipse cubic paths, as vector
   drawing operations;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
@@ -1089,7 +1089,7 @@ Status:
   `line`, `polyline`, and `polygon` definitions through `href` /
   `xlink:href` `<use>` references, basic
   presentation/style fill and stroke metadata plus simple
-  `translate` / `scale` transform attributes, simple nested group transforms,
+  `translate` / `scale` / `skewX` / `skewY` transform attributes, simple nested group transforms,
   inherited root/group-level fill/stroke/stroke-width metadata, simple root
   `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`, simple
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
@@ -1100,7 +1100,7 @@ Status:
   `stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray`
   mapped to PDF dash patterns with `stroke-dashoffset` phase support, simple
   `stroke-linecap` / `stroke-linejoin` / `stroke-miterlimit` mapped to PDF
-  graphics state, and path-like `matrix` / `rotate` transform attributes plus
+  graphics state, and path-like `matrix` / `rotate` / `skewX` / `skewY` transform attributes plus
   non-axis-aligned transformed rectangles and transformed circle/ellipse cubic
   paths, with root/style/element scanners requiring tag-name boundaries to
   avoid prefix false positives such as `svgz` as `svg`, `stylesheet` as
