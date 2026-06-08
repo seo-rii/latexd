@@ -1077,11 +1077,11 @@ Status:
 - project-root display-list PDF debug artifacts render simple resolver-backed
   SVG rectangle, rounded rectangle, line, circle, ellipse, polyline, polygon,
   direct text content with simple `text-anchor`, numeric `dx`/`dy`,
-  `font-size`, `font-family`, `font-weight`, and `font-style` cascade with
-  simple PDF base-family mapping, approximate `middle`/`central` baseline
-  alignment, and multiple direct literal `tspan` children with numeric `dx`/`dy`
-  and the same simple baseline alignment, and path content with line,
-  cubic/smooth cubic,
+  absolute and percentage `font-size`, `font-family`, `font-weight`, and
+  `font-style` cascade with simple PDF base-family mapping, approximate
+  `middle`/`central` baseline alignment, and multiple direct literal `tspan`
+  children with numeric `dx`/`dy` and the same simple baseline alignment, and
+  path content with line, cubic/smooth cubic,
   quadratic/smooth quadratic, and arc commands,
   including multiple closed subpaths in one path element, basic
   presentation/style fill and stroke metadata plus simple

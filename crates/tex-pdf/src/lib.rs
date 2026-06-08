@@ -1626,6 +1626,11 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             _ => Some((0.0, 0.0, 0.0)),
         }
     };
+    #[derive(Debug, Clone, Copy)]
+    enum SimpleSvgFontSize {
+        Absolute(f32),
+        Percent(f32),
+    }
     #[derive(Debug, Clone, Copy, Default)]
     struct SimpleSvgPresentation {
         // Outer Option means "specified"; inner Option preserves SVG paint "none".
@@ -1642,7 +1647,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         fill_opacity: Option<f32>,
         stroke_opacity: Option<f32>,
         text_anchor: Option<SimpleSvgTextAnchor>,
-        font_size: Option<f32>,
+        font_size: Option<SimpleSvgFontSize>,
         font_family: Option<SimpleSvgFontFamily>,
         font_series: Option<FontSeries>,
         font_shape: Option<FontShape>,
@@ -1748,6 +1753,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             _ => None,
         }
     };
+    let parse_font_size = |raw: &str| -> Option<SimpleSvgFontSize> {
+        let raw = raw.trim();
+        if let Some(percent) = raw.strip_suffix('%') {
+            return percent
+                .trim()
+                .parse::<f32>()
+                .ok()
+                .filter(|value| value.is_finite() && *value > 0.0)
+                .map(|value| SimpleSvgFontSize::Percent(value / 100.0));
+        }
+        parse_number_prefix(raw)
+            .filter(|font_size| *font_size > 0.0)
+            .map(SimpleSvgFontSize::Absolute)
+    };
     let parse_font_family = |raw: &str| -> Option<SimpleSvgFontFamily> {
         raw.split(',').find_map(|family| {
             let family = family
@@ -1809,10 +1828,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             fill_opacity: fill_opacity.as_deref().and_then(parse_opacity),
             stroke_opacity: stroke_opacity.as_deref().and_then(parse_opacity),
             text_anchor: text_anchor.as_deref().and_then(parse_text_anchor),
-            font_size: font_size
-                .as_deref()
-                .and_then(parse_number_prefix)
-                .filter(|font_size| *font_size > 0.0),
+            font_size: font_size.as_deref().and_then(parse_font_size),
             font_family: font_family.as_deref().and_then(parse_font_family),
             font_series: font_weight.as_deref().and_then(parse_font_series),
             font_shape: font_style.as_deref().and_then(parse_font_shape),
@@ -2071,35 +2087,52 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 text_baseline: local.text_baseline.or(base.text_baseline),
             }
         };
-    let inherit_presentation =
-        |parent: SimpleSvgPresentation, local: SimpleSvgPresentation| -> SimpleSvgPresentation {
-            let opacity = match (parent.opacity, local.opacity) {
-                (Some(parent), Some(local)) => Some((parent * local).clamp(0.0, 1.0)),
-                (Some(parent), None) => Some(parent),
-                (None, Some(local)) => Some(local),
-                (None, None) => None,
-            };
-            SimpleSvgPresentation {
-                fill: local.fill.or(parent.fill),
-                fill_rule: local.fill_rule.or(parent.fill_rule),
-                stroke: local.stroke.or(parent.stroke),
-                stroke_width: local.stroke_width.or(parent.stroke_width),
-                stroke_dasharray: local.stroke_dasharray.or(parent.stroke_dasharray),
-                stroke_dashoffset: local.stroke_dashoffset.or(parent.stroke_dashoffset),
-                stroke_linecap: local.stroke_linecap.or(parent.stroke_linecap),
-                stroke_linejoin: local.stroke_linejoin.or(parent.stroke_linejoin),
-                stroke_miterlimit: local.stroke_miterlimit.or(parent.stroke_miterlimit),
-                opacity,
-                fill_opacity: local.fill_opacity.or(parent.fill_opacity),
-                stroke_opacity: local.stroke_opacity.or(parent.stroke_opacity),
-                text_anchor: local.text_anchor.or(parent.text_anchor),
-                font_size: local.font_size.or(parent.font_size),
-                font_family: local.font_family.or(parent.font_family),
-                font_series: local.font_series.or(parent.font_series),
-                font_shape: local.font_shape.or(parent.font_shape),
-                text_baseline: local.text_baseline.or(parent.text_baseline),
-            }
+    let inherit_presentation = |parent: SimpleSvgPresentation,
+                                local: SimpleSvgPresentation|
+     -> SimpleSvgPresentation {
+        let opacity = match (parent.opacity, local.opacity) {
+            (Some(parent), Some(local)) => Some((parent * local).clamp(0.0, 1.0)),
+            (Some(parent), None) => Some(parent),
+            (None, Some(local)) => Some(local),
+            (None, None) => None,
         };
+        let font_size = match (parent.font_size, local.font_size) {
+            (_, Some(SimpleSvgFontSize::Absolute(size))) => Some(SimpleSvgFontSize::Absolute(size)),
+            (
+                Some(SimpleSvgFontSize::Absolute(parent_size)),
+                Some(SimpleSvgFontSize::Percent(scale)),
+            ) => Some(SimpleSvgFontSize::Absolute(parent_size * scale)),
+            (
+                Some(SimpleSvgFontSize::Percent(parent_scale)),
+                Some(SimpleSvgFontSize::Percent(scale)),
+            ) => Some(SimpleSvgFontSize::Percent(parent_scale * scale)),
+            (None, Some(SimpleSvgFontSize::Percent(scale))) => {
+                Some(SimpleSvgFontSize::Percent(scale))
+            }
+            (Some(parent_size), None) => Some(parent_size),
+            (None, None) => None,
+        };
+        SimpleSvgPresentation {
+            fill: local.fill.or(parent.fill),
+            fill_rule: local.fill_rule.or(parent.fill_rule),
+            stroke: local.stroke.or(parent.stroke),
+            stroke_width: local.stroke_width.or(parent.stroke_width),
+            stroke_dasharray: local.stroke_dasharray.or(parent.stroke_dasharray),
+            stroke_dashoffset: local.stroke_dashoffset.or(parent.stroke_dashoffset),
+            stroke_linecap: local.stroke_linecap.or(parent.stroke_linecap),
+            stroke_linejoin: local.stroke_linejoin.or(parent.stroke_linejoin),
+            stroke_miterlimit: local.stroke_miterlimit.or(parent.stroke_miterlimit),
+            opacity,
+            fill_opacity: local.fill_opacity.or(parent.fill_opacity),
+            stroke_opacity: local.stroke_opacity.or(parent.stroke_opacity),
+            text_anchor: local.text_anchor.or(parent.text_anchor),
+            font_size,
+            font_family: local.font_family.or(parent.font_family),
+            font_series: local.font_series.or(parent.font_series),
+            font_shape: local.font_shape.or(parent.font_shape),
+            text_baseline: local.text_baseline.or(parent.text_baseline),
+        }
+    };
     let tag_element_name = |tag: &str| -> Option<String> {
         let tag = tag.trim_start();
         let tag = tag.strip_prefix('<').unwrap_or(tag).trim_start();
@@ -2136,7 +2169,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut fill_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut text_anchor: Option<SimpleSvgCascadeValue<SimpleSvgTextAnchor>> = None;
-        let mut font_size: Option<SimpleSvgCascadeValue<f32>> = None;
+        let mut font_size: Option<SimpleSvgCascadeValue<SimpleSvgFontSize>> = None;
         let mut font_family: Option<SimpleSvgCascadeValue<SimpleSvgFontFamily>> = None;
         let mut font_series: Option<SimpleSvgCascadeValue<FontSeries>> = None;
         let mut font_shape: Option<SimpleSvgCascadeValue<FontShape>> = None;
@@ -2388,6 +2421,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             overlay_presentation(attr_presentation, class_presentation),
             inline_style_presentation,
         )
+    };
+    let resolved_font_size = |presentation: SimpleSvgPresentation| -> f32 {
+        match presentation.font_size {
+            Some(SimpleSvgFontSize::Absolute(size)) => size,
+            Some(SimpleSvgFontSize::Percent(scale)) => 12.0 * scale,
+            None => 12.0,
+        }
     };
     let baseline_y_offset = |presentation: SimpleSvgPresentation, font_size: f32| -> f32 {
         match presentation
@@ -3912,7 +3952,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .as_deref()
             .and_then(parse_number_prefix)
             .unwrap_or(0.0);
-        let local_font_size = presentation.font_size.unwrap_or(12.0);
+        let local_font_size = resolved_font_size(presentation);
         let text_x = x + dx;
         let text_raw_y = y + dy;
         let text_y = text_raw_y + baseline_y_offset(presentation, local_font_size);
@@ -3984,7 +4024,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     .unwrap_or(0.0);
                 let tspan_presentation =
                     inherit_presentation(presentation, parse_presentation(tspan_tag));
-                let tspan_local_font_size = tspan_presentation.font_size.unwrap_or(12.0);
+                let tspan_local_font_size = resolved_font_size(tspan_presentation);
                 let tspan_font_size = tspan_local_font_size * transform.stroke_scale;
                 let tspan_x = tspan_x + tspan_dx;
                 let tspan_y = tspan_y + tspan_dy;
@@ -5861,6 +5901,55 @@ mod tests {
         assert!(pdf_text.contains("0 0 0 rg BT /F11 14.400001 Tf 1 0 0 1 144 670.8 Tm (M) Tj ET"));
         assert!(pdf_text.contains("0 0 0 rg BT /F8 14.400001 Tf 1 0 0 1 144 656.4 Tm (BI) Tj ET"));
         assert!(!pdf_text.contains("[unsupported image: figures/font-family.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_percentage_font_size_relative_to_parent() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/font-size-percent.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:font-size-percent".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/font-size-percent.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    text.root-percent { fill: #000000; font-size: 50%; }
+  </style>
+  <text class="root-percent" x="10" y="4">R</text>
+  <text x="10" y="6" font-size="4" fill="#000000"><tspan font-size="50%">P</tspan></text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 0 rg BT /F1 43.2 Tf 1 0 0 1 144 685.2 Tm (R) Tj ET"));
+        assert!(pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 670.8 Tm (P) Tj ET"));
+        assert!(!pdf_text.contains("/F1 360 Tf"));
+        assert!(!pdf_text.contains("[unsupported image: figures/font-size-percent.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
