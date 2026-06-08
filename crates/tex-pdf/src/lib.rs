@@ -1554,6 +1554,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         fill_opacity: Option<f32>,
         stroke_opacity: Option<f32>,
         text_anchor: Option<SimpleSvgTextAnchor>,
+        font_size: Option<f32>,
     }
     let parse_opacity = |raw: &str| -> Option<f32> {
         let raw = raw.trim();
@@ -1641,7 +1642,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     opacity: Option<String>,
                                     fill_opacity: Option<String>,
                                     stroke_opacity: Option<String>,
-                                    text_anchor: Option<String>|
+                                    text_anchor: Option<String>,
+                                    font_size: Option<String>|
      -> SimpleSvgPresentation {
         SimpleSvgPresentation {
             fill: fill.as_deref().map(&parse_color),
@@ -1666,6 +1668,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             fill_opacity: fill_opacity.as_deref().and_then(parse_opacity),
             stroke_opacity: stroke_opacity.as_deref().and_then(parse_opacity),
             text_anchor: text_anchor.as_deref().and_then(parse_text_anchor),
+            font_size: font_size
+                .as_deref()
+                .and_then(parse_number_prefix)
+                .filter(|font_size| *font_size > 0.0),
         }
     };
     let parse_attr_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -1683,6 +1689,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             attr_value(tag, "fill-opacity"),
             attr_value(tag, "stroke-opacity"),
             attr_value(tag, "text-anchor"),
+            attr_value(tag, "font-size"),
         )
     };
     let parse_inline_style_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -1700,6 +1707,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             style_value(tag, "fill-opacity"),
             style_value(tag, "stroke-opacity"),
             style_value(tag, "text-anchor"),
+            style_value(tag, "font-size"),
         )
     };
     let parse_declaration_presentation = |declarations: &str| -> SimpleSvgPresentation {
@@ -1717,6 +1725,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             declaration_value(declarations, "fill-opacity"),
             declaration_value(declarations, "stroke-opacity"),
             declaration_value(declarations, "text-anchor"),
+            declaration_value(declarations, "font-size"),
         )
     };
     #[derive(Debug, Clone)]
@@ -1889,6 +1898,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 fill_opacity: local.fill_opacity.or(base.fill_opacity),
                 stroke_opacity: local.stroke_opacity.or(base.stroke_opacity),
                 text_anchor: local.text_anchor.or(base.text_anchor),
+                font_size: local.font_size.or(base.font_size),
             }
         };
     let inherit_presentation =
@@ -1913,6 +1923,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 fill_opacity: local.fill_opacity.or(parent.fill_opacity),
                 stroke_opacity: local.stroke_opacity.or(parent.stroke_opacity),
                 text_anchor: local.text_anchor.or(parent.text_anchor),
+                font_size: local.font_size.or(parent.font_size),
             }
         };
     let tag_element_name = |tag: &str| -> Option<String> {
@@ -1951,6 +1962,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut fill_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut text_anchor: Option<SimpleSvgCascadeValue<SimpleSvgTextAnchor>> = None;
+        let mut font_size: Option<SimpleSvgCascadeValue<f32>> = None;
         for (order, rule) in style_rules.iter().enumerate() {
             let matches = match &rule.selector {
                 SimpleSvgStyleSelector::Type { element_name } => {
@@ -2117,6 +2129,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
+                if let Some(value) = rule.presentation.font_size {
+                    let current = font_size.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        font_size = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
             }
         }
         SimpleSvgPresentation {
@@ -2133,6 +2155,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             fill_opacity: fill_opacity.map(|value| value.value),
             stroke_opacity: stroke_opacity.map(|value| value.value),
             text_anchor: text_anchor.map(|value| value.value),
+            font_size: font_size.map(|value| value.value),
         }
     };
     let parse_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -3650,12 +3673,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .as_deref()
             .and_then(parse_number_prefix)
             .unwrap_or(0.0);
-        let font_size = attr_value(text_tag, "font-size")
-            .or_else(|| style_value(text_tag, "font-size"))
-            .as_deref()
-            .and_then(parse_number_prefix)
-            .unwrap_or(12.0)
-            * transform.stroke_scale;
+        let font_size = presentation.font_size.unwrap_or(12.0) * transform.stroke_scale;
         let Some(point) = apply_transform(transform, x, y).map(normalize_point) else {
             search_index = text_body_end + "</text>".len();
             continue;
@@ -3704,14 +3722,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         .as_deref()
                         .and_then(parse_number_prefix)
                         .unwrap_or(y);
-                    let tspan_font_size = attr_value(tspan_tag, "font-size")
-                        .or_else(|| style_value(tspan_tag, "font-size"))
-                        .as_deref()
-                        .and_then(parse_number_prefix)
-                        .map(|font_size| font_size * transform.stroke_scale)
-                        .unwrap_or(font_size);
                     let tspan_presentation =
                         inherit_presentation(presentation, parse_presentation(tspan_tag));
+                    let tspan_font_size =
+                        tspan_presentation.font_size.unwrap_or(12.0) * transform.stroke_scale;
                     apply_transform(transform, tspan_x, tspan_y)
                         .map(normalize_point)
                         .map(|point| {
@@ -5506,9 +5520,9 @@ mod tests {
                 br##"<svg width="20" height="10">
   <style type="text/css">
     text.label { text-anchor: middle; fill: #0000ff; }
-    tspan.hot { fill: #ff0000; }
+    tspan.hot { fill: #ff0000; font-size: 2; }
   </style>
-  <text class="label" x="0" y="0"><tspan class="hot" x="10" y="6" font-size="2">aa</tspan></text>
+  <text class="label" x="0" y="0"><tspan class="hot" x="10" y="6">aa</tspan></text>
 </svg>"##
                     .to_vec()
             })
