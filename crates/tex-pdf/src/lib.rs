@@ -1075,7 +1075,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     #[derive(Debug, Clone)]
     struct SimpleSvgStyleRule {
         selector: SimpleSvgStyleSelector,
+        specificity: u16,
         presentation: SimpleSvgPresentation,
+    }
+    #[derive(Debug, Clone, Copy)]
+    struct SimpleSvgCascadeValue<T> {
+        value: T,
+        specificity: u16,
+        order: usize,
     }
     let valid_svg_element_name = |element_name: &str| {
         !element_name.is_empty()
@@ -1139,6 +1146,17 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             None
         }
     };
+    let selector_specificity = |selector: &SimpleSvgStyleSelector| -> u16 {
+        match selector {
+            SimpleSvgStyleSelector::Type { .. } => 1,
+            SimpleSvgStyleSelector::Class { element_name, .. } => {
+                10 + u16::from(element_name.is_some())
+            }
+            SimpleSvgStyleSelector::Id { element_name, .. } => {
+                100 + u16::from(element_name.is_some())
+            }
+        }
+    };
     let mut style_rules = Vec::new();
     let mut style_block_offset = 0usize;
     while let Some(style_start_relative) = text[style_block_offset..].find("<style") {
@@ -1183,8 +1201,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 let Some(selector) = parse_style_selector(selector) else {
                     continue;
                 };
+                let specificity = selector_specificity(&selector);
                 style_rules.push(SimpleSvgStyleRule {
                     selector,
+                    specificity,
                     presentation,
                 });
             }
@@ -1214,8 +1234,19 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let tag_element_name = tag_element_name(tag);
         let class_attr = attr_value(tag, "class");
         let id_attr = attr_value(tag, "id");
-        let mut presentation = SimpleSvgPresentation::default();
-        for rule in &style_rules {
+        let should_replace_cascade_value =
+            |current: Option<(u16, usize)>, specificity: u16, order: usize| {
+                current
+                    .map(|(current_specificity, current_order)| {
+                        specificity > current_specificity
+                            || (specificity == current_specificity && order >= current_order)
+                    })
+                    .unwrap_or(true)
+            };
+        let mut fill: Option<SimpleSvgCascadeValue<Option<(f32, f32, f32)>>> = None;
+        let mut stroke: Option<SimpleSvgCascadeValue<Option<(f32, f32, f32)>>> = None;
+        let mut stroke_width: Option<SimpleSvgCascadeValue<f32>> = None;
+        for (order, rule) in style_rules.iter().enumerate() {
             let matches = match &rule.selector {
                 SimpleSvgStyleSelector::Type { element_name } => {
                     tag_element_name.as_deref() == Some(element_name.as_str())
@@ -1251,10 +1282,43 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 }
             };
             if matches {
-                presentation = compose_presentation(presentation, rule.presentation);
+                if let Some(value) = rule.presentation.fill {
+                    let current = fill.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        fill = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule.presentation.stroke {
+                    let current = stroke.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        stroke = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule.presentation.stroke_width {
+                    let current = stroke_width.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        stroke_width = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
             }
         }
-        presentation
+        SimpleSvgPresentation {
+            fill: fill.map(|value| value.value),
+            stroke: stroke.map(|value| value.value),
+            stroke_width: stroke_width.map(|value| value.value),
+        }
     };
     let parse_presentation = |tag: &str| -> SimpleSvgPresentation {
         let attr_presentation = parse_attr_presentation(tag);
@@ -5057,6 +5121,63 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
         assert!(pdf_text.contains("0 1 0 RG 10 w 20 250 20 20 re S"));
         assert!(!pdf_text.contains("[unsupported image: figures/id-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_style_specificity_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/specificity-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:specificity-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/specificity-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    #focus-line { stroke: #0000ff; stroke-width: 2; fill: none; }
+    .line-accent { stroke: #00ff00; stroke-width: 4; }
+    .rect-accent { fill: #00ff00; stroke: #0000ff; stroke-width: 1; }
+    line { stroke: #ff0000; stroke-width: 6; fill: none; }
+    rect { fill: #ff0000; stroke: #ff0000; stroke-width: 3; }
+    .ordered { stroke: #ff0000; stroke-width: 6; fill: none; }
+    .ordered { stroke: #0000ff; stroke-width: 2; }
+  </style>
+  <line id="focus-line" class="line-accent" x1="0" y1="0" x2="5" y2="0"/>
+  <rect class="rect-accent" x="1" y="1" width="2" height="2"/>
+  <line class="ordered" x1="0" y1="2" x2="5" y2="2"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 20 w 10 280 m 60 280 l S"));
+        assert!(pdf_text.contains("0 1 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 RG 10 w 20 250 20 20 re S"));
+        assert!(pdf_text.contains("0 0 1 RG 20 w 10 260 m 60 260 l S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/specificity-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
