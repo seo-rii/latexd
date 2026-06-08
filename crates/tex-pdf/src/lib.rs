@@ -1631,6 +1631,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         Absolute(f32),
         Percent(f32),
     }
+    #[derive(Debug, Clone, Copy)]
+    enum SimpleSvgBaselineShift {
+        Offset(f32),
+        Percent(f32),
+        Super,
+        Sub,
+    }
     #[derive(Debug, Clone, Copy, Default)]
     struct SimpleSvgPresentation {
         // Outer Option means "specified"; inner Option preserves SVG paint "none".
@@ -1652,6 +1659,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         font_series: Option<FontSeries>,
         font_shape: Option<FontShape>,
         text_baseline: Option<SimpleSvgTextBaseline>,
+        baseline_shift: Option<SimpleSvgBaselineShift>,
     }
     let parse_opacity = |raw: &str| -> Option<f32> {
         let raw = raw.trim();
@@ -1734,6 +1742,27 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             _ => None,
         }
     };
+    let parse_baseline_shift = |raw: &str| -> Option<SimpleSvgBaselineShift> {
+        let raw = raw.trim();
+        match raw.to_ascii_lowercase().as_str() {
+            "baseline" => Some(SimpleSvgBaselineShift::Offset(0.0)),
+            "super" => Some(SimpleSvgBaselineShift::Super),
+            "sub" => Some(SimpleSvgBaselineShift::Sub),
+            _ => {
+                if let Some(percent) = raw.strip_suffix('%') {
+                    return percent
+                        .trim()
+                        .parse::<f32>()
+                        .ok()
+                        .filter(|value| value.is_finite())
+                        .map(|value| SimpleSvgBaselineShift::Percent(value / 100.0));
+                }
+                parse_number_prefix(raw)
+                    .filter(|offset| offset.is_finite())
+                    .map(SimpleSvgBaselineShift::Offset)
+            }
+        }
+    };
     let parse_font_series = |raw: &str| -> Option<FontSeries> {
         let raw = raw.trim().to_ascii_lowercase();
         match raw.as_str() {
@@ -1803,7 +1832,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     font_family: Option<String>,
                                     font_weight: Option<String>,
                                     font_style: Option<String>,
-                                    text_baseline: Option<String>|
+                                    text_baseline: Option<String>,
+                                    baseline_shift: Option<String>|
      -> SimpleSvgPresentation {
         SimpleSvgPresentation {
             fill: fill.as_deref().map(&parse_color),
@@ -1833,6 +1863,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             font_series: font_weight.as_deref().and_then(parse_font_series),
             font_shape: font_style.as_deref().and_then(parse_font_shape),
             text_baseline: text_baseline.as_deref().and_then(parse_text_baseline),
+            baseline_shift: baseline_shift.as_deref().and_then(parse_baseline_shift),
         }
     };
     let parse_attr_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -1858,6 +1889,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 attr_value(tag, "dominant-baseline"),
                 attr_value(tag, "alignment-baseline"),
             ),
+            attr_value(tag, "baseline-shift"),
         )
     };
     let parse_inline_style_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -1883,6 +1915,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 style_value(tag, "dominant-baseline"),
                 style_value(tag, "alignment-baseline"),
             ),
+            style_value(tag, "baseline-shift"),
         )
     };
     let parse_declaration_presentation = |declarations: &str| -> SimpleSvgPresentation {
@@ -1908,6 +1941,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 declaration_value(declarations, "dominant-baseline"),
                 declaration_value(declarations, "alignment-baseline"),
             ),
+            declaration_value(declarations, "baseline-shift"),
         )
     };
     #[derive(Debug, Clone)]
@@ -2085,6 +2119,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 font_series: local.font_series.or(base.font_series),
                 font_shape: local.font_shape.or(base.font_shape),
                 text_baseline: local.text_baseline.or(base.text_baseline),
+                baseline_shift: local.baseline_shift.or(base.baseline_shift),
             }
         };
     let inherit_presentation = |parent: SimpleSvgPresentation,
@@ -2131,6 +2166,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             font_series: local.font_series.or(parent.font_series),
             font_shape: local.font_shape.or(parent.font_shape),
             text_baseline: local.text_baseline.or(parent.text_baseline),
+            baseline_shift: local.baseline_shift.or(parent.baseline_shift),
         }
     };
     let tag_element_name = |tag: &str| -> Option<String> {
@@ -2174,6 +2210,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut font_series: Option<SimpleSvgCascadeValue<FontSeries>> = None;
         let mut font_shape: Option<SimpleSvgCascadeValue<FontShape>> = None;
         let mut text_baseline: Option<SimpleSvgCascadeValue<SimpleSvgTextBaseline>> = None;
+        let mut baseline_shift: Option<SimpleSvgCascadeValue<SimpleSvgBaselineShift>> = None;
         for (order, rule) in style_rules.iter().enumerate() {
             let matches = match &rule.selector {
                 SimpleSvgStyleSelector::Type { element_name } => {
@@ -2390,6 +2427,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
+                if let Some(value) = rule.presentation.baseline_shift {
+                    let current = baseline_shift.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        baseline_shift = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
             }
         }
         SimpleSvgPresentation {
@@ -2411,6 +2458,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             font_series: font_series.map(|value| value.value),
             font_shape: font_shape.map(|value| value.value),
             text_baseline: text_baseline.map(|value| value.value),
+            baseline_shift: baseline_shift.map(|value| value.value),
         }
     };
     let parse_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -2436,6 +2484,15 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         {
             SimpleSvgTextBaseline::Alphabetic => 0.0,
             SimpleSvgTextBaseline::Middle => font_size * 0.5,
+        }
+    };
+    let baseline_shift_y_offset = |presentation: SimpleSvgPresentation, font_size: f32| -> f32 {
+        match presentation.baseline_shift {
+            Some(SimpleSvgBaselineShift::Offset(offset)) => -offset,
+            Some(SimpleSvgBaselineShift::Percent(scale)) => -font_size * scale,
+            Some(SimpleSvgBaselineShift::Super) => -font_size * 0.6,
+            Some(SimpleSvgBaselineShift::Sub) => font_size * 0.2,
+            None => 0.0,
         }
     };
     let root_presentation = parse_presentation(svg_tag);
@@ -3955,7 +4012,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let local_font_size = resolved_font_size(presentation);
         let text_x = x + dx;
         let text_raw_y = y + dy;
-        let text_y = text_raw_y + baseline_y_offset(presentation, local_font_size);
+        let text_y = text_raw_y
+            + baseline_y_offset(presentation, local_font_size)
+            + baseline_shift_y_offset(presentation, local_font_size);
         let font_size = local_font_size * transform.stroke_scale;
         let Some(point) = apply_transform(transform, text_x, text_y).map(normalize_point) else {
             search_index = text_body_end + "</text>".len();
@@ -4028,8 +4087,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 let tspan_font_size = tspan_local_font_size * transform.stroke_scale;
                 let tspan_x = tspan_x + tspan_dx;
                 let tspan_y = tspan_y + tspan_dy;
-                let tspan_baseline_y =
-                    tspan_y + baseline_y_offset(tspan_presentation, tspan_local_font_size);
+                let tspan_baseline_y = tspan_y
+                    + baseline_y_offset(tspan_presentation, tspan_local_font_size)
+                    + baseline_shift_y_offset(tspan_presentation, tspan_local_font_size);
                 let Some(point) =
                     apply_transform(transform, tspan_x, tspan_baseline_y).map(normalize_point)
                 else {
@@ -6051,6 +6111,57 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 rg BT /F1 14.400001 Tf 1 0 0 1 144 670.8 Tm (A) Tj ET"));
         assert!(pdf_text.contains("1 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 663.6 Tm (B) Tj ET"));
         assert!(!pdf_text.contains("[unsupported image: figures/multiple-tspans.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_text_baseline_shift_as_pdf_position_adjustments() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/baseline-shift.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:baseline-shift".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/baseline-shift.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="10" y="0" font-size="2" fill="#000000">
+    <tspan x="10" y="6" baseline-shift="1">U</tspan>
+    <tspan x="10" y="7" baseline-shift="-1">D</tspan>
+    <tspan x="10" y="8" baseline-shift="50%">P</tspan>
+    <tspan x="10" y="9" baseline-shift="super">S</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 678 Tm (U) Tj ET"));
+        assert!(pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 656.4 Tm (D) Tj ET"));
+        assert!(pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 663.6 Tm (P) Tj ET"));
+        assert!(pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 657.84 Tm (S) Tj ET"));
+        assert!(!pdf_text.contains("[unsupported image: figures/baseline-shift.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
