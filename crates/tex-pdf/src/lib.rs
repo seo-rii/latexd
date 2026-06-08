@@ -1024,7 +1024,6 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         stroke: Option<Option<(f32, f32, f32)>>,
         stroke_width: Option<f32>,
     }
-    let empty_presentation = SimpleSvgPresentation::default();
     let parse_presentation = |tag: &str| -> SimpleSvgPresentation {
         SimpleSvgPresentation {
             fill: presentation_value(tag, "fill").as_deref().map(&parse_color),
@@ -1045,6 +1044,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 stroke_width: local.stroke_width.or(parent.stroke_width),
             }
         };
+    let root_presentation = parse_presentation(svg_tag);
     let stroke_width_ratio = |presentation: SimpleSvgPresentation| -> f32 {
         presentation.stroke_width.unwrap_or(1.0) / view_box.2
     };
@@ -1822,11 +1822,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             let group_tag = &group_tag_tail[..group_tag_end];
             let local_transform = parse_transform(group_tag);
             let local_presentation = parse_presentation(group_tag);
-            let presentation = if let Some((_, _, parent_presentation)) = group_stack.last() {
-                compose_presentation(*parent_presentation, local_presentation)
-            } else {
-                local_presentation
-            };
+            let presentation = compose_presentation(
+                group_stack
+                    .last()
+                    .map(|(_, _, parent_presentation)| *parent_presentation)
+                    .unwrap_or(root_presentation),
+                local_presentation,
+            );
             let transform = if let Some((_, Some(parent_transform), _)) = group_stack.last() {
                 local_transform.map(|local| {
                     compose_transform(local, *parent_transform, parent_transform.stroke_scale)
@@ -1865,7 +1867,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             }
             selected_group
                 .map(|group| (group.transform, group.presentation))
-                .unwrap_or((Some(identity_transform), empty_presentation))
+                .unwrap_or((Some(identity_transform), root_presentation))
         };
     let parse_element_state =
         |tag: &str, element_start: usize| -> Option<(SimpleSvgTransform, SimpleSvgPresentation)> {
@@ -4485,6 +4487,56 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 rg 20 250 20 20 re f"));
         assert!(pdf_text.contains("0 1 0 RG 10 w 10 230 m 60 230 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/group-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_root_presentation_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/root-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:root-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/root-style.svg").then(|| {
+                br##"<svg width="20" height="10" style="fill:#ff0000;stroke:#0000ff;stroke-width:2">
+  <line x1="0" y1="0" x2="5" y2="0"/>
+  <rect x="1" y="1" width="2" height="2"/>
+  <g stroke="#00ff00">
+    <path d="M 0 5 L 5 5" fill="none"/>
+  </g>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 20 w 10 280 m 60 280 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 RG 20 w 20 250 20 20 re S"));
+        assert!(pdf_text.contains("0 1 0 RG 20 w 10 230 m 60 230 l S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/root-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

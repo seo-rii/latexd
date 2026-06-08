@@ -190,7 +190,7 @@ resolver-backed SVG `<rect>`, `<line>`, `<circle>`, `<ellipse>`, `<polyline>`,
 quadratic/smooth quadratic commands plus endpoint-parameterized arcs, including
 basic presentation/style fill and stroke metadata, simple `translate` /
 `scale` transform attributes, simple nested group transforms, inherited
-group-level fill/stroke/stroke-width presentation metadata, and `matrix` /
+root/group-level fill/stroke/stroke-width presentation metadata, and `matrix` /
 `rotate` transforms for path-like line/poly/path primitives, plus
 non-axis-aligned transformed rectangles rendered as closed vector polygons and
 transformed circle/ellipse primitives rendered as cubic vector paths, is also
@@ -223,7 +223,7 @@ artifacts when the relevant local tool is available. Converted debug artifacts
 reuse the display-list natural point size for crop/clip placement rather than
 the converted bitmap pixel size. Driver-accurate crop/clip rendering for
 production PDF/SVG vector output and raster backends, TeX-exact rotated-box
-reflow, broader SVG style cascade beyond group-level fill/stroke/stroke-width
+reflow, broader SVG style cascade beyond root/group-level fill/stroke/stroke-width
 inheritance, programmable table preamble hooks, exact
 vertical border trimming, exact table rule trimming, actual multirow geometry,
 exact nested table layout/reflow, and full TeX alignment policy are still
@@ -627,7 +627,7 @@ Implemented first slice:
   content with line, cubic/smooth cubic, quadratic/smooth quadratic, and arc
   commands, including basic presentation/style fill and stroke metadata plus
   simple `translate` / `scale` transforms, simple nested group transforms, and
-  inherited group-level fill/stroke/stroke-width metadata, path-like `matrix` /
+  inherited root/group-level fill/stroke/stroke-width metadata, path-like `matrix` /
   `rotate` transforms, non-axis-aligned transformed rectangles, and transformed
   circle/ellipse cubic paths, as vector drawing operations;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
@@ -1050,7 +1050,7 @@ Status:
   with line, cubic/smooth cubic, quadratic/smooth quadratic, and arc commands,
   including basic presentation/style fill and stroke metadata plus simple
   `translate` / `scale` transform attributes, simple nested group transforms,
-  inherited group-level fill/stroke/stroke-width metadata, and path-like
+  inherited root/group-level fill/stroke/stroke-width metadata, and path-like
   `matrix` / `rotate` transform attributes plus non-axis-aligned transformed
   rectangles and transformed circle/ellipse cubic paths, as vector PDF drawing
   operations;
