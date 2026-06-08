@@ -1648,6 +1648,21 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             _ => Some((0.0, 0.0, 0.0)),
         }
     };
+    let parse_paint = |raw: &str| -> Option<SimpleSvgColor> {
+        let raw = raw.trim();
+        if raw.eq_ignore_ascii_case("none") || raw.eq_ignore_ascii_case("transparent") {
+            return None;
+        }
+        if raw.eq_ignore_ascii_case("currentColor") {
+            return Some(SimpleSvgColor::CurrentColor);
+        }
+        parse_color(raw).map(SimpleSvgColor::Rgb)
+    };
+    #[derive(Debug, Clone, Copy)]
+    enum SimpleSvgColor {
+        Rgb((f32, f32, f32)),
+        CurrentColor,
+    }
     #[derive(Debug, Clone, Copy)]
     enum SimpleSvgFontSize {
         Absolute(f32),
@@ -1663,15 +1678,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     #[derive(Debug, Clone, Copy, Default)]
     struct SimpleSvgPresentation {
         // Outer Option means "specified"; inner Option preserves SVG paint "none".
-        fill: Option<Option<(f32, f32, f32)>>,
+        fill: Option<Option<SimpleSvgColor>>,
         fill_rule: Option<SimpleSvgFillRule>,
-        stroke: Option<Option<(f32, f32, f32)>>,
+        stroke: Option<Option<SimpleSvgColor>>,
         stroke_width: Option<f32>,
         stroke_dasharray: Option<Option<SimpleSvgDashArray>>,
         stroke_dashoffset: Option<f32>,
         stroke_linecap: Option<SimpleSvgStrokeLineCap>,
         stroke_linejoin: Option<SimpleSvgStrokeLineJoin>,
         stroke_miterlimit: Option<f32>,
+        color: Option<(f32, f32, f32)>,
         opacity: Option<f32>,
         fill_opacity: Option<f32>,
         stroke_opacity: Option<f32>,
@@ -1846,6 +1862,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     stroke_linecap: Option<String>,
                                     stroke_linejoin: Option<String>,
                                     stroke_miterlimit: Option<String>,
+                                    color: Option<String>,
                                     opacity: Option<String>,
                                     fill_opacity: Option<String>,
                                     stroke_opacity: Option<String>,
@@ -1858,9 +1875,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     baseline_shift: Option<String>|
      -> SimpleSvgPresentation {
         SimpleSvgPresentation {
-            fill: fill.as_deref().map(&parse_color),
+            fill: fill.as_deref().map(&parse_paint),
             fill_rule: fill_rule.as_deref().and_then(parse_fill_rule),
-            stroke: stroke.as_deref().map(&parse_color),
+            stroke: stroke.as_deref().map(&parse_paint),
             stroke_width: stroke_width
                 .as_deref()
                 .and_then(parse_number_prefix)
@@ -1876,6 +1893,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .as_deref()
                 .and_then(parse_number_prefix)
                 .filter(|limit| *limit >= 1.0),
+            color: color.as_deref().and_then(parse_color),
             opacity: opacity.as_deref().and_then(parse_opacity),
             fill_opacity: fill_opacity.as_deref().and_then(parse_opacity),
             stroke_opacity: stroke_opacity.as_deref().and_then(parse_opacity),
@@ -1899,6 +1917,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             attr_value(tag, "stroke-linecap"),
             attr_value(tag, "stroke-linejoin"),
             attr_value(tag, "stroke-miterlimit"),
+            attr_value(tag, "color"),
             attr_value(tag, "opacity"),
             attr_value(tag, "fill-opacity"),
             attr_value(tag, "stroke-opacity"),
@@ -1925,6 +1944,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             style_value(tag, "stroke-linecap"),
             style_value(tag, "stroke-linejoin"),
             style_value(tag, "stroke-miterlimit"),
+            style_value(tag, "color"),
             style_value(tag, "opacity"),
             style_value(tag, "fill-opacity"),
             style_value(tag, "stroke-opacity"),
@@ -1951,6 +1971,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             declaration_value(declarations, "stroke-linecap"),
             declaration_value(declarations, "stroke-linejoin"),
             declaration_value(declarations, "stroke-miterlimit"),
+            declaration_value(declarations, "color"),
             declaration_value(declarations, "opacity"),
             declaration_value(declarations, "fill-opacity"),
             declaration_value(declarations, "stroke-opacity"),
@@ -2136,6 +2157,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 stroke_linecap: local.stroke_linecap.or(base.stroke_linecap),
                 stroke_linejoin: local.stroke_linejoin.or(base.stroke_linejoin),
                 stroke_miterlimit: local.stroke_miterlimit.or(base.stroke_miterlimit),
+                color: local.color.or(base.color),
                 opacity: local.opacity.or(base.opacity),
                 fill_opacity: local.fill_opacity.or(base.fill_opacity),
                 stroke_opacity: local.stroke_opacity.or(base.stroke_opacity),
@@ -2183,6 +2205,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             stroke_linecap: local.stroke_linecap.or(parent.stroke_linecap),
             stroke_linejoin: local.stroke_linejoin.or(parent.stroke_linejoin),
             stroke_miterlimit: local.stroke_miterlimit.or(parent.stroke_miterlimit),
+            color: local.color.or(parent.color),
             opacity,
             fill_opacity: local.fill_opacity.or(parent.fill_opacity),
             stroke_opacity: local.stroke_opacity.or(parent.stroke_opacity),
@@ -2218,15 +2241,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     })
                     .unwrap_or(true)
             };
-        let mut fill: Option<SimpleSvgCascadeValue<Option<(f32, f32, f32)>>> = None;
+        let mut fill: Option<SimpleSvgCascadeValue<Option<SimpleSvgColor>>> = None;
         let mut fill_rule: Option<SimpleSvgCascadeValue<SimpleSvgFillRule>> = None;
-        let mut stroke: Option<SimpleSvgCascadeValue<Option<(f32, f32, f32)>>> = None;
+        let mut stroke: Option<SimpleSvgCascadeValue<Option<SimpleSvgColor>>> = None;
         let mut stroke_width: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_dasharray: Option<SimpleSvgCascadeValue<Option<SimpleSvgDashArray>>> = None;
         let mut stroke_dashoffset: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_linecap: Option<SimpleSvgCascadeValue<SimpleSvgStrokeLineCap>> = None;
         let mut stroke_linejoin: Option<SimpleSvgCascadeValue<SimpleSvgStrokeLineJoin>> = None;
         let mut stroke_miterlimit: Option<SimpleSvgCascadeValue<f32>> = None;
+        let mut color: Option<SimpleSvgCascadeValue<(f32, f32, f32)>> = None;
         let mut opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut fill_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
@@ -2363,6 +2387,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
+                if let Some(value) = rule.presentation.color {
+                    let current = color.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        color = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
                 if let Some(value) = rule.presentation.opacity {
                     let current = opacity.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
@@ -2475,6 +2509,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             stroke_linecap: stroke_linecap.map(|value| value.value),
             stroke_linejoin: stroke_linejoin.map(|value| value.value),
             stroke_miterlimit: stroke_miterlimit.map(|value| value.value),
+            color: color.map(|value| value.value),
             opacity: opacity.map(|value| value.value),
             fill_opacity: fill_opacity.map(|value| value.value),
             stroke_opacity: stroke_opacity.map(|value| value.value),
@@ -2550,25 +2585,41 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             miterlimit: presentation.stroke_miterlimit.unwrap_or(4.0),
         }
     };
-    let paint_from_rgb = |rgb: Option<(f32, f32, f32)>, opacity: f32| -> Option<SimpleSvgPaint> {
+    let resolve_svg_color = |color: SimpleSvgColor, current_color: (f32, f32, f32)| match color {
+        SimpleSvgColor::Rgb(rgb) => rgb,
+        SimpleSvgColor::CurrentColor => current_color,
+    };
+    let paint_from_color = |color: Option<SimpleSvgColor>,
+                            opacity: f32,
+                            current_color: (f32, f32, f32)|
+     -> Option<SimpleSvgPaint> {
         let opacity = opacity.clamp(0.0, 1.0);
-        (opacity > 0.0).then_some(SimpleSvgPaint { rgb: rgb?, opacity })
+        (opacity > 0.0).then_some(SimpleSvgPaint {
+            rgb: resolve_svg_color(color?, current_color),
+            opacity,
+        })
     };
     let fill_paint = |presentation: SimpleSvgPresentation,
                       default_rgb: Option<(f32, f32, f32)>|
      -> Option<SimpleSvgPaint> {
-        paint_from_rgb(
-            presentation.fill.unwrap_or(default_rgb),
+        let current_color = presentation.color.unwrap_or((0.0, 0.0, 0.0));
+        paint_from_color(
+            presentation
+                .fill
+                .unwrap_or_else(|| default_rgb.map(SimpleSvgColor::Rgb)),
             presentation.opacity.unwrap_or(1.0) * presentation.fill_opacity.unwrap_or(1.0),
+            current_color,
         )
     };
     let fill_rule = |presentation: SimpleSvgPresentation| -> SimpleSvgFillRule {
         presentation.fill_rule.unwrap_or(SimpleSvgFillRule::NonZero)
     };
     let stroke_paint = |presentation: SimpleSvgPresentation| -> Option<SimpleSvgPaint> {
-        paint_from_rgb(
+        let current_color = presentation.color.unwrap_or((0.0, 0.0, 0.0));
+        paint_from_color(
             presentation.stroke.unwrap_or(None),
             presentation.opacity.unwrap_or(1.0) * presentation.stroke_opacity.unwrap_or(1.0),
+            current_color,
         )
     };
     #[derive(Debug, Clone, Copy)]
@@ -8172,6 +8223,56 @@ mod tests {
         assert!(pdf_text.contains("0 1 1 RG 10 w 20 250 20 20 re S"));
         assert!(pdf_text.contains("1 0 1 RG 20 w 10 260 m 60 260 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/named-color-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_current_color_paint_as_inherited_color() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/current-color.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:current-color".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/current-color.svg").then(|| {
+                br##"<svg width="20" height="10" color="#00ff00">
+  <style>
+    .accent { color: #0000ff; fill: currentColor; }
+  </style>
+  <rect x="1" y="1" width="2" height="2" fill="currentColor"/>
+  <rect class="accent" x="4" y="1" width="2" height="2"/>
+  <line x1="0" y1="2" x2="5" y2="2" color="#ff0000" stroke="currentColor" stroke-width="1" fill="none"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 rg 50 250 20 20 re f"));
+        assert!(pdf_text.contains("1 0 0 RG 10 w 10 260 m 60 260 l S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/current-color.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

@@ -198,8 +198,8 @@ root/group-level fill/stroke/stroke-width presentation metadata, simple
 root `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`,
 comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
 class/id selector fill/stroke/stroke-width rules with basic specificity and
-source-order cascade, hex/common named/`rgb(...)` color forms, and transparent
-paint as no-paint, simple `fill-rule` mapped to PDF nonzero/even-odd fill
+    source-order cascade, hex/common named/`rgb(...)` color forms, inherited
+    `currentColor` fill/stroke paint, and transparent paint as no-paint, simple `fill-rule` mapped to PDF nonzero/even-odd fill
 operators, simple `opacity` / `fill-opacity` / `stroke-opacity` mapped to PDF
 ExtGState resources, simple `stroke-dasharray` mapped to PDF dash patterns with
 `stroke-dashoffset` phase support, simple `stroke-linecap` /
@@ -647,8 +647,8 @@ Implemented first slice:
   `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`, simple
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
   class/id selector fill/stroke/stroke-width rules with basic specificity and
-  source-order cascade plus hex/common named/`rgb(...)` color forms and
-  transparent paint as no-paint, simple `fill-rule` mapped to PDF
+  source-order cascade plus hex/common named/`rgb(...)` color forms, inherited
+  `currentColor` fill/stroke paint, and transparent paint as no-paint, simple `fill-rule` mapped to PDF
   nonzero/even-odd fill operators, simple `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray`
   mapped to PDF dash patterns with `stroke-dashoffset` phase support, simple
@@ -1094,8 +1094,8 @@ Status:
   `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`, simple
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
   class/id selector fill/stroke/stroke-width rules with basic specificity and
-  source-order cascade plus hex/common named/`rgb(...)` color forms and
-  transparent paint as no-paint, simple `fill-rule` mapped to PDF
+  source-order cascade plus hex/common named/`rgb(...)` color forms, inherited
+  `currentColor` fill/stroke paint, and transparent paint as no-paint, simple `fill-rule` mapped to PDF
   nonzero/even-odd fill operators, simple `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray`
   mapped to PDF dash patterns with `stroke-dashoffset` phase support, simple
