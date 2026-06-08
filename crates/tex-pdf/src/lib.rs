@@ -1263,6 +1263,41 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         |presentation: SimpleSvgPresentation, transform: SimpleSvgTransform| -> f32 {
             stroke_width_ratio(presentation) * transform.stroke_scale
         };
+    let ellipse_path_ops = |cx: f32,
+                            cy: f32,
+                            rx: f32,
+                            ry: f32,
+                            transform: SimpleSvgTransform|
+     -> Option<Vec<SimpleSvgPathOp>> {
+        let kappa = 0.552_284_8_f32;
+        let transform_point = |x: f32, y: f32| -> Option<(f32, f32)> {
+            Some(normalize_point(apply_transform(transform, x, y)?))
+        };
+        Some(vec![
+            SimpleSvgPathOp::MoveTo(transform_point(cx + rx, cy)?),
+            SimpleSvgPathOp::CubicTo {
+                ctrl1: transform_point(cx + rx, cy + kappa * ry)?,
+                ctrl2: transform_point(cx + kappa * rx, cy + ry)?,
+                to: transform_point(cx, cy + ry)?,
+            },
+            SimpleSvgPathOp::CubicTo {
+                ctrl1: transform_point(cx - kappa * rx, cy + ry)?,
+                ctrl2: transform_point(cx - rx, cy + kappa * ry)?,
+                to: transform_point(cx - rx, cy)?,
+            },
+            SimpleSvgPathOp::CubicTo {
+                ctrl1: transform_point(cx - rx, cy - kappa * ry)?,
+                ctrl2: transform_point(cx - kappa * rx, cy - ry)?,
+                to: transform_point(cx, cy - ry)?,
+            },
+            SimpleSvgPathOp::CubicTo {
+                ctrl1: transform_point(cx + kappa * rx, cy - ry)?,
+                ctrl2: transform_point(cx + rx, cy - kappa * ry)?,
+                to: transform_point(cx + rx, cy)?,
+            },
+            SimpleSvgPathOp::Close,
+        ])
+    };
     let parse_points = |raw: &str, transform: SimpleSvgTransform| -> Option<Vec<(f32, f32)>> {
         let values = raw
             .split(|ch: char| ch.is_whitespace() || ch == ',')
@@ -2010,6 +2045,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         search_index = line_start + line_end + 1;
     }
     let mut ellipses = Vec::new();
+    let mut ellipse_paths = Vec::new();
     let mut search_index = 0usize;
     while let Some(relative) = svg_content[search_index..].find("<circle") {
         let circle_start = search_index + relative;
@@ -2039,7 +2075,19 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 search_index = circle_start + circle_end + 1;
                 continue;
             };
+            let fill_rgb = presentation.fill.unwrap_or(Some((0.0, 0.0, 0.0)));
+            let stroke_rgb = presentation.stroke.unwrap_or(None);
             if !transform.axis_aligned {
+                if (fill_rgb.is_some() || stroke_rgb.is_some())
+                    && let Some(ops) = ellipse_path_ops(cx, cy, radius, radius, transform)
+                {
+                    ellipse_paths.push(SimpleSvgPath {
+                        ops,
+                        fill_rgb,
+                        stroke_rgb,
+                        stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
+                    });
+                }
                 search_index = circle_start + circle_end + 1;
                 continue;
             }
@@ -2057,8 +2105,6 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             };
             let rx = (radius_x_point.0 - center.0).abs();
             let ry = (radius_y_point.1 - center.1).abs();
-            let fill_rgb = presentation.fill.unwrap_or(Some((0.0, 0.0, 0.0)));
-            let stroke_rgb = presentation.stroke.unwrap_or(None);
             if rx > 0.0 && ry > 0.0 && (fill_rgb.is_some() || stroke_rgb.is_some()) {
                 ellipses.push(SimpleSvgEllipse {
                     cx_ratio: (center.0 - view_box.0) / view_box.2,
@@ -2109,7 +2155,19 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 search_index = ellipse_start + ellipse_end + 1;
                 continue;
             };
+            let fill_rgb = presentation.fill.unwrap_or(Some((0.0, 0.0, 0.0)));
+            let stroke_rgb = presentation.stroke.unwrap_or(None);
             if !transform.axis_aligned {
+                if (fill_rgb.is_some() || stroke_rgb.is_some())
+                    && let Some(ops) = ellipse_path_ops(cx, cy, rx, ry, transform)
+                {
+                    ellipse_paths.push(SimpleSvgPath {
+                        ops,
+                        fill_rgb,
+                        stroke_rgb,
+                        stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
+                    });
+                }
                 search_index = ellipse_start + ellipse_end + 1;
                 continue;
             }
@@ -2127,8 +2185,6 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             };
             let rx = (radius_x_point.0 - center.0).abs();
             let ry = (radius_y_point.1 - center.1).abs();
-            let fill_rgb = presentation.fill.unwrap_or(Some((0.0, 0.0, 0.0)));
-            let stroke_rgb = presentation.stroke.unwrap_or(None);
             if rx > 0.0 && ry > 0.0 && (fill_rgb.is_some() || stroke_rgb.is_some()) {
                 ellipses.push(SimpleSvgEllipse {
                     cx_ratio: (center.0 - view_box.0) / view_box.2,
@@ -2198,7 +2254,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         search_index = poly_start + poly_end + 1;
     }
-    let mut paths = Vec::new();
+    let mut paths = ellipse_paths;
     let mut search_index = 0usize;
     while let Some(relative) = svg_content[search_index..].find("<path") {
         let path_start = search_index + relative;
@@ -3898,6 +3954,52 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 rg 80 230 m"));
         assert!(pdf_text.contains("0 0 1 RG 5 w 190 230 m"));
         assert!(!pdf_text.contains("[unsupported image: figures/markers.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_transformed_ellipses_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/transformed-ellipse.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:transformed-ellipse".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/transformed-ellipse.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <ellipse cx="5" cy="2" rx="4" ry="1" transform="matrix(0 1 -1 0 10 0)" fill="#ff0000" stroke="#0000ff" stroke-width="1"/>
+  <circle cx="5" cy="6" r="1" transform="matrix(0 1 -1 0 10 0)" fill="none" stroke="#00ff00" stroke-width="1"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 90 190 m"));
+        assert!(pdf_text.contains("0 0 1 RG 10 w 90 190 m"));
+        assert!(pdf_text.contains("0 1 0 RG 10 w 50 220 m"));
+        assert!(!pdf_text.contains("[unsupported image: figures/transformed-ellipse.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
