@@ -186,11 +186,11 @@ to PNG for debug display-list PDF/SVG artifacts through Ghostscript or Poppler.
 Resolver-backed SVG and PNG/JPEG bitmap assets are embedded as data-URI
 `<image>` elements in project-root display-list SVG debug artifacts. Simple
 resolver-backed SVG `<rect>`, `<line>`, `<circle>`, `<ellipse>`, `<polyline>`,
-`<polygon>`, and `<path>` content with line and cubic Bezier commands, including
-basic presentation/style fill and stroke metadata plus simple `translate` /
-`scale` transform attributes, is also rendered directly as vector PDF drawing
-operations in display-list PDF artifacts instead of falling back to
-unsupported-image placeholders. The
+`<polygon>`, and `<path>` content with line, cubic/smooth cubic, and
+quadratic/smooth quadratic commands, including basic presentation/style fill
+and stroke metadata plus simple `translate` / `scale` transform attributes, is
+also rendered directly as vector PDF drawing operations in display-list PDF
+artifacts instead of falling back to unsupported-image placeholders. The
 display-list image op now carries the resolved natural point size separately
 from the destination rectangle, so PDF/SVG debug crop placement uses the
 original asset coordinate space even when a PDF/EPS asset is rendered through a
@@ -219,8 +219,8 @@ reuse the display-list natural point size for crop/clip placement rather than
 the converted bitmap pixel size. Driver-accurate crop/clip rendering for
 production PDF/SVG vector output and raster backends, TeX-exact rotated-box
 reflow, broader SVG transform support such as `rotate` / `matrix` / group
-transforms, broader SVG path commands such as arcs, smooth curves, and
-quadratic curves, programmable table preamble hooks, exact
+transforms, broader SVG path commands such as arcs, programmable table preamble
+hooks, exact
 vertical border trimming, exact table rule trimming, actual multirow geometry,
 exact nested table layout/reflow, and full TeX alignment policy are still
 deferred.
@@ -1038,9 +1038,10 @@ Status:
   and PNG/JPEG bitmap assets, including clip-enabled crop visualization for
   bitmap assets and simple SVG assets with parseable natural dimensions;
 - project-root display-list PDF debug artifacts render simple resolver-backed
-  SVG rectangle, line, circle, ellipse, polyline, polygon, and line-only path
-  content, including basic presentation/style fill and stroke metadata, as
-  vector PDF drawing operations;
+  SVG rectangle, line, circle, ellipse, polyline, polygon, and path content
+  with line, cubic/smooth cubic, and quadratic/smooth quadratic commands,
+  including basic presentation/style fill and stroke metadata plus simple
+  `translate` / `scale` transform attributes, as vector PDF drawing operations;
 - `latexd render-ir --root ... --input ... --output-dir ...` exposes the
   event/IR/display-list artifact pipeline without replacing the serve preview
   path;
@@ -1166,8 +1167,7 @@ Status:
   suppressed from visible table fallback text;
 - simple multirow row counts survive into `TableCell.row_span` metadata;
 - broader production SVG/PDF vector embedding remains pending beyond the
-  current simple SVG rectangle/line/circle/ellipse/polyline/polygon/line-path
-  subset.
+  current simple SVG shape/path subset.
 
 Exit criteria:
 

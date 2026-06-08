@@ -1208,7 +1208,23 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             }
             if matches!(
                 ch,
-                'M' | 'm' | 'L' | 'l' | 'H' | 'h' | 'V' | 'v' | 'C' | 'c' | 'Z' | 'z'
+                'M' | 'm'
+                    | 'L'
+                    | 'l'
+                    | 'H'
+                    | 'h'
+                    | 'V'
+                    | 'v'
+                    | 'C'
+                    | 'c'
+                    | 'S'
+                    | 's'
+                    | 'Q'
+                    | 'q'
+                    | 'T'
+                    | 't'
+                    | 'Z'
+                    | 'z'
             ) {
                 tokens.push(SimplePathToken::Command(ch));
                 index += ch.len_utf8();
@@ -1252,6 +1268,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut ops = Vec::new();
         let mut closed = false;
         let mut has_move = false;
+        let mut last_cubic_ctrl2 = None;
+        let mut last_quadratic_ctrl = None;
         while token_index < tokens.len() {
             if let SimplePathToken::Command(path_command) = tokens[token_index] {
                 command = Some(path_command);
@@ -1284,6 +1302,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         transform, current.0, current.1,
                     )?)));
                     has_move = true;
+                    last_cubic_ctrl2 = None;
+                    last_quadratic_ctrl = None;
                     command = Some(if current_command == 'm' { 'l' } else { 'L' });
                 }
                 'L' | 'l' => {
@@ -1301,6 +1321,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     ops.push(SimpleSvgPathOp::LineTo(normalize_point(apply_transform(
                         transform, current.0, current.1,
                     )?)));
+                    last_cubic_ctrl2 = None;
+                    last_quadratic_ctrl = None;
                 }
                 'H' | 'h' => {
                     if !has_move {
@@ -1315,6 +1337,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     ops.push(SimpleSvgPathOp::LineTo(normalize_point(apply_transform(
                         transform, current.0, current.1,
                     )?)));
+                    last_cubic_ctrl2 = None;
+                    last_quadratic_ctrl = None;
                 }
                 'V' | 'v' => {
                     if !has_move {
@@ -1329,6 +1353,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     ops.push(SimpleSvgPathOp::LineTo(normalize_point(apply_transform(
                         transform, current.0, current.1,
                     )?)));
+                    last_cubic_ctrl2 = None;
+                    last_quadratic_ctrl = None;
                 }
                 'C' | 'c' => {
                     if !has_move {
@@ -1355,6 +1381,104 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         ctrl2: normalize_point(apply_transform(transform, ctrl2.0, ctrl2.1)?),
                         to: normalize_point(apply_transform(transform, to.0, to.1)?),
                     });
+                    last_cubic_ctrl2 = Some(ctrl2);
+                    last_quadratic_ctrl = None;
+                }
+                'S' | 's' => {
+                    if !has_move {
+                        return None;
+                    }
+                    let ctrl2_x = next_number()?;
+                    let ctrl2_y = next_number()?;
+                    let to_x = next_number()?;
+                    let to_y = next_number()?;
+                    let ctrl1 = last_cubic_ctrl2
+                        .map(|ctrl2: (f32, f32)| {
+                            (2.0 * current.0 - ctrl2.0, 2.0 * current.1 - ctrl2.1)
+                        })
+                        .unwrap_or(current);
+                    let (ctrl2, to) = if current_command == 's' {
+                        (
+                            (current.0 + ctrl2_x, current.1 + ctrl2_y),
+                            (current.0 + to_x, current.1 + to_y),
+                        )
+                    } else {
+                        ((ctrl2_x, ctrl2_y), (to_x, to_y))
+                    };
+                    current = to;
+                    ops.push(SimpleSvgPathOp::CubicTo {
+                        ctrl1: normalize_point(apply_transform(transform, ctrl1.0, ctrl1.1)?),
+                        ctrl2: normalize_point(apply_transform(transform, ctrl2.0, ctrl2.1)?),
+                        to: normalize_point(apply_transform(transform, to.0, to.1)?),
+                    });
+                    last_cubic_ctrl2 = Some(ctrl2);
+                    last_quadratic_ctrl = None;
+                }
+                'Q' | 'q' => {
+                    if !has_move {
+                        return None;
+                    }
+                    let ctrl_x = next_number()?;
+                    let ctrl_y = next_number()?;
+                    let to_x = next_number()?;
+                    let to_y = next_number()?;
+                    let (ctrl, to) = if current_command == 'q' {
+                        (
+                            (current.0 + ctrl_x, current.1 + ctrl_y),
+                            (current.0 + to_x, current.1 + to_y),
+                        )
+                    } else {
+                        ((ctrl_x, ctrl_y), (to_x, to_y))
+                    };
+                    let ctrl1 = (
+                        current.0 + (2.0 / 3.0) * (ctrl.0 - current.0),
+                        current.1 + (2.0 / 3.0) * (ctrl.1 - current.1),
+                    );
+                    let ctrl2 = (
+                        to.0 + (2.0 / 3.0) * (ctrl.0 - to.0),
+                        to.1 + (2.0 / 3.0) * (ctrl.1 - to.1),
+                    );
+                    current = to;
+                    ops.push(SimpleSvgPathOp::CubicTo {
+                        ctrl1: normalize_point(apply_transform(transform, ctrl1.0, ctrl1.1)?),
+                        ctrl2: normalize_point(apply_transform(transform, ctrl2.0, ctrl2.1)?),
+                        to: normalize_point(apply_transform(transform, to.0, to.1)?),
+                    });
+                    last_cubic_ctrl2 = None;
+                    last_quadratic_ctrl = Some(ctrl);
+                }
+                'T' | 't' => {
+                    if !has_move {
+                        return None;
+                    }
+                    let to_x = next_number()?;
+                    let to_y = next_number()?;
+                    let ctrl = last_quadratic_ctrl
+                        .map(|ctrl: (f32, f32)| {
+                            (2.0 * current.0 - ctrl.0, 2.0 * current.1 - ctrl.1)
+                        })
+                        .unwrap_or(current);
+                    let to = if current_command == 't' {
+                        (current.0 + to_x, current.1 + to_y)
+                    } else {
+                        (to_x, to_y)
+                    };
+                    let ctrl1 = (
+                        current.0 + (2.0 / 3.0) * (ctrl.0 - current.0),
+                        current.1 + (2.0 / 3.0) * (ctrl.1 - current.1),
+                    );
+                    let ctrl2 = (
+                        to.0 + (2.0 / 3.0) * (ctrl.0 - to.0),
+                        to.1 + (2.0 / 3.0) * (ctrl.1 - to.1),
+                    );
+                    current = to;
+                    ops.push(SimpleSvgPathOp::CubicTo {
+                        ctrl1: normalize_point(apply_transform(transform, ctrl1.0, ctrl1.1)?),
+                        ctrl2: normalize_point(apply_transform(transform, ctrl2.0, ctrl2.1)?),
+                        to: normalize_point(apply_transform(transform, to.0, to.1)?),
+                    });
+                    last_cubic_ctrl2 = None;
+                    last_quadratic_ctrl = Some(ctrl);
                 }
                 _ => return None,
             }
@@ -3541,6 +3665,59 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 RG 10 w 10 230 m 60 280 160 280 210 230 c S"));
         assert!(pdf_text.contains("1 0 0 rg 30 200 m 70 260 150 260 190 200 c h f"));
         assert!(!pdf_text.contains("[unsupported image: figures/cubic.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_smooth_and_quadratic_paths_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/smooth.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:smooth".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/smooth.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <path d="M 0 5 C 5 0 10 0 10 5 S 15 10 20 5" fill="none" stroke-width="1" stroke="#00ff00"/>
+  <path d="M 0 6 Q 6 0 12 6 T 24 6" fill="none" stroke-width="1" stroke="#0000ff"/>
+  <path d="M 2 5 q 6 -6 12 0 t 12 0" fill="none" stroke-width="1" stroke="#ff0000"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains(
+            "0 1 0 RG 10 w 10 230 m 60 280 110 280 110 230 c 110 180 160 180 210 230 c S"
+        ));
+        assert!(pdf_text.contains(
+            "0 0 1 RG 10 w 10 220 m 50 260 90 260 130 220 c 170 180 210 180 250 220 c S"
+        ));
+        assert!(pdf_text.contains(
+            "1 0 0 RG 10 w 30 230 m 70 270 110 270 150 230 c 190 190 230 190 270 230 c S"
+        ));
+        assert!(!pdf_text.contains("[unsupported image: figures/smooth.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
