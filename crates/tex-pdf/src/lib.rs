@@ -1075,7 +1075,11 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let Some(content_end_relative) = text[content_start..].find("</style>") else {
             break;
         };
-        let css = &text[content_start..content_start + content_end_relative];
+        let css = text[content_start..content_start + content_end_relative].trim();
+        let css = css
+            .strip_prefix("<![CDATA[")
+            .and_then(|css| css.strip_suffix("]]>"))
+            .unwrap_or(css);
         let mut css_offset = 0usize;
         while let Some(selector_end_relative) = css[css_offset..].find('{') {
             let selector_end = css_offset + selector_end_relative;
@@ -4685,6 +4689,52 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 RG 20 w 10 230 m 60 230 l S"));
         assert!(pdf_text.contains("0 1 0 RG 20 w 10 210 m 60 210 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/class-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_cdata_class_style_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/cdata-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:cdata-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/cdata-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css"><![CDATA[
+    .blue { stroke: #0000ff; stroke-width: 2; fill: none; }
+  ]]></style>
+  <line class="blue" x1="0" y1="0" x2="5" y2="0"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 20 w 10 280 m 60 280 l S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/cdata-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
