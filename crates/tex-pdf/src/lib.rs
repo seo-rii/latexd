@@ -1563,6 +1563,12 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             y_align: SimpleSvgAspectAlign::Mid,
             scale: SimpleSvgAspectScale::Meet,
         });
+    let svg_content_start = tag_start + tag_end + 1;
+    let svg_content_end = text[svg_content_start..]
+        .find("</svg>")
+        .map(|relative| svg_content_start + relative)
+        .unwrap_or(text.len());
+    let svg_content = &text[svg_content_start..svg_content_end];
     let declaration_value = |declarations: &str, name: &str| -> Option<String> {
         for declaration in declarations.split(';') {
             let Some((key, value)) = declaration.split_once(':') else {
@@ -1939,6 +1945,89 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             _ => Some(color((0.0, 0.0, 0.0))),
         }
     };
+    let paint_server_colors = {
+        let mut colors = Vec::new();
+        for gradient_name in ["linearGradient", "radialGradient"] {
+            let open_tag = format!("<{gradient_name}");
+            let close_tag = format!("</{gradient_name}>");
+            let mut search_index = 0usize;
+            while let Some(relative) = svg_content[search_index..].find(&open_tag) {
+                let gradient_start = search_index + relative;
+                let gradient_tail = &svg_content[gradient_start..];
+                if !is_start_tag_named(gradient_tail, gradient_name) {
+                    search_index = gradient_start + open_tag.len();
+                    continue;
+                }
+                let Some(gradient_tag_end) = gradient_tail.find('>') else {
+                    break;
+                };
+                let gradient_tag = &gradient_tail[..gradient_tag_end];
+                let Some(id) = attr_value(gradient_tag, "id") else {
+                    search_index = gradient_start + gradient_tag_end + 1;
+                    continue;
+                };
+                let id = id.trim();
+                if id.is_empty() {
+                    search_index = gradient_start + gradient_tag_end + 1;
+                    continue;
+                }
+                let body_start = gradient_start + gradient_tag_end + 1;
+                let (gradient_body, next_index) = if gradient_tag.trim_end().ends_with('/') {
+                    ("", body_start)
+                } else if let Some(close_relative) = svg_content[body_start..].find(&close_tag) {
+                    (
+                        &svg_content[body_start..body_start + close_relative],
+                        body_start + close_relative + close_tag.len(),
+                    )
+                } else {
+                    (&svg_content[body_start..], svg_content.len())
+                };
+                let mut stop_search_index = 0usize;
+                while let Some(stop_relative) = gradient_body[stop_search_index..].find("<stop") {
+                    let stop_start = stop_search_index + stop_relative;
+                    let stop_tail = &gradient_body[stop_start..];
+                    if !is_start_tag_named(stop_tail, "stop") {
+                        stop_search_index = stop_start + "<stop".len();
+                        continue;
+                    }
+                    let Some(stop_tag_end) = stop_tail.find('>') else {
+                        break;
+                    };
+                    let stop_tag = &stop_tail[..stop_tag_end];
+                    let mut color = attr_value(stop_tag, "stop-color")
+                        .or_else(|| style_value(stop_tag, "stop-color"))
+                        .as_deref()
+                        .and_then(parse_color)
+                        .unwrap_or_else(|| SimpleSvgResolvedColor::opaque((0.0, 0.0, 0.0)));
+                    if let Some(opacity) = attr_value(stop_tag, "stop-opacity")
+                        .or_else(|| style_value(stop_tag, "stop-opacity"))
+                    {
+                        let opacity = opacity.trim();
+                        let parsed_opacity = if let Some(percent) = opacity.strip_suffix('%') {
+                            percent
+                                .trim()
+                                .parse::<f32>()
+                                .ok()
+                                .filter(|value| value.is_finite())
+                                .map(|value| value / 100.0)
+                        } else {
+                            opacity
+                                .parse::<f32>()
+                                .ok()
+                                .filter(|value| value.is_finite())
+                        };
+                        if let Some(parsed_opacity) = parsed_opacity {
+                            color.alpha *= parsed_opacity.clamp(0.0, 1.0);
+                        }
+                    }
+                    colors.push((id.to_string(), color));
+                    break;
+                }
+                search_index = next_index;
+            }
+        }
+        colors
+    };
     let parse_paint = |raw: &str| -> Option<SimpleSvgColor> {
         let raw = raw.trim();
         if raw.len() >= 4 && raw[..4].eq_ignore_ascii_case("url(") {
@@ -1947,6 +2036,17 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     0.0, 0.0, 0.0,
                 ))));
             };
+            let paint_server_ref = raw[4..url_end]
+                .trim()
+                .trim_matches(|ch| ch == '\'' || ch == '"');
+            if let Some(id) = paint_server_ref.strip_prefix('#')
+                && let Some((_, color)) = paint_server_colors
+                    .iter()
+                    .rev()
+                    .find(|(candidate_id, _)| candidate_id == id)
+            {
+                return Some(SimpleSvgColor::Resolved(*color));
+            }
             let fallback = raw[url_end + 1..].trim();
             if fallback.is_empty() {
                 return Some(SimpleSvgColor::Resolved(SimpleSvgResolvedColor::opaque((
@@ -3784,12 +3884,6 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         Some((ops, closed))
     };
-    let svg_content_start = tag_start + tag_end + 1;
-    let svg_content_end = text[svg_content_start..]
-        .find("</svg>")
-        .map(|relative| svg_content_start + relative)
-        .unwrap_or(text.len());
-    let svg_content = &text[svg_content_start..svg_content_end];
     let mut defs_ranges = Vec::new();
     let mut defs_stack = Vec::new();
     let mut defs_search_index = 0usize;
@@ -8919,6 +9013,61 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 RG 10 w 50 250 20 20 re S"));
         assert!(!pdf_text.contains("0 0 0 rg 20 250 20 20 re f"));
         assert!(!pdf_text.contains("[unsupported image: figures/url-paint-fallback.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_gradient_paint_servers_as_solid_pdf_approximation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/gradient-paint-server.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:gradient-paint-server".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/gradient-paint-server.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <linearGradient id="fillGrad">
+      <stop offset="0%" stop-color="#00ff00"/>
+      <stop offset="100%" stop-color="#0000ff"/>
+    </linearGradient>
+    <radialGradient id="strokeGrad">
+      <stop offset="0%" style="stop-color: red"/>
+    </radialGradient>
+  </defs>
+  <rect x="1" y="1" width="2" height="2" fill="url(#fillGrad)"/>
+  <line x1="0" y1="2" x2="5" y2="2" stroke="url('#strokeGrad')" stroke-width="2" fill="none"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("1 0 0 RG 20 w 10 260 m 60 260 l S"));
+        assert!(!pdf_text.contains("0 0 0 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/gradient-paint-server.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
