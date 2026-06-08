@@ -973,9 +973,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .unwrap_or(natural_size.1);
         (0.0, 0.0, width.max(1.0), height.max(1.0))
     });
-    let style_value = |tag: &str, name: &str| -> Option<String> {
-        let style = attr_value(tag, "style")?;
-        for declaration in style.split(';') {
+    let declaration_value = |declarations: &str, name: &str| -> Option<String> {
+        for declaration in declarations.split(';') {
             let Some((key, value)) = declaration.split_once(':') else {
                 continue;
             };
@@ -985,8 +984,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         None
     };
-    let presentation_value = |tag: &str, name: &str| -> Option<String> {
-        style_value(tag, name).or_else(|| attr_value(tag, name))
+    let style_value = |tag: &str, name: &str| -> Option<String> {
+        let style = attr_value(tag, "style")?;
+        declaration_value(&style, name)
     };
     let parse_color = |raw: &str| -> Option<(f32, f32, f32)> {
         let raw = raw.trim();
@@ -1024,18 +1024,86 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         stroke: Option<Option<(f32, f32, f32)>>,
         stroke_width: Option<f32>,
     }
-    let parse_presentation = |tag: &str| -> SimpleSvgPresentation {
+    let presentation_from_values = |fill: Option<String>,
+                                    stroke: Option<String>,
+                                    stroke_width: Option<String>|
+     -> SimpleSvgPresentation {
         SimpleSvgPresentation {
-            fill: presentation_value(tag, "fill").as_deref().map(&parse_color),
-            stroke: presentation_value(tag, "stroke")
-                .as_deref()
-                .map(&parse_color),
-            stroke_width: presentation_value(tag, "stroke-width")
+            fill: fill.as_deref().map(&parse_color),
+            stroke: stroke.as_deref().map(&parse_color),
+            stroke_width: stroke_width
                 .as_deref()
                 .and_then(parse_number_prefix)
                 .filter(|width| *width > 0.0),
         }
     };
+    let parse_attr_presentation = |tag: &str| -> SimpleSvgPresentation {
+        presentation_from_values(
+            attr_value(tag, "fill"),
+            attr_value(tag, "stroke"),
+            attr_value(tag, "stroke-width"),
+        )
+    };
+    let parse_inline_style_presentation = |tag: &str| -> SimpleSvgPresentation {
+        presentation_from_values(
+            style_value(tag, "fill"),
+            style_value(tag, "stroke"),
+            style_value(tag, "stroke-width"),
+        )
+    };
+    let parse_declaration_presentation = |declarations: &str| -> SimpleSvgPresentation {
+        presentation_from_values(
+            declaration_value(declarations, "fill"),
+            declaration_value(declarations, "stroke"),
+            declaration_value(declarations, "stroke-width"),
+        )
+    };
+    #[derive(Debug, Clone)]
+    struct SimpleSvgClassRule {
+        class_name: String,
+        presentation: SimpleSvgPresentation,
+    }
+    let mut class_rules = Vec::new();
+    let mut style_block_offset = 0usize;
+    while let Some(style_start_relative) = text[style_block_offset..].find("<style") {
+        let style_start = style_block_offset + style_start_relative;
+        let style_tag_tail = &text[style_start..];
+        let Some(style_tag_end) = style_tag_tail.find('>') else {
+            break;
+        };
+        let content_start = style_start + style_tag_end + 1;
+        let Some(content_end_relative) = text[content_start..].find("</style>") else {
+            break;
+        };
+        let css = &text[content_start..content_start + content_end_relative];
+        let mut css_offset = 0usize;
+        while let Some(selector_end_relative) = css[css_offset..].find('{') {
+            let selector_end = css_offset + selector_end_relative;
+            let body_start = selector_end + 1;
+            let Some(body_end_relative) = css[body_start..].find('}') else {
+                break;
+            };
+            let body_end = body_start + body_end_relative;
+            let presentation = parse_declaration_presentation(&css[body_start..body_end]);
+            for selector in css[css_offset..selector_end].split(',') {
+                let Some(selector) = selector.trim().strip_prefix('.') else {
+                    continue;
+                };
+                let class_name = selector
+                    .chars()
+                    .take_while(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
+                    .collect::<String>();
+                if !class_name.is_empty() {
+                    class_rules.push(SimpleSvgClassRule {
+                        class_name,
+                        presentation,
+                    });
+                }
+            }
+            css_offset = body_end + 1;
+        }
+        style_block_offset = content_start + content_end_relative + "</style>".len();
+    }
     let compose_presentation =
         |parent: SimpleSvgPresentation, local: SimpleSvgPresentation| -> SimpleSvgPresentation {
             SimpleSvgPresentation {
@@ -1044,6 +1112,30 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 stroke_width: local.stroke_width.or(parent.stroke_width),
             }
         };
+    let class_styles_for = |tag: &str| -> SimpleSvgPresentation {
+        let Some(class_attr) = attr_value(tag, "class") else {
+            return SimpleSvgPresentation::default();
+        };
+        let mut presentation = SimpleSvgPresentation::default();
+        for rule in &class_rules {
+            if class_attr
+                .split_whitespace()
+                .any(|class_name| class_name == rule.class_name)
+            {
+                presentation = compose_presentation(presentation, rule.presentation);
+            }
+        }
+        presentation
+    };
+    let parse_presentation = |tag: &str| -> SimpleSvgPresentation {
+        let attr_presentation = parse_attr_presentation(tag);
+        let class_presentation = class_styles_for(tag);
+        let inline_style_presentation = parse_inline_style_presentation(tag);
+        compose_presentation(
+            compose_presentation(attr_presentation, class_presentation),
+            inline_style_presentation,
+        )
+    };
     let root_presentation = parse_presentation(svg_tag);
     let stroke_width_ratio = |presentation: SimpleSvgPresentation| -> f32 {
         presentation.stroke_width.unwrap_or(1.0) / view_box.2
@@ -4537,6 +4629,62 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 RG 20 w 20 250 20 20 re S"));
         assert!(pdf_text.contains("0 1 0 RG 20 w 10 230 m 60 230 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/root-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_class_style_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/class-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:class-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/class-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style>
+    .blue { stroke: #0000ff; stroke-width: 2; fill: none; }
+    .red-fill { fill: #ff0000; }
+  </style>
+  <line class="blue" x1="0" y1="0" x2="5" y2="0"/>
+  <rect class="red-fill blue" x="1" y="1" width="2" height="2"/>
+  <g class="blue">
+    <path d="M 0 5 L 5 5"/>
+  </g>
+  <line class="blue" style="stroke:#00ff00" x1="0" y1="7" x2="5" y2="7"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 20 w 10 280 m 60 280 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 RG 20 w 20 250 20 20 re S"));
+        assert!(pdf_text.contains("0 0 1 RG 20 w 10 230 m 60 230 l S"));
+        assert!(pdf_text.contains("0 1 0 RG 20 w 10 210 m 60 210 l S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/class-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
