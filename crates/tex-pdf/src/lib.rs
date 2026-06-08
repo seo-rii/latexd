@@ -2935,6 +2935,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         };
     let mut rects = Vec::new();
     let mut rect_polys = Vec::new();
+    let mut shape_paths = Vec::new();
     let mut search_index = 0usize;
     while let Some(relative) = svg_content[search_index..].find("<rect") {
         let rect_start = search_index + relative;
@@ -2972,6 +2973,139 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             };
             let fill = fill_paint(presentation, Some((0.0, 0.0, 0.0)));
             let stroke = stroke_paint(presentation);
+            let rx_raw = attr_value(rect_tag, "rx")
+                .as_deref()
+                .and_then(parse_number_prefix);
+            let ry_raw = attr_value(rect_tag, "ry")
+                .as_deref()
+                .and_then(parse_number_prefix);
+            let rounded_radii = match (rx_raw, ry_raw) {
+                (Some(rx), Some(ry)) if rx > 0.0 && ry > 0.0 => Some((rx, ry)),
+                (Some(radius), None) | (None, Some(radius)) if radius > 0.0 => {
+                    Some((radius, radius))
+                }
+                _ => None,
+            };
+            if let Some((rx, ry)) = rounded_radii {
+                let rx = rx.min(width / 2.0);
+                let ry = ry.min(height / 2.0);
+                if rx > 0.0 && ry > 0.0 && (fill.is_some() || stroke.is_some()) {
+                    let kappa = 0.552_284_8_f32;
+                    let transform_point = |x: f32, y: f32| -> Option<(f32, f32)> {
+                        Some(normalize_point(apply_transform(transform, x, y)?))
+                    };
+                    let Some(start) = transform_point(x + rx, y) else {
+                        search_index = rect_start + rect_end + 1;
+                        continue;
+                    };
+                    let Some(top_end) = transform_point(x + width - rx, y) else {
+                        search_index = rect_start + rect_end + 1;
+                        continue;
+                    };
+                    let Some(top_right_ctrl1) = transform_point(x + width - rx + kappa * rx, y)
+                    else {
+                        search_index = rect_start + rect_end + 1;
+                        continue;
+                    };
+                    let Some(top_right_ctrl2) = transform_point(x + width, y + ry - kappa * ry)
+                    else {
+                        search_index = rect_start + rect_end + 1;
+                        continue;
+                    };
+                    let Some(right_start) = transform_point(x + width, y + ry) else {
+                        search_index = rect_start + rect_end + 1;
+                        continue;
+                    };
+                    let Some(right_end) = transform_point(x + width, y + height - ry) else {
+                        search_index = rect_start + rect_end + 1;
+                        continue;
+                    };
+                    let Some(bottom_right_ctrl1) =
+                        transform_point(x + width, y + height - ry + kappa * ry)
+                    else {
+                        search_index = rect_start + rect_end + 1;
+                        continue;
+                    };
+                    let Some(bottom_right_ctrl2) =
+                        transform_point(x + width - rx + kappa * rx, y + height)
+                    else {
+                        search_index = rect_start + rect_end + 1;
+                        continue;
+                    };
+                    let Some(bottom_start) = transform_point(x + width - rx, y + height) else {
+                        search_index = rect_start + rect_end + 1;
+                        continue;
+                    };
+                    let Some(bottom_end) = transform_point(x + rx, y + height) else {
+                        search_index = rect_start + rect_end + 1;
+                        continue;
+                    };
+                    let Some(bottom_left_ctrl1) = transform_point(x + rx - kappa * rx, y + height)
+                    else {
+                        search_index = rect_start + rect_end + 1;
+                        continue;
+                    };
+                    let Some(bottom_left_ctrl2) = transform_point(x, y + height - ry + kappa * ry)
+                    else {
+                        search_index = rect_start + rect_end + 1;
+                        continue;
+                    };
+                    let Some(left_start) = transform_point(x, y + height - ry) else {
+                        search_index = rect_start + rect_end + 1;
+                        continue;
+                    };
+                    let Some(left_end) = transform_point(x, y + ry) else {
+                        search_index = rect_start + rect_end + 1;
+                        continue;
+                    };
+                    let Some(top_left_ctrl1) = transform_point(x, y + ry - kappa * ry) else {
+                        search_index = rect_start + rect_end + 1;
+                        continue;
+                    };
+                    let Some(top_left_ctrl2) = transform_point(x + rx - kappa * rx, y) else {
+                        search_index = rect_start + rect_end + 1;
+                        continue;
+                    };
+                    shape_paths.push(SimpleSvgPath {
+                        ops: vec![
+                            SimpleSvgPathOp::MoveTo(start),
+                            SimpleSvgPathOp::LineTo(top_end),
+                            SimpleSvgPathOp::CubicTo {
+                                ctrl1: top_right_ctrl1,
+                                ctrl2: top_right_ctrl2,
+                                to: right_start,
+                            },
+                            SimpleSvgPathOp::LineTo(right_end),
+                            SimpleSvgPathOp::CubicTo {
+                                ctrl1: bottom_right_ctrl1,
+                                ctrl2: bottom_right_ctrl2,
+                                to: bottom_start,
+                            },
+                            SimpleSvgPathOp::LineTo(bottom_end),
+                            SimpleSvgPathOp::CubicTo {
+                                ctrl1: bottom_left_ctrl1,
+                                ctrl2: bottom_left_ctrl2,
+                                to: left_start,
+                            },
+                            SimpleSvgPathOp::LineTo(left_end),
+                            SimpleSvgPathOp::CubicTo {
+                                ctrl1: top_left_ctrl1,
+                                ctrl2: top_left_ctrl2,
+                                to: start,
+                            },
+                            SimpleSvgPathOp::Close,
+                        ],
+                        fill,
+                        fill_rule: fill_rule(presentation),
+                        stroke,
+                        stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
+                        stroke_dasharray: stroke_dasharray_ratio(presentation),
+                        stroke_style: stroke_style(presentation),
+                    });
+                }
+                search_index = rect_start + rect_end + 1;
+                continue;
+            }
             if !transform.axis_aligned {
                 let Some(corner_a) = apply_transform(transform, x, y) else {
                     search_index = rect_start + rect_end + 1;
@@ -3104,7 +3238,6 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         search_index = line_start + line_end + 1;
     }
     let mut ellipses = Vec::new();
-    let mut ellipse_paths = Vec::new();
     let mut search_index = 0usize;
     while let Some(relative) = svg_content[search_index..].find("<circle") {
         let circle_start = search_index + relative;
@@ -3140,7 +3273,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 if (fill.is_some() || stroke.is_some())
                     && let Some(ops) = ellipse_path_ops(cx, cy, radius, radius, transform)
                 {
-                    ellipse_paths.push(SimpleSvgPath {
+                    shape_paths.push(SimpleSvgPath {
                         ops,
                         fill,
                         fill_rule: fill_rule(presentation),
@@ -3226,7 +3359,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 if (fill.is_some() || stroke.is_some())
                     && let Some(ops) = ellipse_path_ops(cx, cy, rx, ry, transform)
                 {
-                    ellipse_paths.push(SimpleSvgPath {
+                    shape_paths.push(SimpleSvgPath {
                         ops,
                         fill,
                         fill_rule: fill_rule(presentation),
@@ -3331,7 +3464,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         search_index = poly_start + poly_end + 1;
     }
-    let mut paths = ellipse_paths;
+    let mut paths = shape_paths;
     let mut search_index = 0usize;
     while let Some(relative) = svg_content[search_index..].find("<path") {
         let path_start = search_index + relative;
@@ -4945,6 +5078,53 @@ mod tests {
         assert!(pdf_text.contains("0 0 0 rg 72 642 144 72 re f"));
         assert!(!pdf_text.contains("[unsupported image: figures/vector.svg]"));
         assert!(!pdf_text.contains("[image: figures/vector.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_rounded_rects_as_pdf_vector_paths() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/rounded.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:rounded".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/rounded.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <rect x="2" y="1" width="16" height="8" rx="4" ry="2" fill="#ff0000" stroke="#0000ff" stroke-width="0.5"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 115.2 706.8 m 172.79999 706.8 l "));
+        assert!(pdf_text.contains(" c "));
+        assert!(pdf_text.contains(" h f"));
+        assert!(pdf_text.contains("0 0 1 RG"));
+        assert!(!pdf_text.contains("72 642 144 72 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/rounded.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
