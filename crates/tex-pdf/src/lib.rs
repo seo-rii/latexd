@@ -1600,19 +1600,57 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .filter(|value| value.is_finite())
                 .map(|value| (value / 255.0).clamp(0.0, 1.0))
         };
-        if raw.len() >= 5 && raw[..4].eq_ignore_ascii_case("rgb(") && raw.ends_with(')') {
-            let body = &raw[4..raw.len() - 1];
-            let body = body.split('/').next().unwrap_or(body);
+        let parse_alpha_component = |component: &str| -> Option<f32> {
+            let component = component.trim();
+            if let Some(percent) = component.strip_suffix('%') {
+                return percent
+                    .trim()
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|value| value.is_finite())
+                    .map(|value| (value / 100.0).clamp(0.0, 1.0));
+            }
+            component
+                .parse::<f32>()
+                .ok()
+                .filter(|value| value.is_finite())
+                .map(|value| value.clamp(0.0, 1.0))
+        };
+        if raw.ends_with(')') {
+            let (body, is_rgba) = if raw.len() >= 5 && raw[..4].eq_ignore_ascii_case("rgb(") {
+                (&raw[4..raw.len() - 1], false)
+            } else if raw.len() >= 6 && raw[..5].eq_ignore_ascii_case("rgba(") {
+                (&raw[5..raw.len() - 1], true)
+            } else {
+                ("", false)
+            };
+            let (body, slash_alpha) = body
+                .split_once('/')
+                .map(|(body, alpha)| (body, Some(alpha)))
+                .unwrap_or((body, None));
             let components = body
                 .split(|ch: char| ch == ',' || ch.is_whitespace())
                 .filter(|component| !component.is_empty())
                 .collect::<Vec<_>>();
             if components.len() >= 3 {
-                return Some(color((
-                    parse_rgb_component(components[0])?,
-                    parse_rgb_component(components[1])?,
-                    parse_rgb_component(components[2])?,
-                )));
+                let comma_alpha = if is_rgba && components.len() >= 4 {
+                    Some(components[3])
+                } else {
+                    None
+                };
+                let alpha = if let Some(alpha) = slash_alpha.or(comma_alpha) {
+                    parse_alpha_component(alpha)?
+                } else {
+                    1.0
+                };
+                return Some(SimpleSvgResolvedColor {
+                    rgb: (
+                        parse_rgb_component(components[0])?,
+                        parse_rgb_component(components[1])?,
+                        parse_rgb_component(components[2])?,
+                    ),
+                    alpha,
+                });
             }
         }
         if let Some(hex) = raw.strip_prefix('#') {
@@ -8246,6 +8284,57 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 RG 10 w 20 250 20 20 re S"));
         assert!(pdf_text.contains("0 1 0 RG 20 w 10 260 m 60 260 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/rgb-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_rgba_color_functions_as_pdf_opacity() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/rgba-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:rgba-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/rgba-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <rect x="1" y="1" width="2" height="2" fill="rgba(255, 0, 0, 0.25)" stroke="rgb(0 0 255 / 50%)" stroke-width="1"/>
+  <line x1="0" y1="2" x2="5" y2="2" stroke="rgba(0%, 100%, 0%, 0.4)" stroke-width="2" fill="none"/>
+  <rect x="4" y="1" width="2" height="2" fill="rgb(0 255 255 / 25%)" stroke="none"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/GS250 << /Type /ExtGState /ca 0.25 /CA 0.25 >>"));
+        assert!(pdf_text.contains("/GS500 << /Type /ExtGState /ca 0.5 /CA 0.5 >>"));
+        assert!(pdf_text.contains("/GS400 << /Type /ExtGState /ca 0.4 /CA 0.4 >>"));
+        assert!(pdf_text.contains("q /GS250 gs 1 0 0 rg 20 250 20 20 re f Q"));
+        assert!(pdf_text.contains("q /GS500 gs 0 0 1 RG 10 w 20 250 20 20 re S Q"));
+        assert!(pdf_text.contains("q /GS400 gs 0 1 0 RG 20 w 10 260 m 60 260 l S Q"));
+        assert!(pdf_text.contains("q /GS250 gs 0 1 1 rg 50 250 20 20 re f Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/rgba-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
