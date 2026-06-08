@@ -1075,8 +1075,9 @@ Status:
   and PNG/JPEG bitmap assets, including clip-enabled crop visualization for
   bitmap assets and simple SVG assets with parseable natural dimensions;
 - project-root display-list PDF debug artifacts render simple resolver-backed
-  SVG rectangle, rounded rectangle, line, circle, ellipse, polyline, polygon, and path content
-  with line, cubic/smooth cubic, quadratic/smooth quadratic, and arc commands,
+  SVG rectangle, rounded rectangle, line, circle, ellipse, polyline, polygon,
+  direct text content, and path content with line, cubic/smooth cubic,
+  quadratic/smooth quadratic, and arc commands,
   including multiple closed subpaths in one path element, basic
   presentation/style fill and stroke metadata plus simple
   `translate` / `scale` transform attributes, simple nested group transforms,

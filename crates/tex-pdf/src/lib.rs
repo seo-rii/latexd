@@ -361,7 +361,8 @@ pub fn render_display_list_pdf_with_converted_assets(
                                 || !svg.lines.is_empty()
                                 || !svg.ellipses.is_empty()
                                 || !svg.polys.is_empty()
-                                || !svg.paths.is_empty())
+                                || !svg.paths.is_empty()
+                                || !svg.texts.is_empty())
                         {
                             let (natural_width, natural_height) = image_natural_size_or_fallback(
                                 image,
@@ -867,6 +868,36 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         }
                                     }
                                 }
+                                for svg_text in &svg.texts {
+                                    let Some(fill) = svg_text.fill else {
+                                        continue;
+                                    };
+                                    let x = svg_rect.x + svg_text.x_ratio * svg_width;
+                                    let y = svg_rect.y + (1.0 - svg_text.y_ratio) * svg_height;
+                                    let font_size = svg_text.font_size_ratio * svg_height;
+                                    if !x.is_finite()
+                                        || !y.is_finite()
+                                        || !font_size.is_finite()
+                                        || font_size <= 0.0
+                                        || svg_text.text.is_empty()
+                                    {
+                                        continue;
+                                    }
+                                    let scoped_opacity = push_pdf_paint_opacity(
+                                        &mut stream,
+                                        &mut opacity_resource_keys,
+                                        fill.opacity,
+                                    );
+                                    stream.push_str(&format!(
+                                        "{} {} {} rg BT /F1 {} Tf 1 0 0 1 {} {} Tm (",
+                                        fill.rgb.0, fill.rgb.1, fill.rgb.2, font_size, x, y
+                                    ));
+                                    stream.push_str(&escape_pdf_text(&svg_text.text));
+                                    stream.push_str(") Tj ET ");
+                                    if scoped_opacity {
+                                        stream.push_str("Q ");
+                                    }
+                                }
                                 rendered_svg_vector = true;
                             }
                             if draw.clip_to_dest {
@@ -1076,6 +1107,7 @@ struct SimpleSvgAsset {
     ellipses: Vec<SimpleSvgEllipse>,
     polys: Vec<SimpleSvgPoly>,
     paths: Vec<SimpleSvgPath>,
+    texts: Vec<SimpleSvgText>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1200,6 +1232,15 @@ struct SimpleSvgPath {
     stroke_width_ratio: f32,
     stroke_dasharray: Option<SimpleSvgDashArray>,
     stroke_style: SimpleSvgStrokeStyle,
+}
+
+#[derive(Debug, Clone)]
+struct SimpleSvgText {
+    x_ratio: f32,
+    y_ratio: f32,
+    font_size_ratio: f32,
+    fill: Option<SimpleSvgPaint>,
+    text: String,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -3497,6 +3538,77 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         search_index = path_start + path_end + 1;
     }
+    let decode_xml_text = |raw: &str| {
+        raw.replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .replace("&quot;", "\"")
+            .replace("&apos;", "'")
+            .replace("&amp;", "&")
+    };
+    let mut texts = Vec::new();
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<text") {
+        let text_start = search_index + relative;
+        let text_tail = &svg_content[text_start..];
+        let Some(after_name) = text_tail.get("<text".len()..) else {
+            break;
+        };
+        if after_name
+            .chars()
+            .next()
+            .is_some_and(|ch| !(ch.is_whitespace() || matches!(ch, '>' | '/')))
+        {
+            search_index = text_start + "<text".len();
+            continue;
+        }
+        let Some(text_tag_end) = text_tail.find('>') else {
+            break;
+        };
+        let text_tag = &text_tail[..text_tag_end];
+        let text_body_start = text_start + text_tag_end + 1;
+        let Some(text_body_end_relative) = svg_content[text_body_start..].find("</text>") else {
+            search_index = text_body_start;
+            continue;
+        };
+        let text_body_end = text_body_start + text_body_end_relative;
+        let text_body = svg_content[text_body_start..text_body_end].trim();
+        if text_body.is_empty() || text_body.contains('<') {
+            search_index = text_body_end + "</text>".len();
+            continue;
+        }
+        let Some((transform, presentation)) = parse_element_state(text_tag, text_start) else {
+            search_index = text_body_end + "</text>".len();
+            continue;
+        };
+        let x = attr_value(text_tag, "x")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let y = attr_value(text_tag, "y")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let font_size = attr_value(text_tag, "font-size")
+            .or_else(|| style_value(text_tag, "font-size"))
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(12.0)
+            * transform.stroke_scale;
+        let Some(point) = apply_transform(transform, x, y).map(normalize_point) else {
+            search_index = text_body_end + "</text>".len();
+            continue;
+        };
+        if font_size.is_finite() && font_size > 0.0 {
+            texts.push(SimpleSvgText {
+                x_ratio: point.0,
+                y_ratio: point.1,
+                font_size_ratio: font_size / view_box.3,
+                fill: fill_paint(presentation, Some((0.0, 0.0, 0.0))),
+                text: decode_xml_text(text_body),
+            });
+        }
+        search_index = text_body_end + "</text>".len();
+    }
     Some(SimpleSvgAsset {
         natural_width_pt: natural_size.0,
         natural_height_pt: natural_size.1,
@@ -3507,6 +3619,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         ellipses,
         polys,
         paths,
+        texts,
     })
 }
 
@@ -5125,6 +5238,51 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 RG"));
         assert!(!pdf_text.contains("72 642 144 72 re f"));
         assert!(!pdf_text.contains("[unsupported image: figures/rounded.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_text_as_pdf_text() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="2" y="6" font-size="2" fill="#00ff00">A &amp; B</text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(
+            pdf_text.contains("0 1 0 rg BT /F1 14.400001 Tf 1 0 0 1 86.4 670.8 Tm (A & B) Tj ET")
+        );
+        assert!(!pdf_text.contains("[unsupported image: figures/text.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
