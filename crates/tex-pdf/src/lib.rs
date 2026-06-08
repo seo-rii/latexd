@@ -2795,7 +2795,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             SimpleSvgPathOp::Close,
         ])
     };
-    let parse_points = |raw: &str, transform: SimpleSvgTransform| -> Option<Vec<(f32, f32)>> {
+    let parse_raw_points = |raw: &str| -> Option<Vec<(f32, f32)>> {
         let values = raw
             .split(|ch: char| ch.is_whitespace() || ch == ',')
             .filter(|part| !part.is_empty())
@@ -2810,11 +2810,31 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             if !pair[0].is_finite() || !pair[1].is_finite() {
                 return None;
             }
-            points.push(normalize_point(apply_transform(
-                transform, pair[0], pair[1],
-            )?));
+            points.push((pair[0], pair[1]));
         }
         Some(points)
+    };
+    let parse_points = |raw: &str, transform: SimpleSvgTransform| -> Option<Vec<(f32, f32)>> {
+        let raw_points = parse_raw_points(raw)?;
+        let mut points = Vec::new();
+        for (x, y) in raw_points {
+            points.push(normalize_point(apply_transform(transform, x, y)?));
+        }
+        Some(points)
+    };
+    let path_data_from_points = |points: &[(f32, f32)], closed: bool| -> Option<String> {
+        let first = points.first()?;
+        if points.len() < 2 {
+            return None;
+        }
+        let mut path_data = format!("M {} {}", first.0, first.1);
+        for point in &points[1..] {
+            path_data.push_str(&format!(" L {} {}", point.0, point.1));
+        }
+        if closed {
+            path_data.push_str(" Z");
+        }
+        Some(path_data)
     };
     #[derive(Debug, Clone, Copy)]
     enum SimplePathToken {
@@ -4007,13 +4027,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         true
     };
     #[derive(Debug, Clone)]
-    struct SimpleSvgPathDefinition<'a> {
+    struct SimpleSvgPathLikeDefinition<'a> {
         id: String,
         tag: &'a str,
         start: usize,
         path_data: String,
     }
-    let mut path_definitions = Vec::new();
+    let mut path_like_definitions = Vec::new();
     let mut search_index = 0usize;
     while let Some(relative) = svg_content[search_index..].find("<path") {
         let path_start = search_index + relative;
@@ -4029,7 +4049,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if let (Some(id), Some(path_data)) = (attr_value(path_tag, "id"), attr_value(path_tag, "d"))
             && !id.trim().is_empty()
         {
-            path_definitions.push(SimpleSvgPathDefinition {
+            path_like_definitions.push(SimpleSvgPathLikeDefinition {
                 id,
                 tag: path_tag,
                 start: path_start,
@@ -4037,6 +4057,108 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             });
         }
         search_index = path_start + path_end + 1;
+    }
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<line") {
+        let line_start = search_index + relative;
+        let line_tail = &svg_content[line_start..];
+        let Some(after_name) = line_tail.get("<line".len()..) else {
+            break;
+        };
+        if after_name
+            .chars()
+            .next()
+            .is_some_and(|ch| !(ch.is_whitespace() || matches!(ch, '>' | '/')))
+        {
+            search_index = line_start + "<line".len();
+            continue;
+        }
+        let Some(line_end) = line_tail.find('>') else {
+            break;
+        };
+        if !in_defs(line_start) {
+            search_index = line_start + line_end + 1;
+            continue;
+        }
+        let line_tag = &line_tail[..line_end];
+        if let (Some(id), Some(x1), Some(y1), Some(x2), Some(y2)) = (
+            attr_value(line_tag, "id"),
+            attr_value(line_tag, "x1")
+                .as_deref()
+                .and_then(parse_number_prefix),
+            attr_value(line_tag, "y1")
+                .as_deref()
+                .and_then(parse_number_prefix),
+            attr_value(line_tag, "x2")
+                .as_deref()
+                .and_then(parse_number_prefix),
+            attr_value(line_tag, "y2")
+                .as_deref()
+                .and_then(parse_number_prefix),
+        ) && !id.trim().is_empty()
+        {
+            path_like_definitions.push(SimpleSvgPathLikeDefinition {
+                id,
+                tag: line_tag,
+                start: line_start,
+                path_data: format!("M {} {} L {} {}", x1, y1, x2, y2),
+            });
+        }
+        search_index = line_start + line_end + 1;
+    }
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<polyline") {
+        let poly_start = search_index + relative;
+        let poly_tail = &svg_content[poly_start..];
+        let Some(poly_end) = poly_tail.find('>') else {
+            break;
+        };
+        if !in_defs(poly_start) {
+            search_index = poly_start + poly_end + 1;
+            continue;
+        }
+        let poly_tag = &poly_tail[..poly_end];
+        if let (Some(id), Some(points_raw)) =
+            (attr_value(poly_tag, "id"), attr_value(poly_tag, "points"))
+            && !id.trim().is_empty()
+            && let Some(points) = parse_raw_points(&points_raw)
+            && let Some(path_data) = path_data_from_points(&points, false)
+        {
+            path_like_definitions.push(SimpleSvgPathLikeDefinition {
+                id,
+                tag: poly_tag,
+                start: poly_start,
+                path_data,
+            });
+        }
+        search_index = poly_start + poly_end + 1;
+    }
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<polygon") {
+        let poly_start = search_index + relative;
+        let poly_tail = &svg_content[poly_start..];
+        let Some(poly_end) = poly_tail.find('>') else {
+            break;
+        };
+        if !in_defs(poly_start) {
+            search_index = poly_start + poly_end + 1;
+            continue;
+        }
+        let poly_tag = &poly_tail[..poly_end];
+        if let (Some(id), Some(points_raw)) =
+            (attr_value(poly_tag, "id"), attr_value(poly_tag, "points"))
+            && !id.trim().is_empty()
+            && let Some(points) = parse_raw_points(&points_raw)
+            && let Some(path_data) = path_data_from_points(&points, true)
+        {
+            path_like_definitions.push(SimpleSvgPathLikeDefinition {
+                id,
+                tag: poly_tag,
+                start: poly_start,
+                path_data,
+            });
+        }
+        search_index = poly_start + poly_end + 1;
     }
     let mut search_index = 0usize;
     while let Some(relative) = svg_content[search_index..].find("<path") {
@@ -4088,7 +4210,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             search_index = use_start + use_end + 1;
             continue;
         };
-        let Some(definition) = path_definitions
+        let Some(definition) = path_like_definitions
             .iter()
             .find(|definition| definition.id == reference_id)
         else {
@@ -6747,7 +6869,7 @@ mod tests {
     }
 
     #[test]
-    fn renders_simple_svg_defs_path_use_as_pdf_vector_content() {
+    fn renders_simple_svg_defs_pathlike_use_as_pdf_vector_content() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
             width_pt: 300.0,
@@ -6780,9 +6902,15 @@ mod tests {
   <defs>
     <path id="tri" d="M 0 0 L 4 0 L 4 4 Z" fill="#ff0000"/>
     <path id="rule" d="M 0 0 L 4 0" fill="none" stroke="#ff0000" stroke-width="1"/>
+    <line id="line-rule" x1="0" y1="0" x2="4" y2="0" stroke="#ff0000" stroke-width="1"/>
+    <polyline id="zig" points="0 0 2 2 4 0" fill="none" stroke="#ff0000" stroke-width="1"/>
+    <polygon id="box" points="0 0 4 0 4 4 0 4" fill="#ff0000"/>
   </defs>
   <use href="#tri" x="5" y="0" fill="#0000ff"/>
   <use xlink:href="#rule" x="5" y="4" stroke="#00ff00"/>
+  <use href="#line-rule" x="10" y="0" stroke="#00ff00"/>
+  <use href="#zig" x="10" y="2" stroke="#0000ff"/>
+  <use href="#box" x="10" y="5" fill="#00ff00"/>
 </svg>"##
                     .to_vec()
             })
@@ -6791,8 +6919,12 @@ mod tests {
 
         assert!(pdf_text.contains("0 0 1 rg 60 280 m 100 280 l 100 240 l h f"));
         assert!(pdf_text.contains("0 1 0 RG 10 w 60 240 m 100 240 l S"));
+        assert!(pdf_text.contains("0 1 0 RG 10 w 110 280 m 150 280 l S"));
+        assert!(pdf_text.contains("0 0 1 RG 10 w 110 260 m 130 240 l 150 260 l S"));
+        assert!(pdf_text.contains("0 1 0 rg 110 230 m 150 230 l 150 190 l 110 190 l h f"));
         assert!(!pdf_text.contains("1 0 0 rg 10 280 m 50 280 l 50 240 l h f"));
         assert!(!pdf_text.contains("1 0 0 RG 10 w 10 280 m 50 280 l S"));
+        assert!(!pdf_text.contains("1 0 0 rg 10 280 m 50 280 l 50 240 l 10 240 l h f"));
         assert!(!pdf_text.contains("[unsupported image: figures/defs-use.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }

@@ -1085,7 +1085,8 @@ Status:
   cubic/smooth cubic,
   quadratic/smooth quadratic, and arc commands,
   including multiple closed subpaths in one path element and simple `<defs>`
-  path reuse through `href` / `xlink:href` `<use>` references, basic
+  path-like reuse for `path`, `line`, `polyline`, and `polygon` definitions
+  through `href` / `xlink:href` `<use>` references, basic
   presentation/style fill and stroke metadata plus simple
   `translate` / `scale` transform attributes, simple nested group transforms,
   inherited root/group-level fill/stroke/stroke-width metadata, simple root
