@@ -1034,6 +1034,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         e: f32,
         f: f32,
         stroke_scale: f32,
+        axis_aligned: bool,
     }
     let identity_transform = SimpleSvgTransform {
         a: 1.0,
@@ -1043,6 +1044,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         e: 0.0,
         f: 0.0,
         stroke_scale: 1.0,
+        axis_aligned: true,
     };
     let parse_transform_numbers = |raw: &str| -> Option<Vec<f32>> {
         raw.split(|ch: char| ch.is_whitespace() || ch == ',')
@@ -1113,6 +1115,56 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         1.0,
                     )
                 }
+                "matrix" => {
+                    if values.len() != 6 {
+                        return None;
+                    }
+                    let scale_x = values[0].hypot(values[1]);
+                    let scale_y = values[2].hypot(values[3]);
+                    if scale_x == 0.0 || scale_y == 0.0 {
+                        return None;
+                    }
+                    (
+                        SimpleSvgTransform {
+                            a: values[0],
+                            b: values[1],
+                            c: values[2],
+                            d: values[3],
+                            e: values[4],
+                            f: values[5],
+                            stroke_scale: 1.0,
+                            axis_aligned: values[1].abs() <= f32::EPSILON
+                                && values[2].abs() <= f32::EPSILON,
+                        },
+                        (scale_x + scale_y) / 2.0,
+                    )
+                }
+                "rotate" => {
+                    if values.is_empty() || values.len() > 3 {
+                        return None;
+                    }
+                    let radians = values[0].to_radians();
+                    let cos = radians.cos();
+                    let sin = radians.sin();
+                    let (cx, cy) = if values.len() == 3 {
+                        (values[1], values[2])
+                    } else {
+                        (0.0, 0.0)
+                    };
+                    (
+                        SimpleSvgTransform {
+                            a: cos,
+                            b: sin,
+                            c: -sin,
+                            d: cos,
+                            e: cx - cos * cx + sin * cy,
+                            f: cy - sin * cx - cos * cy,
+                            stroke_scale: 1.0,
+                            axis_aligned: sin.abs() <= f32::EPSILON,
+                        },
+                        1.0,
+                    )
+                }
                 "scale" => {
                     if values.is_empty() || values.len() > 2 {
                         return None;
@@ -1141,6 +1193,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 e: next.a * transform.e + next.c * transform.f + next.e,
                 f: next.b * transform.e + next.d * transform.f + next.f,
                 stroke_scale: transform.stroke_scale * next_stroke_scale,
+                axis_aligned: next.axis_aligned && transform.axis_aligned,
             };
             if !transform.a.is_finite()
                 || !transform.b.is_finite()
@@ -1155,11 +1208,21 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         Some(transform)
     };
+    let snap_transform_number = |value: f32| -> f32 {
+        let rounded = value.round();
+        if (value - rounded).abs() <= 0.000_1 {
+            rounded
+        } else {
+            value
+        }
+    };
     let apply_transform = |transform: SimpleSvgTransform, x: f32, y: f32| -> Option<(f32, f32)> {
         let transformed_x = transform.a * x + transform.c * y + transform.e;
         let transformed_y = transform.b * x + transform.d * y + transform.f;
-        (transformed_x.is_finite() && transformed_y.is_finite())
-            .then_some((transformed_x, transformed_y))
+        (transformed_x.is_finite() && transformed_y.is_finite()).then_some((
+            snap_transform_number(transformed_x),
+            snap_transform_number(transformed_y),
+        ))
     };
     let normalize_point = |point: (f32, f32)| -> (f32, f32) {
         (
@@ -1688,6 +1751,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 search_index = rect_start + rect_end + 1;
                 continue;
             };
+            if !transform.axis_aligned {
+                search_index = rect_start + rect_end + 1;
+                continue;
+            }
             let Some(corner_a) = apply_transform(transform, x, y) else {
                 search_index = rect_start + rect_end + 1;
                 continue;
@@ -1815,6 +1882,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 search_index = circle_start + circle_end + 1;
                 continue;
             };
+            if !transform.axis_aligned {
+                search_index = circle_start + circle_end + 1;
+                continue;
+            }
             let Some(center) = apply_transform(transform, cx, cy) else {
                 search_index = circle_start + circle_end + 1;
                 continue;
@@ -1885,6 +1956,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 search_index = ellipse_start + ellipse_end + 1;
                 continue;
             };
+            if !transform.axis_aligned {
+                search_index = ellipse_start + ellipse_end + 1;
+                continue;
+            }
             let Some(center) = apply_transform(transform, cx, cy) else {
                 search_index = ellipse_start + ellipse_end + 1;
                 continue;
@@ -3970,6 +4045,53 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 rg 30 220 80 40 re f"));
         assert!(pdf_text.contains("0 1 0 RG 10 w 30 270 m 80 270 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/transformed.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_matrix_and_rotate_transforms_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/affine.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:affine".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/affine.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <line x1="5" y1="5" x2="10" y2="5" transform="rotate(90 5 5)" stroke-width="1" stroke="#00ff00"/>
+  <path d="M 0 0 L 5 0" transform="matrix(1 0 0 1 2 1)" fill="none" stroke-width="1" stroke="#ff0000"/>
+  <rect x="0" y="0" width="5" height="2" transform="rotate(45)" fill="#0000ff"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 RG 10 w 60 230 m 60 180 l S"));
+        assert!(pdf_text.contains("1 0 0 RG 10 w 30 270 m 80 270 l S"));
+        assert!(!pdf_text.contains("0 0 1 rg"));
+        assert!(!pdf_text.contains("[unsupported image: figures/affine.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

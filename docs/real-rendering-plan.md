@@ -188,10 +188,13 @@ Resolver-backed SVG and PNG/JPEG bitmap assets are embedded as data-URI
 resolver-backed SVG `<rect>`, `<line>`, `<circle>`, `<ellipse>`, `<polyline>`,
 `<polygon>`, and `<path>` content with line, cubic/smooth cubic, and
 quadratic/smooth quadratic commands plus endpoint-parameterized arcs, including
-basic presentation/style fill and stroke metadata plus simple `translate` /
-`scale` transform attributes, is also rendered directly as vector PDF drawing
+basic presentation/style fill and stroke metadata, simple `translate` /
+`scale` transform attributes, and `matrix` / `rotate` transforms for path-like
+line/poly/path primitives, is also rendered directly as vector PDF drawing
 operations in display-list PDF artifacts instead of falling back to
-unsupported-image placeholders. The
+unsupported-image placeholders. Rotated or skewed rect/circle/ellipse
+primitives are intentionally left unrasterized for now rather than being drawn
+with incorrect axis-aligned geometry. The
 display-list image op now carries the resolved natural point size separately
 from the destination rectangle, so PDF/SVG debug crop placement uses the
 original asset coordinate space even when a PDF/EPS asset is rendered through a
@@ -219,8 +222,8 @@ artifacts when the relevant local tool is available. Converted debug artifacts
 reuse the display-list natural point size for crop/clip placement rather than
 the converted bitmap pixel size. Driver-accurate crop/clip rendering for
 production PDF/SVG vector output and raster backends, TeX-exact rotated-box
-reflow, broader SVG transform support such as `rotate` / `matrix` / group
-transforms, programmable table preamble hooks, exact
+reflow, broader SVG transform support such as group transforms and rotated
+primitive-shape geometry, programmable table preamble hooks, exact
 vertical border trimming, exact table rule trimming, actual multirow geometry,
 exact nested table layout/reflow, and full TeX alignment policy are still
 deferred.
@@ -619,9 +622,11 @@ Implemented first slice:
   assets with parseable natural dimensions, and converted PDF/EPS debug assets
   whose display-list ops carry resolved natural point dimensions;
 - display-list PDF artifacts can render simple resolver-provided SVG `<rect>`,
-  `<line>`, `<circle>`, `<ellipse>`, `<polyline>`, `<polygon>`, and line-only
-  `<path>` content, including basic presentation/style fill and stroke
-  metadata, as vector drawing operations;
+  `<line>`, `<circle>`, `<ellipse>`, `<polyline>`, `<polygon>`, and `<path>`
+  content with line, cubic/smooth cubic, quadratic/smooth quadratic, and arc
+  commands, including basic presentation/style fill and stroke metadata plus
+  simple `translate` / `scale` transforms and path-like `matrix` / `rotate`
+  transforms, as vector drawing operations;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
   display-list PDF and debug SVG artifacts;
 - missing or undecodable assets still render as bounded placeholders in both
@@ -1041,7 +1046,8 @@ Status:
   SVG rectangle, line, circle, ellipse, polyline, polygon, and path content
   with line, cubic/smooth cubic, quadratic/smooth quadratic, and arc commands,
   including basic presentation/style fill and stroke metadata plus simple
-  `translate` / `scale` transform attributes, as vector PDF drawing operations;
+  `translate` / `scale` transform attributes and path-like `matrix` / `rotate`
+  transform attributes, as vector PDF drawing operations;
 - `latexd render-ir --root ... --input ... --output-dir ...` exposes the
   event/IR/display-list artifact pipeline without replacing the serve preview
   path;
