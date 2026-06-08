@@ -141,7 +141,11 @@ pub fn render_display_list_pdf_with_converted_assets(
             if values.is_empty() {
                 return false;
             }
-            stream.push_str(&format!("q [{}] 0 d ", values.join(" ")));
+            let phase = dasharray.offset_ratio * scale;
+            if !phase.is_finite() || phase < 0.0 {
+                return false;
+            }
+            stream.push_str(&format!("q [{}] {phase} d ", values.join(" ")));
             true
         };
     let push_pdf_stroke_line_style = |stream: &mut String, style: SimpleSvgStrokeStyle| -> bool {
@@ -1029,6 +1033,7 @@ struct SimpleSvgPaint {
 struct SimpleSvgDashArray {
     values: [f32; 8],
     len: usize,
+    offset_ratio: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1330,6 +1335,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         stroke: Option<Option<(f32, f32, f32)>>,
         stroke_width: Option<f32>,
         stroke_dasharray: Option<Option<SimpleSvgDashArray>>,
+        stroke_dashoffset: Option<f32>,
         stroke_linecap: Option<SimpleSvgStrokeLineCap>,
         stroke_linejoin: Option<SimpleSvgStrokeLineJoin>,
         opacity: Option<f32>,
@@ -1373,7 +1379,11 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 len += 1;
             }
         }
-        (len > 0 && has_positive_value).then_some(Some(SimpleSvgDashArray { values, len }))
+        (len > 0 && has_positive_value).then_some(Some(SimpleSvgDashArray {
+            values,
+            len,
+            offset_ratio: 0.0,
+        }))
     };
     let parse_stroke_linecap = |raw: &str| -> Option<SimpleSvgStrokeLineCap> {
         match raw.trim().to_ascii_lowercase().as_str() {
@@ -1395,6 +1405,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     stroke: Option<String>,
                                     stroke_width: Option<String>,
                                     stroke_dasharray: Option<String>,
+                                    stroke_dashoffset: Option<String>,
                                     stroke_linecap: Option<String>,
                                     stroke_linejoin: Option<String>,
                                     opacity: Option<String>,
@@ -1409,6 +1420,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .and_then(parse_number_prefix)
                 .filter(|width| *width > 0.0),
             stroke_dasharray: stroke_dasharray.as_deref().and_then(parse_dasharray),
+            stroke_dashoffset: stroke_dashoffset
+                .as_deref()
+                .and_then(parse_number_prefix)
+                .filter(|offset| *offset >= 0.0),
             stroke_linecap: stroke_linecap.as_deref().and_then(parse_stroke_linecap),
             stroke_linejoin: stroke_linejoin.as_deref().and_then(parse_stroke_linejoin),
             opacity: opacity.as_deref().and_then(parse_opacity),
@@ -1422,6 +1437,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             attr_value(tag, "stroke"),
             attr_value(tag, "stroke-width"),
             attr_value(tag, "stroke-dasharray"),
+            attr_value(tag, "stroke-dashoffset"),
             attr_value(tag, "stroke-linecap"),
             attr_value(tag, "stroke-linejoin"),
             attr_value(tag, "opacity"),
@@ -1435,6 +1451,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             style_value(tag, "stroke"),
             style_value(tag, "stroke-width"),
             style_value(tag, "stroke-dasharray"),
+            style_value(tag, "stroke-dashoffset"),
             style_value(tag, "stroke-linecap"),
             style_value(tag, "stroke-linejoin"),
             style_value(tag, "opacity"),
@@ -1448,6 +1465,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             declaration_value(declarations, "stroke"),
             declaration_value(declarations, "stroke-width"),
             declaration_value(declarations, "stroke-dasharray"),
+            declaration_value(declarations, "stroke-dashoffset"),
             declaration_value(declarations, "stroke-linecap"),
             declaration_value(declarations, "stroke-linejoin"),
             declaration_value(declarations, "opacity"),
@@ -1616,6 +1634,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 stroke: local.stroke.or(base.stroke),
                 stroke_width: local.stroke_width.or(base.stroke_width),
                 stroke_dasharray: local.stroke_dasharray.or(base.stroke_dasharray),
+                stroke_dashoffset: local.stroke_dashoffset.or(base.stroke_dashoffset),
                 stroke_linecap: local.stroke_linecap.or(base.stroke_linecap),
                 stroke_linejoin: local.stroke_linejoin.or(base.stroke_linejoin),
                 opacity: local.opacity.or(base.opacity),
@@ -1636,6 +1655,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 stroke: local.stroke.or(parent.stroke),
                 stroke_width: local.stroke_width.or(parent.stroke_width),
                 stroke_dasharray: local.stroke_dasharray.or(parent.stroke_dasharray),
+                stroke_dashoffset: local.stroke_dashoffset.or(parent.stroke_dashoffset),
                 stroke_linecap: local.stroke_linecap.or(parent.stroke_linecap),
                 stroke_linejoin: local.stroke_linejoin.or(parent.stroke_linejoin),
                 opacity,
@@ -1670,6 +1690,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut stroke: Option<SimpleSvgCascadeValue<Option<(f32, f32, f32)>>> = None;
         let mut stroke_width: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_dasharray: Option<SimpleSvgCascadeValue<Option<SimpleSvgDashArray>>> = None;
+        let mut stroke_dashoffset: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_linecap: Option<SimpleSvgCascadeValue<SimpleSvgStrokeLineCap>> = None;
         let mut stroke_linejoin: Option<SimpleSvgCascadeValue<SimpleSvgStrokeLineJoin>> = None;
         let mut opacity: Option<SimpleSvgCascadeValue<f32>> = None;
@@ -1751,6 +1772,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
+                if let Some(value) = rule.presentation.stroke_dashoffset {
+                    let current = stroke_dashoffset.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        stroke_dashoffset = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
                 if let Some(value) = rule.presentation.stroke_linecap {
                     let current = stroke_linecap.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
@@ -1808,6 +1839,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             stroke: stroke.map(|value| value.value),
             stroke_width: stroke_width.map(|value| value.value),
             stroke_dasharray: stroke_dasharray.map(|value| value.value),
+            stroke_dashoffset: stroke_dashoffset.map(|value| value.value),
             stroke_linecap: stroke_linecap.map(|value| value.value),
             stroke_linejoin: stroke_linejoin.map(|value| value.value),
             opacity: opacity.map(|value| value.value),
@@ -1837,6 +1869,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     for index in 0..dasharray.len {
                         dasharray.values[index] /= view_box.2;
                     }
+                    dasharray.offset_ratio =
+                        presentation.stroke_dashoffset.unwrap_or(0.0) / view_box.2;
                     dasharray
                 })
         };
@@ -5992,6 +6026,59 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 RG 10 w 10 230 m 60 230 l S"));
         assert!(!pdf_text.contains("q [20 10] 0 d 0 1 0 RG 10 w 10 230 m 60 230 l S Q"));
         assert!(!pdf_text.contains("[unsupported image: figures/dashed-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_stroke_dashoffset_as_pdf_dash_phase() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/dashoffset-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:dashoffset-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/dashoffset-style.svg").then(|| {
+                br##"<svg width="20" height="10" stroke-dasharray="2 1" stroke-dashoffset="0.5">
+  <style type="text/css">
+    rect { fill: none; stroke: #ff0000; stroke-width: 1; }
+    line { stroke: #0000ff; stroke-width: 2; fill: none; stroke-dasharray: 1, 0.5; stroke-dashoffset: 0.25; }
+    path { stroke: #00ff00; stroke-width: 1; fill: none; stroke-dasharray: none; }
+  </style>
+  <rect x="1" y="1" width="2" height="2"/>
+  <line x1="0" y1="2" x2="5" y2="2"/>
+  <path d="M 0 5 L 5 5"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q [20 10] 5 d 1 0 0 RG 10 w 20 250 20 20 re S Q"));
+        assert!(pdf_text.contains("q [10 5] 2.5 d 0 0 1 RG 20 w 10 260 m 60 260 l S Q"));
+        assert!(pdf_text.contains("0 1 0 RG 10 w 10 230 m 60 230 l S"));
+        assert!(!pdf_text.contains("q [20 10] 5 d 0 1 0 RG 10 w 10 230 m 60 230 l S Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/dashoffset-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
