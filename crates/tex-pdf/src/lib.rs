@@ -122,11 +122,13 @@ pub fn render_display_list_pdf_with_converted_assets(
             stream.push_str(&format!("q /GS{key} gs "));
             true
         };
-    let push_pdf_stroke_dasharray =
-        |stream: &mut String, dasharray: Option<SimpleSvgDashArray>, scale: f32| -> bool {
-            let Some(dasharray) = dasharray else {
-                return false;
-            };
+    let push_pdf_stroke_state = |stream: &mut String,
+                                 dasharray: Option<SimpleSvgDashArray>,
+                                 style: SimpleSvgStrokeStyle,
+                                 scale: f32|
+     -> bool {
+        let mut operators = Vec::new();
+        if let Some(dasharray) = dasharray {
             if !scale.is_finite() || scale <= 0.0 {
                 return false;
             }
@@ -145,26 +147,31 @@ pub fn render_display_list_pdf_with_converted_assets(
             if !phase.is_finite() || phase < 0.0 {
                 return false;
             }
-            stream.push_str(&format!("q [{}] {phase} d ", values.join(" ")));
-            true
-        };
-    let push_pdf_stroke_line_style = |stream: &mut String, style: SimpleSvgStrokeStyle| -> bool {
-        if style.linecap == SimpleSvgStrokeLineCap::Butt
-            && style.linejoin == SimpleSvgStrokeLineJoin::Miter
-        {
-            return false;
+            operators.push(format!("[{}] {phase} d", values.join(" ")));
         }
         let linecap = match style.linecap {
             SimpleSvgStrokeLineCap::Butt => 0,
             SimpleSvgStrokeLineCap::Round => 1,
             SimpleSvgStrokeLineCap::Square => 2,
         };
+        if style.linecap != SimpleSvgStrokeLineCap::Butt {
+            operators.push(format!("{linecap} J"));
+        }
         let linejoin = match style.linejoin {
             SimpleSvgStrokeLineJoin::Miter => 0,
             SimpleSvgStrokeLineJoin::Round => 1,
             SimpleSvgStrokeLineJoin::Bevel => 2,
         };
-        stream.push_str(&format!("q {linecap} J {linejoin} j "));
+        if style.linejoin != SimpleSvgStrokeLineJoin::Miter {
+            operators.push(format!("{linejoin} j"));
+        }
+        if (style.miterlimit - 10.0).abs() > 0.000_5 {
+            operators.push(format!("{} M", style.miterlimit));
+        }
+        if operators.is_empty() {
+            return false;
+        }
+        stream.push_str(&format!("q {} ", operators.join(" ")));
         true
     };
     for (index, page) in pages.iter().enumerate() {
@@ -424,14 +431,11 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             let stroke_width =
                                                 rect.stroke_width_ratio * natural_width * scale_x;
                                             if stroke_width.is_finite() && stroke_width > 0.0 {
-                                                let scoped_dash = push_pdf_stroke_dasharray(
+                                                let scoped_stroke_state = push_pdf_stroke_state(
                                                     &mut stream,
                                                     rect.stroke_dasharray,
-                                                    natural_width * scale_x,
-                                                );
-                                                let scoped_line_style = push_pdf_stroke_line_style(
-                                                    &mut stream,
                                                     rect.stroke_style,
+                                                    natural_width * scale_x,
                                                 );
                                                 let scoped_opacity = push_pdf_paint_opacity(
                                                     &mut stream,
@@ -452,10 +456,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                 if scoped_opacity {
                                                     stream.push_str("Q ");
                                                 }
-                                                if scoped_line_style {
-                                                    stream.push_str("Q ");
-                                                }
-                                                if scoped_dash {
+                                                if scoped_stroke_state {
                                                     stream.push_str("Q ");
                                                 }
                                             }
@@ -478,14 +479,11 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         && stroke_width.is_finite()
                                         && stroke_width > 0.0
                                     {
-                                        let scoped_dash = push_pdf_stroke_dasharray(
+                                        let scoped_stroke_state = push_pdf_stroke_state(
                                             &mut stream,
                                             line.stroke_dasharray,
-                                            natural_width * scale_x,
-                                        );
-                                        let scoped_line_style = push_pdf_stroke_line_style(
-                                            &mut stream,
                                             line.stroke_style,
+                                            natural_width * scale_x,
                                         );
                                         let scoped_opacity = push_pdf_paint_opacity(
                                             &mut stream,
@@ -506,10 +504,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         if scoped_opacity {
                                             stream.push_str("Q ");
                                         }
-                                        if scoped_line_style {
-                                            stream.push_str("Q ");
-                                        }
-                                        if scoped_dash {
+                                        if scoped_stroke_state {
                                             stream.push_str("Q ");
                                         }
                                     }
@@ -577,14 +572,11 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                 * natural_width
                                                 * scale_x;
                                             if stroke_width.is_finite() && stroke_width > 0.0 {
-                                                let scoped_dash = push_pdf_stroke_dasharray(
+                                                let scoped_stroke_state = push_pdf_stroke_state(
                                                     &mut stream,
                                                     ellipse.stroke_dasharray,
-                                                    natural_width * scale_x,
-                                                );
-                                                let scoped_line_style = push_pdf_stroke_line_style(
-                                                    &mut stream,
                                                     ellipse.stroke_style,
+                                                    natural_width * scale_x,
                                                 );
                                                 let scoped_opacity = push_pdf_paint_opacity(
                                                     &mut stream,
@@ -602,10 +594,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                 if scoped_opacity {
                                                     stream.push_str("Q ");
                                                 }
-                                                if scoped_line_style {
-                                                    stream.push_str("Q ");
-                                                }
-                                                if scoped_dash {
+                                                if scoped_stroke_state {
                                                     stream.push_str("Q ");
                                                 }
                                             }
@@ -663,14 +652,11 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         let stroke_width =
                                             poly.stroke_width_ratio * natural_width * scale_x;
                                         if stroke_width.is_finite() && stroke_width > 0.0 {
-                                            let scoped_dash = push_pdf_stroke_dasharray(
+                                            let scoped_stroke_state = push_pdf_stroke_state(
                                                 &mut stream,
                                                 poly.stroke_dasharray,
-                                                natural_width * scale_x,
-                                            );
-                                            let scoped_line_style = push_pdf_stroke_line_style(
-                                                &mut stream,
                                                 poly.stroke_style,
+                                                natural_width * scale_x,
                                             );
                                             let scoped_opacity = push_pdf_paint_opacity(
                                                 &mut stream,
@@ -688,10 +674,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             if scoped_opacity {
                                                 stream.push_str("Q ");
                                             }
-                                            if scoped_line_style {
-                                                stream.push_str("Q ");
-                                            }
-                                            if scoped_dash {
+                                            if scoped_stroke_state {
                                                 stream.push_str("Q ");
                                             }
                                         }
@@ -780,14 +763,11 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         let stroke_width =
                                             svg_path.stroke_width_ratio * natural_width * scale_x;
                                         if stroke_width.is_finite() && stroke_width > 0.0 {
-                                            let scoped_dash = push_pdf_stroke_dasharray(
+                                            let scoped_stroke_state = push_pdf_stroke_state(
                                                 &mut stream,
                                                 svg_path.stroke_dasharray,
-                                                natural_width * scale_x,
-                                            );
-                                            let scoped_line_style = push_pdf_stroke_line_style(
-                                                &mut stream,
                                                 svg_path.stroke_style,
+                                                natural_width * scale_x,
                                             );
                                             let scoped_opacity = push_pdf_paint_opacity(
                                                 &mut stream,
@@ -805,10 +785,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             if scoped_opacity {
                                                 stream.push_str("Q ");
                                             }
-                                            if scoped_line_style {
-                                                stream.push_str("Q ");
-                                            }
-                                            if scoped_dash {
+                                            if scoped_stroke_state {
                                                 stream.push_str("Q ");
                                             }
                                         }
@@ -1054,6 +1031,7 @@ enum SimpleSvgStrokeLineJoin {
 struct SimpleSvgStrokeStyle {
     linecap: SimpleSvgStrokeLineCap,
     linejoin: SimpleSvgStrokeLineJoin,
+    miterlimit: f32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1338,6 +1316,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         stroke_dashoffset: Option<f32>,
         stroke_linecap: Option<SimpleSvgStrokeLineCap>,
         stroke_linejoin: Option<SimpleSvgStrokeLineJoin>,
+        stroke_miterlimit: Option<f32>,
         opacity: Option<f32>,
         fill_opacity: Option<f32>,
         stroke_opacity: Option<f32>,
@@ -1408,6 +1387,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     stroke_dashoffset: Option<String>,
                                     stroke_linecap: Option<String>,
                                     stroke_linejoin: Option<String>,
+                                    stroke_miterlimit: Option<String>,
                                     opacity: Option<String>,
                                     fill_opacity: Option<String>,
                                     stroke_opacity: Option<String>|
@@ -1426,6 +1406,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .filter(|offset| *offset >= 0.0),
             stroke_linecap: stroke_linecap.as_deref().and_then(parse_stroke_linecap),
             stroke_linejoin: stroke_linejoin.as_deref().and_then(parse_stroke_linejoin),
+            stroke_miterlimit: stroke_miterlimit
+                .as_deref()
+                .and_then(parse_number_prefix)
+                .filter(|limit| *limit >= 1.0),
             opacity: opacity.as_deref().and_then(parse_opacity),
             fill_opacity: fill_opacity.as_deref().and_then(parse_opacity),
             stroke_opacity: stroke_opacity.as_deref().and_then(parse_opacity),
@@ -1440,6 +1424,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             attr_value(tag, "stroke-dashoffset"),
             attr_value(tag, "stroke-linecap"),
             attr_value(tag, "stroke-linejoin"),
+            attr_value(tag, "stroke-miterlimit"),
             attr_value(tag, "opacity"),
             attr_value(tag, "fill-opacity"),
             attr_value(tag, "stroke-opacity"),
@@ -1454,6 +1439,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             style_value(tag, "stroke-dashoffset"),
             style_value(tag, "stroke-linecap"),
             style_value(tag, "stroke-linejoin"),
+            style_value(tag, "stroke-miterlimit"),
             style_value(tag, "opacity"),
             style_value(tag, "fill-opacity"),
             style_value(tag, "stroke-opacity"),
@@ -1468,6 +1454,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             declaration_value(declarations, "stroke-dashoffset"),
             declaration_value(declarations, "stroke-linecap"),
             declaration_value(declarations, "stroke-linejoin"),
+            declaration_value(declarations, "stroke-miterlimit"),
             declaration_value(declarations, "opacity"),
             declaration_value(declarations, "fill-opacity"),
             declaration_value(declarations, "stroke-opacity"),
@@ -1637,6 +1624,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 stroke_dashoffset: local.stroke_dashoffset.or(base.stroke_dashoffset),
                 stroke_linecap: local.stroke_linecap.or(base.stroke_linecap),
                 stroke_linejoin: local.stroke_linejoin.or(base.stroke_linejoin),
+                stroke_miterlimit: local.stroke_miterlimit.or(base.stroke_miterlimit),
                 opacity: local.opacity.or(base.opacity),
                 fill_opacity: local.fill_opacity.or(base.fill_opacity),
                 stroke_opacity: local.stroke_opacity.or(base.stroke_opacity),
@@ -1658,6 +1646,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 stroke_dashoffset: local.stroke_dashoffset.or(parent.stroke_dashoffset),
                 stroke_linecap: local.stroke_linecap.or(parent.stroke_linecap),
                 stroke_linejoin: local.stroke_linejoin.or(parent.stroke_linejoin),
+                stroke_miterlimit: local.stroke_miterlimit.or(parent.stroke_miterlimit),
                 opacity,
                 fill_opacity: local.fill_opacity.or(parent.fill_opacity),
                 stroke_opacity: local.stroke_opacity.or(parent.stroke_opacity),
@@ -1693,6 +1682,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut stroke_dashoffset: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_linecap: Option<SimpleSvgCascadeValue<SimpleSvgStrokeLineCap>> = None;
         let mut stroke_linejoin: Option<SimpleSvgCascadeValue<SimpleSvgStrokeLineJoin>> = None;
+        let mut stroke_miterlimit: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut fill_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
@@ -1802,6 +1792,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
+                if let Some(value) = rule.presentation.stroke_miterlimit {
+                    let current = stroke_miterlimit.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        stroke_miterlimit = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
                 if let Some(value) = rule.presentation.opacity {
                     let current = opacity.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
@@ -1842,6 +1842,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             stroke_dashoffset: stroke_dashoffset.map(|value| value.value),
             stroke_linecap: stroke_linecap.map(|value| value.value),
             stroke_linejoin: stroke_linejoin.map(|value| value.value),
+            stroke_miterlimit: stroke_miterlimit.map(|value| value.value),
             opacity: opacity.map(|value| value.value),
             fill_opacity: fill_opacity.map(|value| value.value),
             stroke_opacity: stroke_opacity.map(|value| value.value),
@@ -1882,6 +1883,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             linejoin: presentation
                 .stroke_linejoin
                 .unwrap_or(SimpleSvgStrokeLineJoin::Miter),
+            miterlimit: presentation.stroke_miterlimit.unwrap_or(4.0),
         }
     };
     let paint_from_rgb = |rgb: Option<(f32, f32, f32)>, opacity: f32| -> Option<SimpleSvgPaint> {
@@ -6021,10 +6023,10 @@ mod tests {
         });
         let pdf_text = String::from_utf8_lossy(&pdf);
 
-        assert!(pdf_text.contains("q [20 10] 0 d 1 0 0 RG 10 w 20 250 20 20 re S Q"));
-        assert!(pdf_text.contains("q [10 5] 0 d 0 0 1 RG 20 w 10 260 m 60 260 l S Q"));
+        assert!(pdf_text.contains("q [20 10] 0 d 4 M 1 0 0 RG 10 w 20 250 20 20 re S Q"));
+        assert!(pdf_text.contains("q [10 5] 0 d 4 M 0 0 1 RG 20 w 10 260 m 60 260 l S Q"));
         assert!(pdf_text.contains("0 1 0 RG 10 w 10 230 m 60 230 l S"));
-        assert!(!pdf_text.contains("q [20 10] 0 d 0 1 0 RG 10 w 10 230 m 60 230 l S Q"));
+        assert!(!pdf_text.contains("q [20 10] 0 d 4 M 0 1 0 RG 10 w 10 230 m 60 230 l S Q"));
         assert!(!pdf_text.contains("[unsupported image: figures/dashed-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
@@ -6074,10 +6076,10 @@ mod tests {
         });
         let pdf_text = String::from_utf8_lossy(&pdf);
 
-        assert!(pdf_text.contains("q [20 10] 5 d 1 0 0 RG 10 w 20 250 20 20 re S Q"));
-        assert!(pdf_text.contains("q [10 5] 2.5 d 0 0 1 RG 20 w 10 260 m 60 260 l S Q"));
+        assert!(pdf_text.contains("q [20 10] 5 d 4 M 1 0 0 RG 10 w 20 250 20 20 re S Q"));
+        assert!(pdf_text.contains("q [10 5] 2.5 d 4 M 0 0 1 RG 20 w 10 260 m 60 260 l S Q"));
         assert!(pdf_text.contains("0 1 0 RG 10 w 10 230 m 60 230 l S"));
-        assert!(!pdf_text.contains("q [20 10] 5 d 0 1 0 RG 10 w 10 230 m 60 230 l S Q"));
+        assert!(!pdf_text.contains("q [20 10] 5 d 4 M 0 1 0 RG 10 w 10 230 m 60 230 l S Q"));
         assert!(!pdf_text.contains("[unsupported image: figures/dashoffset-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
@@ -6127,11 +6129,64 @@ mod tests {
         });
         let pdf_text = String::from_utf8_lossy(&pdf);
 
-        assert!(pdf_text.contains("q 1 J 2 j 1 0 0 RG 10 w 20 250 20 20 re S Q"));
-        assert!(pdf_text.contains("q 2 J 2 j 0 0 1 RG 20 w 10 260 m 60 260 l S Q"));
+        assert!(pdf_text.contains("q 1 J 2 j 4 M 1 0 0 RG 10 w 20 250 20 20 re S Q"));
+        assert!(pdf_text.contains("q 2 J 2 j 4 M 0 0 1 RG 20 w 10 260 m 60 260 l S Q"));
         assert!(pdf_text.contains("0 1 0 RG 10 w 10 230 m 60 230 l S"));
         assert!(!pdf_text.contains("q 0 J 0 j 0 1 0 RG 10 w 10 230 m 60 230 l S Q"));
         assert!(!pdf_text.contains("[unsupported image: figures/stroke-line-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_stroke_miterlimit_as_pdf_graphics_state() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/miterlimit-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:miterlimit-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/miterlimit-style.svg").then(|| {
+                br##"<svg width="20" height="10" stroke-miterlimit="5">
+  <style type="text/css">
+    rect { fill: none; stroke: #ff0000; stroke-width: 1; }
+    line { stroke: #0000ff; stroke-width: 2; fill: none; stroke-linejoin: bevel; stroke-miterlimit: 2; }
+    path { stroke: #00ff00; stroke-width: 1; fill: none; stroke-miterlimit: 10; }
+  </style>
+  <rect x="1" y="1" width="2" height="2"/>
+  <line x1="0" y1="2" x2="5" y2="2"/>
+  <path d="M 0 5 L 5 5"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q 5 M 1 0 0 RG 10 w 20 250 20 20 re S Q"));
+        assert!(pdf_text.contains("q 2 j 2 M 0 0 1 RG 20 w 10 260 m 60 260 l S Q"));
+        assert!(pdf_text.contains("0 1 0 RG 10 w 10 230 m 60 230 l S"));
+        assert!(!pdf_text.contains("q 5 M 0 1 0 RG 10 w 10 230 m 60 230 l S Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/miterlimit-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

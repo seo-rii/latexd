@@ -200,8 +200,8 @@ source-order cascade, hex/common named/`rgb(...)` color forms, and transparent
 paint as no-paint, simple `opacity` / `fill-opacity` / `stroke-opacity` mapped
 to PDF ExtGState resources, simple `stroke-dasharray` mapped to PDF dash
 patterns with `stroke-dashoffset` phase support, simple `stroke-linecap` /
-`stroke-linejoin` mapped to PDF graphics state, and `matrix` / `rotate`
-transforms for path-like line/poly/path
+`stroke-linejoin` / `stroke-miterlimit` mapped to PDF graphics state, and
+`matrix` / `rotate` transforms for path-like line/poly/path
 primitives, plus non-axis-aligned transformed rectangles rendered as closed
 vector polygons and transformed circle/ellipse primitives rendered as cubic
 vector paths, is also rendered directly as vector PDF drawing operations in
@@ -646,10 +646,10 @@ Implemented first slice:
   transparent paint as no-paint, simple `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources, simple
   `stroke-dasharray` mapped to PDF dash patterns with `stroke-dashoffset`
-  phase support, simple `stroke-linecap` / `stroke-linejoin` mapped to PDF
-  graphics state, path-like `matrix` / `rotate` transforms, non-axis-aligned
-  transformed rectangles, and transformed circle/ellipse cubic paths, as vector
-  drawing operations;
+  phase support, simple `stroke-linecap` / `stroke-linejoin` /
+  `stroke-miterlimit` mapped to PDF graphics state, path-like `matrix` /
+  `rotate` transforms, non-axis-aligned transformed rectangles, and transformed
+  circle/ellipse cubic paths, as vector drawing operations;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
   display-list PDF and debug SVG artifacts;
 - missing or undecodable assets still render as bounded placeholders in both
@@ -1080,10 +1080,10 @@ Status:
   transparent paint as no-paint, simple `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources, simple
   `stroke-dasharray` mapped to PDF dash patterns with `stroke-dashoffset`
-  phase support, simple `stroke-linecap` / `stroke-linejoin` mapped to PDF
-  graphics state, and path-like `matrix` / `rotate` transform attributes plus
-  non-axis-aligned transformed rectangles and transformed circle/ellipse cubic
-  paths, as vector PDF drawing operations;
+  phase support, simple `stroke-linecap` / `stroke-linejoin` /
+  `stroke-miterlimit` mapped to PDF graphics state, and path-like `matrix` /
+  `rotate` transform attributes plus non-axis-aligned transformed rectangles
+  and transformed circle/ellipse cubic paths, as vector PDF drawing operations;
 - `latexd render-ir --root ... --input ... --output-dir ...` exposes the
   event/IR/display-list artifact pipeline without replacing the serve preview
   path;
