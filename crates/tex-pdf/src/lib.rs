@@ -1067,6 +1067,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             element_name: Option<String>,
             class_name: String,
         },
+        Id {
+            element_name: Option<String>,
+            id: String,
+        },
     }
     #[derive(Debug, Clone)]
     struct SimpleSvgStyleRule {
@@ -1107,6 +1111,26 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 element_name,
                 class_name,
             })
+        } else if selector.contains('#') {
+            let (element_name, id_selector) = if let Some(id_selector) = selector.strip_prefix('#')
+            {
+                (None, id_selector)
+            } else {
+                let hash_index = selector.find('#')?;
+                let element_name = selector[..hash_index].trim();
+                if !valid_svg_element_name(element_name) {
+                    return None;
+                }
+                (
+                    Some(element_name.to_ascii_lowercase()),
+                    &selector[hash_index + 1..],
+                )
+            };
+            let id = id_selector
+                .chars()
+                .take_while(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':'))
+                .collect::<String>();
+            (!id.is_empty()).then_some(SimpleSvgStyleSelector::Id { element_name, id })
         } else if valid_svg_element_name(selector) {
             Some(SimpleSvgStyleSelector::Type {
                 element_name: selector.to_ascii_lowercase(),
@@ -1189,6 +1213,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     let style_rule_presentation_for = |tag: &str| -> SimpleSvgPresentation {
         let tag_element_name = tag_element_name(tag);
         let class_attr = attr_value(tag, "class");
+        let id_attr = attr_value(tag, "id");
         let mut presentation = SimpleSvgPresentation::default();
         for rule in &style_rules {
             let matches = match &rule.selector {
@@ -1214,6 +1239,15 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     .any(|tag_class_name| tag_class_name == class_name)
                             })
                             .unwrap_or(false)
+                }
+                SimpleSvgStyleSelector::Id { element_name, id } => {
+                    let element_matches = element_name
+                        .as_ref()
+                        .map(|element_name| {
+                            tag_element_name.as_deref() == Some(element_name.as_str())
+                        })
+                        .unwrap_or(true);
+                    element_matches && id_attr.as_deref() == Some(id.as_str())
                 }
             };
             if matches {
@@ -4973,6 +5007,56 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
         assert!(pdf_text.contains("0 1 0 RG 10 w 20 250 20 20 re S"));
         assert!(!pdf_text.contains("[unsupported image: figures/type-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_id_selector_style_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/id-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:id-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/id-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    line#blue-line { stroke: #0000ff; stroke-width: 2; fill: none; }
+    #red-box { fill: #ff0000; stroke: #00ff00; stroke-width: 1; }
+  </style>
+  <line id="blue-line" x1="0" y1="0" x2="5" y2="0"/>
+  <rect id="red-box" x="1" y="1" width="2" height="2"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 20 w 10 280 m 60 280 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 1 0 RG 10 w 20 250 20 20 re S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/id-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
