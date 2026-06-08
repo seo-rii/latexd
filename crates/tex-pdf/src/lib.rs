@@ -3735,100 +3735,118 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .unwrap_or(0.0);
         let local_font_size = presentation.font_size.unwrap_or(12.0);
         let text_x = x + dx;
-        let text_y = y + dy + baseline_y_offset(presentation, local_font_size);
+        let text_raw_y = y + dy;
+        let text_y = text_raw_y + baseline_y_offset(presentation, local_font_size);
         let font_size = local_font_size * transform.stroke_scale;
         let Some(point) = apply_transform(transform, text_x, text_y).map(normalize_point) else {
             search_index = text_body_end + "</text>".len();
             continue;
         };
-        let resolved_text = if !text_body.contains('<') {
-            Some((point, font_size, presentation, decode_xml_text(text_body)))
-        } else if let Some(tspan_start) = text_body.find("<tspan") {
-            let leading = text_body[..tspan_start].trim();
-            let tspan_tail = &text_body[tspan_start..];
-            let after_name = tspan_tail.get("<tspan".len()..);
-            if !leading.is_empty()
-                || after_name.is_some_and(|after_name| {
+        let resolved_texts = if !text_body.contains('<') {
+            vec![(point, font_size, presentation, decode_xml_text(text_body))]
+        } else {
+            let mut remaining = text_body;
+            let mut current_x = text_x;
+            let mut current_y = text_raw_y;
+            let mut tspan_texts = Vec::new();
+            let mut valid_tspans = true;
+            while !remaining.trim().is_empty() {
+                let Some(tspan_start) = remaining.find("<tspan") else {
+                    valid_tspans = false;
+                    break;
+                };
+                if !remaining[..tspan_start].trim().is_empty() {
+                    valid_tspans = false;
+                    break;
+                }
+                let tspan_tail = &remaining[tspan_start..];
+                let after_name = tspan_tail.get("<tspan".len()..);
+                if after_name.is_some_and(|after_name| {
                     after_name
                         .chars()
                         .next()
                         .is_some_and(|ch| !(ch.is_whitespace() || matches!(ch, '>' | '/')))
-                })
-            {
-                None
-            } else {
+                }) {
+                    valid_tspans = false;
+                    break;
+                }
                 let Some(tspan_tag_end) = tspan_tail.find('>') else {
-                    search_index = text_body_end + "</text>".len();
-                    continue;
+                    valid_tspans = false;
+                    break;
                 };
                 let tspan_tag = &tspan_tail[..tspan_tag_end];
                 let tspan_body_start = tspan_tag_end + 1;
                 let Some(tspan_body_end_relative) = tspan_tail[tspan_body_start..].find("</tspan>")
                 else {
-                    search_index = text_body_end + "</text>".len();
-                    continue;
+                    valid_tspans = false;
+                    break;
                 };
-                let tspan_body_end = tspan_start + tspan_body_start + tspan_body_end_relative;
-                let tspan_body = text_body[tspan_start + tspan_body_start..tspan_body_end].trim();
-                let tspan_close_end = tspan_body_end + "</tspan>".len();
-                if tspan_body.is_empty()
-                    || tspan_body.contains('<')
-                    || !text_body[tspan_close_end..].trim().is_empty()
-                {
-                    None
-                } else {
-                    let tspan_x = attr_value(tspan_tag, "x")
-                        .as_deref()
-                        .and_then(parse_number_prefix)
-                        .unwrap_or(text_x);
-                    let tspan_y = attr_value(tspan_tag, "y")
-                        .as_deref()
-                        .and_then(parse_number_prefix)
-                        .unwrap_or(text_y);
-                    let tspan_dx = attr_value(tspan_tag, "dx")
-                        .as_deref()
-                        .and_then(parse_number_prefix)
-                        .unwrap_or(0.0);
-                    let tspan_dy = attr_value(tspan_tag, "dy")
-                        .as_deref()
-                        .and_then(parse_number_prefix)
-                        .unwrap_or(0.0);
-                    let tspan_presentation =
-                        inherit_presentation(presentation, parse_presentation(tspan_tag));
-                    let tspan_local_font_size = tspan_presentation.font_size.unwrap_or(12.0);
-                    let tspan_font_size = tspan_local_font_size * transform.stroke_scale;
-                    let tspan_baseline_y = tspan_y
-                        + tspan_dy
-                        + baseline_y_offset(tspan_presentation, tspan_local_font_size);
-                    apply_transform(transform, tspan_x + tspan_dx, tspan_baseline_y)
-                        .map(normalize_point)
-                        .map(|point| {
-                            (
-                                point,
-                                tspan_font_size,
-                                tspan_presentation,
-                                decode_xml_text(tspan_body),
-                            )
-                        })
+                let tspan_body_end = tspan_body_start + tspan_body_end_relative;
+                let tspan_body = tspan_tail[tspan_body_start..tspan_body_end].trim();
+                if tspan_body.is_empty() || tspan_body.contains('<') {
+                    valid_tspans = false;
+                    break;
                 }
+                let tspan_x = attr_value(tspan_tag, "x")
+                    .as_deref()
+                    .and_then(parse_number_prefix)
+                    .unwrap_or(current_x);
+                let tspan_y = attr_value(tspan_tag, "y")
+                    .as_deref()
+                    .and_then(parse_number_prefix)
+                    .unwrap_or(current_y);
+                let tspan_dx = attr_value(tspan_tag, "dx")
+                    .as_deref()
+                    .and_then(parse_number_prefix)
+                    .unwrap_or(0.0);
+                let tspan_dy = attr_value(tspan_tag, "dy")
+                    .as_deref()
+                    .and_then(parse_number_prefix)
+                    .unwrap_or(0.0);
+                let tspan_presentation =
+                    inherit_presentation(presentation, parse_presentation(tspan_tag));
+                let tspan_local_font_size = tspan_presentation.font_size.unwrap_or(12.0);
+                let tspan_font_size = tspan_local_font_size * transform.stroke_scale;
+                let tspan_x = tspan_x + tspan_dx;
+                let tspan_y = tspan_y + tspan_dy;
+                let tspan_baseline_y =
+                    tspan_y + baseline_y_offset(tspan_presentation, tspan_local_font_size);
+                let Some(point) =
+                    apply_transform(transform, tspan_x, tspan_baseline_y).map(normalize_point)
+                else {
+                    valid_tspans = false;
+                    break;
+                };
+                tspan_texts.push((
+                    point,
+                    tspan_font_size,
+                    tspan_presentation,
+                    decode_xml_text(tspan_body),
+                ));
+                current_x = tspan_x;
+                current_y = tspan_y;
+                let tspan_close_end = tspan_body_end + "</tspan>".len();
+                remaining = &tspan_tail[tspan_close_end..];
             }
-        } else {
-            None
+            if valid_tspans {
+                tspan_texts
+            } else {
+                Vec::new()
+            }
         };
-        if let Some((point, font_size, presentation, text)) = resolved_text
-            && font_size.is_finite()
-            && font_size > 0.0
-        {
-            texts.push(SimpleSvgText {
-                x_ratio: point.0,
-                y_ratio: point.1,
-                font_size_ratio: font_size / view_box.3,
-                anchor: presentation
-                    .text_anchor
-                    .unwrap_or(SimpleSvgTextAnchor::Start),
-                fill: fill_paint(presentation, Some((0.0, 0.0, 0.0))),
-                text,
-            });
+        for (point, font_size, presentation, text) in resolved_texts {
+            if font_size.is_finite() && font_size > 0.0 {
+                texts.push(SimpleSvgText {
+                    x_ratio: point.0,
+                    y_ratio: point.1,
+                    font_size_ratio: font_size / view_box.3,
+                    anchor: presentation
+                        .text_anchor
+                        .unwrap_or(SimpleSvgTextAnchor::Start),
+                    fill: fill_paint(presentation, Some((0.0, 0.0, 0.0))),
+                    text,
+                });
+            }
         }
         search_index = text_body_end + "</text>".len();
     }
@@ -5608,6 +5626,57 @@ mod tests {
         );
         assert!(!pdf_text.contains("0 0 1 rg BT"));
         assert!(!pdf_text.contains("[unsupported image: figures/tspan.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_multiple_tspans_as_pdf_text_runs() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/multiple-tspans.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:multiple-tspans".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/multiple-tspans.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    tspan.first { fill: #0000ff; font-size: 2; }
+    tspan.second { fill: #ff0000; font-size: 2; }
+  </style>
+  <text x="0" y="0">
+    <tspan class="first" x="10" y="6">A</tspan>
+    <tspan class="second" x="10" y="7">B</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 rg BT /F1 14.400001 Tf 1 0 0 1 144 670.8 Tm (A) Tj ET"));
+        assert!(pdf_text.contains("1 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 663.6 Tm (B) Tj ET"));
+        assert!(!pdf_text.contains("[unsupported image: figures/multiple-tspans.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
