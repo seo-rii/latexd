@@ -2433,6 +2433,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut token_index = 0usize;
         let mut command = None;
         let mut current = (0.0_f32, 0.0_f32);
+        let mut subpath_start = None;
         let mut ops = Vec::new();
         let mut closed = false;
         let mut has_move = false;
@@ -2443,9 +2444,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 command = Some(path_command);
                 token_index += 1;
                 if matches!(path_command, 'Z' | 'z') {
+                    let start = subpath_start?;
                     closed = true;
                     ops.push(SimpleSvgPathOp::Close);
-                    break;
+                    current = start;
+                    last_cubic_ctrl2 = None;
+                    last_quadratic_ctrl = None;
+                    continue;
                 }
             }
             let current_command = command?;
@@ -2469,6 +2474,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     ops.push(SimpleSvgPathOp::MoveTo(normalize_point(apply_transform(
                         transform, current.0, current.1,
                     )?)));
+                    subpath_start = Some(current);
                     has_move = true;
                     last_cubic_ctrl2 = None;
                     last_quadratic_ctrl = None;
@@ -5039,6 +5045,51 @@ mod tests {
     }
 
     #[test]
+    fn renders_simple_svg_compound_paths_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/compound-path.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:compound-path".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/compound-path.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <path fill="#ff0000" fill-rule="evenodd" d="M 0 0 L 20 0 L 20 10 L 0 10 Z M 5 2 L 15 2 L 15 8 L 5 8 Z"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains(
+            "1 0 0 rg 10 280 m 210 280 l 210 180 l 10 180 l h 60 260 m 160 260 l 160 200 l 60 200 l h f*"
+        ));
+        assert!(!pdf_text.contains("[unsupported image: figures/compound-path.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn renders_simple_svg_cubic_paths_as_pdf_vector_content() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
@@ -6298,7 +6349,9 @@ mod tests {
         });
         let pdf_text = String::from_utf8_lossy(&pdf);
 
-        assert!(pdf_text.contains("1 0 0 rg 10 280 m 110 280 l 110 180 l 10 180 l h f*"));
+        assert!(pdf_text.contains(
+            "1 0 0 rg 10 280 m 110 280 l 110 180 l 10 180 l h 30 260 m 90 260 l 90 200 l 30 200 l h f*"
+        ));
         assert!(pdf_text.contains("0 0 1 rg 130 270 m 190 270 l 190 200 l 130 200 l h f "));
         assert!(!pdf_text.contains("0 0 1 rg 130 270 m 190 270 l 190 200 l 130 200 l h f*"));
         assert!(!pdf_text.contains("[unsupported image: figures/fill-rule-style.svg]"));

@@ -190,7 +190,8 @@ Resolver-backed SVG and PNG/JPEG bitmap assets are embedded as data-URI
 `<image>` elements in project-root display-list SVG debug artifacts. Simple
 resolver-backed SVG `<rect>`, `<line>`, `<circle>`, `<ellipse>`, `<polyline>`,
 `<polygon>`, and `<path>` content with line, cubic/smooth cubic, and
-quadratic/smooth quadratic commands plus endpoint-parameterized arcs, including
+quadratic/smooth quadratic commands plus endpoint-parameterized arcs and
+multiple closed subpaths in one path element, including
 basic presentation/style fill and stroke metadata, simple `translate` /
 `scale` transform attributes, simple nested group transforms, inherited
 root/group-level fill/stroke/stroke-width presentation metadata, simple
@@ -638,7 +639,8 @@ Implemented first slice:
 - display-list PDF artifacts can render simple resolver-provided SVG `<rect>`,
   `<line>`, `<circle>`, `<ellipse>`, `<polyline>`, `<polygon>`, and `<path>`
   content with line, cubic/smooth cubic, quadratic/smooth quadratic, and arc
-  commands, including basic presentation/style fill and stroke metadata plus
+  commands, including multiple closed subpaths in one path element, basic
+  presentation/style fill and stroke metadata plus
   simple `translate` / `scale` transforms, simple nested group transforms, and
   inherited root/group-level fill/stroke/stroke-width metadata, simple
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
@@ -1073,7 +1075,8 @@ Status:
 - project-root display-list PDF debug artifacts render simple resolver-backed
   SVG rectangle, line, circle, ellipse, polyline, polygon, and path content
   with line, cubic/smooth cubic, quadratic/smooth quadratic, and arc commands,
-  including basic presentation/style fill and stroke metadata plus simple
+  including multiple closed subpaths in one path element, basic
+  presentation/style fill and stroke metadata plus simple
   `translate` / `scale` transform attributes, simple nested group transforms,
   inherited root/group-level fill/stroke/stroke-width metadata, simple
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
