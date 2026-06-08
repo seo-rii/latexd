@@ -1393,9 +1393,31 @@ fn image_natural_size_or_fallback(
 }
 
 fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
-    let tag_start = text.find("<svg")?;
+    let is_start_tag_named = |tag_tail: &str, element_name: &str| {
+        let Some(after_lt) = tag_tail.strip_prefix('<') else {
+            return false;
+        };
+        let Some(after_name) = after_lt.strip_prefix(element_name) else {
+            return false;
+        };
+        after_name
+            .chars()
+            .next()
+            .is_some_and(|ch| ch.is_whitespace() || matches!(ch, '>' | '/'))
+    };
+    let mut svg_search_offset = 0usize;
+    let (tag_start, tag_end) = loop {
+        let relative = text[svg_search_offset..].find("<svg")?;
+        let tag_start = svg_search_offset + relative;
+        let tag_tail = &text[tag_start..];
+        if !is_start_tag_named(tag_tail, "svg") {
+            svg_search_offset = tag_start + "<svg".len();
+            continue;
+        }
+        let tag_end = tag_tail.find('>')?;
+        break (tag_start, tag_end);
+    };
     let tag_tail = &text[tag_start..];
-    let tag_end = tag_tail.find('>')?;
     let svg_tag = &tag_tail[..tag_end];
     let attr_value = |tag: &str, name: &str| -> Option<String> {
         let mut offset = 0usize;
@@ -2048,6 +2070,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     while let Some(style_start_relative) = text[style_block_offset..].find("<style") {
         let style_start = style_block_offset + style_start_relative;
         let style_tag_tail = &text[style_start..];
+        if !is_start_tag_named(style_tag_tail, "style") {
+            style_block_offset = style_start + "<style".len();
+            continue;
+        }
         let Some(style_tag_end) = style_tag_tail.find('>') else {
             break;
         };
@@ -3370,18 +3396,6 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         defs_ranges
             .iter()
             .any(|(start, end)| *start <= element_start && element_start < *end)
-    };
-    let is_start_tag_named = |tag_tail: &str, element_name: &str| {
-        let Some(after_lt) = tag_tail.strip_prefix('<') else {
-            return false;
-        };
-        let Some(after_name) = after_lt.strip_prefix(element_name) else {
-            return false;
-        };
-        after_name
-            .chars()
-            .next()
-            .is_some_and(|ch| ch.is_whitespace() || matches!(ch, '>' | '/'))
     };
     #[derive(Debug, Clone, Copy)]
     struct SimpleSvgGroupTransform {
@@ -8126,6 +8140,56 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 rg 20 250 20 20 re f"));
         assert!(!pdf_text.contains("1 0 0 RG 10 w 10 280 m 60 280 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/prefix-elements.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn ignores_simple_svg_root_and_style_prefix_false_positives() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/root-style-prefix.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:root-style-prefix".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/root-style-prefix.svg").then(|| {
+                br##"<svgz width="20" height="10">
+  <line x1="0" y1="0" x2="5" y2="0" stroke="#ff0000" stroke-width="1"/>
+</svgz>
+<svg width="20" height="10">
+  <stylesheet>rect { fill: #ff0000; }</stylesheet>
+  <style>rect { fill: #0000ff; }</style>
+  <rect x="1" y="1" width="2" height="2"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("1 0 0 RG 10 w 10 280 m 60 280 l S"));
+        assert!(!pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/root-style-prefix.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
