@@ -122,6 +122,28 @@ pub fn render_display_list_pdf_with_converted_assets(
             stream.push_str(&format!("q /GS{key} gs "));
             true
         };
+    let push_pdf_stroke_dasharray =
+        |stream: &mut String, dasharray: Option<SimpleSvgDashArray>, scale: f32| -> bool {
+            let Some(dasharray) = dasharray else {
+                return false;
+            };
+            if !scale.is_finite() || scale <= 0.0 {
+                return false;
+            }
+            let mut values = Vec::new();
+            for value in dasharray.values.iter().take(dasharray.len) {
+                let value = *value * scale;
+                if !value.is_finite() || value < 0.0 {
+                    return false;
+                }
+                values.push(format!("{value}"));
+            }
+            if values.is_empty() {
+                return false;
+            }
+            stream.push_str(&format!("q [{}] 0 d ", values.join(" ")));
+            true
+        };
     for (index, page) in pages.iter().enumerate() {
         for op in &page.ops {
             if let DrawOp::NamedDestination(destination) = op {
@@ -379,6 +401,11 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             let stroke_width =
                                                 rect.stroke_width_ratio * natural_width * scale_x;
                                             if stroke_width.is_finite() && stroke_width > 0.0 {
+                                                let scoped_dash = push_pdf_stroke_dasharray(
+                                                    &mut stream,
+                                                    rect.stroke_dasharray,
+                                                    natural_width * scale_x,
+                                                );
                                                 let scoped_opacity = push_pdf_paint_opacity(
                                                     &mut stream,
                                                     &mut opacity_resource_keys,
@@ -396,6 +423,9 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                     rect_height
                                                 ));
                                                 if scoped_opacity {
+                                                    stream.push_str("Q ");
+                                                }
+                                                if scoped_dash {
                                                     stream.push_str("Q ");
                                                 }
                                             }
@@ -418,6 +448,11 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         && stroke_width.is_finite()
                                         && stroke_width > 0.0
                                     {
+                                        let scoped_dash = push_pdf_stroke_dasharray(
+                                            &mut stream,
+                                            line.stroke_dasharray,
+                                            natural_width * scale_x,
+                                        );
                                         let scoped_opacity = push_pdf_paint_opacity(
                                             &mut stream,
                                             &mut opacity_resource_keys,
@@ -435,6 +470,9 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             y2
                                         ));
                                         if scoped_opacity {
+                                            stream.push_str("Q ");
+                                        }
+                                        if scoped_dash {
                                             stream.push_str("Q ");
                                         }
                                     }
@@ -502,6 +540,11 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                 * natural_width
                                                 * scale_x;
                                             if stroke_width.is_finite() && stroke_width > 0.0 {
+                                                let scoped_dash = push_pdf_stroke_dasharray(
+                                                    &mut stream,
+                                                    ellipse.stroke_dasharray,
+                                                    natural_width * scale_x,
+                                                );
                                                 let scoped_opacity = push_pdf_paint_opacity(
                                                     &mut stream,
                                                     &mut opacity_resource_keys,
@@ -516,6 +559,9 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                     path
                                                 ));
                                                 if scoped_opacity {
+                                                    stream.push_str("Q ");
+                                                }
+                                                if scoped_dash {
                                                     stream.push_str("Q ");
                                                 }
                                             }
@@ -573,6 +619,11 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         let stroke_width =
                                             poly.stroke_width_ratio * natural_width * scale_x;
                                         if stroke_width.is_finite() && stroke_width > 0.0 {
+                                            let scoped_dash = push_pdf_stroke_dasharray(
+                                                &mut stream,
+                                                poly.stroke_dasharray,
+                                                natural_width * scale_x,
+                                            );
                                             let scoped_opacity = push_pdf_paint_opacity(
                                                 &mut stream,
                                                 &mut opacity_resource_keys,
@@ -587,6 +638,9 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                 path
                                             ));
                                             if scoped_opacity {
+                                                stream.push_str("Q ");
+                                            }
+                                            if scoped_dash {
                                                 stream.push_str("Q ");
                                             }
                                         }
@@ -675,6 +729,11 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         let stroke_width =
                                             svg_path.stroke_width_ratio * natural_width * scale_x;
                                         if stroke_width.is_finite() && stroke_width > 0.0 {
+                                            let scoped_dash = push_pdf_stroke_dasharray(
+                                                &mut stream,
+                                                svg_path.stroke_dasharray,
+                                                natural_width * scale_x,
+                                            );
                                             let scoped_opacity = push_pdf_paint_opacity(
                                                 &mut stream,
                                                 &mut opacity_resource_keys,
@@ -689,6 +748,9 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                 path
                                             ));
                                             if scoped_opacity {
+                                                stream.push_str("Q ");
+                                            }
+                                            if scoped_dash {
                                                 stream.push_str("Q ");
                                             }
                                         }
@@ -910,6 +972,12 @@ struct SimpleSvgPaint {
 }
 
 #[derive(Debug, Clone, Copy)]
+struct SimpleSvgDashArray {
+    values: [f32; 8],
+    len: usize,
+}
+
+#[derive(Debug, Clone, Copy)]
 struct SimpleSvgRect {
     x_ratio: f32,
     y_ratio: f32,
@@ -918,6 +986,7 @@ struct SimpleSvgRect {
     fill: Option<SimpleSvgPaint>,
     stroke: Option<SimpleSvgPaint>,
     stroke_width_ratio: f32,
+    stroke_dasharray: Option<SimpleSvgDashArray>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -928,6 +997,7 @@ struct SimpleSvgLine {
     y2_ratio: f32,
     stroke: SimpleSvgPaint,
     stroke_width_ratio: f32,
+    stroke_dasharray: Option<SimpleSvgDashArray>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -939,6 +1009,7 @@ struct SimpleSvgEllipse {
     fill: Option<SimpleSvgPaint>,
     stroke: Option<SimpleSvgPaint>,
     stroke_width_ratio: f32,
+    stroke_dasharray: Option<SimpleSvgDashArray>,
 }
 
 #[derive(Debug, Clone)]
@@ -948,6 +1019,7 @@ struct SimpleSvgPoly {
     fill: Option<SimpleSvgPaint>,
     stroke: Option<SimpleSvgPaint>,
     stroke_width_ratio: f32,
+    stroke_dasharray: Option<SimpleSvgDashArray>,
 }
 
 #[derive(Debug, Clone)]
@@ -956,6 +1028,7 @@ struct SimpleSvgPath {
     fill: Option<SimpleSvgPaint>,
     stroke: Option<SimpleSvgPaint>,
     stroke_width_ratio: f32,
+    stroke_dasharray: Option<SimpleSvgDashArray>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1177,6 +1250,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         fill: Option<Option<(f32, f32, f32)>>,
         stroke: Option<Option<(f32, f32, f32)>>,
         stroke_width: Option<f32>,
+        stroke_dasharray: Option<Option<SimpleSvgDashArray>>,
         opacity: Option<f32>,
         fill_opacity: Option<f32>,
         stroke_opacity: Option<f32>,
@@ -1196,9 +1270,34 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .filter(|value| value.is_finite())
             .map(|value| value.clamp(0.0, 1.0))
     };
+    let parse_dasharray = |raw: &str| -> Option<Option<SimpleSvgDashArray>> {
+        let raw = raw.trim();
+        if raw.eq_ignore_ascii_case("none") {
+            return Some(None);
+        }
+        let mut values = [0.0_f32; 8];
+        let mut len = 0usize;
+        let mut has_positive_value = false;
+        for component in raw
+            .split(|ch: char| ch == ',' || ch.is_whitespace())
+            .filter(|component| !component.is_empty())
+        {
+            let value = parse_number_prefix(component)?;
+            if !value.is_finite() || value < 0.0 {
+                return None;
+            }
+            has_positive_value |= value > 0.0;
+            if len < values.len() {
+                values[len] = value;
+                len += 1;
+            }
+        }
+        (len > 0 && has_positive_value).then_some(Some(SimpleSvgDashArray { values, len }))
+    };
     let presentation_from_values = |fill: Option<String>,
                                     stroke: Option<String>,
                                     stroke_width: Option<String>,
+                                    stroke_dasharray: Option<String>,
                                     opacity: Option<String>,
                                     fill_opacity: Option<String>,
                                     stroke_opacity: Option<String>|
@@ -1210,6 +1309,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .as_deref()
                 .and_then(parse_number_prefix)
                 .filter(|width| *width > 0.0),
+            stroke_dasharray: stroke_dasharray.as_deref().and_then(parse_dasharray),
             opacity: opacity.as_deref().and_then(parse_opacity),
             fill_opacity: fill_opacity.as_deref().and_then(parse_opacity),
             stroke_opacity: stroke_opacity.as_deref().and_then(parse_opacity),
@@ -1220,6 +1320,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             attr_value(tag, "fill"),
             attr_value(tag, "stroke"),
             attr_value(tag, "stroke-width"),
+            attr_value(tag, "stroke-dasharray"),
             attr_value(tag, "opacity"),
             attr_value(tag, "fill-opacity"),
             attr_value(tag, "stroke-opacity"),
@@ -1230,6 +1331,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             style_value(tag, "fill"),
             style_value(tag, "stroke"),
             style_value(tag, "stroke-width"),
+            style_value(tag, "stroke-dasharray"),
             style_value(tag, "opacity"),
             style_value(tag, "fill-opacity"),
             style_value(tag, "stroke-opacity"),
@@ -1240,6 +1342,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             declaration_value(declarations, "fill"),
             declaration_value(declarations, "stroke"),
             declaration_value(declarations, "stroke-width"),
+            declaration_value(declarations, "stroke-dasharray"),
             declaration_value(declarations, "opacity"),
             declaration_value(declarations, "fill-opacity"),
             declaration_value(declarations, "stroke-opacity"),
@@ -1405,6 +1508,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 fill: local.fill.or(base.fill),
                 stroke: local.stroke.or(base.stroke),
                 stroke_width: local.stroke_width.or(base.stroke_width),
+                stroke_dasharray: local.stroke_dasharray.or(base.stroke_dasharray),
                 opacity: local.opacity.or(base.opacity),
                 fill_opacity: local.fill_opacity.or(base.fill_opacity),
                 stroke_opacity: local.stroke_opacity.or(base.stroke_opacity),
@@ -1422,6 +1526,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 fill: local.fill.or(parent.fill),
                 stroke: local.stroke.or(parent.stroke),
                 stroke_width: local.stroke_width.or(parent.stroke_width),
+                stroke_dasharray: local.stroke_dasharray.or(parent.stroke_dasharray),
                 opacity,
                 fill_opacity: local.fill_opacity.or(parent.fill_opacity),
                 stroke_opacity: local.stroke_opacity.or(parent.stroke_opacity),
@@ -1453,6 +1558,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut fill: Option<SimpleSvgCascadeValue<Option<(f32, f32, f32)>>> = None;
         let mut stroke: Option<SimpleSvgCascadeValue<Option<(f32, f32, f32)>>> = None;
         let mut stroke_width: Option<SimpleSvgCascadeValue<f32>> = None;
+        let mut stroke_dasharray: Option<SimpleSvgCascadeValue<Option<SimpleSvgDashArray>>> = None;
         let mut opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut fill_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
@@ -1522,6 +1628,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
+                if let Some(value) = rule.presentation.stroke_dasharray {
+                    let current = stroke_dasharray.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        stroke_dasharray = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
                 if let Some(value) = rule.presentation.opacity {
                     let current = opacity.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
@@ -1558,6 +1674,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             fill: fill.map(|value| value.value),
             stroke: stroke.map(|value| value.value),
             stroke_width: stroke_width.map(|value| value.value),
+            stroke_dasharray: stroke_dasharray.map(|value| value.value),
             opacity: opacity.map(|value| value.value),
             fill_opacity: fill_opacity.map(|value| value.value),
             stroke_opacity: stroke_opacity.map(|value| value.value),
@@ -1576,6 +1693,18 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     let stroke_width_ratio = |presentation: SimpleSvgPresentation| -> f32 {
         presentation.stroke_width.unwrap_or(1.0) / view_box.2
     };
+    let stroke_dasharray_ratio =
+        |presentation: SimpleSvgPresentation| -> Option<SimpleSvgDashArray> {
+            presentation
+                .stroke_dasharray
+                .unwrap_or(None)
+                .map(|mut dasharray| {
+                    for index in 0..dasharray.len {
+                        dasharray.values[index] /= view_box.2;
+                    }
+                    dasharray
+                })
+        };
     let paint_from_rgb = |rgb: Option<(f32, f32, f32)>, opacity: f32| -> Option<SimpleSvgPaint> {
         let opacity = opacity.clamp(0.0, 1.0);
         (opacity > 0.0).then_some(SimpleSvgPaint { rgb: rgb?, opacity })
@@ -2498,6 +2627,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         fill,
                         stroke,
                         stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
+                        stroke_dasharray: stroke_dasharray_ratio(presentation),
                     });
                 }
                 search_index = rect_start + rect_end + 1;
@@ -2524,6 +2654,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     fill,
                     stroke,
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
+                    stroke_dasharray: stroke_dasharray_ratio(presentation),
                 });
             }
         }
@@ -2588,6 +2719,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 y2_ratio: (y2 - view_box.1) / view_box.3,
                 stroke,
                 stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
+                stroke_dasharray: stroke_dasharray_ratio(presentation),
             });
         }
         search_index = line_start + line_end + 1;
@@ -2634,6 +2766,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         fill,
                         stroke,
                         stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
+                        stroke_dasharray: stroke_dasharray_ratio(presentation),
                     });
                 }
                 search_index = circle_start + circle_end + 1;
@@ -2662,6 +2795,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     fill,
                     stroke,
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
+                    stroke_dasharray: stroke_dasharray_ratio(presentation),
                 });
             }
         }
@@ -2714,6 +2848,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         fill,
                         stroke,
                         stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
+                        stroke_dasharray: stroke_dasharray_ratio(presentation),
                     });
                 }
                 search_index = ellipse_start + ellipse_end + 1;
@@ -2742,6 +2877,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     fill,
                     stroke,
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
+                    stroke_dasharray: stroke_dasharray_ratio(presentation),
                 });
             }
         }
@@ -2770,6 +2906,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     fill,
                     stroke,
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
+                    stroke_dasharray: stroke_dasharray_ratio(presentation),
                 });
             }
         }
@@ -2797,6 +2934,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     fill,
                     stroke,
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
+                    stroke_dasharray: stroke_dasharray_ratio(presentation),
                 });
             }
         }
@@ -2827,6 +2965,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     fill,
                     stroke,
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
+                    stroke_dasharray: stroke_dasharray_ratio(presentation),
                 });
             }
         }
@@ -5645,6 +5784,59 @@ mod tests {
         assert!(pdf_text.contains("q /GS500 gs 0 0 0 rg 50 250 20 20 re f Q"));
         assert!(pdf_text.contains("q /GS400 gs 0 1 0 RG 20 w 10 260 m 60 260 l S Q"));
         assert!(!pdf_text.contains("[unsupported image: figures/opacity-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_stroke_dasharray_as_pdf_dash_pattern() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/dashed-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:dashed-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/dashed-style.svg").then(|| {
+                br##"<svg width="20" height="10" stroke-dasharray="2 1">
+  <style type="text/css">
+    rect { fill: none; stroke: #ff0000; stroke-width: 1; }
+    line { stroke: #0000ff; stroke-width: 2; fill: none; stroke-dasharray: 1, 0.5; }
+    path { stroke: #00ff00; stroke-width: 1; fill: none; stroke-dasharray: none; }
+  </style>
+  <rect x="1" y="1" width="2" height="2"/>
+  <line x1="0" y1="2" x2="5" y2="2"/>
+  <path d="M 0 5 L 5 5"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q [20 10] 0 d 1 0 0 RG 10 w 20 250 20 20 re S Q"));
+        assert!(pdf_text.contains("q [10 5] 0 d 0 0 1 RG 20 w 10 260 m 60 260 l S Q"));
+        assert!(pdf_text.contains("0 1 0 RG 10 w 10 230 m 60 230 l S"));
+        assert!(!pdf_text.contains("q [20 10] 0 d 0 1 0 RG 10 w 10 230 m 60 230 l S Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/dashed-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
