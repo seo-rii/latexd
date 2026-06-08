@@ -197,7 +197,8 @@ root/group-level fill/stroke/stroke-width presentation metadata, simple
 comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
 class/id selector fill/stroke/stroke-width rules with basic specificity and
 source-order cascade, hex/common named/`rgb(...)` color forms, and transparent
-paint as no-paint, and `matrix` / `rotate` transforms for path-like line/poly/path primitives, plus
+paint as no-paint, simple `opacity` / `fill-opacity` / `stroke-opacity` mapped
+to PDF ExtGState resources, and `matrix` / `rotate` transforms for path-like line/poly/path primitives, plus
 non-axis-aligned transformed rectangles rendered as closed vector polygons and
 transformed circle/ellipse primitives rendered as cubic vector paths, is also
 rendered directly as vector PDF drawing operations in display-list PDF
@@ -230,7 +231,8 @@ reuse the display-list natural point size for crop/clip placement rather than
 the converted bitmap pixel size. Driver-accurate crop/clip rendering for
 production PDF/SVG vector output and raster backends, TeX-exact rotated-box
 reflow, broader SVG style cascade beyond root/group/simple selector
-fill/stroke/stroke-width specificity and color support, programmable table
+fill/stroke/stroke-width/opacity specificity and color support, full SVG
+compositing, programmable table
 preamble hooks, exact residual vertical border trimming, exact table rule trimming, actual multirow
 geometry, exact nested table layout/reflow, and full TeX alignment policy are
 still deferred.
@@ -637,9 +639,10 @@ Implemented first slice:
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
   class/id selector fill/stroke/stroke-width rules with basic specificity and
   source-order cascade plus hex/common named/`rgb(...)` color forms and
-  transparent paint as no-paint, path-like `matrix` / `rotate` transforms,
-  non-axis-aligned transformed rectangles, and transformed circle/ellipse cubic
-  paths, as vector drawing operations;
+  transparent paint as no-paint, simple `opacity` / `fill-opacity` /
+  `stroke-opacity` mapped to PDF ExtGState resources, path-like `matrix` /
+  `rotate` transforms, non-axis-aligned transformed rectangles, and transformed
+  circle/ellipse cubic paths, as vector drawing operations;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
   display-list PDF and debug SVG artifacts;
 - missing or undecodable assets still render as bounded placeholders in both
@@ -1067,9 +1070,10 @@ Status:
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
   class/id selector fill/stroke/stroke-width rules with basic specificity and
   source-order cascade plus hex/common named/`rgb(...)` color forms and
-  transparent paint as no-paint, and path-like `matrix` / `rotate` transform
-  attributes plus non-axis-aligned transformed rectangles and transformed
-  circle/ellipse cubic paths, as vector PDF drawing operations;
+  transparent paint as no-paint, simple `opacity` / `fill-opacity` /
+  `stroke-opacity` mapped to PDF ExtGState resources, and path-like `matrix` /
+  `rotate` transform attributes plus non-axis-aligned transformed rectangles and
+  transformed circle/ellipse cubic paths, as vector PDF drawing operations;
 - `latexd render-ir --root ... --input ... --output-dir ...` exposes the
   event/IR/display-list artifact pipeline without replacing the serve preview
   path;
