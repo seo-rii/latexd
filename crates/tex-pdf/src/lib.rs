@@ -993,6 +993,37 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if raw.eq_ignore_ascii_case("none") {
             return None;
         }
+        let parse_rgb_component = |component: &str| -> Option<f32> {
+            let component = component.trim();
+            if let Some(percent) = component.strip_suffix('%') {
+                return percent
+                    .trim()
+                    .parse::<f32>()
+                    .ok()
+                    .filter(|value| value.is_finite())
+                    .map(|value| (value / 100.0).clamp(0.0, 1.0));
+            }
+            component
+                .parse::<f32>()
+                .ok()
+                .filter(|value| value.is_finite())
+                .map(|value| (value / 255.0).clamp(0.0, 1.0))
+        };
+        if raw.len() >= 5 && raw[..4].eq_ignore_ascii_case("rgb(") && raw.ends_with(')') {
+            let body = &raw[4..raw.len() - 1];
+            let body = body.split('/').next().unwrap_or(body);
+            let components = body
+                .split(|ch: char| ch == ',' || ch.is_whitespace())
+                .filter(|component| !component.is_empty())
+                .collect::<Vec<_>>();
+            if components.len() >= 3 {
+                return Some((
+                    parse_rgb_component(components[0])?,
+                    parse_rgb_component(components[1])?,
+                    parse_rgb_component(components[2])?,
+                ));
+            }
+        }
         if let Some(hex) = raw.strip_prefix('#') {
             if hex.len() == 6 {
                 let r = u8::from_str_radix(&hex[0..2], 16).ok()? as f32 / 255.0;
@@ -5178,6 +5209,56 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 RG 10 w 20 250 20 20 re S"));
         assert!(pdf_text.contains("0 0 1 RG 20 w 10 260 m 60 260 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/specificity-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_rgb_color_functions_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/rgb-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:rgb-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/rgb-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    rect { fill: rgb(255, 0, 0); stroke: rgb(0 0 255); stroke-width: 1; }
+    line { stroke: rgb(0%, 100%, 0%); stroke-width: 2; fill: none; }
+  </style>
+  <rect x="1" y="1" width="2" height="2"/>
+  <line x1="0" y1="2" x2="5" y2="2"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 RG 10 w 20 250 20 20 re S"));
+        assert!(pdf_text.contains("0 1 0 RG 20 w 10 260 m 60 260 l S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/rgb-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

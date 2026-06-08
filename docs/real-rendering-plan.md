@@ -196,7 +196,7 @@ basic presentation/style fill and stroke metadata, simple `translate` /
 root/group-level fill/stroke/stroke-width presentation metadata, simple
 comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
 class/id selector fill/stroke/stroke-width rules with basic specificity and
-source-order cascade, and `matrix` /
+source-order cascade, and hex/named/`rgb(...)` color forms, and `matrix` /
 `rotate` transforms for path-like line/poly/path primitives, plus
 non-axis-aligned transformed rectangles rendered as closed vector polygons and
 transformed circle/ellipse primitives rendered as cubic vector paths, is also
@@ -230,8 +230,8 @@ reuse the display-list natural point size for crop/clip placement rather than
 the converted bitmap pixel size. Driver-accurate crop/clip rendering for
 production PDF/SVG vector output and raster backends, TeX-exact rotated-box
 reflow, broader SVG style cascade beyond root/group/simple selector
-fill/stroke/stroke-width specificity support, programmable table preamble hooks, exact
-residual vertical border trimming, exact table rule trimming, actual multirow
+fill/stroke/stroke-width specificity and color support, programmable table
+preamble hooks, exact residual vertical border trimming, exact table rule trimming, actual multirow
 geometry, exact nested table layout/reflow, and full TeX alignment policy are
 still deferred.
 Rotation intent is no longer dropped: `angle` /
@@ -636,7 +636,7 @@ Implemented first slice:
   inherited root/group-level fill/stroke/stroke-width metadata, simple
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
   class/id selector fill/stroke/stroke-width rules with basic specificity and
-  source-order cascade, path-like `matrix` /
+  source-order cascade plus hex/named/`rgb(...)` color forms, path-like `matrix` /
   `rotate` transforms, non-axis-aligned transformed rectangles, and transformed
   circle/ellipse cubic paths, as vector drawing operations;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
@@ -1065,7 +1065,7 @@ Status:
   inherited root/group-level fill/stroke/stroke-width metadata, simple
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
   class/id selector fill/stroke/stroke-width rules with basic specificity and
-  source-order cascade, and path-like
+  source-order cascade plus hex/named/`rgb(...)` color forms, and path-like
   `matrix` / `rotate` transform attributes plus non-axis-aligned transformed
   rectangles and transformed circle/ellipse cubic paths, as vector PDF drawing
   operations;
