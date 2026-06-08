@@ -1196,7 +1196,133 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         Command(char),
         Number(f32),
     }
+    #[derive(Debug, Clone, Copy)]
+    struct SimpleSvgArcCommand {
+        current: (f32, f32),
+        rx: f32,
+        ry: f32,
+        x_axis_rotation: f32,
+        large_arc: bool,
+        sweep: bool,
+        to: (f32, f32),
+        transform: SimpleSvgTransform,
+    }
     type SimplePathParse = Option<(Vec<SimpleSvgPathOp>, bool)>;
+    let arc_to_cubics = |arc: SimpleSvgArcCommand| -> Option<Vec<SimpleSvgPathOp>> {
+        let SimpleSvgArcCommand {
+            current,
+            mut rx,
+            mut ry,
+            x_axis_rotation,
+            large_arc,
+            sweep,
+            to,
+            transform,
+        } = arc;
+        if !rx.is_finite()
+            || !ry.is_finite()
+            || !x_axis_rotation.is_finite()
+            || !to.0.is_finite()
+            || !to.1.is_finite()
+        {
+            return None;
+        }
+        rx = rx.abs();
+        ry = ry.abs();
+        if rx == 0.0 || ry == 0.0 {
+            return Some(vec![SimpleSvgPathOp::LineTo(normalize_point(
+                apply_transform(transform, to.0, to.1)?,
+            ))]);
+        }
+        if (current.0 - to.0).abs() <= f32::EPSILON && (current.1 - to.1).abs() <= f32::EPSILON {
+            return Some(Vec::new());
+        }
+
+        let radians = x_axis_rotation.to_radians();
+        let cos_phi = radians.cos();
+        let sin_phi = radians.sin();
+        let dx = (current.0 - to.0) / 2.0;
+        let dy = (current.1 - to.1) / 2.0;
+        let x1_prime = cos_phi * dx + sin_phi * dy;
+        let y1_prime = -sin_phi * dx + cos_phi * dy;
+        let lambda = x1_prime.powi(2) / rx.powi(2) + y1_prime.powi(2) / ry.powi(2);
+        if lambda > 1.0 {
+            let scale = lambda.sqrt();
+            rx *= scale;
+            ry *= scale;
+        }
+
+        let rx_sq = rx.powi(2);
+        let ry_sq = ry.powi(2);
+        let x1_prime_sq = x1_prime.powi(2);
+        let y1_prime_sq = y1_prime.powi(2);
+        let center_denom = rx_sq * y1_prime_sq + ry_sq * x1_prime_sq;
+        if center_denom == 0.0 {
+            return None;
+        }
+        let center_sign = if large_arc == sweep { -1.0 } else { 1.0 };
+        let center_scale = ((rx_sq * ry_sq - rx_sq * y1_prime_sq - ry_sq * x1_prime_sq)
+            / center_denom)
+            .max(0.0)
+            .sqrt()
+            * center_sign;
+        let cx_prime = center_scale * rx * y1_prime / ry;
+        let cy_prime = center_scale * -ry * x1_prime / rx;
+        let center = (
+            cos_phi * cx_prime - sin_phi * cy_prime + (current.0 + to.0) / 2.0,
+            sin_phi * cx_prime + cos_phi * cy_prime + (current.1 + to.1) / 2.0,
+        );
+
+        let start_vector = ((x1_prime - cx_prime) / rx, (y1_prime - cy_prime) / ry);
+        let end_vector = ((-x1_prime - cx_prime) / rx, (-y1_prime - cy_prime) / ry);
+        let start_angle = start_vector.1.atan2(start_vector.0);
+        let mut sweep_angle = (start_vector.0 * end_vector.1 - start_vector.1 * end_vector.0)
+            .atan2(start_vector.0 * end_vector.0 + start_vector.1 * end_vector.1);
+        if !sweep && sweep_angle > 0.0 {
+            sweep_angle -= 2.0 * std::f32::consts::PI;
+        } else if sweep && sweep_angle < 0.0 {
+            sweep_angle += 2.0 * std::f32::consts::PI;
+        }
+        let segment_count = (sweep_angle.abs() / (std::f32::consts::PI / 2.0)).ceil() as usize;
+        if segment_count == 0 {
+            return Some(Vec::new());
+        }
+        let segment_sweep = sweep_angle / segment_count as f32;
+        let mut ops = Vec::new();
+        for segment_index in 0..segment_count {
+            let theta1 = start_angle + segment_sweep * segment_index as f32;
+            let theta2 = theta1 + segment_sweep;
+            let alpha = 4.0 / 3.0 * ((theta2 - theta1) / 4.0).tan();
+            let ctrl1_unit = (
+                theta1.cos() - alpha * theta1.sin(),
+                theta1.sin() + alpha * theta1.cos(),
+            );
+            let ctrl2_unit = (
+                theta2.cos() + alpha * theta2.sin(),
+                theta2.sin() - alpha * theta2.cos(),
+            );
+            let end_unit = (theta2.cos(), theta2.sin());
+            let ellipse_point = |point: (f32, f32)| -> (f32, f32) {
+                (
+                    center.0 + cos_phi * rx * point.0 - sin_phi * ry * point.1,
+                    center.1 + sin_phi * rx * point.0 + cos_phi * ry * point.1,
+                )
+            };
+            let ctrl1 = ellipse_point(ctrl1_unit);
+            let ctrl2 = ellipse_point(ctrl2_unit);
+            let segment_to = if segment_index + 1 == segment_count {
+                to
+            } else {
+                ellipse_point(end_unit)
+            };
+            ops.push(SimpleSvgPathOp::CubicTo {
+                ctrl1: normalize_point(apply_transform(transform, ctrl1.0, ctrl1.1)?),
+                ctrl2: normalize_point(apply_transform(transform, ctrl2.0, ctrl2.1)?),
+                to: normalize_point(apply_transform(transform, segment_to.0, segment_to.1)?),
+            });
+        }
+        Some(ops)
+    };
     let parse_path = |raw: &str, transform: SimpleSvgTransform| -> SimplePathParse {
         let mut tokens = Vec::new();
         let mut index = 0usize;
@@ -1223,6 +1349,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     | 'q'
                     | 'T'
                     | 't'
+                    | 'A'
+                    | 'a'
                     | 'Z'
                     | 'z'
             ) {
@@ -1479,6 +1607,36 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     });
                     last_cubic_ctrl2 = None;
                     last_quadratic_ctrl = Some(ctrl);
+                }
+                'A' | 'a' => {
+                    if !has_move {
+                        return None;
+                    }
+                    let rx = next_number()?;
+                    let ry = next_number()?;
+                    let x_axis_rotation = next_number()?;
+                    let large_arc = next_number()?.abs() > f32::EPSILON;
+                    let sweep = next_number()?.abs() > f32::EPSILON;
+                    let x = next_number()?;
+                    let y = next_number()?;
+                    let to = if current_command == 'a' {
+                        (current.0 + x, current.1 + y)
+                    } else {
+                        (x, y)
+                    };
+                    ops.extend(arc_to_cubics(SimpleSvgArcCommand {
+                        current,
+                        rx,
+                        ry,
+                        x_axis_rotation,
+                        large_arc,
+                        sweep,
+                        to,
+                        transform,
+                    })?);
+                    current = to;
+                    last_cubic_ctrl2 = None;
+                    last_quadratic_ctrl = None;
                 }
                 _ => return None,
             }
@@ -3718,6 +3876,53 @@ mod tests {
             "1 0 0 RG 10 w 30 230 m 70 270 110 270 150 230 c 190 190 230 190 270 230 c S"
         ));
         assert!(!pdf_text.contains("[unsupported image: figures/smooth.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_arc_paths_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/arc.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:arc".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/arc.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <path d="M 5 5 A 5 5 0 0 1 10 0" fill="none" stroke-width="1" stroke="#00ff00"/>
+  <path d="M 5 5 a 5 5 0 0 0 5 5" fill="none" stroke-width="1" stroke="#ff0000"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 RG 10 w 60 230 m "));
+        assert!(pdf_text.contains("110 280 c S"));
+        assert!(pdf_text.contains("1 0 0 RG 10 w 60 230 m "));
+        assert!(pdf_text.contains("110 180 c S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/arc.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
