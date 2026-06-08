@@ -198,7 +198,7 @@ root/group-level fill/stroke/stroke-width presentation metadata, simple
 root `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`,
 comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
 class/id selector fill/stroke/stroke-width rules with basic specificity and
-    source-order cascade, 3/4/6/8-digit hex/common named/`rgb(...)` /
+    source-order cascade, 3/4/6/8-digit hex/expanded common named/`rgb(...)` /
     `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
     `currentColor` fill/stroke paint, simple `inherit` paint/color values,
     transparent paint as no-paint, and paint-server `url(...)` fallback colors,
@@ -650,7 +650,7 @@ Implemented first slice:
   `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`, simple
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
   class/id selector fill/stroke/stroke-width rules with basic specificity and
-  source-order cascade plus 3/4/6/8-digit hex/common named/`rgb(...)` /
+  source-order cascade plus 3/4/6/8-digit hex/expanded common named/`rgb(...)` /
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
   `currentColor` fill/stroke paint, simple `inherit` paint/color values,
   transparent paint as no-paint, and paint-server `url(...)` fallback colors,
@@ -1100,7 +1100,7 @@ Status:
   `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`, simple
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
   class/id selector fill/stroke/stroke-width rules with basic specificity and
-  source-order cascade plus 3/4/6/8-digit hex/common named/`rgb(...)` /
+  source-order cascade plus 3/4/6/8-digit hex/expanded common named/`rgb(...)` /
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
   `currentColor` fill/stroke paint, simple `inherit` paint/color values,
   transparent paint as no-paint, and paint-server `url(...)` fallback colors,

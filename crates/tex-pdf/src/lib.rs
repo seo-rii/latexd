@@ -1584,6 +1584,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             return None;
         }
         let color = |rgb: (f32, f32, f32)| SimpleSvgResolvedColor { rgb, alpha: 1.0 };
+        let color_255 =
+            |r: u8, g: u8, b: u8| color((r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0));
         let parse_rgb_component = |component: &str| -> Option<f32> {
             let component = component.trim();
             if let Some(percent) = component.strip_suffix('%') {
@@ -1811,6 +1813,60 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             "blue" => Some(color((0.0, 0.0, 1.0))),
             "teal" => Some(color((0.0, 0.5, 0.5))),
             "aqua" | "cyan" => Some(color((0.0, 1.0, 1.0))),
+            "aliceblue" => Some(color_255(240, 248, 255)),
+            "antiquewhite" => Some(color_255(250, 235, 215)),
+            "beige" => Some(color_255(245, 245, 220)),
+            "bisque" => Some(color_255(255, 228, 196)),
+            "brown" => Some(color_255(165, 42, 42)),
+            "chocolate" => Some(color_255(210, 105, 30)),
+            "coral" => Some(color_255(255, 127, 80)),
+            "cornflowerblue" => Some(color_255(100, 149, 237)),
+            "crimson" => Some(color_255(220, 20, 60)),
+            "darkblue" => Some(color_255(0, 0, 139)),
+            "darkcyan" => Some(color_255(0, 139, 139)),
+            "darkgray" | "darkgrey" => Some(color_255(169, 169, 169)),
+            "darkgreen" => Some(color_255(0, 100, 0)),
+            "darkorange" => Some(color_255(255, 140, 0)),
+            "darkred" => Some(color_255(139, 0, 0)),
+            "darkslategray" | "darkslategrey" => Some(color_255(47, 79, 79)),
+            "dimgray" | "dimgrey" => Some(color_255(105, 105, 105)),
+            "firebrick" => Some(color_255(178, 34, 34)),
+            "forestgreen" => Some(color_255(34, 139, 34)),
+            "gainsboro" => Some(color_255(220, 220, 220)),
+            "gold" => Some(color_255(255, 215, 0)),
+            "goldenrod" => Some(color_255(218, 165, 32)),
+            "hotpink" => Some(color_255(255, 105, 180)),
+            "indianred" => Some(color_255(205, 92, 92)),
+            "indigo" => Some(color_255(75, 0, 130)),
+            "khaki" => Some(color_255(240, 230, 140)),
+            "lavender" => Some(color_255(230, 230, 250)),
+            "lightblue" => Some(color_255(173, 216, 230)),
+            "lightcyan" => Some(color_255(224, 255, 255)),
+            "lightgray" | "lightgrey" => Some(color_255(211, 211, 211)),
+            "lightgreen" => Some(color_255(144, 238, 144)),
+            "lightpink" => Some(color_255(255, 182, 193)),
+            "lightskyblue" => Some(color_255(135, 206, 250)),
+            "limegreen" => Some(color_255(50, 205, 50)),
+            "midnightblue" => Some(color_255(25, 25, 112)),
+            "orange" => Some(color_255(255, 165, 0)),
+            "orangered" => Some(color_255(255, 69, 0)),
+            "orchid" => Some(color_255(218, 112, 214)),
+            "peru" => Some(color_255(205, 133, 63)),
+            "pink" => Some(color_255(255, 192, 203)),
+            "plum" => Some(color_255(221, 160, 221)),
+            "rebeccapurple" => Some(color_255(102, 51, 153)),
+            "rosybrown" => Some(color_255(188, 143, 143)),
+            "royalblue" => Some(color_255(65, 105, 225)),
+            "salmon" => Some(color_255(250, 128, 114)),
+            "seagreen" => Some(color_255(46, 139, 87)),
+            "sienna" => Some(color_255(160, 82, 45)),
+            "skyblue" => Some(color_255(135, 206, 235)),
+            "slategray" | "slategrey" => Some(color_255(112, 128, 144)),
+            "steelblue" => Some(color_255(70, 130, 180)),
+            "tan" => Some(color_255(210, 180, 140)),
+            "tomato" => Some(color_255(255, 99, 71)),
+            "violet" => Some(color_255(238, 130, 238)),
+            "whitesmoke" => Some(color_255(245, 245, 245)),
             _ => Some(color((0.0, 0.0, 0.0))),
         }
     };
@@ -8594,6 +8650,57 @@ mod tests {
         assert!(pdf_text.contains("0 1 1 RG 10 w 20 250 20 20 re S"));
         assert!(pdf_text.contains("1 0 1 RG 20 w 10 260 m 60 260 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/named-color-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_extended_named_colors_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/extended-named-color-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:extended-named-color-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/extended-named-color-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    rect { fill: orange; stroke: lightgray; stroke-width: 1; }
+    line { stroke: rebeccapurple; stroke-width: 2; fill: none; }
+  </style>
+  <rect x="1" y="1" width="2" height="2"/>
+  <line x1="0" y1="2" x2="5" y2="2"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0.64705884 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0.827451 0.827451 0.827451 RG 10 w 20 250 20 20 re S"));
+        assert!(pdf_text.contains("0.4 0.2 0.6 RG 20 w 10 260 m 60 260 l S"));
+        assert!(!pdf_text.contains("0 0 0 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/extended-named-color-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
