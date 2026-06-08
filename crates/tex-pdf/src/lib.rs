@@ -1578,11 +1578,12 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let style = attr_value(tag, "style")?;
         declaration_value(&style, name)
     };
-    let parse_color = |raw: &str| -> Option<(f32, f32, f32)> {
+    let parse_color = |raw: &str| -> Option<SimpleSvgResolvedColor> {
         let raw = raw.trim();
         if raw.eq_ignore_ascii_case("none") || raw.eq_ignore_ascii_case("transparent") {
             return None;
         }
+        let color = |rgb: (f32, f32, f32)| SimpleSvgResolvedColor { rgb, alpha: 1.0 };
         let parse_rgb_component = |component: &str| -> Option<f32> {
             let component = component.trim();
             if let Some(percent) = component.strip_suffix('%') {
@@ -1607,56 +1608,79 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .filter(|component| !component.is_empty())
                 .collect::<Vec<_>>();
             if components.len() >= 3 {
-                return Some((
+                return Some(color((
                     parse_rgb_component(components[0])?,
                     parse_rgb_component(components[1])?,
                     parse_rgb_component(components[2])?,
-                ));
+                )));
             }
         }
         if let Some(hex) = raw.strip_prefix('#') {
-            if hex.len() == 6 {
-                let r = u8::from_str_radix(&hex[0..2], 16).ok()? as f32 / 255.0;
-                let g = u8::from_str_radix(&hex[2..4], 16).ok()? as f32 / 255.0;
-                let b = u8::from_str_radix(&hex[4..6], 16).ok()? as f32 / 255.0;
-                return Some((r, g, b));
+            if hex.len() == 6 || hex.len() == 8 {
+                return Some(SimpleSvgResolvedColor {
+                    rgb: (
+                        u8::from_str_radix(&hex[0..2], 16).ok()? as f32 / 255.0,
+                        u8::from_str_radix(&hex[2..4], 16).ok()? as f32 / 255.0,
+                        u8::from_str_radix(&hex[4..6], 16).ok()? as f32 / 255.0,
+                    ),
+                    alpha: if hex.len() == 8 {
+                        u8::from_str_radix(&hex[6..8], 16).ok()? as f32 / 255.0
+                    } else {
+                        1.0
+                    },
+                });
             }
-            if hex.len() == 3 {
-                let r = u8::from_str_radix(&hex[0..1].repeat(2), 16).ok()? as f32 / 255.0;
-                let g = u8::from_str_radix(&hex[1..2].repeat(2), 16).ok()? as f32 / 255.0;
-                let b = u8::from_str_radix(&hex[2..3].repeat(2), 16).ok()? as f32 / 255.0;
-                return Some((r, g, b));
+            if hex.len() == 3 || hex.len() == 4 {
+                let expand = |component: &str| -> Option<f32> {
+                    Some(u8::from_str_radix(&component.repeat(2), 16).ok()? as f32 / 255.0)
+                };
+                return Some(SimpleSvgResolvedColor {
+                    rgb: (
+                        expand(&hex[0..1])?,
+                        expand(&hex[1..2])?,
+                        expand(&hex[2..3])?,
+                    ),
+                    alpha: if hex.len() == 4 {
+                        expand(&hex[3..4])?
+                    } else {
+                        1.0
+                    },
+                });
             }
         }
         match raw.to_ascii_lowercase().as_str() {
-            "black" => Some((0.0, 0.0, 0.0)),
-            "silver" => Some((0.75, 0.75, 0.75)),
-            "white" => Some((1.0, 1.0, 1.0)),
-            "gray" | "grey" => Some((0.5, 0.5, 0.5)),
-            "maroon" => Some((0.5, 0.0, 0.0)),
-            "red" => Some((1.0, 0.0, 0.0)),
-            "purple" => Some((0.5, 0.0, 0.5)),
-            "fuchsia" | "magenta" => Some((1.0, 0.0, 1.0)),
-            "green" => Some((0.0, 0.5, 0.0)),
-            "lime" => Some((0.0, 1.0, 0.0)),
-            "olive" => Some((0.5, 0.5, 0.0)),
-            "yellow" => Some((1.0, 1.0, 0.0)),
-            "navy" => Some((0.0, 0.0, 0.5)),
-            "blue" => Some((0.0, 0.0, 1.0)),
-            "teal" => Some((0.0, 0.5, 0.5)),
-            "aqua" | "cyan" => Some((0.0, 1.0, 1.0)),
-            _ => Some((0.0, 0.0, 0.0)),
+            "black" => Some(color((0.0, 0.0, 0.0))),
+            "silver" => Some(color((0.75, 0.75, 0.75))),
+            "white" => Some(color((1.0, 1.0, 1.0))),
+            "gray" | "grey" => Some(color((0.5, 0.5, 0.5))),
+            "maroon" => Some(color((0.5, 0.0, 0.0))),
+            "red" => Some(color((1.0, 0.0, 0.0))),
+            "purple" => Some(color((0.5, 0.0, 0.5))),
+            "fuchsia" | "magenta" => Some(color((1.0, 0.0, 1.0))),
+            "green" => Some(color((0.0, 0.5, 0.0))),
+            "lime" => Some(color((0.0, 1.0, 0.0))),
+            "olive" => Some(color((0.5, 0.5, 0.0))),
+            "yellow" => Some(color((1.0, 1.0, 0.0))),
+            "navy" => Some(color((0.0, 0.0, 0.5))),
+            "blue" => Some(color((0.0, 0.0, 1.0))),
+            "teal" => Some(color((0.0, 0.5, 0.5))),
+            "aqua" | "cyan" => Some(color((0.0, 1.0, 1.0))),
+            _ => Some(color((0.0, 0.0, 0.0))),
         }
     };
     let parse_paint = |raw: &str| -> Option<SimpleSvgColor> {
         let raw = raw.trim();
         if raw.len() >= 4 && raw[..4].eq_ignore_ascii_case("url(") {
             let Some(url_end) = raw.find(')') else {
-                return Some(SimpleSvgColor::Rgb((0.0, 0.0, 0.0)));
+                return Some(SimpleSvgColor::Resolved(SimpleSvgResolvedColor::opaque((
+                    0.0, 0.0, 0.0,
+                ))));
             };
             let fallback = raw[url_end + 1..].trim();
             if fallback.is_empty() {
-                return Some(SimpleSvgColor::Rgb((0.0, 0.0, 0.0)));
+                return Some(SimpleSvgColor::Resolved(SimpleSvgResolvedColor::opaque((
+                    0.0, 0.0, 0.0,
+                ))));
             }
             if fallback.eq_ignore_ascii_case("none") || fallback.eq_ignore_ascii_case("transparent")
             {
@@ -1665,7 +1689,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             if fallback.eq_ignore_ascii_case("currentColor") {
                 return Some(SimpleSvgColor::CurrentColor);
             }
-            return parse_color(fallback).map(SimpleSvgColor::Rgb);
+            return parse_color(fallback).map(SimpleSvgColor::Resolved);
         }
         if raw.eq_ignore_ascii_case("none") || raw.eq_ignore_ascii_case("transparent") {
             return None;
@@ -1673,11 +1697,21 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if raw.eq_ignore_ascii_case("currentColor") {
             return Some(SimpleSvgColor::CurrentColor);
         }
-        parse_color(raw).map(SimpleSvgColor::Rgb)
+        parse_color(raw).map(SimpleSvgColor::Resolved)
     };
     #[derive(Debug, Clone, Copy)]
+    struct SimpleSvgResolvedColor {
+        rgb: (f32, f32, f32),
+        alpha: f32,
+    }
+    impl SimpleSvgResolvedColor {
+        fn opaque(rgb: (f32, f32, f32)) -> Self {
+            Self { rgb, alpha: 1.0 }
+        }
+    }
+    #[derive(Debug, Clone, Copy)]
     enum SimpleSvgColor {
-        Rgb((f32, f32, f32)),
+        Resolved(SimpleSvgResolvedColor),
         CurrentColor,
     }
     #[derive(Debug, Clone, Copy)]
@@ -1704,7 +1738,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         stroke_linecap: Option<SimpleSvgStrokeLineCap>,
         stroke_linejoin: Option<SimpleSvgStrokeLineJoin>,
         stroke_miterlimit: Option<f32>,
-        color: Option<(f32, f32, f32)>,
+        color: Option<SimpleSvgResolvedColor>,
         opacity: Option<f32>,
         fill_opacity: Option<f32>,
         stroke_opacity: Option<f32>,
@@ -1877,7 +1911,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         Some(parse_paint(&value))
     };
-    let parse_optional_color = |value: Option<String>| -> Option<(f32, f32, f32)> {
+    let parse_optional_color = |value: Option<String>| -> Option<SimpleSvgResolvedColor> {
         let value = value?;
         if value.trim().eq_ignore_ascii_case("inherit") {
             return None;
@@ -2281,7 +2315,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut stroke_linecap: Option<SimpleSvgCascadeValue<SimpleSvgStrokeLineCap>> = None;
         let mut stroke_linejoin: Option<SimpleSvgCascadeValue<SimpleSvgStrokeLineJoin>> = None;
         let mut stroke_miterlimit: Option<SimpleSvgCascadeValue<f32>> = None;
-        let mut color: Option<SimpleSvgCascadeValue<(f32, f32, f32)>> = None;
+        let mut color: Option<SimpleSvgCascadeValue<SimpleSvgResolvedColor>> = None;
         let mut opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut fill_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
@@ -2616,28 +2650,34 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             miterlimit: presentation.stroke_miterlimit.unwrap_or(4.0),
         }
     };
-    let resolve_svg_color = |color: SimpleSvgColor, current_color: (f32, f32, f32)| match color {
-        SimpleSvgColor::Rgb(rgb) => rgb,
-        SimpleSvgColor::CurrentColor => current_color,
-    };
+    let resolve_svg_color =
+        |color: SimpleSvgColor, current_color: SimpleSvgResolvedColor| match color {
+            SimpleSvgColor::Resolved(color) => color,
+            SimpleSvgColor::CurrentColor => current_color,
+        };
     let paint_from_color = |color: Option<SimpleSvgColor>,
                             opacity: f32,
-                            current_color: (f32, f32, f32)|
+                            current_color: SimpleSvgResolvedColor|
      -> Option<SimpleSvgPaint> {
-        let opacity = opacity.clamp(0.0, 1.0);
+        let color = resolve_svg_color(color?, current_color);
+        let opacity = (opacity * color.alpha).clamp(0.0, 1.0);
         (opacity > 0.0).then_some(SimpleSvgPaint {
-            rgb: resolve_svg_color(color?, current_color),
+            rgb: color.rgb,
             opacity,
         })
     };
     let fill_paint = |presentation: SimpleSvgPresentation,
                       default_rgb: Option<(f32, f32, f32)>|
      -> Option<SimpleSvgPaint> {
-        let current_color = presentation.color.unwrap_or((0.0, 0.0, 0.0));
+        let current_color = presentation
+            .color
+            .unwrap_or_else(|| SimpleSvgResolvedColor::opaque((0.0, 0.0, 0.0)));
         paint_from_color(
-            presentation
-                .fill
-                .unwrap_or_else(|| default_rgb.map(SimpleSvgColor::Rgb)),
+            presentation.fill.unwrap_or_else(|| {
+                default_rgb
+                    .map(SimpleSvgResolvedColor::opaque)
+                    .map(SimpleSvgColor::Resolved)
+            }),
             presentation.opacity.unwrap_or(1.0) * presentation.fill_opacity.unwrap_or(1.0),
             current_color,
         )
@@ -2646,7 +2686,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         presentation.fill_rule.unwrap_or(SimpleSvgFillRule::NonZero)
     };
     let stroke_paint = |presentation: SimpleSvgPresentation| -> Option<SimpleSvgPaint> {
-        let current_color = presentation.color.unwrap_or((0.0, 0.0, 0.0));
+        let current_color = presentation
+            .color
+            .unwrap_or_else(|| SimpleSvgResolvedColor::opaque((0.0, 0.0, 0.0)));
         paint_from_color(
             presentation.stroke.unwrap_or(None),
             presentation.opacity.unwrap_or(1.0) * presentation.stroke_opacity.unwrap_or(1.0),
@@ -8204,6 +8246,57 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 RG 10 w 20 250 20 20 re S"));
         assert!(pdf_text.contains("0 1 0 RG 20 w 10 260 m 60 260 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/rgb-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_hex_alpha_colors_as_pdf_opacity() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/hex-alpha-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:hex-alpha-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/hex-alpha-style.svg").then(|| {
+                br##"<svg width="20" height="10" color="#0000ff33">
+  <rect x="1" y="1" width="2" height="2" fill="#0f03" fill-opacity="0.5" stroke="#ff000033" stroke-width="1"/>
+  <line x1="0" y1="2" x2="5" y2="2" stroke="currentColor" stroke-width="1" fill="none"/>
+  <rect x="4" y="1" width="2" height="2" fill="#0000" stroke="#00ff0033" stroke-opacity="0.5" stroke-width="1"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/GS100 << /Type /ExtGState /ca 0.1 /CA 0.1 >>"));
+        assert!(pdf_text.contains("/GS200 << /Type /ExtGState /ca 0.2 /CA 0.2 >>"));
+        assert!(pdf_text.contains("q /GS100 gs 0 1 0 rg 20 250 20 20 re f Q"));
+        assert!(pdf_text.contains("q /GS200 gs 1 0 0 RG 10 w 20 250 20 20 re S Q"));
+        assert!(pdf_text.contains("q /GS200 gs 0 0 1 RG 10 w 10 260 m 60 260 l S Q"));
+        assert!(pdf_text.contains("q /GS100 gs 0 1 0 RG 10 w 50 250 20 20 re S Q"));
+        assert!(!pdf_text.contains("0 0 0 rg 50 250 20 20 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/hex-alpha-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
