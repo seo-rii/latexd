@@ -872,7 +872,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                     let Some(fill) = svg_text.fill else {
                                         continue;
                                     };
-                                    let x = svg_rect.x + svg_text.x_ratio * svg_width;
+                                    let mut x = svg_rect.x + svg_text.x_ratio * svg_width;
                                     let y = svg_rect.y + (1.0 - svg_text.y_ratio) * svg_height;
                                     let font_size = svg_text.font_size_ratio * svg_height;
                                     if !x.is_finite()
@@ -881,6 +881,32 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         || font_size <= 0.0
                                         || svg_text.text.is_empty()
                                     {
+                                        continue;
+                                    }
+                                    let estimated_advance = svg_text
+                                        .text
+                                        .chars()
+                                        .map(|ch| {
+                                            if ch.is_whitespace() {
+                                                0.33
+                                            } else if ch.is_ascii_punctuation() {
+                                                0.33
+                                            } else {
+                                                0.5
+                                            }
+                                        })
+                                        .sum::<f32>()
+                                        * font_size;
+                                    match svg_text.anchor {
+                                        SimpleSvgTextAnchor::Start => {}
+                                        SimpleSvgTextAnchor::Middle => {
+                                            x -= estimated_advance / 2.0;
+                                        }
+                                        SimpleSvgTextAnchor::End => {
+                                            x -= estimated_advance;
+                                        }
+                                    }
+                                    if !x.is_finite() {
                                         continue;
                                     }
                                     let scoped_opacity = push_pdf_paint_opacity(
@@ -1239,8 +1265,16 @@ struct SimpleSvgText {
     x_ratio: f32,
     y_ratio: f32,
     font_size_ratio: f32,
+    anchor: SimpleSvgTextAnchor,
     fill: Option<SimpleSvgPaint>,
     text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SimpleSvgTextAnchor {
+    Start,
+    Middle,
+    End,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1519,6 +1553,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         opacity: Option<f32>,
         fill_opacity: Option<f32>,
         stroke_opacity: Option<f32>,
+        text_anchor: Option<SimpleSvgTextAnchor>,
     }
     let parse_opacity = |raw: &str| -> Option<f32> {
         let raw = raw.trim();
@@ -1586,6 +1621,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             _ => None,
         }
     };
+    let parse_text_anchor = |raw: &str| -> Option<SimpleSvgTextAnchor> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "start" => Some(SimpleSvgTextAnchor::Start),
+            "middle" => Some(SimpleSvgTextAnchor::Middle),
+            "end" => Some(SimpleSvgTextAnchor::End),
+            _ => None,
+        }
+    };
     let presentation_from_values = |fill: Option<String>,
                                     fill_rule: Option<String>,
                                     stroke: Option<String>,
@@ -1597,7 +1640,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     stroke_miterlimit: Option<String>,
                                     opacity: Option<String>,
                                     fill_opacity: Option<String>,
-                                    stroke_opacity: Option<String>|
+                                    stroke_opacity: Option<String>,
+                                    text_anchor: Option<String>|
      -> SimpleSvgPresentation {
         SimpleSvgPresentation {
             fill: fill.as_deref().map(&parse_color),
@@ -1621,6 +1665,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             opacity: opacity.as_deref().and_then(parse_opacity),
             fill_opacity: fill_opacity.as_deref().and_then(parse_opacity),
             stroke_opacity: stroke_opacity.as_deref().and_then(parse_opacity),
+            text_anchor: text_anchor.as_deref().and_then(parse_text_anchor),
         }
     };
     let parse_attr_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -1637,6 +1682,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             attr_value(tag, "opacity"),
             attr_value(tag, "fill-opacity"),
             attr_value(tag, "stroke-opacity"),
+            attr_value(tag, "text-anchor"),
         )
     };
     let parse_inline_style_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -1653,6 +1699,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             style_value(tag, "opacity"),
             style_value(tag, "fill-opacity"),
             style_value(tag, "stroke-opacity"),
+            style_value(tag, "text-anchor"),
         )
     };
     let parse_declaration_presentation = |declarations: &str| -> SimpleSvgPresentation {
@@ -1669,6 +1716,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             declaration_value(declarations, "opacity"),
             declaration_value(declarations, "fill-opacity"),
             declaration_value(declarations, "stroke-opacity"),
+            declaration_value(declarations, "text-anchor"),
         )
     };
     #[derive(Debug, Clone)]
@@ -1840,6 +1888,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 opacity: local.opacity.or(base.opacity),
                 fill_opacity: local.fill_opacity.or(base.fill_opacity),
                 stroke_opacity: local.stroke_opacity.or(base.stroke_opacity),
+                text_anchor: local.text_anchor.or(base.text_anchor),
             }
         };
     let inherit_presentation =
@@ -1863,6 +1912,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 opacity,
                 fill_opacity: local.fill_opacity.or(parent.fill_opacity),
                 stroke_opacity: local.stroke_opacity.or(parent.stroke_opacity),
+                text_anchor: local.text_anchor.or(parent.text_anchor),
             }
         };
     let tag_element_name = |tag: &str| -> Option<String> {
@@ -1900,6 +1950,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut fill_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
+        let mut text_anchor: Option<SimpleSvgCascadeValue<SimpleSvgTextAnchor>> = None;
         for (order, rule) in style_rules.iter().enumerate() {
             let matches = match &rule.selector {
                 SimpleSvgStyleSelector::Type { element_name } => {
@@ -2056,6 +2107,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
+                if let Some(value) = rule.presentation.text_anchor {
+                    let current = text_anchor.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        text_anchor = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
             }
         }
         SimpleSvgPresentation {
@@ -2071,6 +2132,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             opacity: opacity.map(|value| value.value),
             fill_opacity: fill_opacity.map(|value| value.value),
             stroke_opacity: stroke_opacity.map(|value| value.value),
+            text_anchor: text_anchor.map(|value| value.value),
         }
     };
     let parse_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -3603,6 +3665,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 x_ratio: point.0,
                 y_ratio: point.1,
                 font_size_ratio: font_size / view_box.3,
+                anchor: presentation
+                    .text_anchor
+                    .unwrap_or(SimpleSvgTextAnchor::Start),
                 fill: fill_paint(presentation, Some((0.0, 0.0, 0.0))),
                 text: decode_xml_text(text_body),
             });
@@ -5283,6 +5348,58 @@ mod tests {
             pdf_text.contains("0 1 0 rg BT /F1 14.400001 Tf 1 0 0 1 86.4 670.8 Tm (A & B) Tj ET")
         );
         assert!(!pdf_text.contains("[unsupported image: figures/text.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_text_anchor_as_pdf_position_adjustment() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-anchor.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-anchor".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-anchor.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    text.centered { text-anchor: middle; fill: #0000ff; }
+  </style>
+  <text class="centered" x="10" y="6" font-size="2">aa</text>
+  <text x="10" y="8" font-size="2" fill="#ff0000" text-anchor="end">bb</text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(
+            pdf_text.contains("0 0 1 rg BT /F1 14.400001 Tf 1 0 0 1 136.8 670.8 Tm (aa) Tj ET")
+        );
+        assert!(
+            pdf_text.contains("1 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 129.6 656.4 Tm (bb) Tj ET")
+        );
+        assert!(!pdf_text.contains("[unsupported image: figures/text-anchor.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
