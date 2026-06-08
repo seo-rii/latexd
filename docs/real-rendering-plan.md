@@ -189,7 +189,8 @@ resolver-backed SVG `<rect>`, `<line>`, `<circle>`, `<ellipse>`, `<polyline>`,
 `<polygon>`, and `<path>` content with line, cubic/smooth cubic, and
 quadratic/smooth quadratic commands plus endpoint-parameterized arcs, including
 basic presentation/style fill and stroke metadata, simple `translate` /
-`scale` transform attributes, simple nested group transforms, and `matrix` /
+`scale` transform attributes, simple nested group transforms, inherited
+group-level fill/stroke/stroke-width presentation metadata, and `matrix` /
 `rotate` transforms for path-like line/poly/path primitives, is also rendered
 directly as vector PDF drawing operations in display-list PDF artifacts instead
 of falling back to unsupported-image placeholders. Rotated or skewed
@@ -222,8 +223,9 @@ artifacts when the relevant local tool is available. Converted debug artifacts
 reuse the display-list natural point size for crop/clip placement rather than
 the converted bitmap pixel size. Driver-accurate crop/clip rendering for
 production PDF/SVG vector output and raster backends, TeX-exact rotated-box
-reflow, broader SVG style cascade and rotated primitive-shape geometry,
-programmable table preamble hooks, exact
+reflow, broader SVG style cascade beyond group-level fill/stroke/stroke-width
+inheritance and rotated primitive-shape geometry, programmable table preamble
+hooks, exact
 vertical border trimming, exact table rule trimming, actual multirow geometry,
 exact nested table layout/reflow, and full TeX alignment policy are still
 deferred.
@@ -626,7 +628,8 @@ Implemented first slice:
   content with line, cubic/smooth cubic, quadratic/smooth quadratic, and arc
   commands, including basic presentation/style fill and stroke metadata plus
   simple `translate` / `scale` transforms, simple nested group transforms, and
-  path-like `matrix` / `rotate` transforms, as vector drawing operations;
+  inherited group-level fill/stroke/stroke-width metadata plus path-like
+  `matrix` / `rotate` transforms, as vector drawing operations;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
   display-list PDF and debug SVG artifacts;
 - missing or undecodable assets still render as bounded placeholders in both
@@ -1047,8 +1050,8 @@ Status:
   with line, cubic/smooth cubic, quadratic/smooth quadratic, and arc commands,
   including basic presentation/style fill and stroke metadata plus simple
   `translate` / `scale` transform attributes, simple nested group transforms,
-  and path-like `matrix` / `rotate` transform attributes, as vector PDF drawing
-  operations;
+  inherited group-level fill/stroke/stroke-width metadata, and path-like
+  `matrix` / `rotate` transform attributes, as vector PDF drawing operations;
 - `latexd render-ir --root ... --input ... --output-dir ...` exposes the
   event/IR/display-list artifact pipeline without replacing the serve preview
   path;
