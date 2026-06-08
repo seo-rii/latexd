@@ -9761,6 +9761,59 @@ mod tests {
     }
 
     #[test]
+    fn renders_clip_enabled_svg_crop_with_pdf_vector_clipping() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 72.0,
+                    width: 100.0,
+                    height: 50.0,
+                },
+                asset_ref: "figures/vector.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: Some(ImageCrop {
+                    trim: None,
+                    viewport: Some(ImageViewport {
+                        llx_pt: 50.0,
+                        lly_pt: 25.0,
+                        urx_pt: 150.0,
+                        ury_pt: 75.0,
+                    }),
+                    clip: true,
+                }),
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/vector.svg").then(|| {
+                br##"<svg width="200pt" height="100pt" viewBox="0 0 200 100">
+  <rect width="200" height="100" fill="#00ff00"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q 72 670 100 50 re W n q"));
+        assert!(pdf_text.contains("0 1 0 rg 22 645 200 100 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/vector.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn renders_clip_disabled_png_viewport_with_svg_offset_without_clipping() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),

@@ -212,7 +212,8 @@ primitives, plus non-axis-aligned transformed rectangles rendered as closed
 vector polygons and transformed circle/ellipse primitives rendered as cubic
 vector paths, is also rendered directly as vector PDF drawing operations in
 display-list PDF artifacts instead of falling back to unsupported-image
-placeholders. The
+placeholders. Simple SVG vector PDF rendering also uses display-list
+`ImageCrop` viewport/trim placement and `clip=true` destination clipping. The
 display-list image op now carries the resolved natural point size separately
 from the destination rectangle, so PDF/SVG debug crop placement uses the
 original asset coordinate space even when a PDF/EPS asset is rendered through a
@@ -239,8 +240,9 @@ PDF/EPS graphic assets can be converted to PNG for display-list PDF/SVG
 artifacts when the relevant local tool is available. Converted debug artifacts
 reuse the display-list natural point size for crop/clip placement rather than
 the converted bitmap pixel size. Driver-accurate crop/clip rendering for
-production PDF/SVG vector output and raster backends, TeX-exact rotated-box
-reflow, broader SVG style cascade beyond root/group/simple selector
+production SVG vector output and raster backends, broader driver-exact PDF crop
+edge cases, TeX-exact rotated-box reflow, broader SVG style cascade beyond
+root/group/simple selector
 fill/stroke/stroke-width/opacity specificity and color support, full SVG
 compositing and broader stroke styling, programmable table
 preamble hooks, exact residual vertical border trimming, exact table rule trimming, actual multirow
@@ -661,7 +663,8 @@ Implemented first slice:
   `stroke-linecap` / `stroke-linejoin` / `stroke-miterlimit` mapped to PDF
   graphics state, path-like `matrix` / `rotate` / `skewX` / `skewY` transforms, non-axis-aligned
   transformed rectangles, and transformed circle/ellipse cubic paths, as vector
-  drawing operations;
+  drawing operations, including display-list crop/viewport placement and
+  `clip=true` destination clipping for simple SVG vector PDF assets;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
   display-list PDF and debug SVG artifacts;
 - missing or undecodable assets still render as bounded placeholders in both
@@ -673,8 +676,8 @@ Remaining figure work:
 - broader option-aware sizing and driver-exact bounding-box behavior;
 - fuller wrapper sizing semantics for nested boxes and TeX-exact wrapper
   reflow;
-- trim/viewport/clip rendering parity for production PDF/SVG vector output and
-  raster backends;
+- trim/viewport/clip rendering parity for production SVG vector output, raster
+  backends, and broader driver-exact PDF edge cases;
 - TeX-exact rotated-box dimensions, page reflow, and non-debug raster parity;
 - external PDF/EPS conversion and production SVG/PDF vector embedding or raster
   insertion;
@@ -1113,7 +1116,9 @@ Status:
   non-axis-aligned transformed rectangles and transformed circle/ellipse cubic
   paths, with root/style/element scanners requiring tag-name boundaries to
   avoid prefix false positives such as `svgz` as `svg`, `stylesheet` as
-  `style`, or `linearGradient` as `line`, as vector PDF drawing operations;
+  `style`, or `linearGradient` as `line`, as vector PDF drawing operations,
+  including display-list crop/viewport placement and `clip=true` destination
+  clipping for simple SVG vector PDF assets;
 - `latexd render-ir --root ... --input ... --output-dir ...` exposes the
   event/IR/display-list artifact pipeline without replacing the serve preview
   path;
