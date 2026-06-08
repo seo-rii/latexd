@@ -1067,19 +1067,40 @@ pub fn build_page_display_lists(
                     }
                     offsets
                 };
-                let table_vertical_rule_offsets_for_partial_rule = |rule_text: &str| {
-                    let rule_chars = rule_text.chars().collect::<Vec<_>>();
-                    table_vertical_rule_offsets()
-                        .into_iter()
-                        .filter(|(offset, _)| {
-                            rule_chars.get(*offset).is_some_and(|ch| *ch == '-')
-                                || offset
-                                    .checked_sub(1)
-                                    .and_then(|previous| rule_chars.get(previous))
-                                    .is_some_and(|ch| *ch == '-')
-                        })
-                        .collect::<Vec<_>>()
-                };
+                let table_vertical_rule_offsets_for_partial_rule =
+                    |rule_text: &str, rule: &TableRuleSpan| {
+                        let rule_chars = rule_text.chars().collect::<Vec<_>>();
+                        let first_dash_offset = rule_chars.iter().position(|ch| *ch == '-');
+                        let after_last_dash_offset = rule_chars
+                            .iter()
+                            .rposition(|ch| *ch == '-')
+                            .map(|offset| offset + 1);
+                        table_vertical_rule_offsets()
+                            .into_iter()
+                            .filter(|(offset, _)| {
+                                let touches_rule =
+                                    rule_chars.get(*offset).is_some_and(|ch| *ch == '-')
+                                        || offset
+                                            .checked_sub(1)
+                                            .and_then(|previous| rule_chars.get(previous))
+                                            .is_some_and(|ch| *ch == '-');
+                                if !touches_rule {
+                                    return false;
+                                }
+                                if rule.trim_start
+                                    && first_dash_offset.is_some_and(|first| *offset <= first)
+                                {
+                                    return false;
+                                }
+                                if rule.trim_end
+                                    && after_last_dash_offset.is_some_and(|end| *offset >= end)
+                                {
+                                    return false;
+                                }
+                                true
+                            })
+                            .collect::<Vec<_>>()
+                    };
                 if let Some(caption) = &block.caption {
                     let source = block
                         .caption_source
@@ -1132,7 +1153,7 @@ pub fn build_page_display_lists(
                         }
                         let rule_text = partial_rule_text(rule);
                         let table_vertical_rule_offsets =
-                            table_vertical_rule_offsets_for_partial_rule(&rule_text);
+                            table_vertical_rule_offsets_for_partial_rule(&rule_text, rule);
                         segments.push(LogicalTextSegment {
                             text: rule_text,
                             source: block.source.clone(),
@@ -1338,7 +1359,7 @@ pub fn build_page_display_lists(
                         });
                         let rule_text = partial_rule_text(rule);
                         let table_vertical_rule_offsets =
-                            table_vertical_rule_offsets_for_partial_rule(&rule_text);
+                            table_vertical_rule_offsets_for_partial_rule(&rule_text, rule);
                         segments.push(LogicalTextSegment {
                             text: rule_text,
                             source: block.source.clone(),
@@ -4128,6 +4149,109 @@ mod tests {
         assert_eq!(
             overlapping_vertical_rules.len(),
             2,
+            "{overlapping_vertical_rules:?} {horizontal_rule:?}"
+        );
+        assert!(
+            overlapping_vertical_rules.iter().all(|rule| {
+                rule.x >= horizontal_rule.x - 0.01
+                    && rule.x <= horizontal_rule.x + horizontal_rule.width + 0.01
+            }),
+            "{overlapping_vertical_rules:?} {horizontal_rule:?}"
+        );
+    }
+
+    #[test]
+    fn table_display_list_trimmed_partial_rule_omits_trimmed_side_vertical_rule_stubs() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let cell = |text: &str| TableCell {
+            text: text.to_string(),
+            column_span: None,
+            row_span: None,
+            alignment: None,
+            rule_before_count: 0,
+            rule_after_count: 0,
+            cell_prefix: None,
+            cell_suffix: None,
+        };
+        let column = |alignment| TableColumnSpec {
+            alignment,
+            rule_before: true,
+            rule_before_count: 1,
+            rule_after: true,
+            rule_after_count: 1,
+            separator_after: None,
+            width_pt_milli: None,
+            cell_prefix: None,
+            cell_suffix: None,
+        };
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                width_spec: None,
+                columns: vec![
+                    column(TableColumnAlignment::Left),
+                    column(TableColumnAlignment::Center),
+                    column(TableColumnAlignment::Right),
+                ],
+                rows: vec![
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![cell("A"), cell("B"), cell("C")],
+                        rule_below: false,
+                        partial_rules_below: vec![TableRuleSpan {
+                            start_column: 0,
+                            end_column: 1,
+                            trim_start: true,
+                            trim_end: true,
+                            trim_start_pt_milli: None,
+                            trim_end_pt_milli: None,
+                        }],
+                    },
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![cell("D"), cell("E"), cell("F")],
+                        rule_below: false,
+                        partial_rules_below: Vec::new(),
+                    },
+                ],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions::default(),
+        );
+        let horizontal_rules = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Rule(rect) if rect.width > rect.height => Some(rect),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let vertical_rules = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Rule(rect) if rect.height > rect.width => Some(rect),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(horizontal_rules.len(), 1, "{horizontal_rules:?}");
+        let horizontal_rule = horizontal_rules[0];
+        let overlapping_vertical_rules = vertical_rules
+            .iter()
+            .filter(|rule| {
+                rule.y <= horizontal_rule.y + horizontal_rule.height + 0.01
+                    && rule.y + rule.height >= horizontal_rule.y - 0.01
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            overlapping_vertical_rules.len(),
+            1,
             "{overlapping_vertical_rules:?} {horizontal_rule:?}"
         );
         assert!(

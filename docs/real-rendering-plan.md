@@ -85,8 +85,9 @@ renderer-visible rule rectangles. Column-level vertical borders now also span
 horizontal rule-only rows so table borders do not break across coarse `\hline`
 or partial-rule display-list rows, while top/bottom rule-only rows trim those
 vertical rectangles to the visible horizontal boundary. Partial horizontal rule
-rows now suppress vertical-rule stubs outside the visible partial rule span, so
-coarse borders do not extend across whitespace-only rule gaps.
+rows now suppress vertical-rule stubs outside the visible or trimmed partial
+rule span, so coarse borders do not extend across whitespace-only rule gaps or
+trimmed rule ends.
 Simple visible `>{...}` / `<{...}` hooks and non-rule `@{...}` / `!{...}`
 separator hooks in multicolumn specs now survive as cell-level prefix/suffix
 metadata and decorate display-list cell text.
@@ -773,8 +774,9 @@ Implemented first slice:
   same-position vertical rule rects from consecutive table and horizontal-rule
   rows are merged into longer display-list rule ops, so coarse borders stay
   continuous across `\hline`, `\cline`, and `\cmidrule` rows. Partial
-  horizontal rule rows filter those vertical-rule stubs to the visible dash span
-  instead of extending them across whitespace-only gaps.
+  horizontal rule rows filter those vertical-rule stubs to the visible and
+  trim-adjusted dash span instead of extending them across whitespace-only gaps
+  or trimmed rule ends.
 - common `booktabs` spacing and rule-control commands such as optional-width
   `\toprule` / `\midrule` / `\bottomrule`, `\addlinespace`,
   `\morecmidrules`, and `\specialrule` are suppressed from visible table text
