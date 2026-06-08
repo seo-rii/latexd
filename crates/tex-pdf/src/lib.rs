@@ -1650,6 +1650,23 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     let parse_paint = |raw: &str| -> Option<SimpleSvgColor> {
         let raw = raw.trim();
+        if raw.len() >= 4 && raw[..4].eq_ignore_ascii_case("url(") {
+            let Some(url_end) = raw.find(')') else {
+                return Some(SimpleSvgColor::Rgb((0.0, 0.0, 0.0)));
+            };
+            let fallback = raw[url_end + 1..].trim();
+            if fallback.is_empty() {
+                return Some(SimpleSvgColor::Rgb((0.0, 0.0, 0.0)));
+            }
+            if fallback.eq_ignore_ascii_case("none") || fallback.eq_ignore_ascii_case("transparent")
+            {
+                return None;
+            }
+            if fallback.eq_ignore_ascii_case("currentColor") {
+                return Some(SimpleSvgColor::CurrentColor);
+            }
+            return parse_color(fallback).map(SimpleSvgColor::Rgb);
+        }
         if raw.eq_ignore_ascii_case("none") || raw.eq_ignore_ascii_case("transparent") {
             return None;
         }
@@ -8287,6 +8304,54 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 rg 50 250 20 20 re f"));
         assert!(pdf_text.contains("1 0 0 RG 10 w 10 260 m 60 260 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/current-color.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_url_paint_fallback_colors() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/url-paint-fallback.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:url-paint-fallback".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/url-paint-fallback.svg").then(|| {
+                br##"<svg width="20" height="10" color="#0000ff">
+  <rect x="1" y="1" width="2" height="2" fill="url(#missing) #00ff00"/>
+  <line x1="0" y1="2" x2="5" y2="2" stroke="url(#missing) currentColor" stroke-width="1" fill="none"/>
+  <rect x="4" y="1" width="2" height="2" fill="url(#missing) none" stroke="#ff0000" stroke-width="1"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 RG 10 w 10 260 m 60 260 l S"));
+        assert!(pdf_text.contains("1 0 0 RG 10 w 50 250 20 20 re S"));
+        assert!(!pdf_text.contains("0 0 0 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/url-paint-fallback.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
