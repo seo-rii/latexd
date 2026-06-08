@@ -3673,8 +3673,18 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .as_deref()
             .and_then(parse_number_prefix)
             .unwrap_or(0.0);
+        let dx = attr_value(text_tag, "dx")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let dy = attr_value(text_tag, "dy")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let text_x = x + dx;
+        let text_y = y + dy;
         let font_size = presentation.font_size.unwrap_or(12.0) * transform.stroke_scale;
-        let Some(point) = apply_transform(transform, x, y).map(normalize_point) else {
+        let Some(point) = apply_transform(transform, text_x, text_y).map(normalize_point) else {
             search_index = text_body_end + "</text>".len();
             continue;
         };
@@ -3717,16 +3727,24 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     let tspan_x = attr_value(tspan_tag, "x")
                         .as_deref()
                         .and_then(parse_number_prefix)
-                        .unwrap_or(x);
+                        .unwrap_or(text_x);
                     let tspan_y = attr_value(tspan_tag, "y")
                         .as_deref()
                         .and_then(parse_number_prefix)
-                        .unwrap_or(y);
+                        .unwrap_or(text_y);
+                    let tspan_dx = attr_value(tspan_tag, "dx")
+                        .as_deref()
+                        .and_then(parse_number_prefix)
+                        .unwrap_or(0.0);
+                    let tspan_dy = attr_value(tspan_tag, "dy")
+                        .as_deref()
+                        .and_then(parse_number_prefix)
+                        .unwrap_or(0.0);
                     let tspan_presentation =
                         inherit_presentation(presentation, parse_presentation(tspan_tag));
                     let tspan_font_size =
                         tspan_presentation.font_size.unwrap_or(12.0) * transform.stroke_scale;
-                    apply_transform(transform, tspan_x, tspan_y)
+                    apply_transform(transform, tspan_x + tspan_dx, tspan_y + tspan_dy)
                         .map(normalize_point)
                         .map(|point| {
                             (
@@ -5534,6 +5552,51 @@ mod tests {
         );
         assert!(!pdf_text.contains("0 0 1 rg BT"));
         assert!(!pdf_text.contains("[unsupported image: figures/tspan.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_text_and_tspan_offsets_as_pdf_position_adjustments() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-offset.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-offset".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-offset.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="4" y="4" dx="2" dy="1" font-size="2" fill="#00ff00">A</text>
+  <text x="0" y="0"><tspan x="9" y="5" dx="1" dy="2" font-size="2" fill="#ff0000">B</tspan></text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 rg BT /F1 14.400001 Tf 1 0 0 1 115.2 678 Tm (A) Tj ET"));
+        assert!(pdf_text.contains("1 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 663.6 Tm (B) Tj ET"));
+        assert!(!pdf_text.contains("[unsupported image: figures/text-offset.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
