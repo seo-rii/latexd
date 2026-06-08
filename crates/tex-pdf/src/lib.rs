@@ -1853,6 +1853,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         })
     };
     let first_some = |left: Option<String>, right: Option<String>| left.or(right);
+    let parse_optional_paint = |value: Option<String>| -> Option<Option<SimpleSvgColor>> {
+        let value = value?;
+        if value.trim().eq_ignore_ascii_case("inherit") {
+            return None;
+        }
+        Some(parse_paint(&value))
+    };
+    let parse_optional_color = |value: Option<String>| -> Option<(f32, f32, f32)> {
+        let value = value?;
+        if value.trim().eq_ignore_ascii_case("inherit") {
+            return None;
+        }
+        parse_color(&value)
+    };
     let presentation_from_values = |fill: Option<String>,
                                     fill_rule: Option<String>,
                                     stroke: Option<String>,
@@ -1875,9 +1889,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     baseline_shift: Option<String>|
      -> SimpleSvgPresentation {
         SimpleSvgPresentation {
-            fill: fill.as_deref().map(&parse_paint),
+            fill: parse_optional_paint(fill),
             fill_rule: fill_rule.as_deref().and_then(parse_fill_rule),
-            stroke: stroke.as_deref().map(&parse_paint),
+            stroke: parse_optional_paint(stroke),
             stroke_width: stroke_width
                 .as_deref()
                 .and_then(parse_number_prefix)
@@ -1893,7 +1907,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .as_deref()
                 .and_then(parse_number_prefix)
                 .filter(|limit| *limit >= 1.0),
-            color: color.as_deref().and_then(parse_color),
+            color: parse_optional_color(color),
             opacity: opacity.as_deref().and_then(parse_opacity),
             fill_opacity: fill_opacity.as_deref().and_then(parse_opacity),
             stroke_opacity: stroke_opacity.as_deref().and_then(parse_opacity),
@@ -8273,6 +8287,55 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 rg 50 250 20 20 re f"));
         assert!(pdf_text.contains("1 0 0 RG 10 w 10 260 m 60 260 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/current-color.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_inherit_paint_as_parent_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/inherit-paint.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:inherit-paint".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/inherit-paint.svg").then(|| {
+                br##"<svg width="20" height="10" fill="#ff0000" stroke="#00ff00" stroke-width="1" color="#00ff00">
+  <rect x="1" y="1" width="2" height="2" fill="inherit"/>
+  <line x1="0" y1="2" x2="5" y2="2" stroke="inherit" fill="none"/>
+  <g color="#0000ff">
+    <rect x="4" y="1" width="2" height="2" color="inherit" fill="currentColor"/>
+  </g>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 1 0 RG 10 w 10 260 m 60 260 l S"));
+        assert!(pdf_text.contains("0 0 1 rg 50 250 20 20 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/inherit-paint.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

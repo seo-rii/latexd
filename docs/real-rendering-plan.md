@@ -199,7 +199,7 @@ root `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`,
 comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
 class/id selector fill/stroke/stroke-width rules with basic specificity and
     source-order cascade, hex/common named/`rgb(...)` color forms, inherited
-    `currentColor` fill/stroke paint, and transparent paint as no-paint, simple `fill-rule` mapped to PDF nonzero/even-odd fill
+    `currentColor` fill/stroke paint, simple `inherit` paint/color values, and transparent paint as no-paint, simple `fill-rule` mapped to PDF nonzero/even-odd fill
 operators, simple `opacity` / `fill-opacity` / `stroke-opacity` mapped to PDF
 ExtGState resources, simple `stroke-dasharray` mapped to PDF dash patterns with
 `stroke-dashoffset` phase support, simple `stroke-linecap` /
@@ -648,7 +648,7 @@ Implemented first slice:
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
   class/id selector fill/stroke/stroke-width rules with basic specificity and
   source-order cascade plus hex/common named/`rgb(...)` color forms, inherited
-  `currentColor` fill/stroke paint, and transparent paint as no-paint, simple `fill-rule` mapped to PDF
+  `currentColor` fill/stroke paint, simple `inherit` paint/color values, and transparent paint as no-paint, simple `fill-rule` mapped to PDF
   nonzero/even-odd fill operators, simple `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray`
   mapped to PDF dash patterns with `stroke-dashoffset` phase support, simple
@@ -1095,7 +1095,7 @@ Status:
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
   class/id selector fill/stroke/stroke-width rules with basic specificity and
   source-order cascade plus hex/common named/`rgb(...)` color forms, inherited
-  `currentColor` fill/stroke paint, and transparent paint as no-paint, simple `fill-rule` mapped to PDF
+  `currentColor` fill/stroke paint, simple `inherit` paint/color values, and transparent paint as no-paint, simple `fill-rule` mapped to PDF
   nonzero/even-odd fill operators, simple `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray`
   mapped to PDF dash patterns with `stroke-dashoffset` phase support, simple
