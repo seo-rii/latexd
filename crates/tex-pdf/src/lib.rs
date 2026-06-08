@@ -3283,6 +3283,42 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         .map(|relative| svg_content_start + relative)
         .unwrap_or(text.len());
     let svg_content = &text[svg_content_start..svg_content_end];
+    let mut defs_ranges = Vec::new();
+    let mut defs_stack = Vec::new();
+    let mut defs_search_index = 0usize;
+    while let Some(relative) = svg_content[defs_search_index..].find('<') {
+        let defs_tag_start = defs_search_index + relative;
+        let defs_tag_tail = &svg_content[defs_tag_start..];
+        let Some(defs_tag_end) = defs_tag_tail.find('>') else {
+            break;
+        };
+        let is_defs_close = defs_tag_tail.starts_with("</defs")
+            && defs_tag_tail[6..]
+                .chars()
+                .next()
+                .is_some_and(|ch| ch.is_whitespace() || ch == '>');
+        let is_defs_open = defs_tag_tail.starts_with("<defs")
+            && defs_tag_tail[5..]
+                .chars()
+                .next()
+                .is_some_and(|ch| ch.is_whitespace() || matches!(ch, '>' | '/'));
+        if is_defs_close {
+            if let Some(start) = defs_stack.pop() {
+                defs_ranges.push((start, defs_tag_start + defs_tag_end + 1));
+            }
+        } else if is_defs_open && !defs_tag_tail[..defs_tag_end].trim_end().ends_with('/') {
+            defs_stack.push(defs_tag_start);
+        }
+        defs_search_index = defs_tag_start + defs_tag_end + 1;
+    }
+    while let Some(start) = defs_stack.pop() {
+        defs_ranges.push((start, svg_content.len()));
+    }
+    let in_defs = |element_start: usize| {
+        defs_ranges
+            .iter()
+            .any(|(start, end)| *start <= element_start && element_start < *end)
+    };
     #[derive(Debug, Clone, Copy)]
     struct SimpleSvgGroupTransform {
         content_start: usize,
@@ -3397,6 +3433,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let Some(rect_end) = rect_tail.find('>') else {
             break;
         };
+        if in_defs(rect_start) {
+            search_index = rect_start + rect_end + 1;
+            continue;
+        }
         let rect_tag = &rect_tail[..rect_end];
         let x = attr_value(rect_tag, "x")
             .as_deref()
@@ -3634,6 +3674,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let Some(line_end) = line_tail.find('>') else {
             break;
         };
+        if in_defs(line_start) {
+            search_index = line_start + line_end + 1;
+            continue;
+        }
         let line_tag = &line_tail[..line_end];
         let Some(x1) = attr_value(line_tag, "x1")
             .as_deref()
@@ -3699,6 +3743,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let Some(circle_end) = circle_tail.find('>') else {
             break;
         };
+        if in_defs(circle_start) {
+            search_index = circle_start + circle_end + 1;
+            continue;
+        }
         let circle_tag = &circle_tail[..circle_end];
         let cx = attr_value(circle_tag, "cx")
             .as_deref()
@@ -3778,6 +3826,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let Some(ellipse_end) = ellipse_tail.find('>') else {
             break;
         };
+        if in_defs(ellipse_start) {
+            search_index = ellipse_start + ellipse_end + 1;
+            continue;
+        }
         let ellipse_tag = &ellipse_tail[..ellipse_end];
         let cx = attr_value(ellipse_tag, "cx")
             .as_deref()
@@ -3865,6 +3917,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let Some(poly_end) = poly_tail.find('>') else {
             break;
         };
+        if in_defs(poly_start) {
+            search_index = poly_start + poly_end + 1;
+            continue;
+        }
         let poly_tag = &poly_tail[..poly_end];
         if let Some((transform, presentation)) = parse_element_state(poly_tag, poly_start)
             && let Some(points) = attr_value(poly_tag, "points")
@@ -3895,6 +3951,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let Some(poly_end) = poly_tail.find('>') else {
             break;
         };
+        if in_defs(poly_start) {
+            search_index = poly_start + poly_end + 1;
+            continue;
+        }
         let poly_tag = &poly_tail[..poly_end];
         if let Some((transform, presentation)) = parse_element_state(poly_tag, poly_start)
             && let Some(points) = attr_value(poly_tag, "points")
@@ -3919,6 +3979,41 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         search_index = poly_start + poly_end + 1;
     }
     let mut paths = shape_paths;
+    let push_simple_svg_path = |paths: &mut Vec<SimpleSvgPath>,
+                                transform: SimpleSvgTransform,
+                                presentation: SimpleSvgPresentation,
+                                path_data: &str|
+     -> bool {
+        let Some((ops, closed)) = parse_path(path_data, transform) else {
+            return false;
+        };
+        let fill = fill_paint(
+            presentation,
+            if closed { Some((0.0, 0.0, 0.0)) } else { None },
+        );
+        let stroke = stroke_paint(presentation);
+        if fill.is_none() && stroke.is_none() {
+            return false;
+        }
+        paths.push(SimpleSvgPath {
+            ops,
+            fill,
+            fill_rule: fill_rule(presentation),
+            stroke,
+            stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
+            stroke_dasharray: stroke_dasharray_ratio(presentation),
+            stroke_style: stroke_style(presentation),
+        });
+        true
+    };
+    #[derive(Debug, Clone)]
+    struct SimpleSvgPathDefinition<'a> {
+        id: String,
+        tag: &'a str,
+        start: usize,
+        path_data: String,
+    }
+    let mut path_definitions = Vec::new();
     let mut search_index = 0usize;
     while let Some(relative) = svg_content[search_index..].find("<path") {
         let path_start = search_index + relative;
@@ -3926,30 +4021,116 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let Some(path_end) = path_tail.find('>') else {
             break;
         };
+        if !in_defs(path_start) {
+            search_index = path_start + path_end + 1;
+            continue;
+        }
         let path_tag = &path_tail[..path_end];
-        if let Some((transform, presentation)) = parse_element_state(path_tag, path_start)
-            && let Some((ops, closed)) = attr_value(path_tag, "d")
-                .as_deref()
-                .and_then(|path| parse_path(path, transform))
+        if let (Some(id), Some(path_data)) = (attr_value(path_tag, "id"), attr_value(path_tag, "d"))
+            && !id.trim().is_empty()
         {
-            let fill = fill_paint(
-                presentation,
-                if closed { Some((0.0, 0.0, 0.0)) } else { None },
-            );
-            let stroke = stroke_paint(presentation);
-            if fill.is_some() || stroke.is_some() {
-                paths.push(SimpleSvgPath {
-                    ops,
-                    fill,
-                    fill_rule: fill_rule(presentation),
-                    stroke,
-                    stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
-                    stroke_dasharray: stroke_dasharray_ratio(presentation),
-                    stroke_style: stroke_style(presentation),
-                });
-            }
+            path_definitions.push(SimpleSvgPathDefinition {
+                id,
+                tag: path_tag,
+                start: path_start,
+                path_data,
+            });
         }
         search_index = path_start + path_end + 1;
+    }
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<path") {
+        let path_start = search_index + relative;
+        let path_tail = &svg_content[path_start..];
+        let Some(path_end) = path_tail.find('>') else {
+            break;
+        };
+        if in_defs(path_start) {
+            search_index = path_start + path_end + 1;
+            continue;
+        }
+        let path_tag = &path_tail[..path_end];
+        if let Some((transform, presentation)) = parse_element_state(path_tag, path_start)
+            && let Some(path_data) = attr_value(path_tag, "d")
+        {
+            push_simple_svg_path(&mut paths, transform, presentation, &path_data);
+        }
+        search_index = path_start + path_end + 1;
+    }
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<use") {
+        let use_start = search_index + relative;
+        let use_tail = &svg_content[use_start..];
+        let Some(after_name) = use_tail.get("<use".len()..) else {
+            break;
+        };
+        if after_name
+            .chars()
+            .next()
+            .is_some_and(|ch| !(ch.is_whitespace() || matches!(ch, '>' | '/')))
+        {
+            search_index = use_start + "<use".len();
+            continue;
+        }
+        let Some(use_end) = use_tail.find('>') else {
+            break;
+        };
+        if in_defs(use_start) {
+            search_index = use_start + use_end + 1;
+            continue;
+        }
+        let use_tag = &use_tail[..use_end];
+        let Some(reference_id) = attr_value(use_tag, "href")
+            .or_else(|| attr_value(use_tag, "xlink:href"))
+            .and_then(|href| href.strip_prefix('#').map(str::to_string))
+            .filter(|id| !id.is_empty())
+        else {
+            search_index = use_start + use_end + 1;
+            continue;
+        };
+        let Some(definition) = path_definitions
+            .iter()
+            .find(|definition| definition.id == reference_id)
+        else {
+            search_index = use_start + use_end + 1;
+            continue;
+        };
+        let Some((use_transform, use_presentation)) = parse_element_state(use_tag, use_start)
+        else {
+            search_index = use_start + use_end + 1;
+            continue;
+        };
+        let Some((definition_transform, definition_presentation)) =
+            parse_element_state(definition.tag, definition.start)
+        else {
+            search_index = use_start + use_end + 1;
+            continue;
+        };
+        let x = attr_value(use_tag, "x")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let y = attr_value(use_tag, "y")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let translated_use_transform = compose_transform(
+            SimpleSvgTransform {
+                e: x,
+                f: y,
+                ..identity_transform
+            },
+            use_transform,
+            use_transform.stroke_scale,
+        );
+        let transform = compose_transform(
+            definition_transform,
+            translated_use_transform,
+            translated_use_transform.stroke_scale,
+        );
+        let presentation = inherit_presentation(definition_presentation, use_presentation);
+        push_simple_svg_path(&mut paths, transform, presentation, &definition.path_data);
+        search_index = use_start + use_end + 1;
     }
     let decode_xml_text = |raw: &str| {
         raw.replace("&lt;", "<")
@@ -3977,6 +4158,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let Some(text_tag_end) = text_tail.find('>') else {
             break;
         };
+        if in_defs(text_start) {
+            search_index = text_start + text_tag_end + 1;
+            continue;
+        }
         let text_tag = &text_tail[..text_tag_end];
         let text_body_start = text_start + text_tag_end + 1;
         let Some(text_body_end_relative) = svg_content[text_body_start..].find("</text>") else {
@@ -6558,6 +6743,57 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 rg 10 180 m 110 280 l 210 280 l 210 180 l h f"));
         assert!(pdf_text.contains("0 0 1 RG 5 w 10 180 m 110 280 l 210 280 l 210 180 l h S"));
         assert!(!pdf_text.contains("[unsupported image: figures/path.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_defs_path_use_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/defs-use.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:defs-use".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/defs-use.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <path id="tri" d="M 0 0 L 4 0 L 4 4 Z" fill="#ff0000"/>
+    <path id="rule" d="M 0 0 L 4 0" fill="none" stroke="#ff0000" stroke-width="1"/>
+  </defs>
+  <use href="#tri" x="5" y="0" fill="#0000ff"/>
+  <use xlink:href="#rule" x="5" y="4" stroke="#00ff00"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 rg 60 280 m 100 280 l 100 240 l h f"));
+        assert!(pdf_text.contains("0 1 0 RG 10 w 60 240 m 100 240 l S"));
+        assert!(!pdf_text.contains("1 0 0 rg 10 280 m 50 280 l 50 240 l h f"));
+        assert!(!pdf_text.contains("1 0 0 RG 10 w 10 280 m 50 280 l S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/defs-use.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
