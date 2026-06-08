@@ -1060,9 +1060,39 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     #[derive(Debug, Clone)]
     struct SimpleSvgClassRule {
+        element_name: Option<String>,
         class_name: String,
         presentation: SimpleSvgPresentation,
     }
+    let parse_class_selector = |selector: &str| -> Option<(Option<String>, String)> {
+        let selector = selector.trim();
+        if selector.chars().any(char::is_whitespace) {
+            return None;
+        }
+        let (element_name, class_selector) =
+            if let Some(class_selector) = selector.strip_prefix('.') {
+                (None, class_selector)
+            } else {
+                let dot_index = selector.find('.')?;
+                let element_name = selector[..dot_index].trim();
+                if element_name.is_empty()
+                    || !element_name
+                        .chars()
+                        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':'))
+                {
+                    return None;
+                }
+                (
+                    Some(element_name.to_ascii_lowercase()),
+                    &selector[dot_index + 1..],
+                )
+            };
+        let class_name = class_selector
+            .chars()
+            .take_while(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
+            .collect::<String>();
+        (!class_name.is_empty()).then_some((element_name, class_name))
+    };
     let mut class_rules = Vec::new();
     let mut style_block_offset = 0usize;
     while let Some(style_start_relative) = text[style_block_offset..].find("<style") {
@@ -1104,19 +1134,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             let body_end = body_start + body_end_relative;
             let presentation = parse_declaration_presentation(&css[body_start..body_end]);
             for selector in css[css_offset..selector_end].split(',') {
-                let Some(selector) = selector.trim().strip_prefix('.') else {
+                let Some((element_name, class_name)) = parse_class_selector(selector) else {
                     continue;
                 };
-                let class_name = selector
-                    .chars()
-                    .take_while(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
-                    .collect::<String>();
-                if !class_name.is_empty() {
-                    class_rules.push(SimpleSvgClassRule {
-                        class_name,
-                        presentation,
-                    });
-                }
+                class_rules.push(SimpleSvgClassRule {
+                    element_name,
+                    class_name,
+                    presentation,
+                });
             }
             css_offset = body_end + 1;
         }
@@ -1130,12 +1155,28 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 stroke_width: local.stroke_width.or(parent.stroke_width),
             }
         };
+    let tag_element_name = |tag: &str| -> Option<String> {
+        let tag = tag.trim_start();
+        let tag = tag.strip_prefix('<').unwrap_or(tag).trim_start();
+        let tag = tag.strip_prefix('/').unwrap_or(tag).trim_start();
+        let name = tag
+            .chars()
+            .take_while(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':'))
+            .collect::<String>();
+        (!name.is_empty()).then(|| name.to_ascii_lowercase())
+    };
     let class_styles_for = |tag: &str| -> SimpleSvgPresentation {
         let Some(class_attr) = attr_value(tag, "class") else {
             return SimpleSvgPresentation::default();
         };
+        let tag_element_name = tag_element_name(tag);
         let mut presentation = SimpleSvgPresentation::default();
         for rule in &class_rules {
+            if let Some(rule_element_name) = &rule.element_name
+                && tag_element_name.as_deref() != Some(rule_element_name.as_str())
+            {
+                continue;
+            }
             if class_attr
                 .split_whitespace()
                 .any(|class_name| class_name == rule.class_name)
@@ -4796,6 +4837,56 @@ mod tests {
 
         assert!(pdf_text.contains("0 0 1 RG 20 w 10 280 m 60 280 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/commented-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_element_qualified_class_style_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/qualified-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:qualified-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/qualified-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    line.blue { stroke: #0000ff; stroke-width: 2; fill: none; }
+    rect.blue { fill: #ff0000; stroke: #00ff00; stroke-width: 1; }
+  </style>
+  <line class="blue" x1="0" y1="0" x2="5" y2="0"/>
+  <rect class="blue" x="1" y="1" width="2" height="2"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 20 w 10 280 m 60 280 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 1 0 RG 10 w 20 250 20 20 re S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/qualified-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

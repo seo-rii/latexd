@@ -194,8 +194,8 @@ quadratic/smooth quadratic commands plus endpoint-parameterized arcs, including
 basic presentation/style fill and stroke metadata, simple `translate` /
 `scale` transform attributes, simple nested group transforms, inherited
 root/group-level fill/stroke/stroke-width presentation metadata, simple
-comment-tolerant `<style>` / CDATA class selector fill/stroke/stroke-width
-rules, and `matrix` /
+comment-tolerant `<style>` / CDATA class and element-qualified class selector
+fill/stroke/stroke-width rules, and `matrix` /
 `rotate` transforms for path-like line/poly/path primitives, plus
 non-axis-aligned transformed rectangles rendered as closed vector polygons and
 transformed circle/ellipse primitives rendered as cubic vector paths, is also
@@ -633,8 +633,8 @@ Implemented first slice:
   commands, including basic presentation/style fill and stroke metadata plus
   simple `translate` / `scale` transforms, simple nested group transforms, and
   inherited root/group-level fill/stroke/stroke-width metadata, simple
-  comment-tolerant `<style>` / CDATA class selector fill/stroke/stroke-width
-  rules, path-like `matrix` /
+  comment-tolerant `<style>` / CDATA class and element-qualified class selector
+  fill/stroke/stroke-width rules, path-like `matrix` /
   `rotate` transforms, non-axis-aligned transformed rectangles, and transformed
   circle/ellipse cubic paths, as vector drawing operations;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
@@ -1061,8 +1061,8 @@ Status:
   including basic presentation/style fill and stroke metadata plus simple
   `translate` / `scale` transform attributes, simple nested group transforms,
   inherited root/group-level fill/stroke/stroke-width metadata, simple
-  comment-tolerant `<style>` / CDATA class selector fill/stroke/stroke-width
-  rules, and path-like
+  comment-tolerant `<style>` / CDATA class and element-qualified class selector
+  fill/stroke/stroke-width rules, and path-like
   `matrix` / `rotate` transform attributes plus non-axis-aligned transformed
   rectangles and transformed circle/ellipse cubic paths, as vector PDF drawing
   operations;
