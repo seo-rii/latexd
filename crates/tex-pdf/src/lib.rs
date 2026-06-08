@@ -919,7 +919,152 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .unwrap_or(1.0)
             / view_box.2
     };
-    let parse_points = |raw: &str| -> Option<Vec<(f32, f32)>> {
+    #[derive(Debug, Clone, Copy)]
+    struct SimpleSvgTransform {
+        a: f32,
+        b: f32,
+        c: f32,
+        d: f32,
+        e: f32,
+        f: f32,
+        stroke_scale: f32,
+    }
+    let identity_transform = SimpleSvgTransform {
+        a: 1.0,
+        b: 0.0,
+        c: 0.0,
+        d: 1.0,
+        e: 0.0,
+        f: 0.0,
+        stroke_scale: 1.0,
+    };
+    let parse_transform_numbers = |raw: &str| -> Option<Vec<f32>> {
+        raw.split(|ch: char| ch.is_whitespace() || ch == ',')
+            .filter(|part| !part.is_empty())
+            .map(str::parse::<f32>)
+            .collect::<Result<Vec<_>, _>>()
+            .ok()
+            .filter(|values| values.iter().all(|value| value.is_finite()))
+    };
+    let parse_transform = |tag: &str| -> Option<SimpleSvgTransform> {
+        let Some(raw) = attr_value(tag, "transform") else {
+            return Some(identity_transform);
+        };
+        let mut transform = identity_transform;
+        let mut index = 0usize;
+        while index < raw.len() {
+            while index < raw.len() {
+                let ch = raw[index..].chars().next()?;
+                if ch.is_whitespace() || ch == ',' {
+                    index += ch.len_utf8();
+                } else {
+                    break;
+                }
+            }
+            if index >= raw.len() {
+                break;
+            }
+            let name_start = index;
+            while index < raw.len() {
+                let ch = raw[index..].chars().next()?;
+                if ch.is_ascii_alphabetic() {
+                    index += ch.len_utf8();
+                } else {
+                    break;
+                }
+            }
+            let name = raw[name_start..index].trim();
+            while index < raw.len() {
+                let ch = raw[index..].chars().next()?;
+                if ch.is_whitespace() {
+                    index += ch.len_utf8();
+                } else {
+                    break;
+                }
+            }
+            if raw[index..].chars().next()? != '(' {
+                return None;
+            }
+            index += 1;
+            let args_start = index;
+            let args_len = raw[args_start..].find(')')?;
+            index = args_start + args_len;
+            let values = parse_transform_numbers(&raw[args_start..index])?;
+            index += 1;
+            let (next, next_stroke_scale) = match name {
+                "translate" => {
+                    if values.is_empty() || values.len() > 2 {
+                        return None;
+                    }
+                    let tx = values[0];
+                    let ty = values.get(1).copied().unwrap_or(0.0);
+                    (
+                        SimpleSvgTransform {
+                            e: tx,
+                            f: ty,
+                            ..identity_transform
+                        },
+                        1.0,
+                    )
+                }
+                "scale" => {
+                    if values.is_empty() || values.len() > 2 {
+                        return None;
+                    }
+                    let sx = values[0];
+                    let sy = values.get(1).copied().unwrap_or(sx);
+                    if sx == 0.0 || sy == 0.0 {
+                        return None;
+                    }
+                    (
+                        SimpleSvgTransform {
+                            a: sx,
+                            d: sy,
+                            ..identity_transform
+                        },
+                        (sx.abs() + sy.abs()) / 2.0,
+                    )
+                }
+                _ => return None,
+            };
+            transform = SimpleSvgTransform {
+                a: next.a * transform.a + next.c * transform.b,
+                b: next.b * transform.a + next.d * transform.b,
+                c: next.a * transform.c + next.c * transform.d,
+                d: next.b * transform.c + next.d * transform.d,
+                e: next.a * transform.e + next.c * transform.f + next.e,
+                f: next.b * transform.e + next.d * transform.f + next.f,
+                stroke_scale: transform.stroke_scale * next_stroke_scale,
+            };
+            if !transform.a.is_finite()
+                || !transform.b.is_finite()
+                || !transform.c.is_finite()
+                || !transform.d.is_finite()
+                || !transform.e.is_finite()
+                || !transform.f.is_finite()
+                || !transform.stroke_scale.is_finite()
+            {
+                return None;
+            }
+        }
+        Some(transform)
+    };
+    let apply_transform = |transform: SimpleSvgTransform, x: f32, y: f32| -> Option<(f32, f32)> {
+        let transformed_x = transform.a * x + transform.c * y + transform.e;
+        let transformed_y = transform.b * x + transform.d * y + transform.f;
+        (transformed_x.is_finite() && transformed_y.is_finite())
+            .then_some((transformed_x, transformed_y))
+    };
+    let normalize_point = |point: (f32, f32)| -> (f32, f32) {
+        (
+            (point.0 - view_box.0) / view_box.2,
+            (point.1 - view_box.1) / view_box.3,
+        )
+    };
+    let transformed_stroke_width_ratio = |tag: &str, transform: SimpleSvgTransform| -> f32 {
+        stroke_width_ratio(tag) * transform.stroke_scale
+    };
+    let parse_points = |raw: &str, transform: SimpleSvgTransform| -> Option<Vec<(f32, f32)>> {
         let values = raw
             .split(|ch: char| ch.is_whitespace() || ch == ',')
             .filter(|part| !part.is_empty())
@@ -934,10 +1079,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             if !pair[0].is_finite() || !pair[1].is_finite() {
                 return None;
             }
-            points.push((
-                (pair[0] - view_box.0) / view_box.2,
-                (pair[1] - view_box.1) / view_box.3,
-            ));
+            points.push(normalize_point(apply_transform(
+                transform, pair[0], pair[1],
+            )?));
         }
         Some(points)
     };
@@ -946,7 +1090,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         Command(char),
         Number(f32),
     }
-    let parse_line_path = |raw: &str| -> Option<(Vec<(f32, f32)>, bool)> {
+    type SimplePathParse = Option<(Vec<(f32, f32)>, bool)>;
+    let parse_line_path = |raw: &str, transform: SimpleSvgTransform| -> SimplePathParse {
         let mut tokens = Vec::new();
         let mut index = 0usize;
         while index < raw.len() {
@@ -1028,10 +1173,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     } else {
                         current = (x, y);
                     }
-                    points.push((
-                        (current.0 - view_box.0) / view_box.2,
-                        (current.1 - view_box.1) / view_box.3,
-                    ));
+                    points.push(normalize_point(apply_transform(
+                        transform, current.0, current.1,
+                    )?));
                     has_move = true;
                     command = Some(if current_command == 'm' { 'l' } else { 'L' });
                 }
@@ -1047,10 +1191,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     } else {
                         current = (x, y);
                     }
-                    points.push((
-                        (current.0 - view_box.0) / view_box.2,
-                        (current.1 - view_box.1) / view_box.3,
-                    ));
+                    points.push(normalize_point(apply_transform(
+                        transform, current.0, current.1,
+                    )?));
                 }
                 'H' | 'h' => {
                     if !has_move {
@@ -1062,10 +1205,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     } else {
                         current.0 = x;
                     }
-                    points.push((
-                        (current.0 - view_box.0) / view_box.2,
-                        (current.1 - view_box.1) / view_box.3,
-                    ));
+                    points.push(normalize_point(apply_transform(
+                        transform, current.0, current.1,
+                    )?));
                 }
                 'V' | 'v' => {
                     if !has_move {
@@ -1077,10 +1219,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     } else {
                         current.1 = y;
                     }
-                    points.push((
-                        (current.0 - view_box.0) / view_box.2,
-                        (current.1 - view_box.1) / view_box.3,
-                    ));
+                    points.push(normalize_point(apply_transform(
+                        transform, current.0, current.1,
+                    )?));
                 }
                 _ => return None,
             }
@@ -1128,6 +1269,22 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             continue;
         };
         if width > 0.0 && height > 0.0 {
+            let Some(transform) = parse_transform(rect_tag) else {
+                search_index = rect_start + rect_end + 1;
+                continue;
+            };
+            let Some(corner_a) = apply_transform(transform, x, y) else {
+                search_index = rect_start + rect_end + 1;
+                continue;
+            };
+            let Some(corner_b) = apply_transform(transform, x + width, y + height) else {
+                search_index = rect_start + rect_end + 1;
+                continue;
+            };
+            let x = corner_a.0.min(corner_b.0);
+            let y = corner_a.1.min(corner_b.1);
+            let width = (corner_b.0 - corner_a.0).abs();
+            let height = (corner_b.1 - corner_a.1).abs();
             let fill_rgb = presentation_value(rect_tag, "fill")
                 .as_deref()
                 .map(&parse_color)
@@ -1135,7 +1292,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             let stroke_rgb = presentation_value(rect_tag, "stroke")
                 .as_deref()
                 .and_then(&parse_color);
-            if fill_rgb.is_some() || stroke_rgb.is_some() {
+            if width > 0.0 && height > 0.0 && (fill_rgb.is_some() || stroke_rgb.is_some()) {
                 rects.push(SimpleSvgRect {
                     x_ratio: (x - view_box.0) / view_box.2,
                     y_ratio: (y - view_box.1) / view_box.3,
@@ -1143,7 +1300,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     height_ratio: height / view_box.3,
                     fill_rgb,
                     stroke_rgb,
-                    stroke_width_ratio: stroke_width_ratio(rect_tag),
+                    stroke_width_ratio: transformed_stroke_width_ratio(rect_tag, transform),
                 });
             }
         }
@@ -1186,6 +1343,18 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             search_index = line_start + line_end + 1;
             continue;
         };
+        let Some(transform) = parse_transform(line_tag) else {
+            search_index = line_start + line_end + 1;
+            continue;
+        };
+        let Some((x1, y1)) = apply_transform(transform, x1, y1) else {
+            search_index = line_start + line_end + 1;
+            continue;
+        };
+        let Some((x2, y2)) = apply_transform(transform, x2, y2) else {
+            search_index = line_start + line_end + 1;
+            continue;
+        };
         if (x1 != x2 || y1 != y2)
             && let Some(stroke_rgb) = presentation_value(line_tag, "stroke")
                 .as_deref()
@@ -1197,7 +1366,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 x2_ratio: (x2 - view_box.0) / view_box.2,
                 y2_ratio: (y2 - view_box.1) / view_box.3,
                 stroke_rgb,
-                stroke_width_ratio: stroke_width_ratio(line_tag),
+                stroke_width_ratio: transformed_stroke_width_ratio(line_tag, transform),
             });
         }
         search_index = line_start + line_end + 1;
@@ -1227,6 +1396,24 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             continue;
         };
         if radius > 0.0 {
+            let Some(transform) = parse_transform(circle_tag) else {
+                search_index = circle_start + circle_end + 1;
+                continue;
+            };
+            let Some(center) = apply_transform(transform, cx, cy) else {
+                search_index = circle_start + circle_end + 1;
+                continue;
+            };
+            let Some(radius_x_point) = apply_transform(transform, cx + radius, cy) else {
+                search_index = circle_start + circle_end + 1;
+                continue;
+            };
+            let Some(radius_y_point) = apply_transform(transform, cx, cy + radius) else {
+                search_index = circle_start + circle_end + 1;
+                continue;
+            };
+            let rx = (radius_x_point.0 - center.0).abs();
+            let ry = (radius_y_point.1 - center.1).abs();
             let fill_rgb = presentation_value(circle_tag, "fill")
                 .as_deref()
                 .map(&parse_color)
@@ -1234,15 +1421,15 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             let stroke_rgb = presentation_value(circle_tag, "stroke")
                 .as_deref()
                 .and_then(&parse_color);
-            if fill_rgb.is_some() || stroke_rgb.is_some() {
+            if rx > 0.0 && ry > 0.0 && (fill_rgb.is_some() || stroke_rgb.is_some()) {
                 ellipses.push(SimpleSvgEllipse {
-                    cx_ratio: (cx - view_box.0) / view_box.2,
-                    cy_ratio: (cy - view_box.1) / view_box.3,
-                    rx_ratio: radius / view_box.2,
-                    ry_ratio: radius / view_box.3,
+                    cx_ratio: (center.0 - view_box.0) / view_box.2,
+                    cy_ratio: (center.1 - view_box.1) / view_box.3,
+                    rx_ratio: rx / view_box.2,
+                    ry_ratio: ry / view_box.3,
                     fill_rgb,
                     stroke_rgb,
-                    stroke_width_ratio: stroke_width_ratio(circle_tag),
+                    stroke_width_ratio: transformed_stroke_width_ratio(circle_tag, transform),
                 });
             }
         }
@@ -1279,6 +1466,24 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             continue;
         };
         if rx > 0.0 && ry > 0.0 {
+            let Some(transform) = parse_transform(ellipse_tag) else {
+                search_index = ellipse_start + ellipse_end + 1;
+                continue;
+            };
+            let Some(center) = apply_transform(transform, cx, cy) else {
+                search_index = ellipse_start + ellipse_end + 1;
+                continue;
+            };
+            let Some(radius_x_point) = apply_transform(transform, cx + rx, cy) else {
+                search_index = ellipse_start + ellipse_end + 1;
+                continue;
+            };
+            let Some(radius_y_point) = apply_transform(transform, cx, cy + ry) else {
+                search_index = ellipse_start + ellipse_end + 1;
+                continue;
+            };
+            let rx = (radius_x_point.0 - center.0).abs();
+            let ry = (radius_y_point.1 - center.1).abs();
             let fill_rgb = presentation_value(ellipse_tag, "fill")
                 .as_deref()
                 .map(&parse_color)
@@ -1286,15 +1491,15 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             let stroke_rgb = presentation_value(ellipse_tag, "stroke")
                 .as_deref()
                 .and_then(&parse_color);
-            if fill_rgb.is_some() || stroke_rgb.is_some() {
+            if rx > 0.0 && ry > 0.0 && (fill_rgb.is_some() || stroke_rgb.is_some()) {
                 ellipses.push(SimpleSvgEllipse {
-                    cx_ratio: (cx - view_box.0) / view_box.2,
-                    cy_ratio: (cy - view_box.1) / view_box.3,
+                    cx_ratio: (center.0 - view_box.0) / view_box.2,
+                    cy_ratio: (center.1 - view_box.1) / view_box.3,
                     rx_ratio: rx / view_box.2,
                     ry_ratio: ry / view_box.3,
                     fill_rgb,
                     stroke_rgb,
-                    stroke_width_ratio: stroke_width_ratio(ellipse_tag),
+                    stroke_width_ratio: transformed_stroke_width_ratio(ellipse_tag, transform),
                 });
             }
         }
@@ -1309,9 +1514,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             break;
         };
         let poly_tag = &poly_tail[..poly_end];
-        if let Some(points) = attr_value(poly_tag, "points")
-            .as_deref()
-            .and_then(&parse_points)
+        if let Some(transform) = parse_transform(poly_tag)
+            && let Some(points) = attr_value(poly_tag, "points")
+                .as_deref()
+                .and_then(|points| parse_points(points, transform))
         {
             let fill_rgb = presentation_value(poly_tag, "fill")
                 .as_deref()
@@ -1325,7 +1531,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     closed: false,
                     fill_rgb,
                     stroke_rgb,
-                    stroke_width_ratio: stroke_width_ratio(poly_tag),
+                    stroke_width_ratio: transformed_stroke_width_ratio(poly_tag, transform),
                 });
             }
         }
@@ -1339,9 +1545,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             break;
         };
         let poly_tag = &poly_tail[..poly_end];
-        if let Some(points) = attr_value(poly_tag, "points")
-            .as_deref()
-            .and_then(&parse_points)
+        if let Some(transform) = parse_transform(poly_tag)
+            && let Some(points) = attr_value(poly_tag, "points")
+                .as_deref()
+                .and_then(|points| parse_points(points, transform))
         {
             let fill_rgb = presentation_value(poly_tag, "fill")
                 .as_deref()
@@ -1356,7 +1563,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     closed: true,
                     fill_rgb,
                     stroke_rgb,
-                    stroke_width_ratio: stroke_width_ratio(poly_tag),
+                    stroke_width_ratio: transformed_stroke_width_ratio(poly_tag, transform),
                 });
             }
         }
@@ -1371,9 +1578,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             break;
         };
         let path_tag = &path_tail[..path_end];
-        if let Some((points, closed)) = attr_value(path_tag, "d")
-            .as_deref()
-            .and_then(&parse_line_path)
+        if let Some(transform) = parse_transform(path_tag)
+            && let Some((points, closed)) = attr_value(path_tag, "d")
+                .as_deref()
+                .and_then(|path| parse_line_path(path, transform))
         {
             let fill_rgb = presentation_value(path_tag, "fill")
                 .as_deref()
@@ -1388,7 +1596,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     closed,
                     fill_rgb,
                     stroke_rgb,
-                    stroke_width_ratio: stroke_width_ratio(path_tag),
+                    stroke_width_ratio: transformed_stroke_width_ratio(path_tag, transform),
                 });
             }
         }
@@ -3156,6 +3364,53 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 rg 10 180 m 110 280 l 210 280 l 210 180 l h f"));
         assert!(pdf_text.contains("0 0 1 RG 5 w 10 180 m 110 280 l 210 280 l 210 180 l h S"));
         assert!(!pdf_text.contains("[unsupported image: figures/path.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_translate_and_scale_transforms_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/transformed.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:transformed".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/transformed.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <rect x="1" y="1" width="4" height="2" transform="translate(2 1)" fill="#ff0000"/>
+  <rect x="1" y="1" width="4" height="2" transform="scale(2)" fill="#0000ff"/>
+  <path d="M 0 0 L 5 0" transform="translate(2,1)" fill="none" stroke-width="1" stroke="#00ff00"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 40 240 40 20 re f"));
+        assert!(pdf_text.contains("0 0 1 rg 30 220 80 40 re f"));
+        assert!(pdf_text.contains("0 1 0 RG 10 w 30 270 m 80 270 l S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/transformed.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
