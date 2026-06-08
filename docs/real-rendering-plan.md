@@ -196,8 +196,8 @@ basic presentation/style fill and stroke metadata, simple `translate` /
 root/group-level fill/stroke/stroke-width presentation metadata, simple
 comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
 class/id selector fill/stroke/stroke-width rules with basic specificity and
-source-order cascade, and hex/common named/`rgb(...)` color forms, and `matrix` /
-`rotate` transforms for path-like line/poly/path primitives, plus
+source-order cascade, hex/common named/`rgb(...)` color forms, and transparent
+paint as no-paint, and `matrix` / `rotate` transforms for path-like line/poly/path primitives, plus
 non-axis-aligned transformed rectangles rendered as closed vector polygons and
 transformed circle/ellipse primitives rendered as cubic vector paths, is also
 rendered directly as vector PDF drawing operations in display-list PDF
@@ -636,9 +636,10 @@ Implemented first slice:
   inherited root/group-level fill/stroke/stroke-width metadata, simple
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
   class/id selector fill/stroke/stroke-width rules with basic specificity and
-  source-order cascade plus hex/common named/`rgb(...)` color forms, path-like `matrix` /
-  `rotate` transforms, non-axis-aligned transformed rectangles, and transformed
-  circle/ellipse cubic paths, as vector drawing operations;
+  source-order cascade plus hex/common named/`rgb(...)` color forms and
+  transparent paint as no-paint, path-like `matrix` / `rotate` transforms,
+  non-axis-aligned transformed rectangles, and transformed circle/ellipse cubic
+  paths, as vector drawing operations;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
   display-list PDF and debug SVG artifacts;
 - missing or undecodable assets still render as bounded placeholders in both
@@ -1065,10 +1066,10 @@ Status:
   inherited root/group-level fill/stroke/stroke-width metadata, simple
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
   class/id selector fill/stroke/stroke-width rules with basic specificity and
-  source-order cascade plus hex/common named/`rgb(...)` color forms, and path-like
-  `matrix` / `rotate` transform attributes plus non-axis-aligned transformed
-  rectangles and transformed circle/ellipse cubic paths, as vector PDF drawing
-  operations;
+  source-order cascade plus hex/common named/`rgb(...)` color forms and
+  transparent paint as no-paint, and path-like `matrix` / `rotate` transform
+  attributes plus non-axis-aligned transformed rectangles and transformed
+  circle/ellipse cubic paths, as vector PDF drawing operations;
 - `latexd render-ir --root ... --input ... --output-dir ...` exposes the
   event/IR/display-list artifact pipeline without replacing the serve preview
   path;
