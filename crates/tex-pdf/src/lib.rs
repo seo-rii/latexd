@@ -1277,6 +1277,12 @@ enum SimpleSvgTextAnchor {
     End,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SimpleSvgTextBaseline {
+    Alphabetic,
+    Middle,
+}
+
 #[derive(Debug, Clone, Copy)]
 enum SimpleSvgPathOp {
     MoveTo((f32, f32)),
@@ -1555,6 +1561,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         stroke_opacity: Option<f32>,
         text_anchor: Option<SimpleSvgTextAnchor>,
         font_size: Option<f32>,
+        text_baseline: Option<SimpleSvgTextBaseline>,
     }
     let parse_opacity = |raw: &str| -> Option<f32> {
         let raw = raw.trim();
@@ -1630,6 +1637,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             _ => None,
         }
     };
+    let parse_text_baseline = |raw: &str| -> Option<SimpleSvgTextBaseline> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "auto" | "alphabetic" | "baseline" => Some(SimpleSvgTextBaseline::Alphabetic),
+            "middle" | "central" => Some(SimpleSvgTextBaseline::Middle),
+            _ => None,
+        }
+    };
+    let first_some = |left: Option<String>, right: Option<String>| left.or(right);
     let presentation_from_values = |fill: Option<String>,
                                     fill_rule: Option<String>,
                                     stroke: Option<String>,
@@ -1643,7 +1658,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     fill_opacity: Option<String>,
                                     stroke_opacity: Option<String>,
                                     text_anchor: Option<String>,
-                                    font_size: Option<String>|
+                                    font_size: Option<String>,
+                                    text_baseline: Option<String>|
      -> SimpleSvgPresentation {
         SimpleSvgPresentation {
             fill: fill.as_deref().map(&parse_color),
@@ -1672,6 +1688,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .as_deref()
                 .and_then(parse_number_prefix)
                 .filter(|font_size| *font_size > 0.0),
+            text_baseline: text_baseline.as_deref().and_then(parse_text_baseline),
         }
     };
     let parse_attr_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -1690,6 +1707,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             attr_value(tag, "stroke-opacity"),
             attr_value(tag, "text-anchor"),
             attr_value(tag, "font-size"),
+            first_some(
+                attr_value(tag, "dominant-baseline"),
+                attr_value(tag, "alignment-baseline"),
+            ),
         )
     };
     let parse_inline_style_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -1708,6 +1729,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             style_value(tag, "stroke-opacity"),
             style_value(tag, "text-anchor"),
             style_value(tag, "font-size"),
+            first_some(
+                style_value(tag, "dominant-baseline"),
+                style_value(tag, "alignment-baseline"),
+            ),
         )
     };
     let parse_declaration_presentation = |declarations: &str| -> SimpleSvgPresentation {
@@ -1726,6 +1751,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             declaration_value(declarations, "stroke-opacity"),
             declaration_value(declarations, "text-anchor"),
             declaration_value(declarations, "font-size"),
+            first_some(
+                declaration_value(declarations, "dominant-baseline"),
+                declaration_value(declarations, "alignment-baseline"),
+            ),
         )
     };
     #[derive(Debug, Clone)]
@@ -1899,6 +1928,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 stroke_opacity: local.stroke_opacity.or(base.stroke_opacity),
                 text_anchor: local.text_anchor.or(base.text_anchor),
                 font_size: local.font_size.or(base.font_size),
+                text_baseline: local.text_baseline.or(base.text_baseline),
             }
         };
     let inherit_presentation =
@@ -1924,6 +1954,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 stroke_opacity: local.stroke_opacity.or(parent.stroke_opacity),
                 text_anchor: local.text_anchor.or(parent.text_anchor),
                 font_size: local.font_size.or(parent.font_size),
+                text_baseline: local.text_baseline.or(parent.text_baseline),
             }
         };
     let tag_element_name = |tag: &str| -> Option<String> {
@@ -1963,6 +1994,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut stroke_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut text_anchor: Option<SimpleSvgCascadeValue<SimpleSvgTextAnchor>> = None;
         let mut font_size: Option<SimpleSvgCascadeValue<f32>> = None;
+        let mut text_baseline: Option<SimpleSvgCascadeValue<SimpleSvgTextBaseline>> = None;
         for (order, rule) in style_rules.iter().enumerate() {
             let matches = match &rule.selector {
                 SimpleSvgStyleSelector::Type { element_name } => {
@@ -2139,6 +2171,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
+                if let Some(value) = rule.presentation.text_baseline {
+                    let current = text_baseline.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        text_baseline = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
             }
         }
         SimpleSvgPresentation {
@@ -2156,6 +2198,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             stroke_opacity: stroke_opacity.map(|value| value.value),
             text_anchor: text_anchor.map(|value| value.value),
             font_size: font_size.map(|value| value.value),
+            text_baseline: text_baseline.map(|value| value.value),
         }
     };
     let parse_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -2166,6 +2209,15 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             overlay_presentation(attr_presentation, class_presentation),
             inline_style_presentation,
         )
+    };
+    let baseline_y_offset = |presentation: SimpleSvgPresentation, font_size: f32| -> f32 {
+        match presentation
+            .text_baseline
+            .unwrap_or(SimpleSvgTextBaseline::Alphabetic)
+        {
+            SimpleSvgTextBaseline::Alphabetic => 0.0,
+            SimpleSvgTextBaseline::Middle => font_size * 0.5,
+        }
     };
     let root_presentation = parse_presentation(svg_tag);
     let stroke_width_ratio = |presentation: SimpleSvgPresentation| -> f32 {
@@ -3681,9 +3733,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .as_deref()
             .and_then(parse_number_prefix)
             .unwrap_or(0.0);
+        let local_font_size = presentation.font_size.unwrap_or(12.0);
         let text_x = x + dx;
-        let text_y = y + dy;
-        let font_size = presentation.font_size.unwrap_or(12.0) * transform.stroke_scale;
+        let text_y = y + dy + baseline_y_offset(presentation, local_font_size);
+        let font_size = local_font_size * transform.stroke_scale;
         let Some(point) = apply_transform(transform, text_x, text_y).map(normalize_point) else {
             search_index = text_body_end + "</text>".len();
             continue;
@@ -3742,9 +3795,12 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         .unwrap_or(0.0);
                     let tspan_presentation =
                         inherit_presentation(presentation, parse_presentation(tspan_tag));
-                    let tspan_font_size =
-                        tspan_presentation.font_size.unwrap_or(12.0) * transform.stroke_scale;
-                    apply_transform(transform, tspan_x + tspan_dx, tspan_y + tspan_dy)
+                    let tspan_local_font_size = tspan_presentation.font_size.unwrap_or(12.0);
+                    let tspan_font_size = tspan_local_font_size * transform.stroke_scale;
+                    let tspan_baseline_y = tspan_y
+                        + tspan_dy
+                        + baseline_y_offset(tspan_presentation, tspan_local_font_size);
+                    apply_transform(transform, tspan_x + tspan_dx, tspan_baseline_y)
                         .map(normalize_point)
                         .map(|point| {
                             (
@@ -5597,6 +5653,55 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 rg BT /F1 14.400001 Tf 1 0 0 1 115.2 678 Tm (A) Tj ET"));
         assert!(pdf_text.contains("1 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 663.6 Tm (B) Tj ET"));
         assert!(!pdf_text.contains("[unsupported image: figures/text-offset.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_text_baseline_alignment_as_pdf_position_adjustments() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-baseline.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-baseline".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-baseline.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    text.mid { dominant-baseline: middle; font-size: 2; fill: #0000ff; }
+    tspan.center { alignment-baseline: central; font-size: 2; fill: #ff0000; }
+  </style>
+  <text class="mid" x="10" y="5">M</text>
+  <text x="0" y="0"><tspan class="center" x="10" y="6">T</tspan></text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 rg BT /F1 14.400001 Tf 1 0 0 1 144 670.8 Tm (M) Tj ET"));
+        assert!(pdf_text.contains("1 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 663.6 Tm (T) Tj ET"));
+        assert!(!pdf_text.contains("[unsupported image: figures/text-baseline.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
