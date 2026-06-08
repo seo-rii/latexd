@@ -186,10 +186,11 @@ to PNG for debug display-list PDF/SVG artifacts through Ghostscript or Poppler.
 Resolver-backed SVG and PNG/JPEG bitmap assets are embedded as data-URI
 `<image>` elements in project-root display-list SVG debug artifacts. Simple
 resolver-backed SVG `<rect>`, `<line>`, `<circle>`, `<ellipse>`, `<polyline>`,
-`<polygon>`, and line-only `<path>` content, including basic presentation/style
-fill and stroke metadata plus simple `translate` / `scale` transform attributes,
-is also rendered directly as vector PDF drawing operations in display-list PDF
-artifacts instead of falling back to unsupported-image placeholders. The
+`<polygon>`, and `<path>` content with line and cubic Bezier commands, including
+basic presentation/style fill and stroke metadata plus simple `translate` /
+`scale` transform attributes, is also rendered directly as vector PDF drawing
+operations in display-list PDF artifacts instead of falling back to
+unsupported-image placeholders. The
 display-list image op now carries the resolved natural point size separately
 from the destination rectangle, so PDF/SVG debug crop placement uses the
 original asset coordinate space even when a PDF/EPS asset is rendered through a
@@ -218,7 +219,8 @@ reuse the display-list natural point size for crop/clip placement rather than
 the converted bitmap pixel size. Driver-accurate crop/clip rendering for
 production PDF/SVG vector output and raster backends, TeX-exact rotated-box
 reflow, broader SVG transform support such as `rotate` / `matrix` / group
-transforms, programmable table preamble hooks, exact
+transforms, broader SVG path commands such as arcs, smooth curves, and
+quadratic curves, programmable table preamble hooks, exact
 vertical border trimming, exact table rule trimming, actual multirow geometry,
 exact nested table layout/reflow, and full TeX alignment policy are still
 deferred.

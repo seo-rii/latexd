@@ -465,7 +465,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         }
                                     }
                                 }
-                                for poly in svg.polys.iter().chain(svg.paths.iter()) {
+                                for poly in &svg.polys {
                                     if poly.points.len() < 2 {
                                         continue;
                                     }
@@ -507,6 +507,92 @@ pub fn render_display_list_pdf_with_converted_assets(
                                     if let Some(stroke_rgb) = poly.stroke_rgb {
                                         let stroke_width =
                                             poly.stroke_width_ratio * natural_width * scale_x;
+                                        if stroke_width.is_finite() && stroke_width > 0.0 {
+                                            stream.push_str(&format!(
+                                                "{} {} {} RG {} w {}S ",
+                                                stroke_rgb.0,
+                                                stroke_rgb.1,
+                                                stroke_rgb.2,
+                                                stroke_width,
+                                                path
+                                            ));
+                                        }
+                                    }
+                                }
+                                for svg_path in &svg.paths {
+                                    if svg_path.ops.len() < 2 {
+                                        continue;
+                                    }
+                                    let mut path = String::new();
+                                    let mut valid = true;
+                                    for op in &svg_path.ops {
+                                        match op {
+                                            SimpleSvgPathOp::MoveTo(point) => {
+                                                let x =
+                                                    draw.rect.x + point.0 * natural_width * scale_x;
+                                                let y = draw.rect.y
+                                                    + (1.0 - point.1) * natural_height * scale_y;
+                                                if !x.is_finite() || !y.is_finite() {
+                                                    valid = false;
+                                                    break;
+                                                }
+                                                path.push_str(&format!("{x} {y} m "));
+                                            }
+                                            SimpleSvgPathOp::LineTo(point) => {
+                                                let x =
+                                                    draw.rect.x + point.0 * natural_width * scale_x;
+                                                let y = draw.rect.y
+                                                    + (1.0 - point.1) * natural_height * scale_y;
+                                                if !x.is_finite() || !y.is_finite() {
+                                                    valid = false;
+                                                    break;
+                                                }
+                                                path.push_str(&format!("{x} {y} l "));
+                                            }
+                                            SimpleSvgPathOp::CubicTo { ctrl1, ctrl2, to } => {
+                                                let ctrl1_x =
+                                                    draw.rect.x + ctrl1.0 * natural_width * scale_x;
+                                                let ctrl1_y = draw.rect.y
+                                                    + (1.0 - ctrl1.1) * natural_height * scale_y;
+                                                let ctrl2_x =
+                                                    draw.rect.x + ctrl2.0 * natural_width * scale_x;
+                                                let ctrl2_y = draw.rect.y
+                                                    + (1.0 - ctrl2.1) * natural_height * scale_y;
+                                                let to_x =
+                                                    draw.rect.x + to.0 * natural_width * scale_x;
+                                                let to_y = draw.rect.y
+                                                    + (1.0 - to.1) * natural_height * scale_y;
+                                                if !ctrl1_x.is_finite()
+                                                    || !ctrl1_y.is_finite()
+                                                    || !ctrl2_x.is_finite()
+                                                    || !ctrl2_y.is_finite()
+                                                    || !to_x.is_finite()
+                                                    || !to_y.is_finite()
+                                                {
+                                                    valid = false;
+                                                    break;
+                                                }
+                                                path.push_str(&format!(
+                                                    "{ctrl1_x} {ctrl1_y} {ctrl2_x} {ctrl2_y} {to_x} {to_y} c "
+                                                ));
+                                            }
+                                            SimpleSvgPathOp::Close => {
+                                                path.push_str("h ");
+                                            }
+                                        }
+                                    }
+                                    if !valid || path.is_empty() {
+                                        continue;
+                                    }
+                                    if let Some(fill_rgb) = svg_path.fill_rgb {
+                                        stream.push_str(&format!(
+                                            "{} {} {} rg {}f ",
+                                            fill_rgb.0, fill_rgb.1, fill_rgb.2, path
+                                        ));
+                                    }
+                                    if let Some(stroke_rgb) = svg_path.stroke_rgb {
+                                        let stroke_width =
+                                            svg_path.stroke_width_ratio * natural_width * scale_x;
                                         if stroke_width.is_finite() && stroke_width > 0.0 {
                                             stream.push_str(&format!(
                                                 "{} {} {} RG {} w {}S ",
@@ -707,7 +793,7 @@ struct SimpleSvgAsset {
     lines: Vec<SimpleSvgLine>,
     ellipses: Vec<SimpleSvgEllipse>,
     polys: Vec<SimpleSvgPoly>,
-    paths: Vec<SimpleSvgPoly>,
+    paths: Vec<SimpleSvgPath>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -749,6 +835,26 @@ struct SimpleSvgPoly {
     fill_rgb: Option<(f32, f32, f32)>,
     stroke_rgb: Option<(f32, f32, f32)>,
     stroke_width_ratio: f32,
+}
+
+#[derive(Debug, Clone)]
+struct SimpleSvgPath {
+    ops: Vec<SimpleSvgPathOp>,
+    fill_rgb: Option<(f32, f32, f32)>,
+    stroke_rgb: Option<(f32, f32, f32)>,
+    stroke_width_ratio: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum SimpleSvgPathOp {
+    MoveTo((f32, f32)),
+    LineTo((f32, f32)),
+    CubicTo {
+        ctrl1: (f32, f32),
+        ctrl2: (f32, f32),
+        to: (f32, f32),
+    },
+    Close,
 }
 
 fn image_natural_size_pt(image: &PositionedImage) -> Option<(f32, f32)> {
@@ -1090,8 +1196,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         Command(char),
         Number(f32),
     }
-    type SimplePathParse = Option<(Vec<(f32, f32)>, bool)>;
-    let parse_line_path = |raw: &str, transform: SimpleSvgTransform| -> SimplePathParse {
+    type SimplePathParse = Option<(Vec<SimpleSvgPathOp>, bool)>;
+    let parse_path = |raw: &str, transform: SimpleSvgTransform| -> SimplePathParse {
         let mut tokens = Vec::new();
         let mut index = 0usize;
         while index < raw.len() {
@@ -1102,7 +1208,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             }
             if matches!(
                 ch,
-                'M' | 'm' | 'L' | 'l' | 'H' | 'h' | 'V' | 'v' | 'Z' | 'z'
+                'M' | 'm' | 'L' | 'l' | 'H' | 'h' | 'V' | 'v' | 'C' | 'c' | 'Z' | 'z'
             ) {
                 tokens.push(SimplePathToken::Command(ch));
                 index += ch.len_utf8();
@@ -1143,7 +1249,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut token_index = 0usize;
         let mut command = None;
         let mut current = (0.0_f32, 0.0_f32);
-        let mut points = Vec::new();
+        let mut ops = Vec::new();
         let mut closed = false;
         let mut has_move = false;
         while token_index < tokens.len() {
@@ -1152,6 +1258,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 token_index += 1;
                 if matches!(path_command, 'Z' | 'z') {
                     closed = true;
+                    ops.push(SimpleSvgPathOp::Close);
                     break;
                 }
             }
@@ -1173,9 +1280,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     } else {
                         current = (x, y);
                     }
-                    points.push(normalize_point(apply_transform(
+                    ops.push(SimpleSvgPathOp::MoveTo(normalize_point(apply_transform(
                         transform, current.0, current.1,
-                    )?));
+                    )?)));
                     has_move = true;
                     command = Some(if current_command == 'm' { 'l' } else { 'L' });
                 }
@@ -1191,9 +1298,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     } else {
                         current = (x, y);
                     }
-                    points.push(normalize_point(apply_transform(
+                    ops.push(SimpleSvgPathOp::LineTo(normalize_point(apply_transform(
                         transform, current.0, current.1,
-                    )?));
+                    )?)));
                 }
                 'H' | 'h' => {
                     if !has_move {
@@ -1205,9 +1312,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     } else {
                         current.0 = x;
                     }
-                    points.push(normalize_point(apply_transform(
+                    ops.push(SimpleSvgPathOp::LineTo(normalize_point(apply_transform(
                         transform, current.0, current.1,
-                    )?));
+                    )?)));
                 }
                 'V' | 'v' => {
                     if !has_move {
@@ -1219,17 +1326,43 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     } else {
                         current.1 = y;
                     }
-                    points.push(normalize_point(apply_transform(
+                    ops.push(SimpleSvgPathOp::LineTo(normalize_point(apply_transform(
                         transform, current.0, current.1,
-                    )?));
+                    )?)));
+                }
+                'C' | 'c' => {
+                    if !has_move {
+                        return None;
+                    }
+                    let ctrl1_x = next_number()?;
+                    let ctrl1_y = next_number()?;
+                    let ctrl2_x = next_number()?;
+                    let ctrl2_y = next_number()?;
+                    let to_x = next_number()?;
+                    let to_y = next_number()?;
+                    let (ctrl1, ctrl2, to) = if current_command == 'c' {
+                        (
+                            (current.0 + ctrl1_x, current.1 + ctrl1_y),
+                            (current.0 + ctrl2_x, current.1 + ctrl2_y),
+                            (current.0 + to_x, current.1 + to_y),
+                        )
+                    } else {
+                        ((ctrl1_x, ctrl1_y), (ctrl2_x, ctrl2_y), (to_x, to_y))
+                    };
+                    current = to;
+                    ops.push(SimpleSvgPathOp::CubicTo {
+                        ctrl1: normalize_point(apply_transform(transform, ctrl1.0, ctrl1.1)?),
+                        ctrl2: normalize_point(apply_transform(transform, ctrl2.0, ctrl2.1)?),
+                        to: normalize_point(apply_transform(transform, to.0, to.1)?),
+                    });
                 }
                 _ => return None,
             }
         }
-        if points.len() < 2 {
+        if ops.len() < 2 {
             return None;
         }
-        Some((points, closed))
+        Some((ops, closed))
     };
     let svg_content_start = tag_start + tag_end + 1;
     let svg_content_end = text[svg_content_start..]
@@ -1579,9 +1712,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         };
         let path_tag = &path_tail[..path_end];
         if let Some(transform) = parse_transform(path_tag)
-            && let Some((points, closed)) = attr_value(path_tag, "d")
+            && let Some((ops, closed)) = attr_value(path_tag, "d")
                 .as_deref()
-                .and_then(|path| parse_line_path(path, transform))
+                .and_then(|path| parse_path(path, transform))
         {
             let fill_rgb = presentation_value(path_tag, "fill")
                 .as_deref()
@@ -1591,9 +1724,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .as_deref()
                 .and_then(&parse_color);
             if fill_rgb.is_some() || stroke_rgb.is_some() {
-                paths.push(SimpleSvgPoly {
-                    points,
-                    closed,
+                paths.push(SimpleSvgPath {
+                    ops,
                     fill_rgb,
                     stroke_rgb,
                     stroke_width_ratio: transformed_stroke_width_ratio(path_tag, transform),
@@ -3364,6 +3496,51 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 rg 10 180 m 110 280 l 210 280 l 210 180 l h f"));
         assert!(pdf_text.contains("0 0 1 RG 5 w 10 180 m 110 280 l 210 280 l 210 180 l h S"));
         assert!(!pdf_text.contains("[unsupported image: figures/path.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_cubic_paths_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/cubic.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:cubic".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/cubic.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <path d="M 0 5 C 5 0 15 0 20 5" fill="none" stroke-width="1" stroke="#00ff00"/>
+  <path d="M 2 8 c 4 -6 12 -6 16 0 Z" fill="#ff0000"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 RG 10 w 10 230 m 60 280 160 280 210 230 c S"));
+        assert!(pdf_text.contains("1 0 0 rg 30 200 m 70 260 150 260 190 200 c h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/cubic.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
