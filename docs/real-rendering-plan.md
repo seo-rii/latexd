@@ -197,9 +197,10 @@ root/group-level fill/stroke/stroke-width presentation metadata, simple
 comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
 class/id selector fill/stroke/stroke-width rules with basic specificity and
 source-order cascade, hex/common named/`rgb(...)` color forms, and transparent
-paint as no-paint, simple `opacity` / `fill-opacity` / `stroke-opacity` mapped
-to PDF ExtGState resources, simple `stroke-dasharray` mapped to PDF dash
-patterns with `stroke-dashoffset` phase support, simple `stroke-linecap` /
+paint as no-paint, simple `fill-rule` mapped to PDF nonzero/even-odd fill
+operators, simple `opacity` / `fill-opacity` / `stroke-opacity` mapped to PDF
+ExtGState resources, simple `stroke-dasharray` mapped to PDF dash patterns with
+`stroke-dashoffset` phase support, simple `stroke-linecap` /
 `stroke-linejoin` / `stroke-miterlimit` mapped to PDF graphics state, and
 `matrix` / `rotate` transforms for path-like line/poly/path
 primitives, plus non-axis-aligned transformed rectangles rendered as closed
@@ -643,13 +644,14 @@ Implemented first slice:
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
   class/id selector fill/stroke/stroke-width rules with basic specificity and
   source-order cascade plus hex/common named/`rgb(...)` color forms and
-  transparent paint as no-paint, simple `opacity` / `fill-opacity` /
-  `stroke-opacity` mapped to PDF ExtGState resources, simple
-  `stroke-dasharray` mapped to PDF dash patterns with `stroke-dashoffset`
-  phase support, simple `stroke-linecap` / `stroke-linejoin` /
-  `stroke-miterlimit` mapped to PDF graphics state, path-like `matrix` /
-  `rotate` transforms, non-axis-aligned transformed rectangles, and transformed
-  circle/ellipse cubic paths, as vector drawing operations;
+  transparent paint as no-paint, simple `fill-rule` mapped to PDF
+  nonzero/even-odd fill operators, simple `opacity` / `fill-opacity` /
+  `stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray`
+  mapped to PDF dash patterns with `stroke-dashoffset` phase support, simple
+  `stroke-linecap` / `stroke-linejoin` / `stroke-miterlimit` mapped to PDF
+  graphics state, path-like `matrix` / `rotate` transforms, non-axis-aligned
+  transformed rectangles, and transformed circle/ellipse cubic paths, as vector
+  drawing operations;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
   display-list PDF and debug SVG artifacts;
 - missing or undecodable assets still render as bounded placeholders in both
@@ -1077,13 +1079,14 @@ Status:
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
   class/id selector fill/stroke/stroke-width rules with basic specificity and
   source-order cascade plus hex/common named/`rgb(...)` color forms and
-  transparent paint as no-paint, simple `opacity` / `fill-opacity` /
-  `stroke-opacity` mapped to PDF ExtGState resources, simple
-  `stroke-dasharray` mapped to PDF dash patterns with `stroke-dashoffset`
-  phase support, simple `stroke-linecap` / `stroke-linejoin` /
-  `stroke-miterlimit` mapped to PDF graphics state, and path-like `matrix` /
-  `rotate` transform attributes plus non-axis-aligned transformed rectangles
-  and transformed circle/ellipse cubic paths, as vector PDF drawing operations;
+  transparent paint as no-paint, simple `fill-rule` mapped to PDF
+  nonzero/even-odd fill operators, simple `opacity` / `fill-opacity` /
+  `stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray`
+  mapped to PDF dash patterns with `stroke-dashoffset` phase support, simple
+  `stroke-linecap` / `stroke-linejoin` / `stroke-miterlimit` mapped to PDF
+  graphics state, and path-like `matrix` / `rotate` transform attributes plus
+  non-axis-aligned transformed rectangles and transformed circle/ellipse cubic
+  paths, as vector PDF drawing operations;
 - `latexd render-ir --root ... --input ... --output-dir ...` exposes the
   event/IR/display-list artifact pipeline without replacing the serve preview
   path;
