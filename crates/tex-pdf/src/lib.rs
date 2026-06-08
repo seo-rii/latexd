@@ -1616,6 +1616,77 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .filter(|value| value.is_finite())
                 .map(|value| value.clamp(0.0, 1.0))
         };
+        let parse_hue_component = |component: &str| -> Option<f32> {
+            let component = component.trim();
+            let (raw, multiplier) = if let Some(value) = component.strip_suffix("deg") {
+                (value.trim(), 1.0)
+            } else if let Some(value) = component.strip_suffix("turn") {
+                (value.trim(), 360.0)
+            } else if let Some(value) = component.strip_suffix("rad") {
+                (value.trim(), 180.0 / std::f32::consts::PI)
+            } else if let Some(value) = component.strip_suffix("grad") {
+                (value.trim(), 0.9)
+            } else {
+                (component, 1.0)
+            };
+            raw.parse::<f32>()
+                .ok()
+                .filter(|value| value.is_finite())
+                .map(|value| (value * multiplier).rem_euclid(360.0) / 360.0)
+        };
+        let parse_percent_component = |component: &str| -> Option<f32> {
+            component
+                .trim()
+                .strip_suffix('%')?
+                .trim()
+                .parse::<f32>()
+                .ok()
+                .filter(|value| value.is_finite())
+                .map(|value| (value / 100.0).clamp(0.0, 1.0))
+        };
+        let hsl_to_rgb = |hue: f32, saturation: f32, lightness: f32| -> (f32, f32, f32) {
+            if saturation <= 0.0 {
+                return (lightness, lightness, lightness);
+            }
+            let normalize_component = |value: f32| {
+                let value = value.clamp(0.0, 1.0);
+                if value < 0.000_5 {
+                    0.0
+                } else if value > 0.999_5 {
+                    1.0
+                } else {
+                    value
+                }
+            };
+            let q = if lightness < 0.5 {
+                lightness * (1.0 + saturation)
+            } else {
+                lightness + saturation - lightness * saturation
+            };
+            let p = 2.0 * lightness - q;
+            let hue_channel = |mut t: f32| {
+                if t < 0.0 {
+                    t += 1.0;
+                }
+                if t > 1.0 {
+                    t -= 1.0;
+                }
+                if t < 1.0 / 6.0 {
+                    p + (q - p) * 6.0 * t
+                } else if t < 0.5 {
+                    q
+                } else if t < 2.0 / 3.0 {
+                    p + (q - p) * (2.0 / 3.0 - t) * 6.0
+                } else {
+                    p
+                }
+            };
+            (
+                normalize_component(hue_channel(hue + 1.0 / 3.0)),
+                normalize_component(hue_channel(hue)),
+                normalize_component(hue_channel(hue - 1.0 / 3.0)),
+            )
+        };
         if raw.ends_with(')') {
             let (body, is_rgba) = if raw.len() >= 5 && raw[..4].eq_ignore_ascii_case("rgb(") {
                 (&raw[4..raw.len() - 1], false)
@@ -1648,6 +1719,43 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         parse_rgb_component(components[0])?,
                         parse_rgb_component(components[1])?,
                         parse_rgb_component(components[2])?,
+                    ),
+                    alpha,
+                });
+            }
+        }
+        if raw.ends_with(')') {
+            let (body, is_hsla) = if raw.len() >= 5 && raw[..4].eq_ignore_ascii_case("hsl(") {
+                (&raw[4..raw.len() - 1], false)
+            } else if raw.len() >= 6 && raw[..5].eq_ignore_ascii_case("hsla(") {
+                (&raw[5..raw.len() - 1], true)
+            } else {
+                ("", false)
+            };
+            let (body, slash_alpha) = body
+                .split_once('/')
+                .map(|(body, alpha)| (body, Some(alpha)))
+                .unwrap_or((body, None));
+            let components = body
+                .split(|ch: char| ch == ',' || ch.is_whitespace())
+                .filter(|component| !component.is_empty())
+                .collect::<Vec<_>>();
+            if components.len() >= 3 {
+                let comma_alpha = if is_hsla && components.len() >= 4 {
+                    Some(components[3])
+                } else {
+                    None
+                };
+                let alpha = if let Some(alpha) = slash_alpha.or(comma_alpha) {
+                    parse_alpha_component(alpha)?
+                } else {
+                    1.0
+                };
+                return Some(SimpleSvgResolvedColor {
+                    rgb: hsl_to_rgb(
+                        parse_hue_component(components[0])?,
+                        parse_percent_component(components[1])?,
+                        parse_percent_component(components[2])?,
                     ),
                     alpha,
                 });
@@ -8335,6 +8443,56 @@ mod tests {
         assert!(pdf_text.contains("q /GS400 gs 0 1 0 RG 20 w 10 260 m 60 260 l S Q"));
         assert!(pdf_text.contains("q /GS250 gs 0 1 1 rg 50 250 20 20 re f Q"));
         assert!(!pdf_text.contains("[unsupported image: figures/rgba-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_hsla_color_functions_as_pdf_opacity() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/hsla-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:hsla-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/hsla-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <rect x="1" y="1" width="2" height="2" fill="hsla(0, 100%, 50%, 0.25)" stroke="hsl(240 100% 50% / 50%)" stroke-width="1"/>
+  <line x1="0" y1="2" x2="5" y2="2" stroke="hsl(120deg 100% 50%)" stroke-width="2" fill="none"/>
+  <rect x="4" y="1" width="2" height="2" fill="hsl(180 100% 50% / 25%)" stroke="none"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/GS250 << /Type /ExtGState /ca 0.25 /CA 0.25 >>"));
+        assert!(pdf_text.contains("/GS500 << /Type /ExtGState /ca 0.5 /CA 0.5 >>"));
+        assert!(pdf_text.contains("q /GS250 gs 1 0 0 rg 20 250 20 20 re f Q"));
+        assert!(pdf_text.contains("q /GS500 gs 0 0 1 RG 10 w 20 250 20 20 re S Q"));
+        assert!(pdf_text.contains("0 1 0 RG 20 w 10 260 m 60 260 l S"));
+        assert!(pdf_text.contains("q /GS250 gs 0 1 1 rg 50 250 20 20 re f Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/hsla-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
