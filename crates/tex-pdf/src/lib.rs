@@ -2836,6 +2836,38 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         Some(path_data)
     };
+    let rect_path_data = |x: f32, y: f32, width: f32, height: f32| -> Option<String> {
+        (width.is_finite() && height.is_finite() && width > 0.0 && height > 0.0).then(|| {
+            format!(
+                "M {} {} L {} {} L {} {} L {} {} Z",
+                x,
+                y,
+                x + width,
+                y,
+                x + width,
+                y + height,
+                x,
+                y + height
+            )
+        })
+    };
+    let ellipse_path_data = |cx: f32, cy: f32, rx: f32, ry: f32| -> Option<String> {
+        (rx.is_finite() && ry.is_finite() && rx > 0.0 && ry > 0.0).then(|| {
+            format!(
+                "M {} {} A {} {} 0 1 0 {} {} A {} {} 0 1 0 {} {} Z",
+                cx + rx,
+                cy,
+                rx,
+                ry,
+                cx - rx,
+                cy,
+                rx,
+                ry,
+                cx + rx,
+                cy
+            )
+        })
+    };
     #[derive(Debug, Clone, Copy)]
     enum SimplePathToken {
         Command(char),
@@ -4057,6 +4089,135 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             });
         }
         search_index = path_start + path_end + 1;
+    }
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<rect") {
+        let rect_start = search_index + relative;
+        let rect_tail = &svg_content[rect_start..];
+        let Some(rect_end) = rect_tail.find('>') else {
+            break;
+        };
+        if !in_defs(rect_start) {
+            search_index = rect_start + rect_end + 1;
+            continue;
+        }
+        let rect_tag = &rect_tail[..rect_end];
+        let has_rounded_corner = attr_value(rect_tag, "rx")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .is_some_and(|radius| radius > 0.0)
+            || attr_value(rect_tag, "ry")
+                .as_deref()
+                .and_then(parse_number_prefix)
+                .is_some_and(|radius| radius > 0.0);
+        if has_rounded_corner {
+            search_index = rect_start + rect_end + 1;
+            continue;
+        }
+        let x = attr_value(rect_tag, "x")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let y = attr_value(rect_tag, "y")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        if let (Some(id), Some(width), Some(height)) = (
+            attr_value(rect_tag, "id"),
+            attr_value(rect_tag, "width")
+                .as_deref()
+                .and_then(parse_number_prefix),
+            attr_value(rect_tag, "height")
+                .as_deref()
+                .and_then(parse_number_prefix),
+        ) && !id.trim().is_empty()
+            && let Some(path_data) = rect_path_data(x, y, width, height)
+        {
+            path_like_definitions.push(SimpleSvgPathLikeDefinition {
+                id,
+                tag: rect_tag,
+                start: rect_start,
+                path_data,
+            });
+        }
+        search_index = rect_start + rect_end + 1;
+    }
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<circle") {
+        let circle_start = search_index + relative;
+        let circle_tail = &svg_content[circle_start..];
+        let Some(circle_end) = circle_tail.find('>') else {
+            break;
+        };
+        if !in_defs(circle_start) {
+            search_index = circle_start + circle_end + 1;
+            continue;
+        }
+        let circle_tag = &circle_tail[..circle_end];
+        let cx = attr_value(circle_tag, "cx")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let cy = attr_value(circle_tag, "cy")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        if let (Some(id), Some(radius)) = (
+            attr_value(circle_tag, "id"),
+            attr_value(circle_tag, "r")
+                .as_deref()
+                .and_then(parse_number_prefix),
+        ) && !id.trim().is_empty()
+            && let Some(path_data) = ellipse_path_data(cx, cy, radius, radius)
+        {
+            path_like_definitions.push(SimpleSvgPathLikeDefinition {
+                id,
+                tag: circle_tag,
+                start: circle_start,
+                path_data,
+            });
+        }
+        search_index = circle_start + circle_end + 1;
+    }
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<ellipse") {
+        let ellipse_start = search_index + relative;
+        let ellipse_tail = &svg_content[ellipse_start..];
+        let Some(ellipse_end) = ellipse_tail.find('>') else {
+            break;
+        };
+        if !in_defs(ellipse_start) {
+            search_index = ellipse_start + ellipse_end + 1;
+            continue;
+        }
+        let ellipse_tag = &ellipse_tail[..ellipse_end];
+        let cx = attr_value(ellipse_tag, "cx")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let cy = attr_value(ellipse_tag, "cy")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        if let (Some(id), Some(rx), Some(ry)) = (
+            attr_value(ellipse_tag, "id"),
+            attr_value(ellipse_tag, "rx")
+                .as_deref()
+                .and_then(parse_number_prefix),
+            attr_value(ellipse_tag, "ry")
+                .as_deref()
+                .and_then(parse_number_prefix),
+        ) && !id.trim().is_empty()
+            && let Some(path_data) = ellipse_path_data(cx, cy, rx, ry)
+        {
+            path_like_definitions.push(SimpleSvgPathLikeDefinition {
+                id,
+                tag: ellipse_tag,
+                start: ellipse_start,
+                path_data,
+            });
+        }
+        search_index = ellipse_start + ellipse_end + 1;
     }
     let mut search_index = 0usize;
     while let Some(relative) = svg_content[search_index..].find("<line") {
@@ -6902,12 +7063,18 @@ mod tests {
   <defs>
     <path id="tri" d="M 0 0 L 4 0 L 4 4 Z" fill="#ff0000"/>
     <path id="rule" d="M 0 0 L 4 0" fill="none" stroke="#ff0000" stroke-width="1"/>
+    <rect id="panel" x="0" y="0" width="4" height="2" fill="#ff0000"/>
+    <circle id="dot" cx="2" cy="2" r="2" fill="#ff0000"/>
+    <ellipse id="oval" cx="2" cy="1" rx="2" ry="1" fill="#ff0000"/>
     <line id="line-rule" x1="0" y1="0" x2="4" y2="0" stroke="#ff0000" stroke-width="1"/>
     <polyline id="zig" points="0 0 2 2 4 0" fill="none" stroke="#ff0000" stroke-width="1"/>
     <polygon id="box" points="0 0 4 0 4 4 0 4" fill="#ff0000"/>
   </defs>
   <use href="#tri" x="5" y="0" fill="#0000ff"/>
   <use xlink:href="#rule" x="5" y="4" stroke="#00ff00"/>
+  <use href="#panel" x="0" y="5" fill="#0000ff"/>
+  <use href="#dot" x="5" y="5" fill="#ff00ff"/>
+  <use href="#oval" x="10" y="6" fill="#00ffff"/>
   <use href="#line-rule" x="10" y="0" stroke="#00ff00"/>
   <use href="#zig" x="10" y="2" stroke="#0000ff"/>
   <use href="#box" x="10" y="5" fill="#00ff00"/>
@@ -6919,11 +7086,16 @@ mod tests {
 
         assert!(pdf_text.contains("0 0 1 rg 60 280 m 100 280 l 100 240 l h f"));
         assert!(pdf_text.contains("0 1 0 RG 10 w 60 240 m 100 240 l S"));
+        assert!(pdf_text.contains("0 0 1 rg 10 230 m 50 230 l 50 210 l 10 210 l h f"));
+        assert!(pdf_text.contains("1 0 1 rg 100 210 m"));
+        assert!(pdf_text.contains("0 1 1 rg 150 210 m"));
         assert!(pdf_text.contains("0 1 0 RG 10 w 110 280 m 150 280 l S"));
         assert!(pdf_text.contains("0 0 1 RG 10 w 110 260 m 130 240 l 150 260 l S"));
         assert!(pdf_text.contains("0 1 0 rg 110 230 m 150 230 l 150 190 l 110 190 l h f"));
         assert!(!pdf_text.contains("1 0 0 rg 10 280 m 50 280 l 50 240 l h f"));
         assert!(!pdf_text.contains("1 0 0 RG 10 w 10 280 m 50 280 l S"));
+        assert!(!pdf_text.contains("1 0 0 rg 10 280 m 50 280 l 50 260 l 10 260 l h f"));
+        assert!(!pdf_text.contains("1 0 0 rg 50 260 m"));
         assert!(!pdf_text.contains("1 0 0 rg 10 280 m 50 280 l 50 240 l 10 240 l h f"));
         assert!(!pdf_text.contains("[unsupported image: figures/defs-use.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
