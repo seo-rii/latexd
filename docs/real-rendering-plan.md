@@ -196,7 +196,7 @@ basic presentation/style fill and stroke metadata, simple `translate` /
 root/group-level fill/stroke/stroke-width presentation metadata, simple
 comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
 class/id selector fill/stroke/stroke-width rules with basic specificity and
-source-order cascade, and hex/named/`rgb(...)` color forms, and `matrix` /
+source-order cascade, and hex/common named/`rgb(...)` color forms, and `matrix` /
 `rotate` transforms for path-like line/poly/path primitives, plus
 non-axis-aligned transformed rectangles rendered as closed vector polygons and
 transformed circle/ellipse primitives rendered as cubic vector paths, is also
@@ -636,7 +636,7 @@ Implemented first slice:
   inherited root/group-level fill/stroke/stroke-width metadata, simple
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
   class/id selector fill/stroke/stroke-width rules with basic specificity and
-  source-order cascade plus hex/named/`rgb(...)` color forms, path-like `matrix` /
+  source-order cascade plus hex/common named/`rgb(...)` color forms, path-like `matrix` /
   `rotate` transforms, non-axis-aligned transformed rectangles, and transformed
   circle/ellipse cubic paths, as vector drawing operations;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
@@ -1065,7 +1065,7 @@ Status:
   inherited root/group-level fill/stroke/stroke-width metadata, simple
   comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
   class/id selector fill/stroke/stroke-width rules with basic specificity and
-  source-order cascade plus hex/named/`rgb(...)` color forms, and path-like
+  source-order cascade plus hex/common named/`rgb(...)` color forms, and path-like
   `matrix` / `rotate` transform attributes plus non-axis-aligned transformed
   rectangles and transformed circle/ellipse cubic paths, as vector PDF drawing
   operations;
