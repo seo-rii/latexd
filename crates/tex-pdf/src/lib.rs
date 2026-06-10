@@ -1946,7 +1946,23 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
     };
     let paint_server_colors = {
-        let mut colors = Vec::new();
+        struct SimpleSvgPaintServer {
+            id: String,
+            href: Option<String>,
+            color: Option<SimpleSvgResolvedColor>,
+        }
+        let paint_server_href = |tag: &str| {
+            attr_value(tag, "href")
+                .or_else(|| attr_value(tag, "xlink:href"))
+                .map(|href| {
+                    href.trim()
+                        .trim_matches(|ch| ch == '\'' || ch == '"')
+                        .trim_start_matches('#')
+                        .to_string()
+                })
+                .filter(|href| !href.is_empty())
+        };
+        let mut servers = Vec::new();
         for gradient_name in ["linearGradient", "radialGradient"] {
             let open_tag = format!("<{gradient_name}");
             let close_tag = format!("</{gradient_name}>");
@@ -1971,6 +1987,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     search_index = gradient_start + gradient_tag_end + 1;
                     continue;
                 }
+                let href = paint_server_href(gradient_tag);
                 let body_start = gradient_start + gradient_tag_end + 1;
                 let (gradient_body, next_index) = if gradient_tag.trim_end().ends_with('/') {
                     ("", body_start)
@@ -1982,6 +1999,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 } else {
                     (&svg_content[body_start..], svg_content.len())
                 };
+                let mut server_color = None;
                 let mut stop_search_index = 0usize;
                 while let Some(stop_relative) = gradient_body[stop_search_index..].find("<stop") {
                     let stop_start = stop_search_index + stop_relative;
@@ -2020,10 +2038,40 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                             color.alpha *= parsed_opacity.clamp(0.0, 1.0);
                         }
                     }
-                    colors.push((id.to_string(), color));
+                    server_color = Some(color);
                     break;
                 }
+                servers.push(SimpleSvgPaintServer {
+                    id: id.to_string(),
+                    href,
+                    color: server_color,
+                });
                 search_index = next_index;
+            }
+        }
+        let mut colors = Vec::new();
+        for server in &servers {
+            let mut color = server.color;
+            let mut href = server.href.as_deref();
+            for _ in 0..8 {
+                if color.is_some() {
+                    break;
+                }
+                let Some(referenced_id) = href else {
+                    break;
+                };
+                let Some(referenced) = servers
+                    .iter()
+                    .rev()
+                    .find(|candidate| candidate.id == referenced_id && candidate.id != server.id)
+                else {
+                    break;
+                };
+                color = referenced.color;
+                href = referenced.href.as_deref();
+            }
+            if let Some(color) = color {
+                colors.push((server.id.clone(), color));
             }
         }
         colors
@@ -9068,6 +9116,62 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 RG 20 w 10 260 m 60 260 l S"));
         assert!(!pdf_text.contains("0 0 0 rg 20 250 20 20 re f"));
         assert!(!pdf_text.contains("[unsupported image: figures/gradient-paint-server.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_gradient_href_paint_servers_as_solid_pdf_approximation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/gradient-href-paint-server.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:gradient-href-paint-server".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/gradient-href-paint-server.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <linearGradient id="fillBase">
+      <stop offset="0%" stop-color="#00ff00"/>
+    </linearGradient>
+    <linearGradient id="fillAlias" href="#fillBase"/>
+    <radialGradient id="strokeBase">
+      <stop offset="0%" stop-color="#ff0000"/>
+    </radialGradient>
+    <linearGradient id="strokeAlias" xlink:href="#strokeBase"/>
+  </defs>
+  <rect x="1" y="1" width="2" height="2" fill="url(#fillAlias)"/>
+  <line x1="0" y1="2" x2="5" y2="2" stroke="url(#strokeAlias)" stroke-width="2" fill="none"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("1 0 0 RG 20 w 10 260 m 60 260 l S"));
+        assert!(!pdf_text.contains("0 0 0 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/gradient-href-paint-server.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

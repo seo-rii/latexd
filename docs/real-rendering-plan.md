@@ -202,7 +202,8 @@ class/id selector fill/stroke/stroke-width rules with basic specificity and
     `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
     `currentColor` fill/stroke paint, simple `inherit` paint/color values,
     transparent paint as no-paint, simple gradient paint-server first-stop solid
-    approximations, and paint-server `url(...)` fallback colors,
+    approximations with `href` inheritance, and paint-server `url(...)`
+    fallback colors,
     simple `fill-rule` mapped to PDF nonzero/even-odd fill
 operators, simple `opacity` / `fill-opacity` / `stroke-opacity` mapped to PDF
 ExtGState resources, simple `stroke-dasharray` mapped to PDF dash patterns with
@@ -657,7 +658,8 @@ Implemented first slice:
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
   `currentColor` fill/stroke paint, simple `inherit` paint/color values,
   transparent paint as no-paint, simple gradient paint-server first-stop solid
-  approximations, and paint-server `url(...)` fallback colors,
+  approximations with `href` inheritance, and paint-server `url(...)` fallback
+  colors,
   simple `fill-rule` mapped to PDF
   nonzero/even-odd fill operators, simple `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray`
@@ -1109,7 +1111,8 @@ Status:
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
   `currentColor` fill/stroke paint, simple `inherit` paint/color values,
   transparent paint as no-paint, simple gradient paint-server first-stop solid
-  approximations, and paint-server `url(...)` fallback colors,
+  approximations with `href` inheritance, and paint-server `url(...)` fallback
+  colors,
   simple `fill-rule` mapped to PDF
   nonzero/even-odd fill operators, simple `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray`
