@@ -199,7 +199,8 @@ root `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`,
 comment-tolerant `<style>` / CDATA type, class, id, element-qualified class/id,
 and rightmost simple descendant/child selector approximation fill/stroke/stroke-width
 rules with basic specificity and
-    source-order cascade, 3/4/6/8-digit hex/CSS/SVG named/`rgb(...)` /
+    source-order cascade, `display: none` / `visibility: hidden` paint
+    suppression, 3/4/6/8-digit hex/CSS/SVG named/`rgb(...)` /
     `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
     `currentColor` fill/stroke paint, simple `inherit` paint/color values,
     transparent paint as no-paint, simple gradient paint-server first-stop solid
@@ -656,7 +657,8 @@ Implemented first slice:
   comment-tolerant `<style>` / CDATA type, class, id, element-qualified
   class/id, and rightmost simple descendant/child selector approximation
   fill/stroke/stroke-width rules with basic specificity and source-order cascade
-  plus 3/4/6/8-digit hex/CSS/SVG named/`rgb(...)` /
+  plus `display: none` / `visibility: hidden` paint suppression and
+  3/4/6/8-digit hex/CSS/SVG named/`rgb(...)` /
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
   `currentColor` fill/stroke paint, simple `inherit` paint/color values,
   transparent paint as no-paint, simple gradient paint-server first-stop solid
@@ -1110,7 +1112,8 @@ Status:
   comment-tolerant `<style>` / CDATA type, class, id, element-qualified
   class/id, and rightmost simple descendant/child selector approximation
   fill/stroke/stroke-width rules with basic specificity and source-order cascade
-  plus 3/4/6/8-digit hex/CSS/SVG named/`rgb(...)` /
+  plus `display: none` / `visibility: hidden` paint suppression and
+  3/4/6/8-digit hex/CSS/SVG named/`rgb(...)` /
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
   `currentColor` fill/stroke paint, simple `inherit` paint/color values,
   transparent paint as no-paint, simple gradient paint-server first-stop solid

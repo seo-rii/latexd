@@ -2158,6 +2158,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         stroke_linejoin: Option<SimpleSvgStrokeLineJoin>,
         stroke_miterlimit: Option<f32>,
         color: Option<SimpleSvgResolvedColor>,
+        display: Option<bool>,
+        visibility: Option<bool>,
         opacity: Option<f32>,
         fill_opacity: Option<f32>,
         stroke_opacity: Option<f32>,
@@ -2183,6 +2185,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .ok()
             .filter(|value| value.is_finite())
             .map(|value| value.clamp(0.0, 1.0))
+    };
+    let parse_display = |raw: &str| -> Option<bool> {
+        let raw = raw.trim();
+        if raw.eq_ignore_ascii_case("inherit") || raw.is_empty() {
+            return None;
+        }
+        Some(!raw.eq_ignore_ascii_case("none"))
+    };
+    let parse_visibility = |raw: &str| -> Option<bool> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "visible" => Some(true),
+            "hidden" | "collapse" => Some(false),
+            _ => None,
+        }
     };
     let parse_dasharray = |raw: &str| -> Option<Option<SimpleSvgDashArray>> {
         let raw = raw.trim();
@@ -2347,6 +2363,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     stroke_linejoin: Option<String>,
                                     stroke_miterlimit: Option<String>,
                                     color: Option<String>,
+                                    display: Option<String>,
+                                    visibility: Option<String>,
                                     opacity: Option<String>,
                                     fill_opacity: Option<String>,
                                     stroke_opacity: Option<String>,
@@ -2378,6 +2396,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .and_then(parse_number_prefix)
                 .filter(|limit| *limit >= 1.0),
             color: parse_optional_color(color),
+            display: display.as_deref().and_then(parse_display),
+            visibility: visibility.as_deref().and_then(parse_visibility),
             opacity: opacity.as_deref().and_then(parse_opacity),
             fill_opacity: fill_opacity.as_deref().and_then(parse_opacity),
             stroke_opacity: stroke_opacity.as_deref().and_then(parse_opacity),
@@ -2402,6 +2422,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             attr_value(tag, "stroke-linejoin"),
             attr_value(tag, "stroke-miterlimit"),
             attr_value(tag, "color"),
+            attr_value(tag, "display"),
+            attr_value(tag, "visibility"),
             attr_value(tag, "opacity"),
             attr_value(tag, "fill-opacity"),
             attr_value(tag, "stroke-opacity"),
@@ -2429,6 +2451,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             style_value(tag, "stroke-linejoin"),
             style_value(tag, "stroke-miterlimit"),
             style_value(tag, "color"),
+            style_value(tag, "display"),
+            style_value(tag, "visibility"),
             style_value(tag, "opacity"),
             style_value(tag, "fill-opacity"),
             style_value(tag, "stroke-opacity"),
@@ -2456,6 +2480,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             declaration_value(declarations, "stroke-linejoin"),
             declaration_value(declarations, "stroke-miterlimit"),
             declaration_value(declarations, "color"),
+            declaration_value(declarations, "display"),
+            declaration_value(declarations, "visibility"),
             declaration_value(declarations, "opacity"),
             declaration_value(declarations, "fill-opacity"),
             declaration_value(declarations, "stroke-opacity"),
@@ -2651,6 +2677,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 stroke_linejoin: local.stroke_linejoin.or(base.stroke_linejoin),
                 stroke_miterlimit: local.stroke_miterlimit.or(base.stroke_miterlimit),
                 color: local.color.or(base.color),
+                display: local.display.or(base.display),
+                visibility: local.visibility.or(base.visibility),
                 opacity: local.opacity.or(base.opacity),
                 fill_opacity: local.fill_opacity.or(base.fill_opacity),
                 stroke_opacity: local.stroke_opacity.or(base.stroke_opacity),
@@ -2670,6 +2698,12 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             (Some(parent), Some(local)) => Some((parent * local).clamp(0.0, 1.0)),
             (Some(parent), None) => Some(parent),
             (None, Some(local)) => Some(local),
+            (None, None) => None,
+        };
+        let display = match (parent.display, local.display) {
+            (Some(false), _) => Some(false),
+            (_, Some(local)) => Some(local),
+            (Some(parent), None) => Some(parent),
             (None, None) => None,
         };
         let font_size = match (parent.font_size, local.font_size) {
@@ -2699,6 +2733,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             stroke_linejoin: local.stroke_linejoin.or(parent.stroke_linejoin),
             stroke_miterlimit: local.stroke_miterlimit.or(parent.stroke_miterlimit),
             color: local.color.or(parent.color),
+            display,
+            visibility: local.visibility.or(parent.visibility),
             opacity,
             fill_opacity: local.fill_opacity.or(parent.fill_opacity),
             stroke_opacity: local.stroke_opacity.or(parent.stroke_opacity),
@@ -2744,6 +2780,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut stroke_linejoin: Option<SimpleSvgCascadeValue<SimpleSvgStrokeLineJoin>> = None;
         let mut stroke_miterlimit: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut color: Option<SimpleSvgCascadeValue<SimpleSvgResolvedColor>> = None;
+        let mut display: Option<SimpleSvgCascadeValue<bool>> = None;
+        let mut visibility: Option<SimpleSvgCascadeValue<bool>> = None;
         let mut opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut fill_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
@@ -2890,6 +2928,26 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
+                if let Some(value) = rule.presentation.display {
+                    let current = display.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        display = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule.presentation.visibility {
+                    let current = visibility.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        visibility = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
                 if let Some(value) = rule.presentation.opacity {
                     let current = opacity.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
@@ -3003,6 +3061,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             stroke_linejoin: stroke_linejoin.map(|value| value.value),
             stroke_miterlimit: stroke_miterlimit.map(|value| value.value),
             color: color.map(|value| value.value),
+            display: display.map(|value| value.value),
+            visibility: visibility.map(|value| value.value),
             opacity: opacity.map(|value| value.value),
             fill_opacity: fill_opacity.map(|value| value.value),
             stroke_opacity: stroke_opacity.map(|value| value.value),
@@ -3048,6 +3108,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             Some(SimpleSvgBaselineShift::Sub) => font_size * 0.2,
             None => 0.0,
         }
+    };
+    let presentation_is_visible = |presentation: SimpleSvgPresentation| {
+        presentation.display.unwrap_or(true) && presentation.visibility.unwrap_or(true)
     };
     let root_presentation = parse_presentation(svg_tag);
     let stroke_width_ratio = |presentation: SimpleSvgPresentation| -> f32 {
@@ -4072,6 +4135,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             let group_transform = group_transform?;
             let element_transform = parse_transform(tag)?;
             let presentation = inherit_presentation(group_presentation, parse_presentation(tag));
+            if !presentation_is_visible(presentation) {
+                return None;
+            }
             Some((
                 compose_transform(
                     element_transform,
@@ -5182,6 +5248,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     .unwrap_or(0.0);
                 let tspan_presentation =
                     inherit_presentation(presentation, parse_presentation(tspan_tag));
+                if !presentation_is_visible(tspan_presentation) {
+                    current_x = tspan_x + tspan_dx;
+                    current_y = tspan_y + tspan_dy;
+                    let tspan_close_end = tspan_body_end + "</tspan>".len();
+                    remaining = &tspan_tail[tspan_close_end..];
+                    continue;
+                }
                 let tspan_local_font_size = resolved_font_size(tspan_presentation);
                 let tspan_font_size = tspan_local_font_size * transform.stroke_scale;
                 let tspan_x = tspan_x + tspan_dx;
@@ -8514,6 +8587,65 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
         assert!(pdf_text.contains("0 0 1 RG 10 w 20 250 20 20 re S"));
         assert!(!pdf_text.contains("[unsupported image: figures/scoped-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn skips_simple_svg_hidden_display_and_visibility_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/visibility-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:visibility-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/visibility-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .hidden-by-css { display: none; }
+    .child-visible { visibility: visible; fill: #0000ff; }
+  </style>
+  <rect class="hidden-by-css" x="1" y="1" width="2" height="2" fill="#ff0000"/>
+  <g style="display: none">
+    <rect x="4" y="1" width="2" height="2" fill="#00ff00"/>
+  </g>
+  <g visibility="hidden">
+    <rect x="7" y="1" width="2" height="2" fill="#00ff00"/>
+    <rect class="child-visible" x="10" y="1" width="2" height="2"/>
+  </g>
+  <text x="1" y="8" fill="#000000"><tspan display="none">hidden</tspan><tspan x="13" y="8">Shown</tspan></text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(!pdf_text.contains("1 0 0 rg"));
+        assert!(!pdf_text.contains("0 1 0 rg"));
+        assert!(pdf_text.contains("0 0 1 rg 110 250 20 20 re f"));
+        assert!(!pdf_text.contains("(hidden)"));
+        assert!(pdf_text.contains("(Shown) Tj"));
+        assert!(!pdf_text.contains("[unsupported image: figures/visibility-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
