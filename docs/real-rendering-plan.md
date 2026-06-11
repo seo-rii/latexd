@@ -196,8 +196,9 @@ multiple closed subpaths in one path element, including
     `scale` / `skewX` / `skewY` transform attributes, simple nested group transforms, inherited
 root/group-level fill/stroke/stroke-width presentation metadata, simple
 root `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`,
-comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
-class/id selector fill/stroke/stroke-width rules with basic specificity and
+comment-tolerant `<style>` / CDATA type, class, id, element-qualified class/id,
+and rightmost simple descendant/child selector approximation fill/stroke/stroke-width
+rules with basic specificity and
     source-order cascade, 3/4/6/8-digit hex/CSS/SVG named/`rgb(...)` /
     `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
     `currentColor` fill/stroke paint, simple `inherit` paint/color values,
@@ -652,9 +653,10 @@ Implemented first slice:
   simple `translate` / `scale` / `skewX` / `skewY` transforms, simple nested group transforms, and
   inherited root/group-level fill/stroke/stroke-width metadata, simple root
   `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`, simple
-  comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
-  class/id selector fill/stroke/stroke-width rules with basic specificity and
-  source-order cascade plus 3/4/6/8-digit hex/CSS/SVG named/`rgb(...)` /
+  comment-tolerant `<style>` / CDATA type, class, id, element-qualified
+  class/id, and rightmost simple descendant/child selector approximation
+  fill/stroke/stroke-width rules with basic specificity and source-order cascade
+  plus 3/4/6/8-digit hex/CSS/SVG named/`rgb(...)` /
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
   `currentColor` fill/stroke paint, simple `inherit` paint/color values,
   transparent paint as no-paint, simple gradient paint-server first-stop solid
@@ -1105,9 +1107,10 @@ Status:
   `translate` / `scale` / `skewX` / `skewY` transform attributes, simple nested group transforms,
   inherited root/group-level fill/stroke/stroke-width metadata, simple root
   `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`, simple
-  comment-tolerant `<style>` / CDATA type, class, id, and element-qualified
-  class/id selector fill/stroke/stroke-width rules with basic specificity and
-  source-order cascade plus 3/4/6/8-digit hex/CSS/SVG named/`rgb(...)` /
+  comment-tolerant `<style>` / CDATA type, class, id, element-qualified
+  class/id, and rightmost simple descendant/child selector approximation
+  fill/stroke/stroke-width rules with basic specificity and source-order cascade
+  plus 3/4/6/8-digit hex/CSS/SVG named/`rgb(...)` /
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
   `currentColor` fill/stroke paint, simple `inherit` paint/color values,
   transparent paint as no-paint, simple gradient paint-server first-stop solid
