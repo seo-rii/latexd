@@ -4842,6 +4842,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     #[derive(Debug, Clone, Copy)]
     enum SimpleSvgMarkerOrient {
         Auto,
+        AutoStartReverse,
         Angle(f32),
     }
     #[derive(Debug, Clone)]
@@ -4868,8 +4869,11 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             return SimpleSvgMarkerOrient::Angle(0.0);
         };
         let raw = raw.trim();
-        if raw.eq_ignore_ascii_case("auto") || raw.eq_ignore_ascii_case("auto-start-reverse") {
+        if raw.eq_ignore_ascii_case("auto") {
             return SimpleSvgMarkerOrient::Auto;
+        }
+        if raw.eq_ignore_ascii_case("auto-start-reverse") {
+            return SimpleSvgMarkerOrient::AutoStartReverse;
         }
         parse_number_prefix(raw)
             .map(SimpleSvgMarkerOrient::Angle)
@@ -5056,21 +5060,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         marker_search_index = body_end + "</marker>".len();
     }
-    let marker_end_paths = |marker_id: &str,
-                            x1: f32,
-                            y1: f32,
-                            x2: f32,
-                            y2: f32,
-                            line_presentation: SimpleSvgPresentation,
-                            line_transform: SimpleSvgTransform|
+    let marker_paths = |marker_id: &str,
+                        endpoint_x: f32,
+                        endpoint_y: f32,
+                        tangent_dx: f32,
+                        tangent_dy: f32,
+                        at_start: bool,
+                        line_presentation: SimpleSvgPresentation,
+                        line_transform: SimpleSvgTransform|
      -> Option<Vec<SimpleSvgPath>> {
         let definition = marker_definitions
             .iter()
             .rev()
             .find(|definition| definition.id == marker_id)?;
-        let dx = x2 - x1;
-        let dy = y2 - y1;
-        let line_length = dx.hypot(dy);
+        let line_length = tangent_dx.hypot(tangent_dy);
         if !line_length.is_finite() || line_length <= f32::EPSILON {
             return None;
         }
@@ -5146,8 +5149,11 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             f: -ref_point.1,
             ..identity_transform
         };
+        let tangent_angle_degrees = tangent_dy.atan2(tangent_dx).to_degrees();
         let angle_degrees = match definition.orient {
-            SimpleSvgMarkerOrient::Auto => dy.atan2(dx).to_degrees(),
+            SimpleSvgMarkerOrient::Auto => tangent_angle_degrees,
+            SimpleSvgMarkerOrient::AutoStartReverse if at_start => tangent_angle_degrees + 180.0,
+            SimpleSvgMarkerOrient::AutoStartReverse => tangent_angle_degrees,
             SimpleSvgMarkerOrient::Angle(angle) => angle,
         };
         let radians = angle_degrees.to_radians();
@@ -5163,8 +5169,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             ..identity_transform
         };
         let translate_transform = SimpleSvgTransform {
-            e: x2,
-            f: y2,
+            e: endpoint_x,
+            f: endpoint_y,
             ..identity_transform
         };
         let mut paths = Vec::new();
@@ -5519,13 +5525,41 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if (x1 != x2 || y1 != y2)
             && let Some(stroke) = stroke_paint(presentation)
         {
+            let marker_start_id = attr_value(line_tag, "marker-start")
+                .or_else(|| style_value(line_tag, "marker-start"))
+                .as_deref()
+                .and_then(parse_url_fragment_id);
             let marker_end_id = attr_value(line_tag, "marker-end")
                 .or_else(|| style_value(line_tag, "marker-end"))
                 .as_deref()
                 .and_then(parse_url_fragment_id);
+            let tangent_dx = x2 - x1;
+            let tangent_dy = y2 - y1;
+            if let Some(marker_start_id) = marker_start_id
+                && let Some(marker_paths) = marker_paths(
+                    &marker_start_id,
+                    x1,
+                    y1,
+                    tangent_dx,
+                    tangent_dy,
+                    true,
+                    presentation,
+                    transform,
+                )
+            {
+                shape_paths.extend(marker_paths);
+            }
             if let Some(marker_end_id) = marker_end_id
-                && let Some(marker_paths) =
-                    marker_end_paths(&marker_end_id, x1, y1, x2, y2, presentation, transform)
+                && let Some(marker_paths) = marker_paths(
+                    &marker_end_id,
+                    x2,
+                    y2,
+                    tangent_dx,
+                    tangent_dy,
+                    false,
+                    presentation,
+                    transform,
+                )
             {
                 shape_paths.extend(marker_paths);
             }
@@ -8929,6 +8963,104 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 190 230 l S"));
         assert!(pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
         assert!(!pdf_text.contains("[unsupported image: figures/line-marker.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_line_marker_start_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/line-marker-start.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:line-marker-start".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/line-marker-start.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+  </defs>
+  <line x1="2" y1="5" x2="18" y2="5" stroke="#0000ff" stroke-width="0.5" marker-start="url(#arrow)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 190 230 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 10 240 m 30 230 l 10 220 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/line-marker-start.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_line_auto_start_reverse_marker_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/line-marker-reverse.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:line-marker-reverse".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/line-marker-reverse.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto-start-reverse">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+  </defs>
+  <line x1="2" y1="5" x2="18" y2="5" stroke="#0000ff" stroke-width="0.5" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 50 220 m 30 230 l 50 240 l h f"));
+        assert!(pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/line-marker-reverse.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
