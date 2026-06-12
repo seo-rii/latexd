@@ -220,7 +220,7 @@ simple rect-backed `clipPath` clipping, and
 primitives, plus non-axis-aligned transformed rectangles rendered as closed
 vector polygons and transformed circle/ellipse primitives rendered as cubic
 vector paths, plus simple embedded `data:image/png` / `data:image/jpeg` SVG
-`<image>` elements, is also rendered directly as vector PDF drawing operations in
+`<image>` elements with `opacity`, is also rendered directly as vector PDF drawing operations in
 display-list PDF artifacts instead of falling back to unsupported-image
 placeholders. Simple SVG vector PDF rendering also uses display-list
 `ImageCrop` viewport/trim placement and `clip=true` destination clipping. The
@@ -684,7 +684,7 @@ Implemented first slice:
   `rotate` / `skewX` / `skewY` transforms, non-axis-aligned
   transformed rectangles, and transformed circle/ellipse cubic paths, as vector
   drawing operations, plus simple embedded `data:image/png` / `data:image/jpeg`
-  SVG `<image>` elements as PDF XObjects, including display-list crop/viewport placement and
+  SVG `<image>` elements as PDF XObjects with `opacity`, including display-list crop/viewport placement and
   `clip=true` destination clipping for simple SVG vector PDF assets;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
   display-list PDF and debug SVG artifacts;
@@ -1148,7 +1148,8 @@ Status:
   paths, with root/style/element scanners requiring tag-name boundaries to
   avoid prefix false positives such as `svgz` as `svg`, `stylesheet` as
   `style`, or `linearGradient` as `line`, plus simple embedded
-  `data:image/png` / `data:image/jpeg` SVG `<image>` elements as PDF XObjects,
+  `data:image/png` / `data:image/jpeg` SVG `<image>` elements as PDF XObjects
+  with `opacity`,
   as vector PDF drawing operations,
   including display-list crop/viewport placement and `clip=true` destination
   clipping for simple SVG vector PDF assets;

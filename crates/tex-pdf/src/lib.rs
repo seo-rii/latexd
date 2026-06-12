@@ -544,9 +544,17 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         svg_width,
                                         svg_height,
                                     );
+                                    let scoped_opacity = push_pdf_paint_opacity(
+                                        &mut stream,
+                                        &mut opacity_resource_keys,
+                                        embedded_image.opacity,
+                                    );
                                     stream.push_str(&format!(
                                         "q {image_width} 0 0 {image_height} {image_x} {image_y} cm /{resource_name} Do Q "
                                     ));
+                                    if scoped_opacity {
+                                        stream.push_str("Q ");
+                                    }
                                     if scoped_clip {
                                         stream.push_str("Q ");
                                     }
@@ -1487,6 +1495,7 @@ struct SimpleSvgEmbeddedImage {
     width_ratio: f32,
     height_ratio: f32,
     image: DecodedPdfImage,
+    opacity: f32,
     clip_rect: Option<SimpleSvgClipRect>,
 }
 
@@ -5695,12 +5704,18 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let width = (corner_b.0 - corner_a.0).abs();
         let height = (corner_b.1 - corner_a.1).abs();
         if width > 0.0 && height > 0.0 {
+            let opacity = presentation.opacity.unwrap_or(1.0).clamp(0.0, 1.0);
+            if opacity <= 0.0 {
+                search_index = image_start + image_end + 1;
+                continue;
+            }
             embedded_images.push(SimpleSvgEmbeddedImage {
                 x_ratio: (x - view_box.0) / view_box.2,
                 y_ratio: (y - view_box.1) / view_box.3,
                 width_ratio: width / view_box.2,
                 height_ratio: height / view_box.3,
                 image: decoded_image,
+                opacity,
                 clip_rect: clip_rect_for(presentation, transform),
             });
         }
@@ -9008,7 +9023,7 @@ mod tests {
                 format!(
                     r##"<svg width="20" height="10">
   <image x="5" y="2" width="8" height="4" href="{data_uri}"/>
-  <image x="14" y="2" width="2" height="2" href="data:image/png;base64,{base64_png}"/>
+  <image x="14" y="2" width="2" height="2" opacity="0.4" href="data:image/png;base64,{base64_png}"/>
   <rect x="0" y="0" width="20" height="10" fill="none" stroke="#00ff00" stroke-width="0.5"/>
 </svg>"##
                 )
@@ -9021,7 +9036,8 @@ mod tests {
         assert!(pdf_text.contains("/XObject << /Im1"));
         assert!(pdf_text.contains("q 80 0 0 40 60 220 cm /Im1 Do Q"));
         assert!(pdf_text.contains("/Im2"));
-        assert!(pdf_text.contains("q 20 0 0 20 150 240 cm /Im2 Do Q"));
+        assert!(pdf_text.contains("/GS400 << /Type /ExtGState /ca 0.4 /CA 0.4 >>"));
+        assert!(pdf_text.contains("q /GS400 gs q 20 0 0 20 150 240 cm /Im2 Do Q Q"));
         assert!(pdf_text.contains("0 1 0 RG 5 w 10 180 200 100 re S"));
         assert!(!pdf_text.contains("[unsupported image: figures/embedded-image.svg]"));
     }
