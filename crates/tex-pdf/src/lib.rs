@@ -1569,13 +1569,23 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         .map(|relative| svg_content_start + relative)
         .unwrap_or(text.len());
     let svg_content = &text[svg_content_start..svg_content_end];
+    let strip_important_marker = |value: &str| {
+        let value = value.trim();
+        if let Some(marker_index) = value.rfind('!') {
+            let marker = value[marker_index + 1..].trim();
+            if marker.eq_ignore_ascii_case("important") {
+                return value[..marker_index].trim().to_string();
+            }
+        }
+        value.to_string()
+    };
     let declaration_value = |declarations: &str, name: &str| -> Option<String> {
         for declaration in declarations.split(';') {
             let Some((key, value)) = declaration.split_once(':') else {
                 continue;
             };
             if key.trim().eq_ignore_ascii_case(name) {
-                return Some(value.trim().to_string());
+                return Some(strip_important_marker(value));
             }
         }
         None
@@ -8646,6 +8656,56 @@ mod tests {
         assert!(!pdf_text.contains("(hidden)"));
         assert!(pdf_text.contains("(Shown) Tj"));
         assert!(!pdf_text.contains("[unsupported image: figures/visibility-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_important_style_values_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/important-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:important-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/important-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .marked { fill: #ff0000 !important; stroke: #0000ff !important; stroke-width: 1 !important; visibility: visible !important; }
+    .hidden { display: none !important; fill: #00ff00 !important; }
+  </style>
+  <rect class="marked" x="1" y="1" width="2" height="2"/>
+  <rect class="hidden" x="4" y="1" width="2" height="2"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 RG 10 w 20 250 20 20 re S"));
+        assert!(!pdf_text.contains("0 1 0 rg"));
+        assert!(!pdf_text.contains("[unsupported image: figures/important-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
