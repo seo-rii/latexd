@@ -3951,14 +3951,15 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         Some(points)
     };
-    let parse_points = |raw: &str, transform: SimpleSvgTransform| -> Option<Vec<(f32, f32)>> {
-        let raw_points = parse_raw_points(raw)?;
-        let mut points = Vec::new();
-        for (x, y) in raw_points {
-            points.push(normalize_point(apply_transform(transform, x, y)?));
-        }
-        Some(points)
-    };
+    let parse_transformed_points =
+        |raw: &str, transform: SimpleSvgTransform| -> Option<Vec<(f32, f32)>> {
+            let raw_points = parse_raw_points(raw)?;
+            let mut points = Vec::new();
+            for (x, y) in raw_points {
+                points.push(apply_transform(transform, x, y)?);
+            }
+            Some(points)
+        };
     let path_data_from_points = |points: &[(f32, f32)], closed: bool| -> Option<String> {
         let first = points.first()?;
         if points.len() < 2 {
@@ -5770,6 +5771,105 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         search_index = ellipse_start + ellipse_end + 1;
     }
     let mut polys = rect_polys;
+    let push_poly_markers = |shape_paths: &mut Vec<SimpleSvgPath>,
+                             tag: &str,
+                             points: &[(f32, f32)],
+                             closed: bool,
+                             presentation: SimpleSvgPresentation,
+                             transform: SimpleSvgTransform| {
+        if points.len() < 2 {
+            return;
+        }
+        let marker_start_id = attr_value(tag, "marker-start")
+            .or_else(|| style_value(tag, "marker-start"))
+            .as_deref()
+            .and_then(parse_url_fragment_id);
+        let marker_mid_id = attr_value(tag, "marker-mid")
+            .or_else(|| style_value(tag, "marker-mid"))
+            .as_deref()
+            .and_then(parse_url_fragment_id);
+        let marker_end_id = attr_value(tag, "marker-end")
+            .or_else(|| style_value(tag, "marker-end"))
+            .as_deref()
+            .and_then(parse_url_fragment_id);
+        if marker_start_id.is_none() && marker_mid_id.is_none() && marker_end_id.is_none() {
+            return;
+        }
+        let push_marker = |shape_paths: &mut Vec<SimpleSvgPath>,
+                           marker_id: Option<String>,
+                           endpoint: (f32, f32),
+                           tangent: (f32, f32),
+                           at_start: bool| {
+            if let Some(marker_id) = marker_id
+                && let Some(marker_paths) = marker_paths(
+                    &marker_id,
+                    endpoint.0,
+                    endpoint.1,
+                    tangent.0,
+                    tangent.1,
+                    at_start,
+                    presentation,
+                    transform,
+                )
+            {
+                shape_paths.extend(marker_paths);
+            }
+        };
+        push_marker(
+            shape_paths,
+            marker_start_id,
+            points[0],
+            (points[1].0 - points[0].0, points[1].1 - points[0].1),
+            true,
+        );
+        if let Some(marker_mid_id) = marker_mid_id {
+            if closed {
+                for point_index in 0..points.len() {
+                    let prev = points[(point_index + points.len() - 1) % points.len()];
+                    let current = points[point_index];
+                    let next = points[(point_index + 1) % points.len()];
+                    push_marker(
+                        shape_paths,
+                        Some(marker_mid_id.clone()),
+                        current,
+                        (next.0 - prev.0, next.1 - prev.1),
+                        false,
+                    );
+                }
+            } else {
+                for point_index in 1..points.len().saturating_sub(1) {
+                    let prev = points[point_index - 1];
+                    let current = points[point_index];
+                    let next = points[point_index + 1];
+                    push_marker(
+                        shape_paths,
+                        Some(marker_mid_id.clone()),
+                        current,
+                        (next.0 - prev.0, next.1 - prev.1),
+                        false,
+                    );
+                }
+            }
+        }
+        let last_index = points.len() - 1;
+        let end_point = if closed {
+            points[0]
+        } else {
+            points[last_index]
+        };
+        let end_prev = if closed {
+            points[last_index]
+        } else {
+            points[last_index - 1]
+        };
+        push_marker(
+            shape_paths,
+            marker_end_id,
+            end_point,
+            (end_point.0 - end_prev.0, end_point.1 - end_prev.1),
+            false,
+        );
+    };
     let mut search_index = 0usize;
     while let Some(relative) = svg_content[search_index..].find("<polyline") {
         let poly_start = search_index + relative;
@@ -5789,8 +5889,17 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if let Some((transform, presentation)) = parse_element_state(poly_tag, poly_start)
             && let Some(points) = attr_value(poly_tag, "points")
                 .as_deref()
-                .and_then(|points| parse_points(points, transform))
+                .and_then(|points| parse_transformed_points(points, transform))
         {
+            push_poly_markers(
+                &mut shape_paths,
+                poly_tag,
+                &points,
+                false,
+                presentation,
+                transform,
+            );
+            let points = points.into_iter().map(normalize_point).collect();
             let fill = fill_paint(presentation, None);
             let stroke = stroke_paint(presentation);
             if fill.is_some() || stroke.is_some() {
@@ -5828,8 +5937,17 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if let Some((transform, presentation)) = parse_element_state(poly_tag, poly_start)
             && let Some(points) = attr_value(poly_tag, "points")
                 .as_deref()
-                .and_then(|points| parse_points(points, transform))
+                .and_then(|points| parse_transformed_points(points, transform))
         {
+            push_poly_markers(
+                &mut shape_paths,
+                poly_tag,
+                &points,
+                true,
+                presentation,
+                transform,
+            );
+            let points = points.into_iter().map(normalize_point).collect();
             let fill = fill_paint(presentation, Some((0.0, 0.0, 0.0)));
             let stroke = stroke_paint(presentation);
             if fill.is_some() || stroke.is_some() {
@@ -9247,6 +9365,106 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 rg 30 200 m 110 260 l 190 200 l h f"));
         assert!(pdf_text.contains("0 0 1 RG 5 w 30 200 m 110 260 l 190 200 l h S"));
         assert!(!pdf_text.contains("[unsupported image: figures/poly.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_polyline_markers_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/polyline-markers.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:polyline-markers".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/polyline-markers.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+  </defs>
+  <polyline points="2,5 10,5 18,5" fill="none" stroke="#0000ff" stroke-width="0.5" marker-start="url(#arrow)" marker-mid="url(#arrow)" marker-end="url(#arrow)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 110 230 l 190 230 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 10 240 m 30 230 l 10 220 l h f"));
+        assert!(pdf_text.contains("1 0 0 rg 90 240 m 110 230 l 90 220 l h f"));
+        assert!(pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/polyline-markers.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_polygon_mid_markers_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/polygon-markers.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:polygon-markers".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/polygon-markers.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+  </defs>
+  <polygon points="2,8 10,2 18,8" fill="none" stroke="#0000ff" stroke-width="0.5" marker-mid="url(#arrow)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 200 m 110 260 l 190 200 l h S"));
+        assert!(pdf_text.contains("1 0 0 rg 90 270 m 110 260 l 90 250 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/polygon-markers.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
