@@ -180,6 +180,33 @@ pub fn render_display_list_pdf_with_converted_assets(
             SimpleSvgFillRule::EvenOdd => "f*",
         }
     };
+    let push_pdf_svg_clip_rect = |stream: &mut String,
+                                  clip_rect: Option<SimpleSvgClipRect>,
+                                  svg_rect: &Rect,
+                                  svg_width: f32,
+                                  svg_height: f32|
+     -> bool {
+        let Some(clip_rect) = clip_rect else {
+            return false;
+        };
+        let clip_x = svg_rect.x + clip_rect.x_ratio * svg_width;
+        let clip_y = svg_rect.y + (1.0 - clip_rect.y_ratio - clip_rect.height_ratio) * svg_height;
+        let clip_width = clip_rect.width_ratio * svg_width;
+        let clip_height = clip_rect.height_ratio * svg_height;
+        if !clip_x.is_finite()
+            || !clip_y.is_finite()
+            || !clip_width.is_finite()
+            || !clip_height.is_finite()
+            || clip_width <= 0.0
+            || clip_height <= 0.0
+        {
+            return false;
+        }
+        stream.push_str(&format!(
+            "q {clip_x} {clip_y} {clip_width} {clip_height} re W n "
+        ));
+        true
+    };
     for (index, page) in pages.iter().enumerate() {
         for op in &page.ops {
             if let DrawOp::NamedDestination(destination) = op {
@@ -492,6 +519,13 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         && rect_width > 0.0
                                         && rect_height > 0.0
                                     {
+                                        let scoped_clip = push_pdf_svg_clip_rect(
+                                            &mut stream,
+                                            rect.clip_rect,
+                                            &svg_rect,
+                                            svg_width,
+                                            svg_height,
+                                        );
                                         if let Some(fill) = rect.fill {
                                             let fill_operator = pdf_fill_operator(rect.fill_rule);
                                             let scoped_opacity = push_pdf_paint_opacity(
@@ -547,6 +581,9 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                 }
                                             }
                                         }
+                                        if scoped_clip {
+                                            stream.push_str("Q ");
+                                        }
                                     }
                                 }
                                 for line in svg.lines {
@@ -562,6 +599,13 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         && stroke_width.is_finite()
                                         && stroke_width > 0.0
                                     {
+                                        let scoped_clip = push_pdf_svg_clip_rect(
+                                            &mut stream,
+                                            line.clip_rect,
+                                            &svg_rect,
+                                            svg_width,
+                                            svg_height,
+                                        );
                                         let scoped_stroke_state = push_pdf_stroke_state(
                                             &mut stream,
                                             line.stroke_dasharray,
@@ -588,6 +632,9 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             stream.push_str("Q ");
                                         }
                                         if scoped_stroke_state {
+                                            stream.push_str("Q ");
+                                        }
+                                        if scoped_clip {
                                             stream.push_str("Q ");
                                         }
                                     }
@@ -634,6 +681,13 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             center_y - kappa * radius_y,
                                             center_x + radius_x,
                                             center_y
+                                        );
+                                        let scoped_clip = push_pdf_svg_clip_rect(
+                                            &mut stream,
+                                            ellipse.clip_rect,
+                                            &svg_rect,
+                                            svg_width,
+                                            svg_height,
                                         );
                                         if let Some(fill) = ellipse.fill {
                                             let fill_operator =
@@ -686,6 +740,9 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                 }
                                             }
                                         }
+                                        if scoped_clip {
+                                            stream.push_str("Q ");
+                                        }
                                     }
                                 }
                                 for poly in &svg.polys {
@@ -719,6 +776,13 @@ pub fn render_display_list_pdf_with_converted_assets(
                                     if poly.closed {
                                         path.push_str("h ");
                                     }
+                                    let scoped_clip = push_pdf_svg_clip_rect(
+                                        &mut stream,
+                                        poly.clip_rect,
+                                        &svg_rect,
+                                        svg_width,
+                                        svg_height,
+                                    );
                                     if let Some(fill) = poly.fill {
                                         let fill_operator = pdf_fill_operator(poly.fill_rule);
                                         let scoped_opacity = push_pdf_paint_opacity(
@@ -763,6 +827,9 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                 stream.push_str("Q ");
                                             }
                                         }
+                                    }
+                                    if scoped_clip {
+                                        stream.push_str("Q ");
                                     }
                                 }
                                 for svg_path in &svg.paths {
@@ -822,6 +889,13 @@ pub fn render_display_list_pdf_with_converted_assets(
                                     if !valid || path.is_empty() {
                                         continue;
                                     }
+                                    let scoped_clip = push_pdf_svg_clip_rect(
+                                        &mut stream,
+                                        svg_path.clip_rect,
+                                        &svg_rect,
+                                        svg_width,
+                                        svg_height,
+                                    );
                                     if let Some(fill) = svg_path.fill {
                                         let fill_operator = pdf_fill_operator(svg_path.fill_rule);
                                         let scoped_opacity = push_pdf_paint_opacity(
@@ -866,6 +940,9 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                 stream.push_str("Q ");
                                             }
                                         }
+                                    }
+                                    if scoped_clip {
+                                        stream.push_str("Q ");
                                     }
                                 }
                                 for svg_text in &svg.texts {
@@ -1248,6 +1325,14 @@ struct SimpleSvgDashArray {
     offset_ratio: f32,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct SimpleSvgClipRect {
+    x_ratio: f32,
+    y_ratio: f32,
+    width_ratio: f32,
+    height_ratio: f32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SimpleSvgStrokeLineCap {
     Butt,
@@ -1281,6 +1366,7 @@ struct SimpleSvgRect {
     stroke_width_ratio: f32,
     stroke_dasharray: Option<SimpleSvgDashArray>,
     stroke_style: SimpleSvgStrokeStyle,
+    clip_rect: Option<SimpleSvgClipRect>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1293,6 +1379,7 @@ struct SimpleSvgLine {
     stroke_width_ratio: f32,
     stroke_dasharray: Option<SimpleSvgDashArray>,
     stroke_style: SimpleSvgStrokeStyle,
+    clip_rect: Option<SimpleSvgClipRect>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1307,6 +1394,7 @@ struct SimpleSvgEllipse {
     stroke_width_ratio: f32,
     stroke_dasharray: Option<SimpleSvgDashArray>,
     stroke_style: SimpleSvgStrokeStyle,
+    clip_rect: Option<SimpleSvgClipRect>,
 }
 
 #[derive(Debug, Clone)]
@@ -1319,6 +1407,7 @@ struct SimpleSvgPoly {
     stroke_width_ratio: f32,
     stroke_dasharray: Option<SimpleSvgDashArray>,
     stroke_style: SimpleSvgStrokeStyle,
+    clip_rect: Option<SimpleSvgClipRect>,
 }
 
 #[derive(Debug, Clone)]
@@ -1330,6 +1419,7 @@ struct SimpleSvgPath {
     stroke_width_ratio: f32,
     stroke_dasharray: Option<SimpleSvgDashArray>,
     stroke_style: SimpleSvgStrokeStyle,
+    clip_rect: Option<SimpleSvgClipRect>,
 }
 
 #[derive(Debug, Clone)]
@@ -2207,6 +2297,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         text_baseline: Option<SimpleSvgTextBaseline>,
         baseline_shift: Option<SimpleSvgBaselineShift>,
         vector_effect_non_scaling_stroke: Option<bool>,
+        clip_path: Option<Option<u64>>,
     }
     let parse_opacity = |raw: &str| -> Option<f32> {
         let raw = raw.trim();
@@ -2386,6 +2477,31 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             _ => None,
         }
     };
+    let clip_path_id_hash = |id: &str| -> u64 {
+        let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+        for byte in id.as_bytes() {
+            hash ^= u64::from(*byte);
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        hash
+    };
+    let parse_clip_path = |raw: &str| -> Option<Option<u64>> {
+        let raw = raw.trim();
+        if raw.eq_ignore_ascii_case("none") {
+            return Some(None);
+        }
+        if raw.len() >= 4 && raw[..4].eq_ignore_ascii_case("url(") {
+            let url_end = raw.find(')')?;
+            let reference = raw[4..url_end]
+                .trim()
+                .trim_matches(|ch| ch == '\'' || ch == '"');
+            return reference
+                .strip_prefix('#')
+                .filter(|id| !id.is_empty())
+                .map(|id| Some(clip_path_id_hash(id)));
+        }
+        None
+    };
     let first_some = |left: Option<String>, right: Option<String>| left.or(right);
     let parse_optional_paint = |value: Option<String>| -> Option<Option<SimpleSvgColor>> {
         let value = value?;
@@ -2423,7 +2539,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     font_style: Option<String>,
                                     text_baseline: Option<String>,
                                     baseline_shift: Option<String>,
-                                    vector_effect: Option<String>|
+                                    vector_effect: Option<String>,
+                                    clip_path: Option<String>|
      -> SimpleSvgPresentation {
         SimpleSvgPresentation {
             fill: parse_optional_paint(fill),
@@ -2457,6 +2574,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             vector_effect_non_scaling_stroke: vector_effect
                 .as_deref()
                 .and_then(parse_vector_effect),
+            clip_path: clip_path.as_deref().and_then(parse_clip_path),
         }
     };
     let parse_attr_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -2487,6 +2605,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             ),
             attr_value(tag, "baseline-shift"),
             attr_value(tag, "vector-effect"),
+            attr_value(tag, "clip-path"),
         )
     };
     let parse_inline_style_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -2517,6 +2636,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             ),
             style_value(tag, "baseline-shift"),
             style_value(tag, "vector-effect"),
+            style_value(tag, "clip-path"),
         )
     };
     let parse_declaration_presentation = |declarations: &str| -> SimpleSvgPresentation {
@@ -2547,6 +2667,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             ),
             declaration_value(declarations, "baseline-shift"),
             declaration_value(declarations, "vector-effect"),
+            declaration_value(declarations, "clip-path"),
         )
     };
     #[derive(Debug, Clone)]
@@ -2744,6 +2865,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 vector_effect_non_scaling_stroke: local
                     .vector_effect_non_scaling_stroke
                     .or(base.vector_effect_non_scaling_stroke),
+                clip_path: local.clip_path.or(base.clip_path),
             }
         };
     let inherit_presentation = |parent: SimpleSvgPresentation,
@@ -2801,6 +2923,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             text_baseline: local.text_baseline.or(parent.text_baseline),
             baseline_shift: local.baseline_shift.or(parent.baseline_shift),
             vector_effect_non_scaling_stroke: local.vector_effect_non_scaling_stroke,
+            clip_path: local.clip_path.or(parent.clip_path),
         }
     };
     let tag_element_name = |tag: &str| -> Option<String> {
@@ -2849,6 +2972,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut text_baseline: Option<SimpleSvgCascadeValue<SimpleSvgTextBaseline>> = None;
         let mut baseline_shift: Option<SimpleSvgCascadeValue<SimpleSvgBaselineShift>> = None;
         let mut vector_effect_non_scaling_stroke: Option<SimpleSvgCascadeValue<bool>> = None;
+        let mut clip_path: Option<SimpleSvgCascadeValue<Option<u64>>> = None;
         for (order, rule) in style_rules.iter().enumerate() {
             let matches = match &rule.selector {
                 SimpleSvgStyleSelector::Type { element_name } => {
@@ -3116,6 +3240,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
+                if let Some(value) = rule.presentation.clip_path {
+                    let current = clip_path.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        clip_path = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
             }
         }
         SimpleSvgPresentation {
@@ -3143,6 +3277,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             baseline_shift: baseline_shift.map(|value| value.value),
             vector_effect_non_scaling_stroke: vector_effect_non_scaling_stroke
                 .map(|value| value.value),
+            clip_path: clip_path.map(|value| value.value),
         }
     };
     let parse_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -4127,6 +4262,134 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .any(|(start, end)| *start <= element_start && element_start < *end)
     };
     #[derive(Debug, Clone, Copy)]
+    struct SimpleSvgClipPathDefinition {
+        id_hash: u64,
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+        transform: SimpleSvgTransform,
+    }
+    let mut clip_path_definitions = Vec::new();
+    let mut clip_path_search_index = 0usize;
+    while let Some(relative) = svg_content[clip_path_search_index..].find("<clipPath") {
+        let clip_path_start = clip_path_search_index + relative;
+        let clip_path_tail = &svg_content[clip_path_start..];
+        if !is_start_tag_named(clip_path_tail, "clipPath") {
+            clip_path_search_index = clip_path_start + "<clipPath".len();
+            continue;
+        }
+        let Some(clip_path_tag_end) = clip_path_tail.find('>') else {
+            break;
+        };
+        let clip_path_tag = &clip_path_tail[..clip_path_tag_end];
+        let Some(id) = attr_value(clip_path_tag, "id").filter(|id| !id.trim().is_empty()) else {
+            clip_path_search_index = clip_path_start + clip_path_tag_end + 1;
+            continue;
+        };
+        if clip_path_tag.trim_end().ends_with('/') {
+            clip_path_search_index = clip_path_start + clip_path_tag_end + 1;
+            continue;
+        }
+        let body_start = clip_path_start + clip_path_tag_end + 1;
+        let Some(body_end_relative) = svg_content[body_start..].find("</clipPath>") else {
+            clip_path_search_index = body_start;
+            continue;
+        };
+        let body = &svg_content[body_start..body_start + body_end_relative];
+        let next_index = body_start + body_end_relative + "</clipPath>".len();
+        let Some(rect_relative) = body.find("<rect") else {
+            clip_path_search_index = next_index;
+            continue;
+        };
+        let rect_tail = &body[rect_relative..];
+        if !is_start_tag_named(rect_tail, "rect") {
+            clip_path_search_index = next_index;
+            continue;
+        }
+        let Some(rect_tag_end) = rect_tail.find('>') else {
+            clip_path_search_index = next_index;
+            continue;
+        };
+        let rect_tag = &rect_tail[..rect_tag_end];
+        let x = attr_value(rect_tag, "x")
+            .as_deref()
+            .and_then(parse_x_length)
+            .unwrap_or(0.0);
+        let y = attr_value(rect_tag, "y")
+            .as_deref()
+            .and_then(parse_y_length)
+            .unwrap_or(0.0);
+        let Some(width) = attr_value(rect_tag, "width")
+            .as_deref()
+            .and_then(parse_x_length)
+        else {
+            clip_path_search_index = next_index;
+            continue;
+        };
+        let Some(height) = attr_value(rect_tag, "height")
+            .as_deref()
+            .and_then(parse_y_length)
+        else {
+            clip_path_search_index = next_index;
+            continue;
+        };
+        if width <= 0.0 || height <= 0.0 {
+            clip_path_search_index = next_index;
+            continue;
+        }
+        let Some(clip_path_transform) = parse_transform(clip_path_tag) else {
+            clip_path_search_index = next_index;
+            continue;
+        };
+        let Some(rect_transform) = parse_transform(rect_tag) else {
+            clip_path_search_index = next_index;
+            continue;
+        };
+        clip_path_definitions.push(SimpleSvgClipPathDefinition {
+            id_hash: clip_path_id_hash(id.trim()),
+            x,
+            y,
+            width,
+            height,
+            transform: compose_transform(
+                rect_transform,
+                clip_path_transform,
+                clip_path_transform.stroke_scale,
+            ),
+        });
+        clip_path_search_index = next_index;
+    }
+    let clip_rect_for = |presentation: SimpleSvgPresentation,
+                         transform: SimpleSvgTransform|
+     -> Option<SimpleSvgClipRect> {
+        let clip_path_id = presentation.clip_path??;
+        let definition = clip_path_definitions
+            .iter()
+            .rev()
+            .find(|definition| definition.id_hash == clip_path_id)?;
+        let transform = compose_transform(definition.transform, transform, transform.stroke_scale);
+        if !transform.axis_aligned {
+            return None;
+        }
+        let corner_a = apply_transform(transform, definition.x, definition.y)?;
+        let corner_b = apply_transform(
+            transform,
+            definition.x + definition.width,
+            definition.y + definition.height,
+        )?;
+        let x = corner_a.0.min(corner_b.0);
+        let y = corner_a.1.min(corner_b.1);
+        let width = (corner_b.0 - corner_a.0).abs();
+        let height = (corner_b.1 - corner_a.1).abs();
+        (width > 0.0 && height > 0.0).then_some(SimpleSvgClipRect {
+            x_ratio: (x - view_box.0) / view_box.2,
+            y_ratio: (y - view_box.1) / view_box.3,
+            width_ratio: width / view_box.2,
+            height_ratio: height / view_box.3,
+        })
+    };
+    #[derive(Debug, Clone, Copy)]
     struct SimpleSvgGroupTransform {
         content_start: usize,
         content_end: usize,
@@ -4412,6 +4675,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                             transform,
                         ),
                         stroke_style: stroke_style(presentation),
+                        clip_rect: clip_rect_for(presentation, transform),
                     });
                 }
                 search_index = rect_start + rect_end + 1;
@@ -4452,6 +4716,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                             transform,
                         ),
                         stroke_style: stroke_style(presentation),
+                        clip_rect: clip_rect_for(presentation, transform),
                     });
                 }
                 search_index = rect_start + rect_end + 1;
@@ -4481,6 +4746,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
                     stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                     stroke_style: stroke_style(presentation),
+                    clip_rect: clip_rect_for(presentation, transform),
                 });
             }
         }
@@ -4555,6 +4821,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
                 stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                 stroke_style: stroke_style(presentation),
+                clip_rect: clip_rect_for(presentation, transform),
             });
         }
         search_index = line_start + line_end + 1;
@@ -4614,6 +4881,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                             transform,
                         ),
                         stroke_style: stroke_style(presentation),
+                        clip_rect: clip_rect_for(presentation, transform),
                     });
                 }
                 search_index = circle_start + circle_end + 1;
@@ -4645,6 +4913,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
                     stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                     stroke_style: stroke_style(presentation),
+                    clip_rect: clip_rect_for(presentation, transform),
                 });
             }
         }
@@ -4711,6 +4980,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                             transform,
                         ),
                         stroke_style: stroke_style(presentation),
+                        clip_rect: clip_rect_for(presentation, transform),
                     });
                 }
                 search_index = ellipse_start + ellipse_end + 1;
@@ -4742,6 +5012,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
                     stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                     stroke_style: stroke_style(presentation),
+                    clip_rect: clip_rect_for(presentation, transform),
                 });
             }
         }
@@ -4781,6 +5052,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
                     stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                     stroke_style: stroke_style(presentation),
+                    clip_rect: clip_rect_for(presentation, transform),
                 });
             }
         }
@@ -4819,6 +5091,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
                     stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                     stroke_style: stroke_style(presentation),
+                    clip_rect: clip_rect_for(presentation, transform),
                 });
             }
         }
@@ -4849,6 +5122,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
             stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
             stroke_style: stroke_style(presentation),
+            clip_rect: clip_rect_for(presentation, transform),
         });
         true
     };
@@ -8425,6 +8699,59 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 RG 20 w 30 260 m 90 260 l S"));
         assert!(pdf_text.contains("0 1 0 RG 20 w 30 230 m 130 230 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/grouped.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_rect_clip_path_as_pdf_clipping() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/clip-path.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:clip-path".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/clip-path.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <clipPath id="groupCrop"><rect x="5" y="2" width="8" height="4"/></clipPath>
+    <clipPath id="lineCrop"><rect x="1" y="1" width="4" height="2"/></clipPath>
+  </defs>
+  <g clip-path="url(#groupCrop)">
+    <rect x="0" y="0" width="20" height="10" fill="#ff0000"/>
+  </g>
+  <line x1="0" y1="9" x2="20" y2="9" stroke="#0000ff" stroke-width="0.5" style="clip-path: url(#lineCrop)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q 60 220 80 40 re W n 1 0 0 rg 10 180 200 100 re f Q"));
+        assert!(
+            pdf_text.contains("q 20 250 40 20 re W n q 4 M 0 0 1 RG 5 w 10 190 m 210 190 l S Q Q")
+        );
+        assert!(!pdf_text.contains("[unsupported image: figures/clip-path.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
