@@ -194,7 +194,7 @@ quadratic/smooth quadratic commands plus endpoint-parameterized arcs and
 multiple closed subpaths in one path element, including
     basic presentation/style fill and stroke metadata, simple `translate` /
     `scale` / `skewX` / `skewY` transform attributes, simple nested group transforms, inherited
-root/group-level fill/stroke/stroke-width presentation metadata, simple
+root/group-level fill/stroke/absolute and percentage stroke-width presentation metadata, simple
 root `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`,
 comment-tolerant `<style>` / CDATA type, class, id, element-qualified class/id,
 and rightmost simple descendant/child selector approximation fill/stroke/stroke-width
@@ -653,7 +653,8 @@ Implemented first slice:
   commands, including multiple closed subpaths in one path element, basic
   presentation/style fill and stroke metadata plus
   simple `translate` / `scale` / `skewX` / `skewY` transforms, simple nested group transforms, and
-  inherited root/group-level fill/stroke/stroke-width metadata, simple root
+  inherited root/group-level fill/stroke/absolute and percentage stroke-width
+  metadata, simple root
   `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`, simple
   comment-tolerant `<style>` / CDATA type, class, id, element-qualified
   class/id, and rightmost simple descendant/child selector approximation
@@ -1109,7 +1110,8 @@ Status:
   `xlink:href` `<use>` references, basic
   presentation/style fill and stroke metadata plus simple
   `translate` / `scale` / `skewX` / `skewY` transform attributes, simple nested group transforms,
-  inherited root/group-level fill/stroke/stroke-width metadata, simple root
+  inherited root/group-level fill/stroke/absolute and percentage stroke-width
+  metadata, simple root
   `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`, simple
   comment-tolerant `<style>` / CDATA type, class, id, element-qualified
   class/id, and rightmost simple descendant/child selector approximation
