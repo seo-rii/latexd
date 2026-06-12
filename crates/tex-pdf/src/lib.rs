@@ -510,22 +510,111 @@ pub fn render_display_list_pdf_with_converted_assets(
                                 && svg_height > 0.0
                             {
                                 for embedded_image in svg.embedded_images {
-                                    let image_x = svg_rect.x + embedded_image.x_ratio * svg_width;
-                                    let image_y = svg_rect.y
+                                    let image_element_x =
+                                        svg_rect.x + embedded_image.x_ratio * svg_width;
+                                    let image_element_y = svg_rect.y
                                         + (1.0
                                             - embedded_image.y_ratio
                                             - embedded_image.height_ratio)
                                             * svg_height;
-                                    let image_width = embedded_image.width_ratio * svg_width;
-                                    let image_height = embedded_image.height_ratio * svg_height;
-                                    if !image_x.is_finite()
-                                        || !image_y.is_finite()
-                                        || !image_width.is_finite()
-                                        || !image_height.is_finite()
-                                        || image_width <= 0.0
-                                        || image_height <= 0.0
+                                    let image_element_width =
+                                        embedded_image.width_ratio * svg_width;
+                                    let image_element_height =
+                                        embedded_image.height_ratio * svg_height;
+                                    if !image_element_x.is_finite()
+                                        || !image_element_y.is_finite()
+                                        || !image_element_width.is_finite()
+                                        || !image_element_height.is_finite()
+                                        || image_element_width <= 0.0
+                                        || image_element_height <= 0.0
                                     {
                                         continue;
+                                    }
+                                    let mut image_x = image_element_x;
+                                    let mut image_y = image_element_y;
+                                    let mut image_width = image_element_width;
+                                    let mut image_height = image_element_height;
+                                    if embedded_image.preserve_aspect_ratio.scale
+                                        != SimpleSvgAspectScale::None
+                                        && embedded_image.image.width > 0
+                                        && embedded_image.image.height > 0
+                                    {
+                                        let image_aspect_ratio = embedded_image.image.width as f32
+                                            / embedded_image.image.height as f32;
+                                        if image_aspect_ratio.is_finite()
+                                            && image_aspect_ratio > 0.0
+                                        {
+                                            let viewport_aspect =
+                                                image_element_width / image_element_height;
+                                            let fit_width = match embedded_image
+                                                .preserve_aspect_ratio
+                                                .scale
+                                            {
+                                                SimpleSvgAspectScale::None => image_element_width,
+                                                SimpleSvgAspectScale::Meet => {
+                                                    if viewport_aspect > image_aspect_ratio {
+                                                        image_element_height * image_aspect_ratio
+                                                    } else {
+                                                        image_element_width
+                                                    }
+                                                }
+                                                SimpleSvgAspectScale::Slice => {
+                                                    if viewport_aspect > image_aspect_ratio {
+                                                        image_element_width
+                                                    } else {
+                                                        image_element_height * image_aspect_ratio
+                                                    }
+                                                }
+                                            };
+                                            let fit_height = match embedded_image
+                                                .preserve_aspect_ratio
+                                                .scale
+                                            {
+                                                SimpleSvgAspectScale::None => image_element_height,
+                                                SimpleSvgAspectScale::Meet => {
+                                                    if viewport_aspect > image_aspect_ratio {
+                                                        image_element_height
+                                                    } else {
+                                                        image_element_width / image_aspect_ratio
+                                                    }
+                                                }
+                                                SimpleSvgAspectScale::Slice => {
+                                                    if viewport_aspect > image_aspect_ratio {
+                                                        image_element_width / image_aspect_ratio
+                                                    } else {
+                                                        image_element_height
+                                                    }
+                                                }
+                                            };
+                                            if fit_width.is_finite()
+                                                && fit_height.is_finite()
+                                                && fit_width > 0.0
+                                                && fit_height > 0.0
+                                            {
+                                                let remaining_x = image_element_width - fit_width;
+                                                let remaining_y = image_element_height - fit_height;
+                                                let offset_x = match embedded_image
+                                                    .preserve_aspect_ratio
+                                                    .x_align
+                                                {
+                                                    SimpleSvgAspectAlign::Min => 0.0,
+                                                    SimpleSvgAspectAlign::Mid => remaining_x / 2.0,
+                                                    SimpleSvgAspectAlign::Max => remaining_x,
+                                                };
+                                                let offset_y = match embedded_image
+                                                    .preserve_aspect_ratio
+                                                    .y_align
+                                                {
+                                                    SimpleSvgAspectAlign::Min => remaining_y,
+                                                    SimpleSvgAspectAlign::Mid => remaining_y / 2.0,
+                                                    SimpleSvgAspectAlign::Max => 0.0,
+                                                };
+                                                image_x = image_element_x + offset_x;
+                                                image_y = image_element_y + offset_y;
+                                                image_width = fit_width;
+                                                image_height = fit_height;
+                                            }
+                                        }
                                     }
                                     let object_id = next_extra_object_id;
                                     next_extra_object_id += 1;
@@ -544,6 +633,14 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         svg_width,
                                         svg_height,
                                     );
+                                    let scoped_image_clip =
+                                        embedded_image.preserve_aspect_ratio.scale
+                                            == SimpleSvgAspectScale::Slice;
+                                    if scoped_image_clip {
+                                        stream.push_str(&format!(
+                                            "q {image_element_x} {image_element_y} {image_element_width} {image_element_height} re W n "
+                                        ));
+                                    }
                                     let scoped_opacity = push_pdf_paint_opacity(
                                         &mut stream,
                                         &mut opacity_resource_keys,
@@ -553,6 +650,9 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         "q {image_width} 0 0 {image_height} {image_x} {image_y} cm /{resource_name} Do Q "
                                     ));
                                     if scoped_opacity {
+                                        stream.push_str("Q ");
+                                    }
+                                    if scoped_image_clip {
                                         stream.push_str("Q ");
                                     }
                                     if scoped_clip {
@@ -1495,6 +1595,7 @@ struct SimpleSvgEmbeddedImage {
     width_ratio: f32,
     height_ratio: f32,
     image: DecodedPdfImage,
+    preserve_aspect_ratio: SimpleSvgPreserveAspectRatio,
     opacity: f32,
     clip_rect: Option<SimpleSvgClipRect>,
 }
@@ -1695,54 +1796,56 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .map(|ratio| normalized_viewport_diagonal * ratio)
             .or_else(|| parse_number_prefix(raw))
     };
+    let default_preserve_aspect_ratio = SimpleSvgPreserveAspectRatio {
+        x_align: SimpleSvgAspectAlign::Mid,
+        y_align: SimpleSvgAspectAlign::Mid,
+        scale: SimpleSvgAspectScale::Meet,
+    };
+    let parse_preserve_aspect_ratio = |raw: &str| -> Option<SimpleSvgPreserveAspectRatio> {
+        let parts = raw
+            .split(|ch: char| ch.is_whitespace() || ch == ',')
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>();
+        let align_index = usize::from(
+            parts
+                .first()
+                .is_some_and(|part| part.eq_ignore_ascii_case("defer")),
+        );
+        let align = parts.get(align_index)?;
+        if align.eq_ignore_ascii_case("none") {
+            return Some(SimpleSvgPreserveAspectRatio {
+                x_align: SimpleSvgAspectAlign::Mid,
+                y_align: SimpleSvgAspectAlign::Mid,
+                scale: SimpleSvgAspectScale::None,
+            });
+        }
+        let (x_align, y_align) = match *align {
+            "xMinYMin" => (SimpleSvgAspectAlign::Min, SimpleSvgAspectAlign::Min),
+            "xMidYMin" => (SimpleSvgAspectAlign::Mid, SimpleSvgAspectAlign::Min),
+            "xMaxYMin" => (SimpleSvgAspectAlign::Max, SimpleSvgAspectAlign::Min),
+            "xMinYMid" => (SimpleSvgAspectAlign::Min, SimpleSvgAspectAlign::Mid),
+            "xMidYMid" => (SimpleSvgAspectAlign::Mid, SimpleSvgAspectAlign::Mid),
+            "xMaxYMid" => (SimpleSvgAspectAlign::Max, SimpleSvgAspectAlign::Mid),
+            "xMinYMax" => (SimpleSvgAspectAlign::Min, SimpleSvgAspectAlign::Max),
+            "xMidYMax" => (SimpleSvgAspectAlign::Mid, SimpleSvgAspectAlign::Max),
+            "xMaxYMax" => (SimpleSvgAspectAlign::Max, SimpleSvgAspectAlign::Max),
+            _ => return None,
+        };
+        let scale = match parts.get(align_index + 1).copied().unwrap_or("meet") {
+            "meet" => SimpleSvgAspectScale::Meet,
+            "slice" => SimpleSvgAspectScale::Slice,
+            _ => return None,
+        };
+        Some(SimpleSvgPreserveAspectRatio {
+            x_align,
+            y_align,
+            scale,
+        })
+    };
     let preserve_aspect_ratio = attr_value(svg_tag, "preserveAspectRatio")
         .as_deref()
-        .and_then(|raw| {
-            let parts = raw
-                .split(|ch: char| ch.is_whitespace() || ch == ',')
-                .filter(|part| !part.is_empty())
-                .collect::<Vec<_>>();
-            let align_index = usize::from(
-                parts
-                    .first()
-                    .is_some_and(|part| part.eq_ignore_ascii_case("defer")),
-            );
-            let align = parts.get(align_index)?;
-            if align.eq_ignore_ascii_case("none") {
-                return Some(SimpleSvgPreserveAspectRatio {
-                    x_align: SimpleSvgAspectAlign::Mid,
-                    y_align: SimpleSvgAspectAlign::Mid,
-                    scale: SimpleSvgAspectScale::None,
-                });
-            }
-            let (x_align, y_align) = match *align {
-                "xMinYMin" => (SimpleSvgAspectAlign::Min, SimpleSvgAspectAlign::Min),
-                "xMidYMin" => (SimpleSvgAspectAlign::Mid, SimpleSvgAspectAlign::Min),
-                "xMaxYMin" => (SimpleSvgAspectAlign::Max, SimpleSvgAspectAlign::Min),
-                "xMinYMid" => (SimpleSvgAspectAlign::Min, SimpleSvgAspectAlign::Mid),
-                "xMidYMid" => (SimpleSvgAspectAlign::Mid, SimpleSvgAspectAlign::Mid),
-                "xMaxYMid" => (SimpleSvgAspectAlign::Max, SimpleSvgAspectAlign::Mid),
-                "xMinYMax" => (SimpleSvgAspectAlign::Min, SimpleSvgAspectAlign::Max),
-                "xMidYMax" => (SimpleSvgAspectAlign::Mid, SimpleSvgAspectAlign::Max),
-                "xMaxYMax" => (SimpleSvgAspectAlign::Max, SimpleSvgAspectAlign::Max),
-                _ => return None,
-            };
-            let scale = match parts.get(align_index + 1).copied().unwrap_or("meet") {
-                "meet" => SimpleSvgAspectScale::Meet,
-                "slice" => SimpleSvgAspectScale::Slice,
-                _ => return None,
-            };
-            Some(SimpleSvgPreserveAspectRatio {
-                x_align,
-                y_align,
-                scale,
-            })
-        })
-        .unwrap_or(SimpleSvgPreserveAspectRatio {
-            x_align: SimpleSvgAspectAlign::Mid,
-            y_align: SimpleSvgAspectAlign::Mid,
-            scale: SimpleSvgAspectScale::Meet,
-        });
+        .and_then(|raw| parse_preserve_aspect_ratio(raw))
+        .unwrap_or(default_preserve_aspect_ratio);
     let svg_content_start = tag_start + tag_end + 1;
     let svg_content_end = text[svg_content_start..]
         .find("</svg>")
@@ -5715,6 +5818,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 width_ratio: width / view_box.2,
                 height_ratio: height / view_box.3,
                 image: decoded_image,
+                preserve_aspect_ratio: attr_value(image_tag, "preserveAspectRatio")
+                    .as_deref()
+                    .and_then(|raw| parse_preserve_aspect_ratio(raw))
+                    .unwrap_or(default_preserve_aspect_ratio),
                 opacity,
                 clip_rect: clip_rect_for(presentation, transform),
             });
@@ -9034,12 +9141,61 @@ mod tests {
 
         assert!(pdf_text.contains("/Subtype /Image"));
         assert!(pdf_text.contains("/XObject << /Im1"));
-        assert!(pdf_text.contains("q 80 0 0 40 60 220 cm /Im1 Do Q"));
+        assert!(pdf_text.contains("q 40 0 0 40 80 220 cm /Im1 Do Q"));
         assert!(pdf_text.contains("/Im2"));
         assert!(pdf_text.contains("/GS400 << /Type /ExtGState /ca 0.4 /CA 0.4 >>"));
         assert!(pdf_text.contains("q /GS400 gs q 20 0 0 20 150 240 cm /Im2 Do Q Q"));
         assert!(pdf_text.contains("0 1 0 RG 5 w 10 180 200 100 re S"));
         assert!(!pdf_text.contains("[unsupported image: figures/embedded-image.svg]"));
+    }
+
+    #[test]
+    fn preserves_simple_svg_embedded_image_aspect_ratio() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 400.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 300.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/embedded-image-aspect.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:embedded-image-aspect".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let wide_png = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAADUlEQVR4nGP4zwAE/wEHAAH/4iOeWQAAAABJRU5ErkJggg==";
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/embedded-image-aspect.svg").then(|| {
+                format!(
+                    r##"<svg width="30" height="10">
+  <image x="0" y="0" width="10" height="10" href="data:image/png;base64,{wide_png}"/>
+  <image x="10" y="0" width="10" height="10" preserveAspectRatio="none" href="data:image/png;base64,{wide_png}"/>
+  <image x="20" y="0" width="10" height="10" preserveAspectRatio="xMaxYMax slice" href="data:image/png;base64,{wide_png}"/>
+</svg>"##
+                )
+                .into_bytes()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q 100 0 0 50 10 205 cm /Im1 Do Q"));
+        assert!(pdf_text.contains("q 100 0 0 100 110 180 cm /Im2 Do Q"));
+        assert!(pdf_text.contains("210 180 100 100 re W n"));
+        assert!(pdf_text.contains("q 200 0 0 100 110 180 cm /Im3 Do Q"));
     }
 
     #[test]
