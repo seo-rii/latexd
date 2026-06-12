@@ -4634,9 +4634,21 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         transform: Option<SimpleSvgTransform>,
         presentation: SimpleSvgPresentation,
     }
+    #[derive(Debug, Clone)]
+    struct SimpleSvgGroupDefinition {
+        id: String,
+        content_start: usize,
+        content_end: usize,
+    }
     let mut group_transforms = Vec::new();
-    let mut group_stack: Vec<(usize, Option<SimpleSvgTransform>, SimpleSvgPresentation)> =
-        Vec::new();
+    let mut group_definitions = Vec::new();
+    let mut group_stack: Vec<(
+        usize,
+        usize,
+        Option<SimpleSvgTransform>,
+        SimpleSvgPresentation,
+        Option<String>,
+    )> = Vec::new();
     let mut group_search_index = 0usize;
     while let Some(relative) = svg_content[group_search_index..].find('<') {
         let group_tag_start = group_search_index + relative;
@@ -4655,7 +4667,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .next()
                 .is_some_and(|ch| ch.is_whitespace() || matches!(ch, '>' | '/'));
         if is_group_close {
-            if let Some((content_start, transform, presentation)) = group_stack.pop()
+            if let Some((tag_start, content_start, transform, presentation, id)) = group_stack.pop()
                 && content_start <= group_tag_start
             {
                 group_transforms.push(SimpleSvgGroupTransform {
@@ -4664,6 +4676,15 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     transform,
                     presentation,
                 });
+                if let Some(id) = id
+                    && in_defs(tag_start)
+                {
+                    group_definitions.push(SimpleSvgGroupDefinition {
+                        id,
+                        content_start,
+                        content_end: group_tag_start,
+                    });
+                }
             }
         } else if is_group_open {
             let group_tag = &group_tag_tail[..group_tag_end];
@@ -4672,11 +4693,11 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             let presentation = inherit_presentation(
                 group_stack
                     .last()
-                    .map(|(_, _, parent_presentation)| *parent_presentation)
+                    .map(|(_, _, _, parent_presentation, _)| *parent_presentation)
                     .unwrap_or(root_presentation),
                 local_presentation,
             );
-            let transform = if let Some((_, Some(parent_transform), _)) = group_stack.last() {
+            let transform = if let Some((_, _, Some(parent_transform), _, _)) = group_stack.last() {
                 local_transform.map(|local| {
                     compose_transform(local, *parent_transform, parent_transform.stroke_scale)
                 })
@@ -4686,18 +4707,33 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 local_transform
             };
             if !group_tag.trim_end().ends_with('/') {
-                group_stack.push((group_tag_start + group_tag_end + 1, transform, presentation));
+                group_stack.push((
+                    group_tag_start,
+                    group_tag_start + group_tag_end + 1,
+                    transform,
+                    presentation,
+                    attr_value(group_tag, "id").filter(|id| !id.trim().is_empty()),
+                ));
             }
         }
         group_search_index = group_tag_start + group_tag_end + 1;
     }
-    while let Some((content_start, transform, presentation)) = group_stack.pop() {
+    while let Some((tag_start, content_start, transform, presentation, id)) = group_stack.pop() {
         group_transforms.push(SimpleSvgGroupTransform {
             content_start,
             content_end: svg_content.len(),
             transform,
             presentation,
         });
+        if let Some(id) = id
+            && in_defs(tag_start)
+        {
+            group_definitions.push(SimpleSvgGroupDefinition {
+                id,
+                content_start,
+                content_end: svg_content.len(),
+            });
+        }
     }
     let group_state_for =
         |element_start: usize| -> (Option<SimpleSvgTransform>, SimpleSvgPresentation) {
@@ -5365,12 +5401,37 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         true
     };
     #[derive(Debug, Clone)]
-    struct SimpleSvgPathLikeDefinition<'a> {
+    struct SimpleSvgPathLikeDefinition {
         id: String,
-        tag: &'a str,
+        tag: String,
         start: usize,
         path_data: String,
     }
+    let push_path_like_definition =
+        |path_like_definitions: &mut Vec<SimpleSvgPathLikeDefinition>,
+         element_id: Option<String>,
+         tag: &str,
+         start: usize,
+         path_data: String| {
+            if let Some(id) = element_id.filter(|id| !id.trim().is_empty()) {
+                path_like_definitions.push(SimpleSvgPathLikeDefinition {
+                    id,
+                    tag: tag.to_string(),
+                    start,
+                    path_data: path_data.clone(),
+                });
+            }
+            for group_definition in &group_definitions {
+                if group_definition.content_start <= start && start < group_definition.content_end {
+                    path_like_definitions.push(SimpleSvgPathLikeDefinition {
+                        id: group_definition.id.clone(),
+                        tag: tag.to_string(),
+                        start,
+                        path_data: path_data.clone(),
+                    });
+                }
+            }
+        };
     let mut path_like_definitions = Vec::new();
     let mut search_index = 0usize;
     while let Some(relative) = svg_content[search_index..].find("<path") {
@@ -5388,15 +5449,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             continue;
         }
         let path_tag = &path_tail[..path_end];
-        if let (Some(id), Some(path_data)) = (attr_value(path_tag, "id"), attr_value(path_tag, "d"))
-            && !id.trim().is_empty()
-        {
-            path_like_definitions.push(SimpleSvgPathLikeDefinition {
-                id,
-                tag: path_tag,
-                start: path_start,
+        if let Some(path_data) = attr_value(path_tag, "d") {
+            push_path_like_definition(
+                &mut path_like_definitions,
+                attr_value(path_tag, "id"),
+                path_tag,
+                path_start,
                 path_data,
-            });
+            );
         }
         search_index = path_start + path_end + 1;
     }
@@ -5436,23 +5496,22 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .as_deref()
             .and_then(parse_number_prefix)
             .unwrap_or(0.0);
-        if let (Some(id), Some(width), Some(height)) = (
-            attr_value(rect_tag, "id"),
+        if let (Some(width), Some(height)) = (
             attr_value(rect_tag, "width")
                 .as_deref()
                 .and_then(parse_number_prefix),
             attr_value(rect_tag, "height")
                 .as_deref()
                 .and_then(parse_number_prefix),
-        ) && !id.trim().is_empty()
-            && let Some(path_data) = rect_path_data(x, y, width, height)
+        ) && let Some(path_data) = rect_path_data(x, y, width, height)
         {
-            path_like_definitions.push(SimpleSvgPathLikeDefinition {
-                id,
-                tag: rect_tag,
-                start: rect_start,
+            push_path_like_definition(
+                &mut path_like_definitions,
+                attr_value(rect_tag, "id"),
+                rect_tag,
+                rect_start,
                 path_data,
-            });
+            );
         }
         search_index = rect_start + rect_end + 1;
     }
@@ -5480,20 +5539,18 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .as_deref()
             .and_then(parse_number_prefix)
             .unwrap_or(0.0);
-        if let (Some(id), Some(radius)) = (
-            attr_value(circle_tag, "id"),
-            attr_value(circle_tag, "r")
-                .as_deref()
-                .and_then(parse_number_prefix),
-        ) && !id.trim().is_empty()
+        if let Some(radius) = attr_value(circle_tag, "r")
+            .as_deref()
+            .and_then(parse_number_prefix)
             && let Some(path_data) = ellipse_path_data(cx, cy, radius, radius)
         {
-            path_like_definitions.push(SimpleSvgPathLikeDefinition {
-                id,
-                tag: circle_tag,
-                start: circle_start,
+            push_path_like_definition(
+                &mut path_like_definitions,
+                attr_value(circle_tag, "id"),
+                circle_tag,
+                circle_start,
                 path_data,
-            });
+            );
         }
         search_index = circle_start + circle_end + 1;
     }
@@ -5521,23 +5578,22 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .as_deref()
             .and_then(parse_number_prefix)
             .unwrap_or(0.0);
-        if let (Some(id), Some(rx), Some(ry)) = (
-            attr_value(ellipse_tag, "id"),
+        if let (Some(rx), Some(ry)) = (
             attr_value(ellipse_tag, "rx")
                 .as_deref()
                 .and_then(parse_number_prefix),
             attr_value(ellipse_tag, "ry")
                 .as_deref()
                 .and_then(parse_number_prefix),
-        ) && !id.trim().is_empty()
-            && let Some(path_data) = ellipse_path_data(cx, cy, rx, ry)
+        ) && let Some(path_data) = ellipse_path_data(cx, cy, rx, ry)
         {
-            path_like_definitions.push(SimpleSvgPathLikeDefinition {
-                id,
-                tag: ellipse_tag,
-                start: ellipse_start,
+            push_path_like_definition(
+                &mut path_like_definitions,
+                attr_value(ellipse_tag, "id"),
+                ellipse_tag,
+                ellipse_start,
                 path_data,
-            });
+            );
         }
         search_index = ellipse_start + ellipse_end + 1;
     }
@@ -5557,8 +5613,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             continue;
         }
         let line_tag = &line_tail[..line_end];
-        if let (Some(id), Some(x1), Some(y1), Some(x2), Some(y2)) = (
-            attr_value(line_tag, "id"),
+        if let (Some(x1), Some(y1), Some(x2), Some(y2)) = (
             attr_value(line_tag, "x1")
                 .as_deref()
                 .and_then(parse_number_prefix),
@@ -5571,14 +5626,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             attr_value(line_tag, "y2")
                 .as_deref()
                 .and_then(parse_number_prefix),
-        ) && !id.trim().is_empty()
-        {
-            path_like_definitions.push(SimpleSvgPathLikeDefinition {
-                id,
-                tag: line_tag,
-                start: line_start,
-                path_data: format!("M {} {} L {} {}", x1, y1, x2, y2),
-            });
+        ) {
+            push_path_like_definition(
+                &mut path_like_definitions,
+                attr_value(line_tag, "id"),
+                line_tag,
+                line_start,
+                format!("M {} {} L {} {}", x1, y1, x2, y2),
+            );
         }
         search_index = line_start + line_end + 1;
     }
@@ -5598,18 +5653,17 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             continue;
         }
         let poly_tag = &poly_tail[..poly_end];
-        if let (Some(id), Some(points_raw)) =
-            (attr_value(poly_tag, "id"), attr_value(poly_tag, "points"))
-            && !id.trim().is_empty()
+        if let Some(points_raw) = attr_value(poly_tag, "points")
             && let Some(points) = parse_raw_points(&points_raw)
             && let Some(path_data) = path_data_from_points(&points, false)
         {
-            path_like_definitions.push(SimpleSvgPathLikeDefinition {
-                id,
-                tag: poly_tag,
-                start: poly_start,
+            push_path_like_definition(
+                &mut path_like_definitions,
+                attr_value(poly_tag, "id"),
+                poly_tag,
+                poly_start,
                 path_data,
-            });
+            );
         }
         search_index = poly_start + poly_end + 1;
     }
@@ -5629,18 +5683,17 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             continue;
         }
         let poly_tag = &poly_tail[..poly_end];
-        if let (Some(id), Some(points_raw)) =
-            (attr_value(poly_tag, "id"), attr_value(poly_tag, "points"))
-            && !id.trim().is_empty()
+        if let Some(points_raw) = attr_value(poly_tag, "points")
             && let Some(points) = parse_raw_points(&points_raw)
             && let Some(path_data) = path_data_from_points(&points, true)
         {
-            path_like_definitions.push(SimpleSvgPathLikeDefinition {
-                id,
-                tag: poly_tag,
-                start: poly_start,
+            push_path_like_definition(
+                &mut path_like_definitions,
+                attr_value(poly_tag, "id"),
+                poly_tag,
+                poly_start,
                 path_data,
-            });
+            );
         }
         search_index = poly_start + poly_end + 1;
     }
@@ -5691,20 +5744,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             search_index = use_start + use_end + 1;
             continue;
         };
-        let Some(definition) = path_like_definitions
+        if !path_like_definitions
             .iter()
-            .find(|definition| definition.id == reference_id)
-        else {
+            .any(|definition| definition.id == reference_id)
+        {
             search_index = use_start + use_end + 1;
             continue;
-        };
+        }
         let Some((use_transform, use_presentation)) = parse_element_state(use_tag, use_start)
-        else {
-            search_index = use_start + use_end + 1;
-            continue;
-        };
-        let Some((definition_transform, definition_presentation)) =
-            parse_element_state(definition.tag, definition.start)
         else {
             search_index = use_start + use_end + 1;
             continue;
@@ -5726,13 +5773,23 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             use_transform,
             use_transform.stroke_scale,
         );
-        let transform = compose_transform(
-            definition_transform,
-            translated_use_transform,
-            translated_use_transform.stroke_scale,
-        );
-        let presentation = inherit_presentation(definition_presentation, use_presentation);
-        push_simple_svg_path(&mut paths, transform, presentation, &definition.path_data);
+        for definition in path_like_definitions
+            .iter()
+            .filter(|definition| definition.id == reference_id)
+        {
+            let Some((definition_transform, definition_presentation)) =
+                parse_element_state(&definition.tag, definition.start)
+            else {
+                continue;
+            };
+            let transform = compose_transform(
+                definition_transform,
+                translated_use_transform,
+                translated_use_transform.stroke_scale,
+            );
+            let presentation = inherit_presentation(definition_presentation, use_presentation);
+            push_simple_svg_path(&mut paths, transform, presentation, &definition.path_data);
+        }
         search_index = use_start + use_end + 1;
     }
     let mut embedded_images = Vec::new();
@@ -8555,6 +8612,59 @@ mod tests {
         assert!(!pdf_text.contains("1 0 0 rg 50 260 m"));
         assert!(!pdf_text.contains("1 0 0 rg 10 280 m 50 280 l 50 240 l 10 240 l h f"));
         assert!(!pdf_text.contains("[unsupported image: figures/defs-use.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_defs_group_use_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/defs-group-use.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:defs-group-use".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/defs-group-use.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <g id="glyph" fill="#ff0000">
+      <path d="M 0 0 L 4 0 L 4 4 Z"/>
+      <rect x="0" y="5" width="4" height="2"/>
+    </g>
+  </defs>
+  <use href="#glyph" x="5" y="1" fill="#0000ff"/>
+  <use href="#glyph" x="10" y="1" fill="#00ff00"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 rg 60 270 m 100 270 l 100 230 l h f"));
+        assert!(pdf_text.contains("0 0 1 rg 60 220 m 100 220 l 100 200 l 60 200 l h f"));
+        assert!(pdf_text.contains("0 1 0 rg 110 270 m 150 270 l 150 230 l h f"));
+        assert!(!pdf_text.contains("1 0 0 rg 10 280 m 50 280 l 50 240 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/defs-group-use.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

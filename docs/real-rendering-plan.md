@@ -219,7 +219,8 @@ simple rect-backed `clipPath` clipping, and
     `matrix` / `rotate` / `skewX` / `skewY` transforms for path-like line/poly/path
 primitives, plus non-axis-aligned transformed rectangles rendered as closed
 vector polygons and transformed circle/ellipse primitives rendered as cubic
-vector paths, plus simple embedded `data:image/png` / `data:image/jpeg` SVG
+vector paths, including simple path-like children in `<defs>` group definitions
+reused through `<use>`, plus simple embedded `data:image/png` / `data:image/jpeg` SVG
 `<image>` elements with `opacity` and `preserveAspectRatio` fitting, is also
 rendered directly as vector PDF drawing operations in
 display-list PDF artifacts instead of falling back to unsupported-image
@@ -684,7 +685,9 @@ Implemented first slice:
   preservation, simple rect-backed `clipPath` clipping, path-like `matrix` /
   `rotate` / `skewX` / `skewY` transforms, non-axis-aligned
   transformed rectangles, and transformed circle/ellipse cubic paths, as vector
-  drawing operations, plus simple embedded `data:image/png` / `data:image/jpeg`
+  drawing operations, including simple path-like children in `<defs>` group
+  definitions reused through `<use>`, plus simple embedded `data:image/png` /
+  `data:image/jpeg`
   SVG `<image>` elements as PDF XObjects with `opacity` and `preserveAspectRatio`
   fitting, including display-list crop/viewport placement and
   `clip=true` destination clipping for simple SVG vector PDF assets;
@@ -1119,7 +1122,8 @@ Status:
   quadratic/smooth quadratic, and arc commands,
   including multiple closed subpaths in one path element and simple `<defs>`
   path-like reuse for `path`, simple unrounded `rect`, `circle`, `ellipse`,
-  `line`, `polyline`, and `polygon` definitions through `href` /
+  `line`, `polyline`, and `polygon` definitions, plus simple `<g>`
+  definitions containing those path-like children, through `href` /
   `xlink:href` `<use>` references, basic
   presentation/style fill and stroke metadata plus simple
   `translate` / `scale` / `skewX` / `skewY` transform attributes, simple nested group transforms,
