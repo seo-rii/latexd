@@ -1515,6 +1515,32 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .unwrap_or(natural_size.1);
         (0.0, 0.0, width.max(1.0), height.max(1.0))
     });
+    let normalized_viewport_diagonal =
+        ((view_box.2 * view_box.2 + view_box.3 * view_box.3) / 2.0).sqrt();
+    let parse_percentage_ratio = |raw: &str| -> Option<f32> {
+        raw.trim()
+            .strip_suffix('%')?
+            .trim()
+            .parse::<f32>()
+            .ok()
+            .filter(|value| value.is_finite())
+            .map(|value| value / 100.0)
+    };
+    let parse_x_length = |raw: &str| -> Option<f32> {
+        parse_percentage_ratio(raw)
+            .map(|ratio| view_box.2 * ratio)
+            .or_else(|| parse_number_prefix(raw))
+    };
+    let parse_y_length = |raw: &str| -> Option<f32> {
+        parse_percentage_ratio(raw)
+            .map(|ratio| view_box.3 * ratio)
+            .or_else(|| parse_number_prefix(raw))
+    };
+    let parse_diagonal_length = |raw: &str| -> Option<f32> {
+        parse_percentage_ratio(raw)
+            .map(|ratio| normalized_viewport_diagonal * ratio)
+            .or_else(|| parse_number_prefix(raw))
+    };
     let preserve_aspect_ratio = attr_value(svg_tag, "preserveAspectRatio")
         .as_deref()
         .and_then(|raw| {
@@ -2196,20 +2222,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .filter(|value| value.is_finite())
             .map(|value| value.clamp(0.0, 1.0))
     };
-    let normalized_viewport_diagonal =
-        ((view_box.2 * view_box.2 + view_box.3 * view_box.3) / 2.0).sqrt();
-    let parse_stroke_length = |raw: &str| -> Option<f32> {
-        let raw = raw.trim();
-        if let Some(percent) = raw.strip_suffix('%') {
-            return percent
-                .trim()
-                .parse::<f32>()
-                .ok()
-                .filter(|value| value.is_finite() && *value > 0.0)
-                .map(|value| normalized_viewport_diagonal * value / 100.0);
-        }
-        parse_number_prefix(raw)
-    };
+    let parse_stroke_length =
+        |raw: &str| -> Option<f32> { parse_diagonal_length(raw).filter(|value| value.is_finite()) };
     let parse_stroke_width =
         |raw: &str| -> Option<f32> { parse_stroke_length(raw).filter(|width| *width > 0.0) };
     let parse_display = |raw: &str| -> Option<bool> {
@@ -4191,22 +4205,22 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let rect_tag = &rect_tail[..rect_end];
         let x = attr_value(rect_tag, "x")
             .as_deref()
-            .and_then(parse_number_prefix)
+            .and_then(parse_x_length)
             .unwrap_or(0.0);
         let y = attr_value(rect_tag, "y")
             .as_deref()
-            .and_then(parse_number_prefix)
+            .and_then(parse_y_length)
             .unwrap_or(0.0);
         let Some(width) = attr_value(rect_tag, "width")
             .as_deref()
-            .and_then(parse_number_prefix)
+            .and_then(parse_x_length)
         else {
             search_index = rect_start + rect_end + 1;
             continue;
         };
         let Some(height) = attr_value(rect_tag, "height")
             .as_deref()
-            .and_then(parse_number_prefix)
+            .and_then(parse_y_length)
         else {
             search_index = rect_start + rect_end + 1;
             continue;
@@ -4220,10 +4234,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             let stroke = stroke_paint(presentation);
             let rx_raw = attr_value(rect_tag, "rx")
                 .as_deref()
-                .and_then(parse_number_prefix);
+                .and_then(parse_x_length);
             let ry_raw = attr_value(rect_tag, "ry")
                 .as_deref()
-                .and_then(parse_number_prefix);
+                .and_then(parse_y_length);
             let rounded_radii = match (rx_raw, ry_raw) {
                 (Some(rx), Some(ry)) if rx > 0.0 && ry > 0.0 => Some((rx, ry)),
                 (Some(radius), None) | (None, Some(radius)) if radius > 0.0 => {
@@ -4436,28 +4450,28 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let line_tag = &line_tail[..line_end];
         let Some(x1) = attr_value(line_tag, "x1")
             .as_deref()
-            .and_then(parse_number_prefix)
+            .and_then(parse_x_length)
         else {
             search_index = line_start + line_end + 1;
             continue;
         };
         let Some(y1) = attr_value(line_tag, "y1")
             .as_deref()
-            .and_then(parse_number_prefix)
+            .and_then(parse_y_length)
         else {
             search_index = line_start + line_end + 1;
             continue;
         };
         let Some(x2) = attr_value(line_tag, "x2")
             .as_deref()
-            .and_then(parse_number_prefix)
+            .and_then(parse_x_length)
         else {
             search_index = line_start + line_end + 1;
             continue;
         };
         let Some(y2) = attr_value(line_tag, "y2")
             .as_deref()
-            .and_then(parse_number_prefix)
+            .and_then(parse_y_length)
         else {
             search_index = line_start + line_end + 1;
             continue;
@@ -4509,15 +4523,15 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let circle_tag = &circle_tail[..circle_end];
         let cx = attr_value(circle_tag, "cx")
             .as_deref()
-            .and_then(parse_number_prefix)
+            .and_then(parse_x_length)
             .unwrap_or(0.0);
         let cy = attr_value(circle_tag, "cy")
             .as_deref()
-            .and_then(parse_number_prefix)
+            .and_then(parse_y_length)
             .unwrap_or(0.0);
         let Some(radius) = attr_value(circle_tag, "r")
             .as_deref()
-            .and_then(parse_number_prefix)
+            .and_then(parse_diagonal_length)
         else {
             search_index = circle_start + circle_end + 1;
             continue;
@@ -4596,22 +4610,22 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let ellipse_tag = &ellipse_tail[..ellipse_end];
         let cx = attr_value(ellipse_tag, "cx")
             .as_deref()
-            .and_then(parse_number_prefix)
+            .and_then(parse_x_length)
             .unwrap_or(0.0);
         let cy = attr_value(ellipse_tag, "cy")
             .as_deref()
-            .and_then(parse_number_prefix)
+            .and_then(parse_y_length)
             .unwrap_or(0.0);
         let Some(rx) = attr_value(ellipse_tag, "rx")
             .as_deref()
-            .and_then(parse_number_prefix)
+            .and_then(parse_x_length)
         else {
             search_index = ellipse_start + ellipse_end + 1;
             continue;
         };
         let Some(ry) = attr_value(ellipse_tag, "ry")
             .as_deref()
-            .and_then(parse_number_prefix)
+            .and_then(parse_y_length)
         else {
             search_index = ellipse_start + ellipse_end + 1;
             continue;
@@ -7615,6 +7629,55 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 rg 80 230 m"));
         assert!(pdf_text.contains("0 0 1 RG 5 w 190 230 m"));
         assert!(!pdf_text.contains("[unsupported image: figures/markers.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_percentage_geometry_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/percent-geometry.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:percent-geometry".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/percent-geometry.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <rect x="10%" y="20%" width="50%" height="40%" fill="#ff0000"/>
+  <line x1="0%" y1="100%" x2="100%" y2="0%" stroke="#00ff00" stroke-width="1"/>
+  <circle cx="25%" cy="50%" r="10%" fill="#0000ff"/>
+  <ellipse cx="75%" cy="50%" rx="10%" ry="20%" fill="none" stroke="#000000" stroke-width="0.5"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 30 220 100 40 re f"));
+        assert!(pdf_text.contains("0 1 0 RG 10 w 10 180 m 210 280 l S"));
+        assert!(pdf_text.contains("0 0 1 rg 75.811"));
+        assert!(pdf_text.contains("0 0 0 RG 5 w 180 230 m"));
+        assert!(!pdf_text.contains("[unsupported image: figures/percent-geometry.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

@@ -189,7 +189,8 @@ to PNG for debug display-list PDF/SVG artifacts through Ghostscript or Poppler.
 Resolver-backed SVG and PNG/JPEG bitmap assets are embedded as data-URI
 `<image>` elements in project-root display-list SVG debug artifacts. Simple
 resolver-backed SVG `<rect>`, `<line>`, `<circle>`, `<ellipse>`, `<polyline>`,
-`<polygon>`, and `<path>` content with line, cubic/smooth cubic, and
+`<polygon>`, and `<path>` content, including percentage geometry for simple
+rect/line/circle/ellipse attributes, with line, cubic/smooth cubic, and
 quadratic/smooth quadratic commands plus endpoint-parameterized arcs and
 multiple closed subpaths in one path element, including
     basic presentation/style fill and stroke metadata, simple `translate` /
@@ -650,7 +651,8 @@ Implemented first slice:
   whose display-list ops carry resolved natural point dimensions;
 - display-list PDF artifacts can render simple resolver-provided SVG `<rect>`,
   `<line>`, `<circle>`, `<ellipse>`, `<polyline>`, `<polygon>`, and `<path>`
-  content with line, cubic/smooth cubic, quadratic/smooth quadratic, and arc
+  content, including percentage geometry for simple rect/line/circle/ellipse
+  attributes, with line, cubic/smooth cubic, quadratic/smooth quadratic, and arc
   commands, including multiple closed subpaths in one path element, basic
   presentation/style fill and stroke metadata plus
   simple `translate` / `scale` / `skewX` / `skewY` transforms, simple nested group transforms, and
@@ -1098,6 +1100,7 @@ Status:
   bitmap assets and simple SVG assets with parseable natural dimensions;
 - project-root display-list PDF debug artifacts render simple resolver-backed
   SVG rectangle, rounded rectangle, line, circle, ellipse, polyline, polygon,
+  percentage geometry for simple rect/line/circle/ellipse attributes,
   direct text content with simple `text-anchor`, numeric `dx`/`dy`,
   absolute and percentage `font-size`, `font-family`, `font-weight`, and
   `font-style` cascade with simple PDF base-family mapping, approximate
