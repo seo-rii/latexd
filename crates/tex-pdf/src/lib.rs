@@ -389,7 +389,8 @@ pub fn render_display_list_pdf_with_converted_assets(
                                 || !svg.ellipses.is_empty()
                                 || !svg.polys.is_empty()
                                 || !svg.paths.is_empty()
-                                || !svg.texts.is_empty())
+                                || !svg.texts.is_empty()
+                                || !svg.embedded_images.is_empty())
                         {
                             let (natural_width, natural_height) = image_natural_size_or_fallback(
                                 image,
@@ -508,6 +509,48 @@ pub fn render_display_list_pdf_with_converted_assets(
                                 && svg_width > 0.0
                                 && svg_height > 0.0
                             {
+                                for embedded_image in svg.embedded_images {
+                                    let image_x = svg_rect.x + embedded_image.x_ratio * svg_width;
+                                    let image_y = svg_rect.y
+                                        + (1.0
+                                            - embedded_image.y_ratio
+                                            - embedded_image.height_ratio)
+                                            * svg_height;
+                                    let image_width = embedded_image.width_ratio * svg_width;
+                                    let image_height = embedded_image.height_ratio * svg_height;
+                                    if !image_x.is_finite()
+                                        || !image_y.is_finite()
+                                        || !image_width.is_finite()
+                                        || !image_height.is_finite()
+                                        || image_width <= 0.0
+                                        || image_height <= 0.0
+                                    {
+                                        continue;
+                                    }
+                                    let object_id = next_extra_object_id;
+                                    next_extra_object_id += 1;
+                                    let resource_name = format!("Im{next_page_image_index}");
+                                    next_page_image_index += 1;
+                                    image_resource_refs
+                                        .push(format!("/{resource_name} {object_id} 0 R"));
+                                    extra_objects.push(build_image_xobject(
+                                        object_id,
+                                        &embedded_image.image,
+                                    ));
+                                    let scoped_clip = push_pdf_svg_clip_rect(
+                                        &mut stream,
+                                        embedded_image.clip_rect,
+                                        &svg_rect,
+                                        svg_width,
+                                        svg_height,
+                                    );
+                                    stream.push_str(&format!(
+                                        "q {image_width} 0 0 {image_height} {image_x} {image_y} cm /{resource_name} Do Q "
+                                    ));
+                                    if scoped_clip {
+                                        stream.push_str("Q ");
+                                    }
+                                }
                                 for rect in svg.rects {
                                     let rect_x = svg_rect.x + rect.x_ratio * svg_width;
                                     let rect_y = svg_rect.y
@@ -1259,6 +1302,7 @@ pub fn render_display_list_pdf_with_converted_assets(
     pdf
 }
 
+#[derive(Debug, Clone)]
 struct DecodedPdfImage {
     width: u32,
     height: u32,
@@ -1283,6 +1327,7 @@ struct SimpleSvgAsset {
     polys: Vec<SimpleSvgPoly>,
     paths: Vec<SimpleSvgPath>,
     texts: Vec<SimpleSvgText>,
+    embedded_images: Vec<SimpleSvgEmbeddedImage>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1433,6 +1478,16 @@ struct SimpleSvgText {
     font_shape: FontShape,
     fill: Option<SimpleSvgPaint>,
     text: String,
+}
+
+#[derive(Debug, Clone)]
+struct SimpleSvgEmbeddedImage {
+    x_ratio: f32,
+    y_ratio: f32,
+    width_ratio: f32,
+    height_ratio: f32,
+    image: DecodedPdfImage,
+    clip_rect: Option<SimpleSvgClipRect>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2501,6 +2556,77 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .map(|id| Some(clip_path_id_hash(id)));
         }
         None
+    };
+    let decode_data_image_uri = |raw: &str| -> Option<DecodedPdfImage> {
+        let raw = raw.trim();
+        let data = raw.strip_prefix("data:")?;
+        let comma = data.find(',')?;
+        let metadata = data[..comma].trim().to_ascii_lowercase();
+        let media_type = metadata.split(';').next()?.trim();
+        if !matches!(media_type, "image/png" | "image/jpeg" | "image/jpg") {
+            return None;
+        }
+        let payload = &data[comma + 1..];
+        let bytes = if metadata.split(';').any(|part| part.trim() == "base64") {
+            let mut bytes = Vec::new();
+            let mut buffer = 0u32;
+            let mut bits = 0u8;
+            let mut padded = false;
+            for byte in payload.bytes().filter(|byte| !byte.is_ascii_whitespace()) {
+                if byte == b'=' {
+                    padded = true;
+                    continue;
+                }
+                if padded {
+                    return None;
+                }
+                let value = match byte {
+                    b'A'..=b'Z' => u32::from(byte - b'A'),
+                    b'a'..=b'z' => u32::from(byte - b'a' + 26),
+                    b'0'..=b'9' => u32::from(byte - b'0' + 52),
+                    b'+' => 62,
+                    b'/' => 63,
+                    _ => return None,
+                };
+                buffer = (buffer << 6) | value;
+                bits += 6;
+                if bits >= 8 {
+                    bits -= 8;
+                    bytes.push((buffer >> bits) as u8);
+                    if bits > 0 {
+                        buffer &= (1 << bits) - 1;
+                    } else {
+                        buffer = 0;
+                    }
+                }
+            }
+            bytes
+        } else {
+            let mut bytes = Vec::new();
+            let payload = payload.as_bytes();
+            let mut index = 0usize;
+            while index < payload.len() {
+                if payload[index] == b'%' {
+                    let high = payload.get(index + 1).copied()?;
+                    let low = payload.get(index + 2).copied()?;
+                    let hex = |byte: u8| -> Option<u8> {
+                        match byte {
+                            b'0'..=b'9' => Some(byte - b'0'),
+                            b'a'..=b'f' => Some(byte - b'a' + 10),
+                            b'A'..=b'F' => Some(byte - b'A' + 10),
+                            _ => None,
+                        }
+                    };
+                    bytes.push((hex(high)? << 4) | hex(low)?);
+                    index += 3;
+                } else {
+                    bytes.push(payload[index]);
+                    index += 1;
+                }
+            }
+            bytes
+        };
+        decode_pdf_image(&bytes)
     };
     let first_some = |left: Option<String>, right: Option<String>| left.or(right);
     let parse_optional_paint = |value: Option<String>| -> Option<Option<SimpleSvgColor>> {
@@ -5497,6 +5623,89 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         push_simple_svg_path(&mut paths, transform, presentation, &definition.path_data);
         search_index = use_start + use_end + 1;
     }
+    let mut embedded_images = Vec::new();
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<image") {
+        let image_start = search_index + relative;
+        let image_tail = &svg_content[image_start..];
+        if !is_start_tag_named(image_tail, "image") {
+            search_index = image_start + "<image".len();
+            continue;
+        }
+        let Some(image_end) = image_tail.find('>') else {
+            break;
+        };
+        if in_defs(image_start) {
+            search_index = image_start + image_end + 1;
+            continue;
+        }
+        let image_tag = &image_tail[..image_end];
+        let Some(decoded_image) = attr_value(image_tag, "href")
+            .or_else(|| attr_value(image_tag, "xlink:href"))
+            .as_deref()
+            .and_then(decode_data_image_uri)
+        else {
+            search_index = image_start + image_end + 1;
+            continue;
+        };
+        let x = attr_value(image_tag, "x")
+            .as_deref()
+            .and_then(parse_x_length)
+            .unwrap_or(0.0);
+        let y = attr_value(image_tag, "y")
+            .as_deref()
+            .and_then(parse_y_length)
+            .unwrap_or(0.0);
+        let Some(width) = attr_value(image_tag, "width")
+            .as_deref()
+            .and_then(parse_x_length)
+        else {
+            search_index = image_start + image_end + 1;
+            continue;
+        };
+        let Some(height) = attr_value(image_tag, "height")
+            .as_deref()
+            .and_then(parse_y_length)
+        else {
+            search_index = image_start + image_end + 1;
+            continue;
+        };
+        if width <= 0.0 || height <= 0.0 {
+            search_index = image_start + image_end + 1;
+            continue;
+        }
+        let Some((transform, presentation)) = parse_element_state(image_tag, image_start) else {
+            search_index = image_start + image_end + 1;
+            continue;
+        };
+        if !transform.axis_aligned {
+            search_index = image_start + image_end + 1;
+            continue;
+        }
+        let Some(corner_a) = apply_transform(transform, x, y) else {
+            search_index = image_start + image_end + 1;
+            continue;
+        };
+        let Some(corner_b) = apply_transform(transform, x + width, y + height) else {
+            search_index = image_start + image_end + 1;
+            continue;
+        };
+        let x = corner_a.0.min(corner_b.0);
+        let y = corner_a.1.min(corner_b.1);
+        let width = (corner_b.0 - corner_a.0).abs();
+        let height = (corner_b.1 - corner_a.1).abs();
+        if width > 0.0 && height > 0.0 {
+            embedded_images.push(SimpleSvgEmbeddedImage {
+                x_ratio: (x - view_box.0) / view_box.2,
+                y_ratio: (y - view_box.1) / view_box.3,
+                width_ratio: width / view_box.2,
+                height_ratio: height / view_box.3,
+                image: decoded_image,
+                clip_rect: clip_rect_for(presentation, transform),
+            });
+        }
+        search_index = image_start + image_end + 1;
+    }
     let decode_xml_text = |raw: &str| {
         raw.replace("&lt;", "<")
             .replace("&gt;", ">")
@@ -5689,6 +5898,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         polys,
         paths,
         texts,
+        embedded_images,
     })
 }
 
@@ -8753,6 +8963,67 @@ mod tests {
         );
         assert!(!pdf_text.contains("[unsupported image: figures/clip-path.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_embedded_png_data_image_as_pdf_xobject() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/embedded-image.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:embedded-image".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let mut data_uri = String::from("data:image/png,");
+        for byte in tiny_png_bytes() {
+            match byte {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    data_uri.push(byte as char);
+                }
+                _ => data_uri.push_str(&format!("%{byte:02X}")),
+            }
+        }
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/embedded-image.svg").then(|| {
+                let base64_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+                format!(
+                    r##"<svg width="20" height="10">
+  <image x="5" y="2" width="8" height="4" href="{data_uri}"/>
+  <image x="14" y="2" width="2" height="2" href="data:image/png;base64,{base64_png}"/>
+  <rect x="0" y="0" width="20" height="10" fill="none" stroke="#00ff00" stroke-width="0.5"/>
+</svg>"##
+                )
+                .into_bytes()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(pdf_text.contains("/XObject << /Im1"));
+        assert!(pdf_text.contains("q 80 0 0 40 60 220 cm /Im1 Do Q"));
+        assert!(pdf_text.contains("/Im2"));
+        assert!(pdf_text.contains("q 20 0 0 20 150 240 cm /Im2 Do Q"));
+        assert!(pdf_text.contains("0 1 0 RG 5 w 10 180 200 100 re S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/embedded-image.svg]"));
     }
 
     #[test]
