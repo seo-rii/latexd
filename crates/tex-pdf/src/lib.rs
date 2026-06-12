@@ -4630,6 +4630,23 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             height_ratio: height / view_box.3,
         })
     };
+    let parse_url_fragment_id = |raw: &str| -> Option<String> {
+        let raw = raw.trim();
+        if raw.eq_ignore_ascii_case("none") {
+            return None;
+        }
+        if raw.len() >= 4 && raw[..4].eq_ignore_ascii_case("url(") {
+            let url_end = raw.find(')')?;
+            let reference = raw[4..url_end]
+                .trim()
+                .trim_matches(|ch| ch == '\'' || ch == '"');
+            return reference
+                .strip_prefix('#')
+                .filter(|id| !id.is_empty())
+                .map(str::to_string);
+        }
+        None
+    };
     #[derive(Debug, Clone, Copy)]
     struct SimpleSvgGroupTransform {
         content_start: usize,
@@ -4822,6 +4839,370 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 presentation,
             ))
         };
+    #[derive(Debug, Clone, Copy)]
+    enum SimpleSvgMarkerOrient {
+        Auto,
+        Angle(f32),
+    }
+    #[derive(Debug, Clone)]
+    struct SimpleSvgMarkerShape {
+        path_data: String,
+        transform: SimpleSvgTransform,
+        presentation: SimpleSvgPresentation,
+    }
+    #[derive(Debug, Clone)]
+    struct SimpleSvgMarkerDefinition {
+        id: String,
+        marker_width: f32,
+        marker_height: f32,
+        ref_x: f32,
+        ref_y: f32,
+        marker_units_stroke_width: bool,
+        orient: SimpleSvgMarkerOrient,
+        view_box: Option<(f32, f32, f32, f32)>,
+        preserve_aspect_ratio: SimpleSvgPreserveAspectRatio,
+        shapes: Vec<SimpleSvgMarkerShape>,
+    }
+    let parse_marker_orient = |raw: Option<String>| -> SimpleSvgMarkerOrient {
+        let Some(raw) = raw else {
+            return SimpleSvgMarkerOrient::Angle(0.0);
+        };
+        let raw = raw.trim();
+        if raw.eq_ignore_ascii_case("auto") || raw.eq_ignore_ascii_case("auto-start-reverse") {
+            return SimpleSvgMarkerOrient::Auto;
+        }
+        parse_number_prefix(raw)
+            .map(SimpleSvgMarkerOrient::Angle)
+            .unwrap_or(SimpleSvgMarkerOrient::Angle(0.0))
+    };
+    let mut marker_definitions = Vec::new();
+    let mut marker_search_index = 0usize;
+    while let Some(relative) = svg_content[marker_search_index..].find("<marker") {
+        let marker_start = marker_search_index + relative;
+        let marker_tail = &svg_content[marker_start..];
+        if !is_start_tag_named(marker_tail, "marker") {
+            marker_search_index = marker_start + "<marker".len();
+            continue;
+        }
+        let Some(marker_tag_end) = marker_tail.find('>') else {
+            break;
+        };
+        let marker_tag = &marker_tail[..marker_tag_end];
+        let Some(id) = attr_value(marker_tag, "id").filter(|id| !id.trim().is_empty()) else {
+            marker_search_index = marker_start + marker_tag_end + 1;
+            continue;
+        };
+        if marker_tag.trim_end().ends_with('/') {
+            marker_search_index = marker_start + marker_tag_end + 1;
+            continue;
+        }
+        let body_start = marker_start + marker_tag_end + 1;
+        let Some(body_end_relative) = svg_content[body_start..].find("</marker>") else {
+            marker_search_index = body_start;
+            continue;
+        };
+        let body_end = body_start + body_end_relative;
+        let body = &svg_content[body_start..body_end];
+        let marker_width = attr_value(marker_tag, "markerWidth")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .filter(|value| *value > 0.0)
+            .unwrap_or(3.0);
+        let marker_height = attr_value(marker_tag, "markerHeight")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .filter(|value| *value > 0.0)
+            .unwrap_or(3.0);
+        let ref_x = attr_value(marker_tag, "refX")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let ref_y = attr_value(marker_tag, "refY")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let marker_units_stroke_width = attr_value(marker_tag, "markerUnits")
+            .map(|value| !value.trim().eq_ignore_ascii_case("userSpaceOnUse"))
+            .unwrap_or(true);
+        let presentation = inherit_presentation(root_presentation, parse_presentation(marker_tag));
+        if !presentation_is_visible(presentation) {
+            marker_search_index = body_end + "</marker>".len();
+            continue;
+        }
+        let mut shapes = Vec::new();
+        let mut body_search_index = 0usize;
+        while let Some(child_relative) = body[body_search_index..].find('<') {
+            let child_start_in_body = body_search_index + child_relative;
+            let child_tail = &body[child_start_in_body..];
+            let Some(child_tag_end) = child_tail.find('>') else {
+                break;
+            };
+            let child_tag = &child_tail[..child_tag_end];
+            if child_tag.starts_with("</") {
+                body_search_index = child_start_in_body + child_tag_end + 1;
+                continue;
+            }
+            let path_data = if is_start_tag_named(child_tail, "path") {
+                attr_value(child_tag, "d")
+            } else if is_start_tag_named(child_tail, "polygon") {
+                attr_value(child_tag, "points")
+                    .as_deref()
+                    .and_then(parse_raw_points)
+                    .and_then(|points| path_data_from_points(&points, true))
+            } else if is_start_tag_named(child_tail, "polyline") {
+                attr_value(child_tag, "points")
+                    .as_deref()
+                    .and_then(parse_raw_points)
+                    .and_then(|points| path_data_from_points(&points, false))
+            } else if is_start_tag_named(child_tail, "rect") {
+                let x = attr_value(child_tag, "x")
+                    .as_deref()
+                    .and_then(parse_number_prefix)
+                    .unwrap_or(0.0);
+                let y = attr_value(child_tag, "y")
+                    .as_deref()
+                    .and_then(parse_number_prefix)
+                    .unwrap_or(0.0);
+                let width = attr_value(child_tag, "width")
+                    .as_deref()
+                    .and_then(parse_number_prefix);
+                let height = attr_value(child_tag, "height")
+                    .as_deref()
+                    .and_then(parse_number_prefix);
+                width
+                    .zip(height)
+                    .and_then(|(width, height)| rect_path_data(x, y, width, height))
+            } else if is_start_tag_named(child_tail, "line") {
+                let x1 = attr_value(child_tag, "x1")
+                    .as_deref()
+                    .and_then(parse_number_prefix)
+                    .unwrap_or(0.0);
+                let y1 = attr_value(child_tag, "y1")
+                    .as_deref()
+                    .and_then(parse_number_prefix)
+                    .unwrap_or(0.0);
+                let x2 = attr_value(child_tag, "x2")
+                    .as_deref()
+                    .and_then(parse_number_prefix);
+                let y2 = attr_value(child_tag, "y2")
+                    .as_deref()
+                    .and_then(parse_number_prefix);
+                x2.zip(y2)
+                    .and_then(|(x2, y2)| path_data_from_points(&[(x1, y1), (x2, y2)], false))
+            } else if is_start_tag_named(child_tail, "circle") {
+                let cx = attr_value(child_tag, "cx")
+                    .as_deref()
+                    .and_then(parse_number_prefix)
+                    .unwrap_or(0.0);
+                let cy = attr_value(child_tag, "cy")
+                    .as_deref()
+                    .and_then(parse_number_prefix)
+                    .unwrap_or(0.0);
+                attr_value(child_tag, "r")
+                    .as_deref()
+                    .and_then(parse_number_prefix)
+                    .and_then(|radius| ellipse_path_data(cx, cy, radius, radius))
+            } else if is_start_tag_named(child_tail, "ellipse") {
+                let cx = attr_value(child_tag, "cx")
+                    .as_deref()
+                    .and_then(parse_number_prefix)
+                    .unwrap_or(0.0);
+                let cy = attr_value(child_tag, "cy")
+                    .as_deref()
+                    .and_then(parse_number_prefix)
+                    .unwrap_or(0.0);
+                let rx = attr_value(child_tag, "rx")
+                    .as_deref()
+                    .and_then(parse_number_prefix);
+                let ry = attr_value(child_tag, "ry")
+                    .as_deref()
+                    .and_then(parse_number_prefix);
+                rx.zip(ry)
+                    .and_then(|(rx, ry)| ellipse_path_data(cx, cy, rx, ry))
+            } else {
+                None
+            };
+            if let Some(path_data) = path_data
+                && let Some(child_transform) = parse_transform(child_tag)
+            {
+                let child_presentation =
+                    inherit_presentation(presentation, parse_presentation(child_tag));
+                if presentation_is_visible(child_presentation) {
+                    shapes.push(SimpleSvgMarkerShape {
+                        path_data,
+                        transform: child_transform,
+                        presentation: child_presentation,
+                    });
+                }
+            }
+            body_search_index = child_start_in_body + child_tag_end + 1;
+        }
+        if !shapes.is_empty() {
+            marker_definitions.push(SimpleSvgMarkerDefinition {
+                id: id.trim().to_string(),
+                marker_width,
+                marker_height,
+                ref_x,
+                ref_y,
+                marker_units_stroke_width,
+                orient: parse_marker_orient(attr_value(marker_tag, "orient")),
+                view_box: parse_view_box(marker_tag),
+                preserve_aspect_ratio: attr_value(marker_tag, "preserveAspectRatio")
+                    .as_deref()
+                    .and_then(|raw| parse_preserve_aspect_ratio(raw))
+                    .unwrap_or(default_preserve_aspect_ratio),
+                shapes,
+            });
+        }
+        marker_search_index = body_end + "</marker>".len();
+    }
+    let marker_end_paths = |marker_id: &str,
+                            x1: f32,
+                            y1: f32,
+                            x2: f32,
+                            y2: f32,
+                            line_presentation: SimpleSvgPresentation,
+                            line_transform: SimpleSvgTransform|
+     -> Option<Vec<SimpleSvgPath>> {
+        let definition = marker_definitions
+            .iter()
+            .rev()
+            .find(|definition| definition.id == marker_id)?;
+        let dx = x2 - x1;
+        let dy = y2 - y1;
+        let line_length = dx.hypot(dy);
+        if !line_length.is_finite() || line_length <= f32::EPSILON {
+            return None;
+        }
+        let stroke_width_user = (transformed_stroke_width_ratio(line_presentation, line_transform)
+            * view_box.2)
+            .max(0.0);
+        let marker_units_scale = if definition.marker_units_stroke_width {
+            stroke_width_user.max(0.000_1)
+        } else {
+            1.0
+        };
+        let viewport_width = definition.marker_width * marker_units_scale;
+        let viewport_height = definition.marker_height * marker_units_scale;
+        if !viewport_width.is_finite()
+            || !viewport_height.is_finite()
+            || viewport_width <= 0.0
+            || viewport_height <= 0.0
+        {
+            return None;
+        }
+        let marker_view_box = definition.view_box.unwrap_or((
+            0.0,
+            0.0,
+            definition.marker_width,
+            definition.marker_height,
+        ));
+        let (scale_x, scale_y, offset_x, offset_y) =
+            if definition.preserve_aspect_ratio.scale == SimpleSvgAspectScale::None {
+                (
+                    viewport_width / marker_view_box.2,
+                    viewport_height / marker_view_box.3,
+                    0.0,
+                    0.0,
+                )
+            } else {
+                let scale = match definition.preserve_aspect_ratio.scale {
+                    SimpleSvgAspectScale::Meet => (viewport_width / marker_view_box.2)
+                        .min(viewport_height / marker_view_box.3),
+                    SimpleSvgAspectScale::Slice => (viewport_width / marker_view_box.2)
+                        .max(viewport_height / marker_view_box.3),
+                    SimpleSvgAspectScale::None => unreachable!(),
+                };
+                let fit_width = marker_view_box.2 * scale;
+                let fit_height = marker_view_box.3 * scale;
+                let offset_x = match definition.preserve_aspect_ratio.x_align {
+                    SimpleSvgAspectAlign::Min => 0.0,
+                    SimpleSvgAspectAlign::Mid => (viewport_width - fit_width) / 2.0,
+                    SimpleSvgAspectAlign::Max => viewport_width - fit_width,
+                };
+                let offset_y = match definition.preserve_aspect_ratio.y_align {
+                    SimpleSvgAspectAlign::Min => 0.0,
+                    SimpleSvgAspectAlign::Mid => (viewport_height - fit_height) / 2.0,
+                    SimpleSvgAspectAlign::Max => viewport_height - fit_height,
+                };
+                (scale, scale, offset_x, offset_y)
+            };
+        if !scale_x.is_finite() || !scale_y.is_finite() || scale_x == 0.0 || scale_y == 0.0 {
+            return None;
+        }
+        let view_box_transform = SimpleSvgTransform {
+            a: scale_x,
+            b: 0.0,
+            c: 0.0,
+            d: scale_y,
+            e: offset_x - marker_view_box.0 * scale_x,
+            f: offset_y - marker_view_box.1 * scale_y,
+            stroke_scale: (scale_x.abs() + scale_y.abs()) / 2.0,
+            axis_aligned: true,
+        };
+        let ref_point = apply_transform(view_box_transform, definition.ref_x, definition.ref_y)?;
+        let ref_transform = SimpleSvgTransform {
+            e: -ref_point.0,
+            f: -ref_point.1,
+            ..identity_transform
+        };
+        let angle_degrees = match definition.orient {
+            SimpleSvgMarkerOrient::Auto => dy.atan2(dx).to_degrees(),
+            SimpleSvgMarkerOrient::Angle(angle) => angle,
+        };
+        let radians = angle_degrees.to_radians();
+        let cos = radians.cos();
+        let sin = radians.sin();
+        let rotate_transform = SimpleSvgTransform {
+            a: cos,
+            b: sin,
+            c: -sin,
+            d: cos,
+            stroke_scale: 1.0,
+            axis_aligned: sin.abs() <= f32::EPSILON,
+            ..identity_transform
+        };
+        let translate_transform = SimpleSvgTransform {
+            e: x2,
+            f: y2,
+            ..identity_transform
+        };
+        let mut paths = Vec::new();
+        for shape in &definition.shapes {
+            let transform = compose_transform(
+                shape.transform,
+                view_box_transform,
+                view_box_transform.stroke_scale,
+            );
+            let transform = compose_transform(transform, ref_transform, ref_transform.stroke_scale);
+            let transform =
+                compose_transform(transform, rotate_transform, rotate_transform.stroke_scale);
+            let transform = compose_transform(
+                transform,
+                translate_transform,
+                translate_transform.stroke_scale,
+            );
+            let Some((ops, _closed)) = parse_path(&shape.path_data, transform) else {
+                continue;
+            };
+            let fill = fill_paint(shape.presentation, Some((0.0, 0.0, 0.0)));
+            let stroke = stroke_paint(shape.presentation);
+            if fill.is_none() && stroke.is_none() {
+                continue;
+            }
+            paths.push(SimpleSvgPath {
+                ops,
+                fill,
+                fill_rule: fill_rule(shape.presentation),
+                stroke,
+                stroke_width_ratio: transformed_stroke_width_ratio(shape.presentation, transform),
+                stroke_dasharray: transformed_stroke_dasharray_ratio(shape.presentation, transform),
+                stroke_style: stroke_style(shape.presentation),
+                clip_rect: None,
+            });
+        }
+        (!paths.is_empty()).then_some(paths)
+    };
     let mut rects = Vec::new();
     let mut rect_polys = Vec::new();
     let mut shape_paths = Vec::new();
@@ -5138,6 +5519,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if (x1 != x2 || y1 != y2)
             && let Some(stroke) = stroke_paint(presentation)
         {
+            let marker_end_id = attr_value(line_tag, "marker-end")
+                .or_else(|| style_value(line_tag, "marker-end"))
+                .as_deref()
+                .and_then(parse_url_fragment_id);
+            if let Some(marker_end_id) = marker_end_id
+                && let Some(marker_paths) =
+                    marker_end_paths(&marker_end_id, x1, y1, x2, y2, presentation, transform)
+            {
+                shape_paths.extend(marker_paths);
+            }
             lines.push(SimpleSvgLine {
                 x1_ratio: (x1 - view_box.0) / view_box.2,
                 y1_ratio: (y1 - view_box.1) / view_box.3,
@@ -8489,6 +8880,55 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 100 40 re S"));
         assert!(pdf_text.contains("0 1 0 RG 10 w 10 180 m 210 280 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/stroked.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_line_marker_end_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/line-marker.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:line-marker".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/line-marker.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+  </defs>
+  <line x1="2" y1="5" x2="18" y2="5" stroke="#0000ff" stroke-width="0.5" marker-end="url(#arrow)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 190 230 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/line-marker.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
