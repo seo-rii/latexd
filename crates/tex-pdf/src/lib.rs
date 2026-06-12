@@ -2198,7 +2198,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     let normalized_viewport_diagonal =
         ((view_box.2 * view_box.2 + view_box.3 * view_box.3) / 2.0).sqrt();
-    let parse_stroke_width = |raw: &str| -> Option<f32> {
+    let parse_stroke_length = |raw: &str| -> Option<f32> {
         let raw = raw.trim();
         if let Some(percent) = raw.strip_suffix('%') {
             return percent
@@ -2208,8 +2208,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .filter(|value| value.is_finite() && *value > 0.0)
                 .map(|value| normalized_viewport_diagonal * value / 100.0);
         }
-        parse_number_prefix(raw).filter(|width| *width > 0.0)
+        parse_number_prefix(raw)
     };
+    let parse_stroke_width =
+        |raw: &str| -> Option<f32> { parse_stroke_length(raw).filter(|width| *width > 0.0) };
     let parse_display = |raw: &str| -> Option<bool> {
         let raw = raw.trim();
         if raw.eq_ignore_ascii_case("inherit") || raw.is_empty() {
@@ -2236,7 +2238,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .split(|ch: char| ch == ',' || ch.is_whitespace())
             .filter(|component| !component.is_empty())
         {
-            let value = parse_number_prefix(component)?;
+            let value = parse_stroke_length(component)?;
             if !value.is_finite() || value < 0.0 {
                 return None;
             }
@@ -2408,7 +2410,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             stroke_dasharray: stroke_dasharray.as_deref().and_then(parse_dasharray),
             stroke_dashoffset: stroke_dashoffset
                 .as_deref()
-                .and_then(parse_number_prefix)
+                .and_then(parse_stroke_length)
                 .filter(|offset| *offset >= 0.0),
             stroke_linecap: stroke_linecap.as_deref().and_then(parse_stroke_linecap),
             stroke_linejoin: stroke_linejoin.as_deref().and_then(parse_stroke_linejoin),
@@ -9845,6 +9847,53 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 RG 10 w 10 230 m 60 230 l S"));
         assert!(!pdf_text.contains("q [20 10] 5 d 4 M 0 1 0 RG 10 w 10 230 m 60 230 l S Q"));
         assert!(!pdf_text.contains("[unsupported image: figures/dashoffset-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_percentage_stroke_dasharray_as_pdf_dash_pattern() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/dash-percent.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:dash-percent".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/dash-percent.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <line x1="0" y1="0" x2="5" y2="0" stroke="#ff0000" stroke-width="1" stroke-dasharray="10% 5%" stroke-dashoffset="2.5%" fill="none"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q [15.811"));
+        assert!(pdf_text.contains(" 7.905"));
+        assert!(pdf_text.contains("] 3.952"));
+        assert!(pdf_text.contains(" d 4 M 1 0 0 RG 10 w 10 280 m 60 280 l S Q"));
+        assert!(!pdf_text.contains("[20 10]"));
+        assert!(!pdf_text.contains("[unsupported image: figures/dash-percent.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

@@ -209,8 +209,9 @@ rules with basic specificity and
     fallback colors,
     simple `fill-rule` mapped to PDF nonzero/even-odd fill
 operators, simple `opacity` / `fill-opacity` / `stroke-opacity` mapped to PDF
-ExtGState resources, simple `stroke-dasharray` mapped to PDF dash patterns with
-`stroke-dashoffset` phase support, simple `stroke-linecap` /
+ExtGState resources, simple `stroke-dasharray` absolute/percentage lengths
+mapped to PDF dash patterns with `stroke-dashoffset` absolute/percentage phase
+support, simple `stroke-linecap` /
 `stroke-linejoin` / `stroke-miterlimit` mapped to PDF graphics state, and
     `matrix` / `rotate` / `skewX` / `skewY` transforms for path-like line/poly/path
 primitives, plus non-axis-aligned transformed rectangles rendered as closed
@@ -670,7 +671,8 @@ Implemented first slice:
   simple `fill-rule` mapped to PDF
   nonzero/even-odd fill operators, simple `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray`
-  mapped to PDF dash patterns with `stroke-dashoffset` phase support, simple
+  absolute/percentage lengths mapped to PDF dash patterns with `stroke-dashoffset`
+  absolute/percentage phase support, simple
   `stroke-linecap` / `stroke-linejoin` / `stroke-miterlimit` mapped to PDF
   graphics state, path-like `matrix` / `rotate` / `skewX` / `skewY` transforms, non-axis-aligned
   transformed rectangles, and transformed circle/ellipse cubic paths, as vector
@@ -1127,7 +1129,8 @@ Status:
   simple `fill-rule` mapped to PDF
   nonzero/even-odd fill operators, simple `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray`
-  mapped to PDF dash patterns with `stroke-dashoffset` phase support, simple
+  absolute/percentage lengths mapped to PDF dash patterns with `stroke-dashoffset`
+  absolute/percentage phase support, simple
   `stroke-linecap` / `stroke-linejoin` / `stroke-miterlimit` mapped to PDF
   graphics state, and path-like `matrix` / `rotate` / `skewX` / `skewY` transform attributes plus
   non-axis-aligned transformed rectangles and transformed circle/ellipse cubic
