@@ -3186,20 +3186,29 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     let stroke_width_ratio = |presentation: SimpleSvgPresentation| -> f32 {
         presentation.stroke_width.unwrap_or(1.0) / view_box.2
     };
-    let stroke_dasharray_ratio =
-        |presentation: SimpleSvgPresentation| -> Option<SimpleSvgDashArray> {
-            presentation
-                .stroke_dasharray
-                .unwrap_or(None)
-                .map(|mut dasharray| {
-                    for index in 0..dasharray.len {
-                        dasharray.values[index] /= view_box.2;
-                    }
-                    dasharray.offset_ratio =
-                        presentation.stroke_dashoffset.unwrap_or(0.0) / view_box.2;
-                    dasharray
-                })
-        };
+    let transformed_stroke_dasharray_ratio = |presentation: SimpleSvgPresentation,
+                                              transform: SimpleSvgTransform|
+     -> Option<SimpleSvgDashArray> {
+        presentation
+            .stroke_dasharray
+            .unwrap_or(None)
+            .map(|mut dasharray| {
+                let stroke_scale = if presentation
+                    .vector_effect_non_scaling_stroke
+                    .unwrap_or(false)
+                {
+                    1.0
+                } else {
+                    transform.stroke_scale
+                };
+                for index in 0..dasharray.len {
+                    dasharray.values[index] = dasharray.values[index] * stroke_scale / view_box.2;
+                }
+                dasharray.offset_ratio =
+                    presentation.stroke_dashoffset.unwrap_or(0.0) * stroke_scale / view_box.2;
+                dasharray
+            })
+    };
     let stroke_style = |presentation: SimpleSvgPresentation| -> SimpleSvgStrokeStyle {
         SimpleSvgStrokeStyle {
             linecap: presentation
@@ -4398,7 +4407,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         fill_rule: fill_rule(presentation),
                         stroke,
                         stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
-                        stroke_dasharray: stroke_dasharray_ratio(presentation),
+                        stroke_dasharray: transformed_stroke_dasharray_ratio(
+                            presentation,
+                            transform,
+                        ),
                         stroke_style: stroke_style(presentation),
                     });
                 }
@@ -4435,7 +4447,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         fill_rule: fill_rule(presentation),
                         stroke,
                         stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
-                        stroke_dasharray: stroke_dasharray_ratio(presentation),
+                        stroke_dasharray: transformed_stroke_dasharray_ratio(
+                            presentation,
+                            transform,
+                        ),
                         stroke_style: stroke_style(presentation),
                     });
                 }
@@ -4464,7 +4479,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     fill_rule: fill_rule(presentation),
                     stroke,
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
-                    stroke_dasharray: stroke_dasharray_ratio(presentation),
+                    stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                     stroke_style: stroke_style(presentation),
                 });
             }
@@ -4538,7 +4553,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 y2_ratio: (y2 - view_box.1) / view_box.3,
                 stroke,
                 stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
-                stroke_dasharray: stroke_dasharray_ratio(presentation),
+                stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                 stroke_style: stroke_style(presentation),
             });
         }
@@ -4594,7 +4609,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         fill_rule: fill_rule(presentation),
                         stroke,
                         stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
-                        stroke_dasharray: stroke_dasharray_ratio(presentation),
+                        stroke_dasharray: transformed_stroke_dasharray_ratio(
+                            presentation,
+                            transform,
+                        ),
                         stroke_style: stroke_style(presentation),
                     });
                 }
@@ -4625,7 +4643,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     fill_rule: fill_rule(presentation),
                     stroke,
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
-                    stroke_dasharray: stroke_dasharray_ratio(presentation),
+                    stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                     stroke_style: stroke_style(presentation),
                 });
             }
@@ -4688,7 +4706,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         fill_rule: fill_rule(presentation),
                         stroke,
                         stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
-                        stroke_dasharray: stroke_dasharray_ratio(presentation),
+                        stroke_dasharray: transformed_stroke_dasharray_ratio(
+                            presentation,
+                            transform,
+                        ),
                         stroke_style: stroke_style(presentation),
                     });
                 }
@@ -4719,7 +4740,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     fill_rule: fill_rule(presentation),
                     stroke,
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
-                    stroke_dasharray: stroke_dasharray_ratio(presentation),
+                    stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                     stroke_style: stroke_style(presentation),
                 });
             }
@@ -4758,7 +4779,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     fill_rule: fill_rule(presentation),
                     stroke,
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
-                    stroke_dasharray: stroke_dasharray_ratio(presentation),
+                    stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                     stroke_style: stroke_style(presentation),
                 });
             }
@@ -4796,7 +4817,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     fill_rule: fill_rule(presentation),
                     stroke,
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
-                    stroke_dasharray: stroke_dasharray_ratio(presentation),
+                    stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                     stroke_style: stroke_style(presentation),
                 });
             }
@@ -4826,7 +4847,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             fill_rule: fill_rule(presentation),
             stroke,
             stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
-            stroke_dasharray: stroke_dasharray_ratio(presentation),
+            stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
             stroke_style: stroke_style(presentation),
         });
         true
@@ -8202,18 +8223,18 @@ mod tests {
   <style type="text/css">
     .fixed { vector-effect: non-scaling-stroke; }
   </style>
-  <path d="M 0 0 L 5 0" transform="scale(2)" fill="none" stroke-width="1" stroke="#ff0000"/>
-  <path class="fixed" d="M 0 2 L 5 2" transform="scale(2)" fill="none" stroke-width="1" stroke="#0000ff"/>
-  <path d="M 0 3 L 5 3" transform="scale(2)" fill="none" stroke-width="1" stroke="#00ff00" vector-effect="non-scaling-stroke"/>
+  <path d="M 0 0 L 5 0" transform="scale(2)" fill="none" stroke-width="1" stroke-dasharray="1 0.5" stroke-dashoffset="0.25" stroke="#ff0000"/>
+  <path class="fixed" d="M 0 2 L 5 2" transform="scale(2)" fill="none" stroke-width="1" stroke-dasharray="1 0.5" stroke-dashoffset="0.25" stroke="#0000ff"/>
+  <path d="M 0 3 L 5 3" transform="scale(2)" fill="none" stroke-width="1" stroke-dasharray="1 0.5" stroke-dashoffset="0.25" stroke="#00ff00" vector-effect="non-scaling-stroke"/>
 </svg>"##
                     .to_vec()
             })
         });
         let pdf_text = String::from_utf8_lossy(&pdf);
 
-        assert!(pdf_text.contains("1 0 0 RG 20 w 10 280 m 110 280 l S"));
-        assert!(pdf_text.contains("0 0 1 RG 10 w 10 240 m 110 240 l S"));
-        assert!(pdf_text.contains("0 1 0 RG 10 w 10 220 m 110 220 l S"));
+        assert!(pdf_text.contains("q [20 10] 5 d 4 M 1 0 0 RG 20 w 10 280 m 110 280 l S Q"));
+        assert!(pdf_text.contains("q [10 5] 2.5 d 4 M 0 0 1 RG 10 w 10 240 m 110 240 l S Q"));
+        assert!(pdf_text.contains("q [10 5] 2.5 d 4 M 0 1 0 RG 10 w 10 220 m 110 220 l S Q"));
         assert!(!pdf_text.contains("[unsupported image: figures/non-scaling-stroke.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
