@@ -5967,7 +5967,163 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         search_index = poly_start + poly_end + 1;
     }
     let mut paths = shape_paths;
+    let push_path_markers = |paths: &mut Vec<SimpleSvgPath>,
+                             tag: &str,
+                             ops: &[SimpleSvgPathOp],
+                             presentation: SimpleSvgPresentation,
+                             transform: SimpleSvgTransform| {
+        let marker_start_id = attr_value(tag, "marker-start")
+            .or_else(|| style_value(tag, "marker-start"))
+            .as_deref()
+            .and_then(parse_url_fragment_id);
+        let marker_mid_id = attr_value(tag, "marker-mid")
+            .or_else(|| style_value(tag, "marker-mid"))
+            .as_deref()
+            .and_then(parse_url_fragment_id);
+        let marker_end_id = attr_value(tag, "marker-end")
+            .or_else(|| style_value(tag, "marker-end"))
+            .as_deref()
+            .and_then(parse_url_fragment_id);
+        if marker_start_id.is_none() && marker_mid_id.is_none() && marker_end_id.is_none() {
+            return;
+        }
+        #[derive(Debug, Clone, Copy)]
+        struct SimpleSvgPathMarkerSegment {
+            start: (f32, f32),
+            end: (f32, f32),
+            start_tangent: (f32, f32),
+            end_tangent: (f32, f32),
+        }
+        let denormalize_point = |point: (f32, f32)| -> (f32, f32) {
+            (
+                point.0 * view_box.2 + view_box.0,
+                point.1 * view_box.3 + view_box.1,
+            )
+        };
+        let tangent_or_fallback = |primary: (f32, f32), fallback: (f32, f32)| {
+            if primary.0.hypot(primary.1) > f32::EPSILON {
+                primary
+            } else {
+                fallback
+            }
+        };
+        let mut segments = Vec::new();
+        let mut current = None;
+        let mut subpath_start = None;
+        for op in ops {
+            match *op {
+                SimpleSvgPathOp::MoveTo(point) => {
+                    current = Some(point);
+                    subpath_start = Some(point);
+                }
+                SimpleSvgPathOp::LineTo(to) => {
+                    if let Some(from) = current {
+                        let start = denormalize_point(from);
+                        let end = denormalize_point(to);
+                        let tangent = (end.0 - start.0, end.1 - start.1);
+                        segments.push(SimpleSvgPathMarkerSegment {
+                            start,
+                            end,
+                            start_tangent: tangent,
+                            end_tangent: tangent,
+                        });
+                    }
+                    current = Some(to);
+                }
+                SimpleSvgPathOp::CubicTo { ctrl1, ctrl2, to } => {
+                    if let Some(from) = current {
+                        let start = denormalize_point(from);
+                        let ctrl1 = denormalize_point(ctrl1);
+                        let ctrl2 = denormalize_point(ctrl2);
+                        let end = denormalize_point(to);
+                        let chord = (end.0 - start.0, end.1 - start.1);
+                        let start_tangent =
+                            tangent_or_fallback((ctrl1.0 - start.0, ctrl1.1 - start.1), chord);
+                        let end_tangent =
+                            tangent_or_fallback((end.0 - ctrl2.0, end.1 - ctrl2.1), chord);
+                        segments.push(SimpleSvgPathMarkerSegment {
+                            start,
+                            end,
+                            start_tangent,
+                            end_tangent,
+                        });
+                    }
+                    current = Some(to);
+                }
+                SimpleSvgPathOp::Close => {
+                    if let (Some(from), Some(to)) = (current, subpath_start) {
+                        let start = denormalize_point(from);
+                        let end = denormalize_point(to);
+                        let tangent = (end.0 - start.0, end.1 - start.1);
+                        if tangent.0.hypot(tangent.1) > f32::EPSILON {
+                            segments.push(SimpleSvgPathMarkerSegment {
+                                start,
+                                end,
+                                start_tangent: tangent,
+                                end_tangent: tangent,
+                            });
+                        }
+                        current = Some(to);
+                    }
+                }
+            }
+        }
+        if segments.is_empty() {
+            return;
+        }
+        let push_marker = |paths: &mut Vec<SimpleSvgPath>,
+                           marker_id: Option<String>,
+                           endpoint: (f32, f32),
+                           tangent: (f32, f32),
+                           at_start: bool| {
+            if let Some(marker_id) = marker_id
+                && let Some(marker_paths) = marker_paths(
+                    &marker_id,
+                    endpoint.0,
+                    endpoint.1,
+                    tangent.0,
+                    tangent.1,
+                    at_start,
+                    presentation,
+                    transform,
+                )
+            {
+                paths.extend(marker_paths);
+            }
+        };
+        let first = segments[0];
+        push_marker(
+            paths,
+            marker_start_id,
+            first.start,
+            first.start_tangent,
+            true,
+        );
+        if let Some(marker_mid_id) = marker_mid_id {
+            for pair in segments.windows(2) {
+                let previous = pair[0];
+                let next = pair[1];
+                let tangent = tangent_or_fallback(
+                    (
+                        previous.end_tangent.0 + next.start_tangent.0,
+                        previous.end_tangent.1 + next.start_tangent.1,
+                    ),
+                    next.start_tangent,
+                );
+                push_marker(
+                    paths,
+                    Some(marker_mid_id.clone()),
+                    previous.end,
+                    tangent,
+                    false,
+                );
+            }
+        }
+        let last = segments[segments.len() - 1];
+        push_marker(paths, marker_end_id, last.end, last.end_tangent, false);
+    };
     let push_simple_svg_path = |paths: &mut Vec<SimpleSvgPath>,
+                                tag: &str,
                                 transform: SimpleSvgTransform,
                                 presentation: SimpleSvgPresentation,
                                 path_data: &str|
@@ -5983,6 +6139,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if fill.is_none() && stroke.is_none() {
             return false;
         }
+        let marker_ops = ops.clone();
         paths.push(SimpleSvgPath {
             ops,
             fill,
@@ -5993,6 +6150,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             stroke_style: stroke_style(presentation),
             clip_rect: clip_rect_for(presentation, transform),
         });
+        push_path_markers(paths, tag, &marker_ops, presentation, transform);
         true
     };
     #[derive(Debug, Clone)]
@@ -6322,7 +6480,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if let Some((transform, presentation)) = parse_element_state(path_tag, path_start)
             && let Some(path_data) = attr_value(path_tag, "d")
         {
-            push_simple_svg_path(&mut paths, transform, presentation, &path_data);
+            push_simple_svg_path(&mut paths, path_tag, transform, presentation, &path_data);
         }
         search_index = path_start + path_end + 1;
     }
@@ -6512,7 +6670,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 outer_transform.stroke_scale,
             );
             let presentation = inherit_presentation(definition_presentation, use_presentation);
-            push_simple_svg_path(&mut paths, transform, presentation, &definition.path_data);
+            push_simple_svg_path(
+                &mut paths,
+                &definition.tag,
+                transform,
+                presentation,
+                &definition.path_data,
+            );
         }
         search_index = use_start + use_end + 1;
     }
@@ -9511,6 +9675,106 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 rg 10 180 m 110 280 l 210 280 l 210 180 l h f"));
         assert!(pdf_text.contains("0 0 1 RG 5 w 10 180 m 110 280 l 210 280 l 210 180 l h S"));
         assert!(!pdf_text.contains("[unsupported image: figures/path.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_path_markers_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/path-markers.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:path-markers".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/path-markers.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+  </defs>
+  <path d="M 2 5 L 10 5 L 18 5" fill="none" stroke="#0000ff" stroke-width="0.5" marker-start="url(#arrow)" marker-mid="url(#arrow)" marker-end="url(#arrow)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 110 230 l 190 230 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 10 240 m 30 230 l 10 220 l h f"));
+        assert!(pdf_text.contains("1 0 0 rg 90 240 m 110 230 l 90 220 l h f"));
+        assert!(pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/path-markers.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_cubic_path_end_marker_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/cubic-path-marker.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:cubic-path-marker".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/cubic-path-marker.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+  </defs>
+  <path d="M 2 5 C 6 5 14 5 18 5" fill="none" stroke="#0000ff" stroke-width="0.5" marker-end="url(#arrow)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m"));
+        assert!(pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/cubic-path-marker.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
