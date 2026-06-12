@@ -2206,6 +2206,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         font_shape: Option<FontShape>,
         text_baseline: Option<SimpleSvgTextBaseline>,
         baseline_shift: Option<SimpleSvgBaselineShift>,
+        vector_effect_non_scaling_stroke: Option<bool>,
     }
     let parse_opacity = |raw: &str| -> Option<f32> {
         let raw = raw.trim();
@@ -2378,6 +2379,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             }
         })
     };
+    let parse_vector_effect = |raw: &str| -> Option<bool> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "non-scaling-stroke" => Some(true),
+            "default" | "none" => Some(false),
+            _ => None,
+        }
+    };
     let first_some = |left: Option<String>, right: Option<String>| left.or(right);
     let parse_optional_paint = |value: Option<String>| -> Option<Option<SimpleSvgColor>> {
         let value = value?;
@@ -2414,7 +2422,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     font_weight: Option<String>,
                                     font_style: Option<String>,
                                     text_baseline: Option<String>,
-                                    baseline_shift: Option<String>|
+                                    baseline_shift: Option<String>,
+                                    vector_effect: Option<String>|
      -> SimpleSvgPresentation {
         SimpleSvgPresentation {
             fill: parse_optional_paint(fill),
@@ -2445,6 +2454,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             font_shape: font_style.as_deref().and_then(parse_font_shape),
             text_baseline: text_baseline.as_deref().and_then(parse_text_baseline),
             baseline_shift: baseline_shift.as_deref().and_then(parse_baseline_shift),
+            vector_effect_non_scaling_stroke: vector_effect
+                .as_deref()
+                .and_then(parse_vector_effect),
         }
     };
     let parse_attr_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -2474,6 +2486,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 attr_value(tag, "alignment-baseline"),
             ),
             attr_value(tag, "baseline-shift"),
+            attr_value(tag, "vector-effect"),
         )
     };
     let parse_inline_style_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -2503,6 +2516,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 style_value(tag, "alignment-baseline"),
             ),
             style_value(tag, "baseline-shift"),
+            style_value(tag, "vector-effect"),
         )
     };
     let parse_declaration_presentation = |declarations: &str| -> SimpleSvgPresentation {
@@ -2532,6 +2546,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 declaration_value(declarations, "alignment-baseline"),
             ),
             declaration_value(declarations, "baseline-shift"),
+            declaration_value(declarations, "vector-effect"),
         )
     };
     #[derive(Debug, Clone)]
@@ -2726,6 +2741,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 font_shape: local.font_shape.or(base.font_shape),
                 text_baseline: local.text_baseline.or(base.text_baseline),
                 baseline_shift: local.baseline_shift.or(base.baseline_shift),
+                vector_effect_non_scaling_stroke: local
+                    .vector_effect_non_scaling_stroke
+                    .or(base.vector_effect_non_scaling_stroke),
             }
         };
     let inherit_presentation = |parent: SimpleSvgPresentation,
@@ -2782,6 +2800,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             font_shape: local.font_shape.or(parent.font_shape),
             text_baseline: local.text_baseline.or(parent.text_baseline),
             baseline_shift: local.baseline_shift.or(parent.baseline_shift),
+            vector_effect_non_scaling_stroke: local.vector_effect_non_scaling_stroke,
         }
     };
     let tag_element_name = |tag: &str| -> Option<String> {
@@ -2829,6 +2848,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut font_shape: Option<SimpleSvgCascadeValue<FontShape>> = None;
         let mut text_baseline: Option<SimpleSvgCascadeValue<SimpleSvgTextBaseline>> = None;
         let mut baseline_shift: Option<SimpleSvgCascadeValue<SimpleSvgBaselineShift>> = None;
+        let mut vector_effect_non_scaling_stroke: Option<SimpleSvgCascadeValue<bool>> = None;
         for (order, rule) in style_rules.iter().enumerate() {
             let matches = match &rule.selector {
                 SimpleSvgStyleSelector::Type { element_name } => {
@@ -3085,6 +3105,17 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
+                if let Some(value) = rule.presentation.vector_effect_non_scaling_stroke {
+                    let current = vector_effect_non_scaling_stroke
+                        .map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        vector_effect_non_scaling_stroke = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
             }
         }
         SimpleSvgPresentation {
@@ -3110,6 +3141,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             font_shape: font_shape.map(|value| value.value),
             text_baseline: text_baseline.map(|value| value.value),
             baseline_shift: baseline_shift.map(|value| value.value),
+            vector_effect_non_scaling_stroke: vector_effect_non_scaling_stroke
+                .map(|value| value.value),
         }
     };
     let parse_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -3470,7 +3503,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     let transformed_stroke_width_ratio =
         |presentation: SimpleSvgPresentation, transform: SimpleSvgTransform| -> f32 {
-            stroke_width_ratio(presentation) * transform.stroke_scale
+            if presentation
+                .vector_effect_non_scaling_stroke
+                .unwrap_or(false)
+            {
+                stroke_width_ratio(presentation)
+            } else {
+                stroke_width_ratio(presentation) * transform.stroke_scale
+            }
         };
     let ellipse_path_ops = |cx: f32,
                             cy: f32,
@@ -8125,6 +8165,56 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 rg 30 220 80 40 re f"));
         assert!(pdf_text.contains("0 1 0 RG 10 w 30 270 m 80 270 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/transformed.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_non_scaling_stroke_transform_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/non-scaling-stroke.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:non-scaling-stroke".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/non-scaling-stroke.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .fixed { vector-effect: non-scaling-stroke; }
+  </style>
+  <path d="M 0 0 L 5 0" transform="scale(2)" fill="none" stroke-width="1" stroke="#ff0000"/>
+  <path class="fixed" d="M 0 2 L 5 2" transform="scale(2)" fill="none" stroke-width="1" stroke="#0000ff"/>
+  <path d="M 0 3 L 5 3" transform="scale(2)" fill="none" stroke-width="1" stroke="#00ff00" vector-effect="non-scaling-stroke"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 RG 20 w 10 280 m 110 280 l S"));
+        assert!(pdf_text.contains("0 0 1 RG 10 w 10 240 m 110 240 l S"));
+        assert!(pdf_text.contains("0 1 0 RG 10 w 10 220 m 110 220 l S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/non-scaling-stroke.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

@@ -213,7 +213,8 @@ operators, simple `opacity` / `fill-opacity` / `stroke-opacity` mapped to PDF
 ExtGState resources, simple `stroke-dasharray` absolute/percentage lengths
 mapped to PDF dash patterns with `stroke-dashoffset` absolute/percentage phase
 support, simple `stroke-linecap` /
-`stroke-linejoin` / `stroke-miterlimit` mapped to PDF graphics state, and
+`stroke-linejoin` / `stroke-miterlimit` mapped to PDF graphics state, simple
+`vector-effect: non-scaling-stroke` stroke-width preservation, and
     `matrix` / `rotate` / `skewX` / `skewY` transforms for path-like line/poly/path
 primitives, plus non-axis-aligned transformed rectangles rendered as closed
 vector polygons and transformed circle/ellipse primitives rendered as cubic
@@ -676,7 +677,8 @@ Implemented first slice:
   absolute/percentage lengths mapped to PDF dash patterns with `stroke-dashoffset`
   absolute/percentage phase support, simple
   `stroke-linecap` / `stroke-linejoin` / `stroke-miterlimit` mapped to PDF
-  graphics state, path-like `matrix` / `rotate` / `skewX` / `skewY` transforms, non-axis-aligned
+  graphics state, simple `vector-effect: non-scaling-stroke` stroke-width
+  preservation, path-like `matrix` / `rotate` / `skewX` / `skewY` transforms, non-axis-aligned
   transformed rectangles, and transformed circle/ellipse cubic paths, as vector
   drawing operations, including display-list crop/viewport placement and
   `clip=true` destination clipping for simple SVG vector PDF assets;
@@ -1135,7 +1137,8 @@ Status:
   absolute/percentage lengths mapped to PDF dash patterns with `stroke-dashoffset`
   absolute/percentage phase support, simple
   `stroke-linecap` / `stroke-linejoin` / `stroke-miterlimit` mapped to PDF
-  graphics state, and path-like `matrix` / `rotate` / `skewX` / `skewY` transform attributes plus
+  graphics state, simple `vector-effect: non-scaling-stroke` stroke-width
+  preservation, and path-like `matrix` / `rotate` / `skewX` / `skewY` transform attributes plus
   non-axis-aligned transformed rectangles and transformed circle/ellipse cubic
   paths, with root/style/element scanners requiring tag-name boundaries to
   avoid prefix false positives such as `svgz` as `svg`, `stylesheet` as
