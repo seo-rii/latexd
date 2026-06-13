@@ -226,8 +226,9 @@ definitions, simple `<defs>` `<use>` aliases, and `<defs>` group children
 composed from `<use>` aliases, plus symbol children composed from `<use>`
 aliases and `<defs>` symbol aliases with basic symbol `viewBox`
 viewport fitting, simple `<line>`, `<polyline>`, `<polygon>`, and `<path>`
-arrow markers from path-like `<marker>` children, including `marker` shorthand
-and `marker-start` / `marker-mid` / `marker-end`, with `context-stroke` /
+arrow markers from path-like `<marker>` children, including cascaded
+presentation/CSS `marker` shorthand and `marker-start` / `marker-mid` /
+`marker-end`, with `context-stroke` /
 `context-fill` paint inheritance, rounded marker `rect` children, and nested group
 transform/presentation state,
 plus simple embedded `data:image/png` / `data:image/jpeg` SVG
@@ -265,7 +266,7 @@ the converted bitmap pixel size. Driver-accurate crop/clip rendering for
 production SVG vector output and raster backends, broader driver-exact PDF crop
 edge cases, TeX-exact rotated-box reflow, broader SVG style cascade beyond
 root/group/simple selector
-fill/stroke/stroke-width/opacity specificity and color support, full SVG
+fill/stroke/stroke-width/opacity/marker specificity and color support, full SVG
 compositing and broader stroke styling, programmable table
 preamble hooks, exact residual vertical border trimming, exact table rule trimming, actual multirow
 geometry, exact nested table layout/reflow, and full TeX alignment policy are
@@ -702,8 +703,9 @@ Implemented first slice:
   composed from `<use>` aliases, plus symbol children composed from `<use>`
   aliases and `<defs>` symbol aliases with basic symbol `viewBox`
   viewport fitting, simple `<line>`, `<polyline>`, `<polygon>`, and `<path>`
-  arrow markers from path-like `<marker>` children, including `marker`
-  shorthand and `marker-start` / `marker-mid` / `marker-end`, with
+  arrow markers from path-like `<marker>` children, including cascaded
+  presentation/CSS `marker` shorthand and `marker-start` / `marker-mid` /
+  `marker-end`, with
   `context-stroke` / `context-fill` paint inheritance, rounded marker `rect`
   children, and nested group transform/presentation state, plus simple embedded
   `data:image/png` / `data:image/jpeg`

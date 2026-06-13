@@ -2481,6 +2481,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         text_baseline: Option<SimpleSvgTextBaseline>,
         baseline_shift: Option<SimpleSvgBaselineShift>,
         vector_effect_non_scaling_stroke: Option<bool>,
+        marker_start: Option<Option<u64>>,
+        marker_mid: Option<Option<u64>>,
+        marker_end: Option<Option<u64>>,
         clip_path: Option<Option<u64>>,
     }
     let parse_opacity = |raw: &str| -> Option<f32> {
@@ -2669,7 +2672,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         hash
     };
-    let parse_clip_path = |raw: &str| -> Option<Option<u64>> {
+    let parse_url_fragment_reference = |raw: &str| -> Option<Option<u64>> {
         let raw = raw.trim();
         if raw.eq_ignore_ascii_case("none") {
             return Some(None);
@@ -2686,6 +2689,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         None
     };
+    let parse_clip_path = |raw: &str| -> Option<Option<u64>> { parse_url_fragment_reference(raw) };
+    let parse_marker_reference =
+        |raw: &str| -> Option<Option<u64>> { parse_url_fragment_reference(raw) };
     let decode_data_image_uri = |raw: &str| -> Option<DecodedPdfImage> {
         let raw = raw.trim();
         let data = raw.strip_prefix("data:")?;
@@ -2795,8 +2801,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     text_baseline: Option<String>,
                                     baseline_shift: Option<String>,
                                     vector_effect: Option<String>,
+                                    marker: Option<String>,
+                                    marker_start: Option<String>,
+                                    marker_mid: Option<String>,
+                                    marker_end: Option<String>,
                                     clip_path: Option<String>|
      -> SimpleSvgPresentation {
+        let marker = marker.as_deref().and_then(parse_marker_reference);
         SimpleSvgPresentation {
             fill: parse_optional_paint(fill),
             fill_rule: fill_rule.as_deref().and_then(parse_fill_rule),
@@ -2829,6 +2840,18 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             vector_effect_non_scaling_stroke: vector_effect
                 .as_deref()
                 .and_then(parse_vector_effect),
+            marker_start: marker_start
+                .as_deref()
+                .and_then(parse_marker_reference)
+                .or(marker),
+            marker_mid: marker_mid
+                .as_deref()
+                .and_then(parse_marker_reference)
+                .or(marker),
+            marker_end: marker_end
+                .as_deref()
+                .and_then(parse_marker_reference)
+                .or(marker),
             clip_path: clip_path.as_deref().and_then(parse_clip_path),
         }
     };
@@ -2860,6 +2883,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             ),
             attr_value(tag, "baseline-shift"),
             attr_value(tag, "vector-effect"),
+            attr_value(tag, "marker"),
+            attr_value(tag, "marker-start"),
+            attr_value(tag, "marker-mid"),
+            attr_value(tag, "marker-end"),
             attr_value(tag, "clip-path"),
         )
     };
@@ -2891,6 +2918,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             ),
             style_value(tag, "baseline-shift"),
             style_value(tag, "vector-effect"),
+            style_value(tag, "marker"),
+            style_value(tag, "marker-start"),
+            style_value(tag, "marker-mid"),
+            style_value(tag, "marker-end"),
             style_value(tag, "clip-path"),
         )
     };
@@ -2922,6 +2953,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             ),
             declaration_value(declarations, "baseline-shift"),
             declaration_value(declarations, "vector-effect"),
+            declaration_value(declarations, "marker"),
+            declaration_value(declarations, "marker-start"),
+            declaration_value(declarations, "marker-mid"),
+            declaration_value(declarations, "marker-end"),
             declaration_value(declarations, "clip-path"),
         )
     };
@@ -3120,6 +3155,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 vector_effect_non_scaling_stroke: local
                     .vector_effect_non_scaling_stroke
                     .or(base.vector_effect_non_scaling_stroke),
+                marker_start: local.marker_start.or(base.marker_start),
+                marker_mid: local.marker_mid.or(base.marker_mid),
+                marker_end: local.marker_end.or(base.marker_end),
                 clip_path: local.clip_path.or(base.clip_path),
             }
         };
@@ -3178,6 +3216,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             text_baseline: local.text_baseline.or(parent.text_baseline),
             baseline_shift: local.baseline_shift.or(parent.baseline_shift),
             vector_effect_non_scaling_stroke: local.vector_effect_non_scaling_stroke,
+            marker_start: local.marker_start.or(parent.marker_start),
+            marker_mid: local.marker_mid.or(parent.marker_mid),
+            marker_end: local.marker_end.or(parent.marker_end),
             clip_path: local.clip_path.or(parent.clip_path),
         }
     };
@@ -3227,6 +3268,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut text_baseline: Option<SimpleSvgCascadeValue<SimpleSvgTextBaseline>> = None;
         let mut baseline_shift: Option<SimpleSvgCascadeValue<SimpleSvgBaselineShift>> = None;
         let mut vector_effect_non_scaling_stroke: Option<SimpleSvgCascadeValue<bool>> = None;
+        let mut marker_start: Option<SimpleSvgCascadeValue<Option<u64>>> = None;
+        let mut marker_mid: Option<SimpleSvgCascadeValue<Option<u64>>> = None;
+        let mut marker_end: Option<SimpleSvgCascadeValue<Option<u64>>> = None;
         let mut clip_path: Option<SimpleSvgCascadeValue<Option<u64>>> = None;
         for (order, rule) in style_rules.iter().enumerate() {
             let matches = match &rule.selector {
@@ -3495,6 +3539,36 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
+                if let Some(value) = rule.presentation.marker_start {
+                    let current = marker_start.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        marker_start = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule.presentation.marker_mid {
+                    let current = marker_mid.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        marker_mid = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule.presentation.marker_end {
+                    let current = marker_end.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        marker_end = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
                 if let Some(value) = rule.presentation.clip_path {
                     let current = clip_path.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
@@ -3532,6 +3606,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             baseline_shift: baseline_shift.map(|value| value.value),
             vector_effect_non_scaling_stroke: vector_effect_non_scaling_stroke
                 .map(|value| value.value),
+            marker_start: marker_start.map(|value| value.value),
+            marker_mid: marker_mid.map(|value| value.value),
+            marker_end: marker_end.map(|value| value.value),
             clip_path: clip_path.map(|value| value.value),
         }
     };
@@ -4736,30 +4813,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             height_ratio: height / view_box.3,
         })
     };
-    let parse_url_fragment_id = |raw: &str| -> Option<String> {
-        let raw = raw.trim();
-        if raw.eq_ignore_ascii_case("none") {
-            return None;
+    let marker_fragment_id = |presentation: SimpleSvgPresentation, specific: &str| -> Option<u64> {
+        match specific {
+            "marker-start" => presentation.marker_start,
+            "marker-mid" => presentation.marker_mid,
+            "marker-end" => presentation.marker_end,
+            _ => None,
         }
-        if raw.len() >= 4 && raw[..4].eq_ignore_ascii_case("url(") {
-            let url_end = raw.find(')')?;
-            let reference = raw[4..url_end]
-                .trim()
-                .trim_matches(|ch| ch == '\'' || ch == '"');
-            return reference
-                .strip_prefix('#')
-                .filter(|id| !id.is_empty())
-                .map(str::to_string);
-        }
-        None
-    };
-    let marker_fragment_id = |tag: &str, specific: &str| {
-        attr_value(tag, specific)
-            .or_else(|| style_value(tag, specific))
-            .or_else(|| attr_value(tag, "marker"))
-            .or_else(|| style_value(tag, "marker"))
-            .as_deref()
-            .and_then(parse_url_fragment_id)
+        .flatten()
     };
     #[derive(Debug, Clone, Copy)]
     struct SimpleSvgGroupTransform {
@@ -4967,7 +5028,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     }
     #[derive(Debug, Clone)]
     struct SimpleSvgMarkerDefinition {
-        id: String,
+        id_hash: u64,
         marker_width: f32,
         marker_height: f32,
         ref_x: f32,
@@ -5258,7 +5319,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         if !shapes.is_empty() {
             marker_definitions.push(SimpleSvgMarkerDefinition {
-                id: id.trim().to_string(),
+                id_hash: clip_path_id_hash(id.trim()),
                 marker_width,
                 marker_height,
                 ref_x,
@@ -5275,7 +5336,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         marker_search_index = body_end + "</marker>".len();
     }
-    let marker_paths = |marker_id: &str,
+    let marker_paths = |marker_id: u64,
                         endpoint_x: f32,
                         endpoint_y: f32,
                         tangent_dx: f32,
@@ -5287,7 +5348,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let definition = marker_definitions
             .iter()
             .rev()
-            .find(|definition| definition.id == marker_id)?;
+            .find(|definition| definition.id_hash == marker_id)?;
         let line_length = tangent_dx.hypot(tangent_dy);
         if !line_length.is_finite() || line_length <= f32::EPSILON {
             return None;
@@ -5748,13 +5809,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if (x1 != x2 || y1 != y2)
             && let Some(stroke) = stroke_paint(presentation)
         {
-            let marker_start_id = marker_fragment_id(line_tag, "marker-start");
-            let marker_end_id = marker_fragment_id(line_tag, "marker-end");
+            let marker_start_id = marker_fragment_id(presentation, "marker-start");
+            let marker_end_id = marker_fragment_id(presentation, "marker-end");
             let tangent_dx = x2 - x1;
             let tangent_dy = y2 - y1;
             if let Some(marker_start_id) = marker_start_id
                 && let Some(marker_paths) = marker_paths(
-                    &marker_start_id,
+                    marker_start_id,
                     x1,
                     y1,
                     tangent_dx,
@@ -5768,7 +5829,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             }
             if let Some(marker_end_id) = marker_end_id
                 && let Some(marker_paths) = marker_paths(
-                    &marker_end_id,
+                    marker_end_id,
                     x2,
                     y2,
                     tangent_dx,
@@ -5988,7 +6049,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     }
     let mut polys = rect_polys;
     let push_poly_markers = |shape_paths: &mut Vec<SimpleSvgPath>,
-                             tag: &str,
+                             _tag: &str,
                              points: &[(f32, f32)],
                              closed: bool,
                              presentation: SimpleSvgPresentation,
@@ -5996,20 +6057,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if points.len() < 2 {
             return;
         }
-        let marker_start_id = marker_fragment_id(tag, "marker-start");
-        let marker_mid_id = marker_fragment_id(tag, "marker-mid");
-        let marker_end_id = marker_fragment_id(tag, "marker-end");
+        let marker_start_id = marker_fragment_id(presentation, "marker-start");
+        let marker_mid_id = marker_fragment_id(presentation, "marker-mid");
+        let marker_end_id = marker_fragment_id(presentation, "marker-end");
         if marker_start_id.is_none() && marker_mid_id.is_none() && marker_end_id.is_none() {
             return;
         }
         let push_marker = |shape_paths: &mut Vec<SimpleSvgPath>,
-                           marker_id: Option<String>,
+                           marker_id: Option<u64>,
                            endpoint: (f32, f32),
                            tangent: (f32, f32),
                            at_start: bool| {
             if let Some(marker_id) = marker_id
                 && let Some(marker_paths) = marker_paths(
-                    &marker_id,
+                    marker_id,
                     endpoint.0,
                     endpoint.1,
                     tangent.0,
@@ -6037,7 +6098,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     let next = points[(point_index + 1) % points.len()];
                     push_marker(
                         shape_paths,
-                        Some(marker_mid_id.clone()),
+                        Some(marker_mid_id),
                         current,
                         (next.0 - prev.0, next.1 - prev.1),
                         false,
@@ -6050,7 +6111,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     let next = points[point_index + 1];
                     push_marker(
                         shape_paths,
-                        Some(marker_mid_id.clone()),
+                        Some(marker_mid_id),
                         current,
                         (next.0 - prev.0, next.1 - prev.1),
                         false,
@@ -6175,13 +6236,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     }
     let mut paths = shape_paths;
     let push_path_markers = |paths: &mut Vec<SimpleSvgPath>,
-                             tag: &str,
+                             _tag: &str,
                              ops: &[SimpleSvgPathOp],
                              presentation: SimpleSvgPresentation,
                              transform: SimpleSvgTransform| {
-        let marker_start_id = marker_fragment_id(tag, "marker-start");
-        let marker_mid_id = marker_fragment_id(tag, "marker-mid");
-        let marker_end_id = marker_fragment_id(tag, "marker-end");
+        let marker_start_id = marker_fragment_id(presentation, "marker-start");
+        let marker_mid_id = marker_fragment_id(presentation, "marker-mid");
+        let marker_end_id = marker_fragment_id(presentation, "marker-end");
         if marker_start_id.is_none() && marker_mid_id.is_none() && marker_end_id.is_none() {
             return;
         }
@@ -6270,13 +6331,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             return;
         }
         let push_marker = |paths: &mut Vec<SimpleSvgPath>,
-                           marker_id: Option<String>,
+                           marker_id: Option<u64>,
                            endpoint: (f32, f32),
                            tangent: (f32, f32),
                            at_start: bool| {
             if let Some(marker_id) = marker_id
                 && let Some(marker_paths) = marker_paths(
-                    &marker_id,
+                    marker_id,
                     endpoint.0,
                     endpoint.1,
                     tangent.0,
@@ -6308,13 +6369,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     ),
                     next.start_tangent,
                 );
-                push_marker(
-                    paths,
-                    Some(marker_mid_id.clone()),
-                    previous.end,
-                    tangent,
-                    false,
-                );
+                push_marker(paths, Some(marker_mid_id), previous.end, tangent, false);
             }
         }
         let last = segments[segments.len() - 1];
@@ -9738,6 +9793,58 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 190 230 l S"));
         assert!(pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
         assert!(!pdf_text.contains("[unsupported image: figures/line-marker.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_css_class_marker_end_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/class-marker.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:class-marker".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/class-marker.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style>
+    .edge { stroke: #0000ff; stroke-width: 0.5; marker-end: url(#arrow); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+  </defs>
+  <line class="edge" x1="2" y1="5" x2="18" y2="5"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 190 230 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/class-marker.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
