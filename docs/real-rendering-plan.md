@@ -226,7 +226,8 @@ definitions, with basic symbol `viewBox`
 viewport fitting, simple `<line>`, `<polyline>`, `<polygon>`, and `<path>`
 arrow markers from path-like `<marker>` children, including `marker` shorthand
 and `marker-start` / `marker-mid` / `marker-end`, with `context-stroke` /
-`context-fill` paint inheritance and nested group transform/presentation state,
+`context-fill` paint inheritance, rounded marker `rect` children, and nested group
+transform/presentation state,
 plus simple embedded `data:image/png` / `data:image/jpeg` SVG
 `<image>` elements with `opacity` and `preserveAspectRatio` fitting, is also
 rendered directly as vector PDF drawing operations in
@@ -699,8 +700,9 @@ Implemented first slice:
   viewport fitting, simple `<line>`, `<polyline>`, `<polygon>`, and `<path>`
   arrow markers from path-like `<marker>` children, including `marker`
   shorthand and `marker-start` / `marker-mid` / `marker-end`, with
-  `context-stroke` / `context-fill` paint inheritance and nested group
-  transform/presentation state, plus simple embedded `data:image/png` / `data:image/jpeg`
+  `context-stroke` / `context-fill` paint inheritance, rounded marker `rect`
+  children, and nested group transform/presentation state, plus simple embedded
+  `data:image/png` / `data:image/jpeg`
   SVG `<image>` elements as PDF XObjects with `opacity` and `preserveAspectRatio`
   fitting, including display-list crop/viewport placement and
   `clip=true` destination clipping for simple SVG vector PDF assets;

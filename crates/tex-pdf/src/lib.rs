@@ -5112,9 +5112,73 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 let height = attr_value(child_tag, "height")
                     .as_deref()
                     .and_then(parse_number_prefix);
-                width
-                    .zip(height)
-                    .and_then(|(width, height)| rect_path_data(x, y, width, height))
+                let rx_raw = attr_value(child_tag, "rx")
+                    .as_deref()
+                    .and_then(parse_number_prefix);
+                let ry_raw = attr_value(child_tag, "ry")
+                    .as_deref()
+                    .and_then(parse_number_prefix);
+                if let Some((width, height)) = width.zip(height)
+                    && width.is_finite()
+                    && height.is_finite()
+                    && width > 0.0
+                    && height > 0.0
+                {
+                    let rounded_radii = match (rx_raw, ry_raw) {
+                        (Some(rx), Some(ry)) if rx > 0.0 && ry > 0.0 => {
+                            Some((rx.min(width / 2.0), ry.min(height / 2.0)))
+                        }
+                        (Some(radius), None) | (None, Some(radius)) if radius > 0.0 => {
+                            let radius = radius.min(width / 2.0).min(height / 2.0);
+                            Some((radius, radius))
+                        }
+                        _ => None,
+                    };
+                    if let Some((rx, ry)) = rounded_radii {
+                        let kappa = 0.552_284_8_f32;
+                        Some(format!(
+                            "M {} {} L {} {} C {} {} {} {} {} {} L {} {} C {} {} {} {} {} {} L {} {} C {} {} {} {} {} {} L {} {} C {} {} {} {} {} {} Z",
+                            x + rx,
+                            y,
+                            x + width - rx,
+                            y,
+                            x + width - rx + kappa * rx,
+                            y,
+                            x + width,
+                            y + ry - kappa * ry,
+                            x + width,
+                            y + ry,
+                            x + width,
+                            y + height - ry,
+                            x + width,
+                            y + height - ry + kappa * ry,
+                            x + width - rx + kappa * rx,
+                            y + height,
+                            x + width - rx,
+                            y + height,
+                            x + rx,
+                            y + height,
+                            x + rx - kappa * rx,
+                            y + height,
+                            x,
+                            y + height - ry + kappa * ry,
+                            x,
+                            y + height - ry,
+                            x,
+                            y + ry,
+                            x,
+                            y + ry - kappa * ry,
+                            x + rx - kappa * rx,
+                            y,
+                            x + rx,
+                            y
+                        ))
+                    } else {
+                        rect_path_data(x, y, width, height)
+                    }
+                } else {
+                    None
+                }
             } else if is_start_tag_named(child_tail, "line") {
                 let x1 = attr_value(child_tag, "x1")
                     .as_deref()
@@ -9677,6 +9741,58 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 RG 5 w 30 230 m 190 230 l S"));
         assert!(pdf_text.contains("0 1 0 rg 150 250 m 190 230 l 150 210 l h f"));
         assert!(!pdf_text.contains("[unsupported image: figures/marker-group.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_marker_rounded_rects_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/marker-rounded-rect.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:marker-rounded-rect".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/marker-rounded-rect.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <marker id="badge" viewBox="0 0 4 4" refX="2" refY="2" markerWidth="4" markerHeight="4" markerUnits="userSpaceOnUse" orient="auto">
+      <rect x="0" y="0" width="4" height="4" rx="1" ry="1" fill="#ff0000"/>
+    </marker>
+  </defs>
+  <line x1="2" y1="5" x2="18" y2="5" stroke="#0000ff" stroke-width="0.5" marker-end="url(#badge)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 190 230 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 180 250 m 200 250 l"));
+        assert!(pdf_text.contains("210 240 c 210 220 l"));
+        assert!(pdf_text.contains("200 210 c 180 210 l"));
+        assert!(!pdf_text.contains("1 0 0 rg 170 250 m 210 250 l 210 210 l 170 210 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/marker-rounded-rect.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
