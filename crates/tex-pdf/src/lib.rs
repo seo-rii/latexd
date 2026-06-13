@@ -7395,14 +7395,48 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             let mut current_y = text_raw_y;
             let mut tspan_texts = Vec::new();
             let mut valid_tspans = true;
-            while !remaining.trim().is_empty() {
+            let estimate_text_advance = |text: &str, font_size: f32| {
+                text.chars()
+                    .map(|ch| {
+                        if ch.is_whitespace() || ch.is_ascii_punctuation() {
+                            0.33
+                        } else {
+                            0.5
+                        }
+                    })
+                    .sum::<f32>()
+                    * font_size
+            };
+            while !remaining.is_empty() {
                 let Some(tspan_start) = remaining.find("<tspan") else {
-                    valid_tspans = false;
+                    if !remaining.trim().is_empty() {
+                        let literal_text = decode_xml_text(remaining);
+                        let literal_baseline_y = current_y
+                            + baseline_y_offset(presentation, local_font_size)
+                            + baseline_shift_y_offset(presentation, local_font_size);
+                        let Some(point) = apply_transform(transform, current_x, literal_baseline_y)
+                            .map(normalize_point)
+                        else {
+                            valid_tspans = false;
+                            break;
+                        };
+                        tspan_texts.push((point, font_size, presentation, literal_text));
+                    }
                     break;
                 };
                 if !remaining[..tspan_start].trim().is_empty() {
-                    valid_tspans = false;
-                    break;
+                    let literal_text = decode_xml_text(&remaining[..tspan_start]);
+                    let literal_baseline_y = current_y
+                        + baseline_y_offset(presentation, local_font_size)
+                        + baseline_shift_y_offset(presentation, local_font_size);
+                    let Some(point) = apply_transform(transform, current_x, literal_baseline_y)
+                        .map(normalize_point)
+                    else {
+                        valid_tspans = false;
+                        break;
+                    };
+                    current_x += estimate_text_advance(&literal_text, local_font_size);
+                    tspan_texts.push((point, font_size, presentation, literal_text));
                 }
                 let tspan_tail = &remaining[tspan_start..];
                 if !is_start_tag_named(tspan_tail, "tspan") {
@@ -7464,13 +7498,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     valid_tspans = false;
                     break;
                 };
-                tspan_texts.push((
-                    point,
-                    tspan_font_size,
-                    tspan_presentation,
-                    decode_xml_text(tspan_body),
-                ));
-                current_x = tspan_x;
+                let tspan_text = decode_xml_text(tspan_body);
+                current_x = tspan_x + estimate_text_advance(&tspan_text, tspan_local_font_size);
+                tspan_texts.push((point, tspan_font_size, tspan_presentation, tspan_text));
                 current_y = tspan_y;
                 let tspan_close_end = tspan_body_end + "</tspan>".len();
                 remaining = &tspan_tail[tspan_close_end..];
@@ -9480,6 +9510,55 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 rg BT /F1 14.400001 Tf 1 0 0 1 144 670.8 Tm (A) Tj ET"));
         assert!(pdf_text.contains("1 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 663.6 Tm (B) Tj ET"));
         assert!(!pdf_text.contains("[unsupported image: figures/multiple-tspans.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_mixed_text_and_tspan_as_pdf_text_runs() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/mixed-text-tspan.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:mixed-text-tspan".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/mixed-text-tspan.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="2" y="6" font-size="2" fill="#0000ff">Lead <tspan fill="#ff0000">Hot</tspan> Tail</text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(
+            pdf_text.contains("0 0 1 rg BT /F1 14.400001 Tf 1 0 0 1 86.4 670.8 Tm (Lead ) Tj ET")
+        );
+        assert!(pdf_text.contains("1 0 0 rg BT /F1 14.400001 Tf"));
+        assert!(pdf_text.contains("(Hot) Tj ET"));
+        assert!(pdf_text.contains("0 0 1 rg BT /F1 14.400001 Tf"));
+        assert!(pdf_text.contains("( Tail) Tj ET"));
+        assert!(!pdf_text.contains("[unsupported image: figures/mixed-text-tspan.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
