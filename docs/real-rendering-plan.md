@@ -223,7 +223,8 @@ vector polygons and transformed circle/ellipse primitives rendered as cubic
 vector paths, including simple path-like children in `<defs>` group and
 `symbol` definitions reused through `<use>`, including rounded `rect`
 definitions, simple `<defs>` `<use>` aliases, and `<defs>` group children
-composed from `<use>` aliases, with basic symbol `viewBox`
+composed from `<use>` aliases, plus symbol children composed from `<use>`
+aliases with basic symbol `viewBox`
 viewport fitting, simple `<line>`, `<polyline>`, `<polygon>`, and `<path>`
 arrow markers from path-like `<marker>` children, including `marker` shorthand
 and `marker-start` / `marker-mid` / `marker-end`, with `context-stroke` /
@@ -698,7 +699,8 @@ Implemented first slice:
   drawing operations, including simple path-like children in `<defs>` group and
   `symbol` definitions reused through `<use>`, including rounded `rect`
   definitions, simple `<defs>` `<use>` aliases, and `<defs>` group children
-  composed from `<use>` aliases, with basic symbol `viewBox`
+  composed from `<use>` aliases, plus symbol children composed from `<use>`
+  aliases with basic symbol `viewBox`
   viewport fitting, simple `<line>`, `<polyline>`, `<polygon>`, and `<path>`
   arrow markers from path-like `<marker>` children, including `marker`
   shorthand and `marker-start` / `marker-mid` / `marker-end`, with
@@ -1142,7 +1144,8 @@ Status:
   `line`, `polyline`, and `polygon` definitions, plus simple `<g>` and
   `symbol` definitions containing those path-like children, including symbol
   `viewBox` to `<use>` viewport fitting, simple `<defs>` `<use>` aliases,
-  and simple `<defs>` group children composed from `<use>` aliases,
+  simple `<defs>` group children composed from `<use>` aliases, and simple
+  symbol children composed from `<use>` aliases,
   through `href` / `xlink:href` `<use>`
   references, basic
   presentation/style fill and stroke metadata plus simple

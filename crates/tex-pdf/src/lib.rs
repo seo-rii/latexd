@@ -6796,6 +6796,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     alias_ids.push(group_definition.id.clone());
                 }
             }
+            for symbol_definition in &symbol_definitions {
+                if symbol_definition.content_start <= use_start
+                    && use_start < symbol_definition.content_end
+                    && !alias_ids.iter().any(|id| id == &symbol_definition.id)
+                {
+                    alias_ids.push(symbol_definition.id.clone());
+                }
+            }
             for id in alias_ids {
                 path_like_definitions.push(SimpleSvgPathLikeDefinition {
                     id,
@@ -6911,8 +6919,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             if let Some(symbol_definition) =
                 symbol_definitions.iter().rev().find(|symbol_definition| {
                     symbol_definition.id == reference_id
-                        && symbol_definition.content_start <= definition.start
-                        && definition.start < symbol_definition.content_end
+                        && ((symbol_definition.content_start <= definition.start
+                            && definition.start < symbol_definition.content_end)
+                            || definition.id == symbol_definition.id)
                 })
             {
                 definition_presentation =
@@ -10579,6 +10588,56 @@ mod tests {
         assert!(!pdf_text.contains("1 0 1 rg 50 210 m 70 210 l 70 190 l h f"));
         assert!(!pdf_text.contains("1 0 0 rg 10 280 m 50 280 l 50 240 l h f"));
         assert!(!pdf_text.contains("[unsupported image: figures/defs-use-alias.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_defs_symbol_use_aliases_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/defs-symbol-use-alias.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:defs-symbol-use-alias".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/defs-symbol-use-alias.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <path id="unit" d="M 0 0 L 2 0 L 2 2 Z" fill="#ff0000"/>
+    <symbol id="tile" viewBox="0 0 4 4">
+      <use href="#unit" x="1" y="1" fill="#0000ff"/>
+    </symbol>
+  </defs>
+  <use href="#tile" x="5" y="1" width="8" height="8"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 rg 80 250 m 120 250 l 120 210 l h f"));
+        assert!(!pdf_text.contains("1 0 0 rg 10 280 m 30 280 l 30 260 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/defs-symbol-use-alias.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
