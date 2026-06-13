@@ -4585,6 +4585,57 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         };
         let body = &svg_content[body_start..body_start + body_end_relative];
         let next_index = body_start + body_end_relative + "</clipPath>".len();
+        let clip_path_group_transform_for = |element_start: usize| -> Option<SimpleSvgTransform> {
+            let mut group_stack: Vec<Option<SimpleSvgTransform>> = Vec::new();
+            let mut group_search_index = 0usize;
+            while let Some(group_relative) = body[group_search_index..].find('<') {
+                let group_start = group_search_index + group_relative;
+                if group_start >= element_start {
+                    break;
+                }
+                let group_tail = &body[group_start..];
+                let Some(group_tag_end) = group_tail.find('>') else {
+                    break;
+                };
+                let is_group_close = group_tail.starts_with("</g")
+                    && group_tail[3..]
+                        .chars()
+                        .next()
+                        .is_some_and(|ch| ch.is_whitespace() || ch == '>');
+                let is_group_open = group_tail.starts_with("<g")
+                    && group_tail[2..]
+                        .chars()
+                        .next()
+                        .is_some_and(|ch| ch.is_whitespace() || matches!(ch, '>' | '/'));
+                if is_group_close {
+                    group_stack.pop();
+                } else if is_group_open {
+                    let group_tag = &group_tail[..group_tag_end];
+                    if !group_tag.trim_end().ends_with('/') {
+                        let local_transform = parse_transform(group_tag);
+                        let transform = if let Some(Some(parent_transform)) = group_stack.last() {
+                            local_transform.map(|local_transform| {
+                                compose_transform(
+                                    local_transform,
+                                    *parent_transform,
+                                    parent_transform.stroke_scale,
+                                )
+                            })
+                        } else if group_stack.last().is_some() {
+                            None
+                        } else {
+                            local_transform
+                        };
+                        group_stack.push(transform);
+                    }
+                }
+                group_search_index = group_start + group_tag_end + 1;
+            }
+            group_stack
+                .last()
+                .copied()
+                .unwrap_or(Some(identity_transform))
+        };
         let Some(rect_relative) = body.find("<rect") else {
             clip_path_search_index = next_index;
             continue;
@@ -4633,6 +4684,15 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             clip_path_search_index = next_index;
             continue;
         };
+        let Some(group_transform) = clip_path_group_transform_for(rect_relative) else {
+            clip_path_search_index = next_index;
+            continue;
+        };
+        let rect_transform = compose_transform(
+            rect_transform,
+            group_transform,
+            group_transform.stroke_scale,
+        );
         clip_path_definitions.push(SimpleSvgClipPathDefinition {
             id_hash: clip_path_id_hash(id.trim()),
             x,
@@ -10809,6 +10869,56 @@ mod tests {
             pdf_text.contains("q 20 250 40 20 re W n q 4 M 0 0 1 RG 5 w 10 190 m 210 190 l S Q Q")
         );
         assert!(!pdf_text.contains("[unsupported image: figures/clip-path.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_grouped_rect_clip_path_as_pdf_clipping() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/grouped-clip-path.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:grouped-clip-path".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/grouped-clip-path.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <clipPath id="crop">
+      <g transform="translate(2 1)">
+        <rect x="3" y="1" width="4" height="2"/>
+      </g>
+    </clipPath>
+  </defs>
+  <rect x="0" y="0" width="20" height="10" fill="#ff0000" clip-path="url(#crop)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q 60 240 40 20 re W n 1 0 0 rg 10 180 200 100 re f Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/grouped-clip-path.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

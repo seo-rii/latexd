@@ -215,7 +215,8 @@ mapped to PDF dash patterns with `stroke-dashoffset` absolute/percentage phase
 support and transform scaling, simple `stroke-linecap` /
 `stroke-linejoin` / `stroke-miterlimit` mapped to PDF graphics state, simple
 `vector-effect: non-scaling-stroke` stroke-width/dash preservation, and
-simple rect-backed `clipPath` clipping, and
+simple rect-backed `clipPath` clipping including transformed group-wrapped rect
+children, and
     `matrix` / `rotate` / `skewX` / `skewY` transforms for path-like line/poly/path
 primitives, plus non-axis-aligned transformed rectangles rendered as closed
 vector polygons and transformed circle/ellipse primitives rendered as cubic
@@ -687,8 +688,9 @@ Implemented first slice:
   absolute/percentage phase support and transform scaling, simple
   `stroke-linecap` / `stroke-linejoin` / `stroke-miterlimit` mapped to PDF
   graphics state, simple `vector-effect: non-scaling-stroke` stroke-width/dash
-  preservation, simple rect-backed `clipPath` clipping, path-like `matrix` /
-  `rotate` / `skewX` / `skewY` transforms, non-axis-aligned
+  preservation, simple rect-backed `clipPath` clipping including transformed
+  group-wrapped rect children, path-like `matrix` / `rotate` / `skewX` /
+  `skewY` transforms, non-axis-aligned
   transformed rectangles, and transformed circle/ellipse cubic paths, as vector
   drawing operations, including simple path-like children in `<defs>` group and
   `symbol` definitions reused through `<use>`, with basic symbol `viewBox`
@@ -1158,8 +1160,9 @@ Status:
   absolute/percentage phase support and transform scaling, simple
   `stroke-linecap` / `stroke-linejoin` / `stroke-miterlimit` mapped to PDF
   graphics state, simple `vector-effect: non-scaling-stroke` stroke-width/dash
-  preservation, simple rect-backed `clipPath` clipping, and path-like `matrix` /
-  `rotate` / `skewX` / `skewY` transform attributes plus
+  preservation, simple rect-backed `clipPath` clipping including transformed
+  group-wrapped rect children, and path-like `matrix` / `rotate` / `skewX` /
+  `skewY` transform attributes plus
   non-axis-aligned transformed rectangles and transformed circle/ellipse cubic
   paths, with root/style/element scanners requiring tag-name boundaries to
   avoid prefix false positives such as `svgz` as `svg`, `stylesheet` as
