@@ -7383,7 +7383,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             continue;
         };
         let text_body_end = text_body_start + text_body_end_relative;
-        let text_body = svg_content[text_body_start..text_body_end].trim();
+        let text_body = &svg_content[text_body_start..text_body_end];
+        let preserve_text_space = attr_value(text_tag, "xml:space")
+            .is_some_and(|value| value.trim().eq_ignore_ascii_case("preserve"));
+        let text_body = if preserve_text_space {
+            text_body
+        } else {
+            text_body.trim()
+        };
         if text_body.is_empty() {
             search_index = text_body_end + "</text>".len();
             continue;
@@ -9685,6 +9692,50 @@ mod tests {
         assert!(!pdf_text.contains("&#45;"));
         assert!(!pdf_text.contains("&#x26;"));
         assert!(!pdf_text.contains("[unsupported image: figures/numeric-text-entities.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_xml_space_preserve_text_edges_as_pdf_text() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/xml-space-text.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:xml-space-text".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/xml-space-text.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="2" y="6" font-size="2" fill="#0000ff" xml:space="preserve"> Lead </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("( Lead ) Tj ET"));
+        assert!(!pdf_text.contains("(Lead) Tj ET"));
+        assert!(!pdf_text.contains("[unsupported image: figures/xml-space-text.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
