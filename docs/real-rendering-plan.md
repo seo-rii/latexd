@@ -222,9 +222,10 @@ vector polygons and transformed circle/ellipse primitives rendered as cubic
 vector paths, including simple path-like children in `<defs>` group and
 `symbol` definitions reused through `<use>`, with basic symbol `viewBox`
 viewport fitting, simple `<line>`, `<polyline>`, `<polygon>`, and `<path>`
-arrow markers from path-like `<marker>` children with `context-stroke` /
-`context-fill` paint inheritance and nested group transform/presentation
-state, plus simple embedded `data:image/png` / `data:image/jpeg` SVG
+arrow markers from path-like `<marker>` children, including `marker` shorthand
+and `marker-start` / `marker-mid` / `marker-end`, with `context-stroke` /
+`context-fill` paint inheritance and nested group transform/presentation state,
+plus simple embedded `data:image/png` / `data:image/jpeg` SVG
 `<image>` elements with `opacity` and `preserveAspectRatio` fitting, is also
 rendered directly as vector PDF drawing operations in
 display-list PDF artifacts instead of falling back to unsupported-image
@@ -692,9 +693,10 @@ Implemented first slice:
   drawing operations, including simple path-like children in `<defs>` group and
   `symbol` definitions reused through `<use>`, with basic symbol `viewBox`
   viewport fitting, simple `<line>`, `<polyline>`, `<polygon>`, and `<path>`
-  arrow markers from path-like `<marker>` children with `context-stroke` /
-  `context-fill` paint inheritance and nested group transform/presentation
-  state, plus simple embedded `data:image/png` / `data:image/jpeg`
+  arrow markers from path-like `<marker>` children, including `marker`
+  shorthand and `marker-start` / `marker-mid` / `marker-end`, with
+  `context-stroke` / `context-fill` paint inheritance and nested group
+  transform/presentation state, plus simple embedded `data:image/png` / `data:image/jpeg`
   SVG `<image>` elements as PDF XObjects with `opacity` and `preserveAspectRatio`
   fitting, including display-list crop/viewport placement and
   `clip=true` destination clipping for simple SVG vector PDF assets;

@@ -4693,6 +4693,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         None
     };
+    let marker_fragment_id = |tag: &str, specific: &str| {
+        attr_value(tag, specific)
+            .or_else(|| style_value(tag, specific))
+            .or_else(|| attr_value(tag, "marker"))
+            .or_else(|| style_value(tag, "marker"))
+            .as_deref()
+            .and_then(parse_url_fragment_id)
+    };
     #[derive(Debug, Clone, Copy)]
     struct SimpleSvgGroupTransform {
         content_start: usize,
@@ -5616,14 +5624,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if (x1 != x2 || y1 != y2)
             && let Some(stroke) = stroke_paint(presentation)
         {
-            let marker_start_id = attr_value(line_tag, "marker-start")
-                .or_else(|| style_value(line_tag, "marker-start"))
-                .as_deref()
-                .and_then(parse_url_fragment_id);
-            let marker_end_id = attr_value(line_tag, "marker-end")
-                .or_else(|| style_value(line_tag, "marker-end"))
-                .as_deref()
-                .and_then(parse_url_fragment_id);
+            let marker_start_id = marker_fragment_id(line_tag, "marker-start");
+            let marker_end_id = marker_fragment_id(line_tag, "marker-end");
             let tangent_dx = x2 - x1;
             let tangent_dy = y2 - y1;
             if let Some(marker_start_id) = marker_start_id
@@ -5870,18 +5872,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if points.len() < 2 {
             return;
         }
-        let marker_start_id = attr_value(tag, "marker-start")
-            .or_else(|| style_value(tag, "marker-start"))
-            .as_deref()
-            .and_then(parse_url_fragment_id);
-        let marker_mid_id = attr_value(tag, "marker-mid")
-            .or_else(|| style_value(tag, "marker-mid"))
-            .as_deref()
-            .and_then(parse_url_fragment_id);
-        let marker_end_id = attr_value(tag, "marker-end")
-            .or_else(|| style_value(tag, "marker-end"))
-            .as_deref()
-            .and_then(parse_url_fragment_id);
+        let marker_start_id = marker_fragment_id(tag, "marker-start");
+        let marker_mid_id = marker_fragment_id(tag, "marker-mid");
+        let marker_end_id = marker_fragment_id(tag, "marker-end");
         if marker_start_id.is_none() && marker_mid_id.is_none() && marker_end_id.is_none() {
             return;
         }
@@ -6062,18 +6055,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                              ops: &[SimpleSvgPathOp],
                              presentation: SimpleSvgPresentation,
                              transform: SimpleSvgTransform| {
-        let marker_start_id = attr_value(tag, "marker-start")
-            .or_else(|| style_value(tag, "marker-start"))
-            .as_deref()
-            .and_then(parse_url_fragment_id);
-        let marker_mid_id = attr_value(tag, "marker-mid")
-            .or_else(|| style_value(tag, "marker-mid"))
-            .as_deref()
-            .and_then(parse_url_fragment_id);
-        let marker_end_id = attr_value(tag, "marker-end")
-            .or_else(|| style_value(tag, "marker-end"))
-            .as_deref()
-            .and_then(parse_url_fragment_id);
+        let marker_start_id = marker_fragment_id(tag, "marker-start");
+        let marker_mid_id = marker_fragment_id(tag, "marker-mid");
+        let marker_end_id = marker_fragment_id(tag, "marker-end");
         if marker_start_id.is_none() && marker_mid_id.is_none() && marker_end_id.is_none() {
             return;
         }
@@ -9582,6 +9566,112 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 RG 5 w 30 230 m 190 230 l S"));
         assert!(pdf_text.contains("0 1 0 rg 150 250 m 190 230 l 150 210 l h f"));
         assert!(!pdf_text.contains("[unsupported image: figures/marker-group.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_line_marker_shorthand_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/line-marker-shorthand.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:line-marker-shorthand".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/line-marker-shorthand.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+  </defs>
+  <line x1="2" y1="5" x2="18" y2="5" stroke="#0000ff" stroke-width="0.5" marker="url(#arrow)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 190 230 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 10 240 m 30 230 l 10 220 l h f"));
+        assert!(pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/line-marker-shorthand.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_poly_path_marker_shorthand_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/poly-path-marker-shorthand.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:poly-path-marker-shorthand".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/poly-path-marker-shorthand.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+  </defs>
+  <polyline points="2,3 10,3 18,3" fill="none" stroke="#0000ff" stroke-width="0.5" marker="url(#arrow)"/>
+  <path d="M 2 7 L 10 7 L 18 7" fill="none" stroke="#0000ff" stroke-width="0.5" style="marker: url(#arrow)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 250 m 110 250 l 190 250 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 10 260 m 30 250 l 10 240 l h f"));
+        assert!(pdf_text.contains("1 0 0 rg 90 260 m 110 250 l 90 240 l h f"));
+        assert!(pdf_text.contains("1 0 0 rg 170 260 m 190 250 l 170 240 l h f"));
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 210 m 110 210 l 190 210 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 10 220 m 30 210 l 10 200 l h f"));
+        assert!(pdf_text.contains("1 0 0 rg 90 220 m 110 210 l 90 200 l h f"));
+        assert!(pdf_text.contains("1 0 0 rg 170 220 m 190 210 l 170 200 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/poly-path-marker-shorthand.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
