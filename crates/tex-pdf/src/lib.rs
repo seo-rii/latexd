@@ -2404,6 +2404,12 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             if fallback.eq_ignore_ascii_case("currentColor") {
                 return Some(SimpleSvgColor::CurrentColor);
             }
+            if fallback.eq_ignore_ascii_case("context-fill") {
+                return Some(SimpleSvgColor::ContextFill);
+            }
+            if fallback.eq_ignore_ascii_case("context-stroke") {
+                return Some(SimpleSvgColor::ContextStroke);
+            }
             return parse_color(fallback).map(SimpleSvgColor::Resolved);
         }
         if raw.eq_ignore_ascii_case("none") || raw.eq_ignore_ascii_case("transparent") {
@@ -2411,6 +2417,12 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         if raw.eq_ignore_ascii_case("currentColor") {
             return Some(SimpleSvgColor::CurrentColor);
+        }
+        if raw.eq_ignore_ascii_case("context-fill") {
+            return Some(SimpleSvgColor::ContextFill);
+        }
+        if raw.eq_ignore_ascii_case("context-stroke") {
+            return Some(SimpleSvgColor::ContextStroke);
         }
         parse_color(raw).map(SimpleSvgColor::Resolved)
     };
@@ -2428,6 +2440,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     enum SimpleSvgColor {
         Resolved(SimpleSvgResolvedColor),
         CurrentColor,
+        ContextFill,
+        ContextStroke,
     }
     #[derive(Debug, Clone, Copy)]
     enum SimpleSvgFontSize {
@@ -3596,29 +3610,45 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             miterlimit: presentation.stroke_miterlimit.unwrap_or(4.0),
         }
     };
-    let resolve_svg_color =
-        |color: SimpleSvgColor, current_color: SimpleSvgResolvedColor| match color {
-            SimpleSvgColor::Resolved(color) => color,
-            SimpleSvgColor::CurrentColor => current_color,
+    let paint_from_resolved_color =
+        |color: SimpleSvgResolvedColor, opacity: f32| -> Option<SimpleSvgPaint> {
+            let opacity = (opacity * color.alpha).clamp(0.0, 1.0);
+            (opacity > 0.0).then_some(SimpleSvgPaint {
+                rgb: color.rgb,
+                opacity,
+            })
         };
-    let paint_from_color = |color: Option<SimpleSvgColor>,
-                            opacity: f32,
-                            current_color: SimpleSvgResolvedColor|
+    let paint_from_context =
+        |paint: Option<SimpleSvgPaint>, opacity: f32| -> Option<SimpleSvgPaint> {
+            let paint = paint?;
+            let opacity = (opacity * paint.opacity).clamp(0.0, 1.0);
+            (opacity > 0.0).then_some(SimpleSvgPaint {
+                rgb: paint.rgb,
+                opacity,
+            })
+        };
+    let paint_from_color_with_context = |color: Option<SimpleSvgColor>,
+                                         opacity: f32,
+                                         current_color: SimpleSvgResolvedColor,
+                                         context_fill: Option<SimpleSvgPaint>,
+                                         context_stroke: Option<SimpleSvgPaint>|
      -> Option<SimpleSvgPaint> {
-        let color = resolve_svg_color(color?, current_color);
-        let opacity = (opacity * color.alpha).clamp(0.0, 1.0);
-        (opacity > 0.0).then_some(SimpleSvgPaint {
-            rgb: color.rgb,
-            opacity,
-        })
+        match color? {
+            SimpleSvgColor::Resolved(color) => paint_from_resolved_color(color, opacity),
+            SimpleSvgColor::CurrentColor => paint_from_resolved_color(current_color, opacity),
+            SimpleSvgColor::ContextFill => paint_from_context(context_fill, opacity),
+            SimpleSvgColor::ContextStroke => paint_from_context(context_stroke, opacity),
+        }
     };
-    let fill_paint = |presentation: SimpleSvgPresentation,
-                      default_rgb: Option<(f32, f32, f32)>|
+    let fill_paint_with_context = |presentation: SimpleSvgPresentation,
+                                   default_rgb: Option<(f32, f32, f32)>,
+                                   context_fill: Option<SimpleSvgPaint>,
+                                   context_stroke: Option<SimpleSvgPaint>|
      -> Option<SimpleSvgPaint> {
         let current_color = presentation
             .color
             .unwrap_or_else(|| SimpleSvgResolvedColor::opaque((0.0, 0.0, 0.0)));
-        paint_from_color(
+        paint_from_color_with_context(
             presentation.fill.unwrap_or_else(|| {
                 default_rgb
                     .map(SimpleSvgResolvedColor::opaque)
@@ -3626,20 +3656,35 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             }),
             presentation.opacity.unwrap_or(1.0) * presentation.fill_opacity.unwrap_or(1.0),
             current_color,
+            context_fill,
+            context_stroke,
         )
+    };
+    let fill_paint = |presentation: SimpleSvgPresentation,
+                      default_rgb: Option<(f32, f32, f32)>|
+     -> Option<SimpleSvgPaint> {
+        fill_paint_with_context(presentation, default_rgb, None, None)
     };
     let fill_rule = |presentation: SimpleSvgPresentation| -> SimpleSvgFillRule {
         presentation.fill_rule.unwrap_or(SimpleSvgFillRule::NonZero)
     };
-    let stroke_paint = |presentation: SimpleSvgPresentation| -> Option<SimpleSvgPaint> {
+    let stroke_paint_with_context = |presentation: SimpleSvgPresentation,
+                                     context_fill: Option<SimpleSvgPaint>,
+                                     context_stroke: Option<SimpleSvgPaint>|
+     -> Option<SimpleSvgPaint> {
         let current_color = presentation
             .color
             .unwrap_or_else(|| SimpleSvgResolvedColor::opaque((0.0, 0.0, 0.0)));
-        paint_from_color(
+        paint_from_color_with_context(
             presentation.stroke.unwrap_or(None),
             presentation.opacity.unwrap_or(1.0) * presentation.stroke_opacity.unwrap_or(1.0),
             current_color,
+            context_fill,
+            context_stroke,
         )
+    };
+    let stroke_paint = |presentation: SimpleSvgPresentation| -> Option<SimpleSvgPaint> {
+        stroke_paint_with_context(presentation, None, None)
     };
     #[derive(Debug, Clone, Copy)]
     struct SimpleSvgTransform {
@@ -5174,6 +5219,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             f: endpoint_y,
             ..identity_transform
         };
+        let context_fill = fill_paint(line_presentation, None);
+        let context_stroke = stroke_paint(line_presentation);
         let mut paths = Vec::new();
         for shape in &definition.shapes {
             let transform = compose_transform(
@@ -5192,8 +5239,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             let Some((ops, _closed)) = parse_path(&shape.path_data, transform) else {
                 continue;
             };
-            let fill = fill_paint(shape.presentation, Some((0.0, 0.0, 0.0)));
-            let stroke = stroke_paint(shape.presentation);
+            let fill = fill_paint_with_context(
+                shape.presentation,
+                Some((0.0, 0.0, 0.0)),
+                context_fill,
+                context_stroke,
+            );
+            let stroke =
+                stroke_paint_with_context(shape.presentation, context_fill, context_stroke);
             if fill.is_none() && stroke.is_none() {
                 continue;
             }
@@ -9343,6 +9396,104 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 rg 50 220 m 30 230 l 50 240 l h f"));
         assert!(pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
         assert!(!pdf_text.contains("[unsupported image: figures/line-marker-reverse.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_marker_context_stroke_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/marker-context-stroke.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:marker-context-stroke".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/marker-context-stroke.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="context-stroke"/>
+    </marker>
+  </defs>
+  <line x1="2" y1="5" x2="18" y2="5" stroke="#0000ff" stroke-width="0.5" marker-end="url(#arrow)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 190 230 l S"));
+        assert!(pdf_text.contains("0 0 1 rg 170 240 m 190 230 l 170 220 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/marker-context-stroke.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_marker_context_fill_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/marker-context-fill.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:marker-context-fill".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/marker-context-fill.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <marker id="tick" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4" fill="none" stroke="context-fill" stroke-width="0.5"/>
+    </marker>
+  </defs>
+  <path d="M 2 5 L 18 5" fill="#ff0000" stroke="#0000ff" stroke-width="0.5" marker-end="url(#tick)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 190 230 l S"));
+        assert!(pdf_text.contains("1 0 0 RG 2.5 w 170 240 m 190 230 l 170 220 l S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/marker-context-fill.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
