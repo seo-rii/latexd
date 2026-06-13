@@ -222,7 +222,7 @@ primitives, plus non-axis-aligned transformed rectangles rendered as closed
 vector polygons and transformed circle/ellipse primitives rendered as cubic
 vector paths, including simple path-like children in `<defs>` group and
 `symbol` definitions reused through `<use>`, including rounded `rect`
-definitions, with basic symbol `viewBox`
+definitions and simple `<defs>` `<use>` aliases, with basic symbol `viewBox`
 viewport fitting, simple `<line>`, `<polyline>`, `<polygon>`, and `<path>`
 arrow markers from path-like `<marker>` children, including `marker` shorthand
 and `marker-start` / `marker-mid` / `marker-end`, with `context-stroke` /
@@ -696,7 +696,7 @@ Implemented first slice:
   transformed rectangles, and transformed circle/ellipse cubic paths, as vector
   drawing operations, including simple path-like children in `<defs>` group and
   `symbol` definitions reused through `<use>`, including rounded `rect`
-  definitions, with basic symbol `viewBox`
+  definitions and simple `<defs>` `<use>` aliases, with basic symbol `viewBox`
   viewport fitting, simple `<line>`, `<polyline>`, `<polygon>`, and `<path>`
   arrow markers from path-like `<marker>` children, including `marker`
   shorthand and `marker-start` / `marker-mid` / `marker-end`, with
@@ -1139,7 +1139,8 @@ Status:
   path-like reuse for `path`, simple `rect` including rounded corners, `circle`, `ellipse`,
   `line`, `polyline`, and `polygon` definitions, plus simple `<g>` and
   `symbol` definitions containing those path-like children, including symbol
-  `viewBox` to `<use>` viewport fitting, through `href` / `xlink:href` `<use>`
+  `viewBox` to `<use>` viewport fitting and simple `<defs>` `<use>` aliases,
+  through `href` / `xlink:href` `<use>`
   references, basic
   presentation/style fill and stroke metadata plus simple
   `translate` / `scale` / `skewX` / `skewY` transform attributes, simple nested group transforms,

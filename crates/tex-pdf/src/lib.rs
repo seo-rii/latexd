@@ -6357,6 +6357,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         tag: String,
         start: usize,
         path_data: String,
+        alias_transform: Option<SimpleSvgTransform>,
+        alias_presentation: Option<SimpleSvgPresentation>,
     }
     let push_path_like_definition = |path_like_definitions: &mut Vec<
         SimpleSvgPathLikeDefinition,
@@ -6371,6 +6373,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 tag: tag.to_string(),
                 start,
                 path_data: path_data.clone(),
+                alias_transform: None,
+                alias_presentation: None,
             });
         }
         for group_definition in &group_definitions {
@@ -6380,6 +6384,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     tag: tag.to_string(),
                     start,
                     path_data: path_data.clone(),
+                    alias_transform: None,
+                    alias_presentation: None,
                 });
             }
         }
@@ -6390,6 +6396,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     tag: tag.to_string(),
                     start,
                     path_data: path_data.clone(),
+                    alias_transform: None,
+                    alias_presentation: None,
                 });
             }
         }
@@ -6711,6 +6719,85 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         search_index = poly_start + poly_end + 1;
     }
     let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<use") {
+        let use_start = search_index + relative;
+        let use_tail = &svg_content[use_start..];
+        if !is_start_tag_named(use_tail, "use") {
+            search_index = use_start + "<use".len();
+            continue;
+        }
+        let Some(use_end) = use_tail.find('>') else {
+            break;
+        };
+        if !in_defs(use_start) {
+            search_index = use_start + use_end + 1;
+            continue;
+        }
+        let use_tag = &use_tail[..use_end];
+        let Some(reference_id) = attr_value(use_tag, "href")
+            .or_else(|| attr_value(use_tag, "xlink:href"))
+            .and_then(|href| href.strip_prefix('#').map(str::to_string))
+            .filter(|id| !id.is_empty())
+        else {
+            search_index = use_start + use_end + 1;
+            continue;
+        };
+        let Some((use_transform, use_presentation)) = parse_element_state(use_tag, use_start)
+        else {
+            search_index = use_start + use_end + 1;
+            continue;
+        };
+        let x = attr_value(use_tag, "x")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let y = attr_value(use_tag, "y")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let translated_use_transform = compose_transform(
+            SimpleSvgTransform {
+                e: x,
+                f: y,
+                ..identity_transform
+            },
+            use_transform,
+            use_transform.stroke_scale,
+        );
+        let referenced_definitions = path_like_definitions
+            .iter()
+            .filter(|definition| definition.id == reference_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        for definition in referenced_definitions {
+            let alias_transform = definition
+                .alias_transform
+                .map(|base_transform| {
+                    compose_transform(
+                        base_transform,
+                        translated_use_transform,
+                        translated_use_transform.stroke_scale,
+                    )
+                })
+                .unwrap_or(translated_use_transform);
+            let alias_presentation = definition
+                .alias_presentation
+                .map(|base_presentation| inherit_presentation(base_presentation, use_presentation))
+                .unwrap_or(use_presentation);
+            if let Some(id) = attr_value(use_tag, "id").filter(|id| !id.trim().is_empty()) {
+                path_like_definitions.push(SimpleSvgPathLikeDefinition {
+                    id,
+                    tag: definition.tag,
+                    start: definition.start,
+                    path_data: definition.path_data,
+                    alias_transform: Some(alias_transform),
+                    alias_presentation: Some(alias_presentation),
+                });
+            }
+        }
+        search_index = use_start + use_end + 1;
+    }
+    let mut search_index = 0usize;
     while let Some(relative) = svg_content[search_index..].find("<path") {
         let path_start = search_index + relative;
         let path_tail = &svg_content[path_start..];
@@ -6795,8 +6882,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             else {
                 continue;
             };
-            let mut outer_transform = translated_use_transform;
+            let mut definition_transform = definition_transform;
             let mut definition_presentation = definition_presentation;
+            if let Some(alias_transform) = definition.alias_transform {
+                definition_transform = compose_transform(
+                    definition_transform,
+                    alias_transform,
+                    alias_transform.stroke_scale,
+                );
+            }
+            if let Some(alias_presentation) = definition.alias_presentation {
+                definition_presentation =
+                    inherit_presentation(definition_presentation, alias_presentation);
+            }
+            let mut outer_transform = translated_use_transform;
             if let Some(symbol_definition) =
                 symbol_definitions.iter().rev().find(|symbol_definition| {
                     symbol_definition.id == reference_id
@@ -10403,6 +10502,66 @@ mod tests {
         assert!(!pdf_text.contains("1 0 0 rg 50 260 m"));
         assert!(!pdf_text.contains("1 0 0 rg 10 280 m 50 280 l 50 240 l 10 240 l h f"));
         assert!(!pdf_text.contains("[unsupported image: figures/defs-use.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_defs_use_aliases_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/defs-use-alias.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:defs-use-alias".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/defs-use-alias.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <path id="tri" d="M 0 0 L 4 0 L 4 4 Z" transform="translate(1 0)" fill="#ff0000"/>
+    <use id="triAlias" href="#tri" x="2" y="1" fill="#0000ff"/>
+    <use id="triAlias2" href="#triAlias" x="1" y="1" fill="#00ff00"/>
+    <g id="glyph" fill="#ff0000">
+      <path d="M 0 0 L 2 0 L 2 2 Z"/>
+    </g>
+    <use id="glyphAlias" href="#glyph" x="4" y="0" fill="#0000ff"/>
+  </defs>
+  <use href="#triAlias" x="5" y="2"/>
+  <use href="#triAlias2" x="10" y="2"/>
+  <use href="#glyph" x="0" y="7" fill="#ff00ff"/>
+  <use href="#glyphAlias" x="4" y="7"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 rg 90 250 m 130 250 l 130 210 l h f"));
+        assert!(pdf_text.contains("0 1 0 rg 150 240 m 190 240 l 190 200 l h f"));
+        assert!(pdf_text.contains("1 0 1 rg 10 210 m 30 210 l 30 190 l h f"));
+        assert!(pdf_text.contains("0 0 1 rg 90 210 m 110 210 l 110 190 l h f"));
+        assert!(!pdf_text.contains("1 0 1 rg 50 210 m 70 210 l 70 190 l h f"));
+        assert!(!pdf_text.contains("1 0 0 rg 10 280 m 50 280 l 50 240 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/defs-use-alias.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
