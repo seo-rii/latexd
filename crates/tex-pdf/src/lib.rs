@@ -4979,10 +4979,35 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             marker_search_index = body_end + "</marker>".len();
             continue;
         }
+        let marker_group_state_for = |element_start: usize| {
+            let mut selected_group: Option<&SimpleSvgGroupTransform> = None;
+            for group in &group_transforms {
+                if body_start <= group.content_start
+                    && group.content_end <= body_end
+                    && group.content_start <= element_start
+                    && element_start < group.content_end
+                {
+                    selected_group = match selected_group {
+                        Some(selected) if selected.content_start > group.content_start => {
+                            Some(selected)
+                        }
+                        _ => Some(group),
+                    };
+                }
+            }
+            selected_group
+                .map(|group| {
+                    group
+                        .transform
+                        .map(|transform| (transform, Some(group.presentation)))
+                })
+                .unwrap_or(Some((identity_transform, None)))
+        };
         let mut shapes = Vec::new();
         let mut body_search_index = 0usize;
         while let Some(child_relative) = body[body_search_index..].find('<') {
             let child_start_in_body = body_search_index + child_relative;
+            let child_start = body_start + child_start_in_body;
             let child_tail = &body[child_start_in_body..];
             let Some(child_tag_end) = child_tail.find('>') else {
                 break;
@@ -5074,9 +5099,21 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             };
             if let Some(path_data) = path_data
                 && let Some(child_transform) = parse_transform(child_tag)
+                && let Some((group_transform, group_presentation)) =
+                    marker_group_state_for(child_start)
             {
+                let child_transform = compose_transform(
+                    child_transform,
+                    group_transform,
+                    group_transform.stroke_scale,
+                );
+                let base_presentation = group_presentation
+                    .map(|group_presentation| {
+                        inherit_presentation(presentation, group_presentation)
+                    })
+                    .unwrap_or(presentation);
                 let child_presentation =
-                    inherit_presentation(presentation, parse_presentation(child_tag));
+                    inherit_presentation(base_presentation, parse_presentation(child_tag));
                 if presentation_is_visible(child_presentation) {
                     shapes.push(SimpleSvgMarkerShape {
                         path_data,
@@ -9494,6 +9531,57 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 190 230 l S"));
         assert!(pdf_text.contains("1 0 0 RG 2.5 w 170 240 m 190 230 l 170 220 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/marker-context-fill.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_marker_group_children_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/marker-group.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:marker-group".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/marker-group.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <marker id="arrow" viewBox="0 0 6 4" refX="6" refY="2" markerWidth="6" markerHeight="4" markerUnits="userSpaceOnUse" orient="auto">
+      <g transform="translate(2 0)" fill="context-stroke">
+        <path d="M 0 0 L 4 2 L 0 4 Z"/>
+      </g>
+    </marker>
+  </defs>
+  <line x1="2" y1="5" x2="18" y2="5" stroke="#00ff00" stroke-width="0.5" marker-end="url(#arrow)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 RG 5 w 30 230 m 190 230 l S"));
+        assert!(pdf_text.contains("0 1 0 rg 150 250 m 190 230 l 150 210 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/marker-group.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
