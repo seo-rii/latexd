@@ -7499,7 +7499,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 };
                 let tspan_body_end = tspan_body_start + tspan_body_end_relative;
                 let tspan_body = &tspan_tail[tspan_body_start..tspan_body_end];
-                if tspan_body.trim().is_empty() || tspan_body.contains('<') {
+                let preserve_tspan_space = attr_value(tspan_tag, "xml:space")
+                    .map(|value| value.trim().eq_ignore_ascii_case("preserve"))
+                    .unwrap_or(preserve_text_space);
+                if tspan_body.contains('<')
+                    || (tspan_body.is_empty()
+                        || (!preserve_tspan_space && tspan_body.trim().is_empty()))
+                {
                     valid_tspans = false;
                     break;
                 }
@@ -9785,6 +9791,51 @@ mod tests {
         assert!(pdf_text.contains("(A) Tj ET"));
         assert!(pdf_text.contains("(B) Tj ET"));
         assert!(!pdf_text.contains("[unsupported image: figures/xml-space-tspan-gaps.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_xml_space_preserve_whitespace_only_tspan_as_pdf_text() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/xml-space-tspan-body.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:xml-space-tspan-body".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/xml-space-tspan-body.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="2" y="6" font-size="2" fill="#0000ff"><tspan>A</tspan><tspan xml:space="preserve"> </tspan><tspan>B</tspan></text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("(A) Tj ET"));
+        assert!(pdf_text.contains("( ) Tj ET"));
+        assert!(pdf_text.contains("(B) Tj ET"));
+        assert!(!pdf_text.contains("[unsupported image: figures/xml-space-tspan-body.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
