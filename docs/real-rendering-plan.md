@@ -1137,9 +1137,10 @@ Status:
   absolute and percentage `font-size`, `font-family`, `font-weight`, and
   `font-style` cascade with simple PDF base-family mapping, approximate
   `middle`/`central` baseline alignment, simple `baseline-shift`, and multiple
-  direct literal `tspan` children with numeric `dx`/`dy`, mixed literal text
-  plus simple `tspan` children, and the same simple baseline alignment/shift
-  behavior, and path content with line,
+  direct literal `tspan` children with numeric `dx`/`dy`, simple `tspan`
+  leading/trailing text spaces, mixed literal text plus simple `tspan`
+  children, and the same simple baseline alignment/shift behavior, and path
+  content with line,
   cubic/smooth cubic,
   quadratic/smooth quadratic, and arc commands,
   including multiple closed subpaths in one path element and simple `<defs>`
