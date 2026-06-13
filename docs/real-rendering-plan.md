@@ -1149,7 +1149,7 @@ Status:
   simple `<defs>` group children composed from `<use>` aliases, and simple
   symbol children composed from `<use>` aliases, plus simple `<defs>` symbol
   aliases with symbol `viewBox` fitting,
-  through `href` / `xlink:href` `<use>`
+  through whitespace-tolerant `href` / `xlink:href` `<use>`
   references, basic
   presentation/style fill and stroke metadata plus simple
   `translate` / `scale` / `skewX` / `skewY` transform attributes, simple nested group transforms,

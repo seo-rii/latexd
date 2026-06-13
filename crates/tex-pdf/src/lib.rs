@@ -6795,7 +6795,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let use_tag = &use_tail[..use_end];
         let Some(reference_id) = attr_value(use_tag, "href")
             .or_else(|| attr_value(use_tag, "xlink:href"))
-            .and_then(|href| href.strip_prefix('#').map(str::to_string))
+            .and_then(|href| href.trim().strip_prefix('#').map(str::to_string))
             .filter(|id| !id.is_empty())
         else {
             search_index = use_start + use_end + 1;
@@ -7033,7 +7033,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let use_tag = &use_tail[..use_end];
         let Some(reference_id) = attr_value(use_tag, "href")
             .or_else(|| attr_value(use_tag, "xlink:href"))
-            .and_then(|href| href.strip_prefix('#').map(str::to_string))
+            .and_then(|href| href.trim().strip_prefix('#').map(str::to_string))
             .filter(|id| !id.is_empty())
         else {
             search_index = use_start + use_end + 1;
@@ -10819,6 +10819,56 @@ mod tests {
         assert!(!pdf_text.contains("1 0 1 rg 50 210 m 70 210 l 70 190 l h f"));
         assert!(!pdf_text.contains("1 0 0 rg 10 280 m 50 280 l 50 240 l h f"));
         assert!(!pdf_text.contains("[unsupported image: figures/defs-use-alias.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_use_href_with_whitespace_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/use-href-whitespace.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:use-href-whitespace".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/use-href-whitespace.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <path id="tri" d="M 0 0 L 4 0 L 4 4 Z" fill="#ff0000"/>
+    <use id="triAlias" href=" #tri " x="1" y="0" fill="#0000ff"/>
+  </defs>
+  <use href=" #tri " x="5" y="0" fill="#00ff00"/>
+  <use xlink:href=" #triAlias " x="10" y="0"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 rg 60 280 m 100 280 l 100 240 l h f"));
+        assert!(pdf_text.contains("0 0 1 rg 120 280 m 160 280 l 160 240 l h f"));
+        assert!(!pdf_text.contains("1 0 0 rg 10 280 m 50 280 l 50 240 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/use-href-whitespace.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
