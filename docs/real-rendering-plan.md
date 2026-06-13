@@ -224,7 +224,7 @@ vector paths, including simple path-like children in `<defs>` group and
 `symbol` definitions reused through `<use>`, including rounded `rect`
 definitions, simple `<defs>` `<use>` aliases, and `<defs>` group children
 composed from `<use>` aliases, plus symbol children composed from `<use>`
-aliases with basic symbol `viewBox`
+aliases and `<defs>` symbol aliases with basic symbol `viewBox`
 viewport fitting, simple `<line>`, `<polyline>`, `<polygon>`, and `<path>`
 arrow markers from path-like `<marker>` children, including `marker` shorthand
 and `marker-start` / `marker-mid` / `marker-end`, with `context-stroke` /
@@ -700,7 +700,7 @@ Implemented first slice:
   `symbol` definitions reused through `<use>`, including rounded `rect`
   definitions, simple `<defs>` `<use>` aliases, and `<defs>` group children
   composed from `<use>` aliases, plus symbol children composed from `<use>`
-  aliases with basic symbol `viewBox`
+  aliases and `<defs>` symbol aliases with basic symbol `viewBox`
   viewport fitting, simple `<line>`, `<polyline>`, `<polygon>`, and `<path>`
   arrow markers from path-like `<marker>` children, including `marker`
   shorthand and `marker-start` / `marker-mid` / `marker-end`, with
@@ -1145,7 +1145,8 @@ Status:
   `symbol` definitions containing those path-like children, including symbol
   `viewBox` to `<use>` viewport fitting, simple `<defs>` `<use>` aliases,
   simple `<defs>` group children composed from `<use>` aliases, and simple
-  symbol children composed from `<use>` aliases,
+  symbol children composed from `<use>` aliases, plus simple `<defs>` symbol
+  aliases with symbol `viewBox` fitting,
   through `href` / `xlink:href` `<use>`
   references, basic
   presentation/style fill and stroke metadata plus simple
