@@ -6374,18 +6374,6 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             continue;
         }
         let rect_tag = &rect_tail[..rect_end];
-        let has_rounded_corner = attr_value(rect_tag, "rx")
-            .as_deref()
-            .and_then(parse_number_prefix)
-            .is_some_and(|radius| radius > 0.0)
-            || attr_value(rect_tag, "ry")
-                .as_deref()
-                .and_then(parse_number_prefix)
-                .is_some_and(|radius| radius > 0.0);
-        if has_rounded_corner {
-            search_index = rect_start + rect_end + 1;
-            continue;
-        }
         let x = attr_value(rect_tag, "x")
             .as_deref()
             .and_then(parse_number_prefix)
@@ -6394,6 +6382,12 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .as_deref()
             .and_then(parse_number_prefix)
             .unwrap_or(0.0);
+        let rx_raw = attr_value(rect_tag, "rx")
+            .as_deref()
+            .and_then(parse_number_prefix);
+        let ry_raw = attr_value(rect_tag, "ry")
+            .as_deref()
+            .and_then(parse_number_prefix);
         if let (Some(width), Some(height)) = (
             attr_value(rect_tag, "width")
                 .as_deref()
@@ -6401,15 +6395,72 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             attr_value(rect_tag, "height")
                 .as_deref()
                 .and_then(parse_number_prefix),
-        ) && let Some(path_data) = rect_path_data(x, y, width, height)
+        ) && width.is_finite()
+            && height.is_finite()
+            && width > 0.0
+            && height > 0.0
         {
-            push_path_like_definition(
-                &mut path_like_definitions,
-                attr_value(rect_tag, "id"),
-                rect_tag,
-                rect_start,
-                path_data,
-            );
+            let rounded_radii = match (rx_raw, ry_raw) {
+                (Some(rx), Some(ry)) if rx > 0.0 && ry > 0.0 => {
+                    Some((rx.min(width / 2.0), ry.min(height / 2.0)))
+                }
+                (Some(radius), None) | (None, Some(radius)) if radius > 0.0 => {
+                    let radius = radius.min(width / 2.0).min(height / 2.0);
+                    Some((radius, radius))
+                }
+                _ => None,
+            };
+            let path_data = if let Some((rx, ry)) = rounded_radii {
+                let kappa = 0.552_284_8_f32;
+                Some(format!(
+                    "M {} {} L {} {} C {} {} {} {} {} {} L {} {} C {} {} {} {} {} {} L {} {} C {} {} {} {} {} {} L {} {} C {} {} {} {} {} {} Z",
+                    x + rx,
+                    y,
+                    x + width - rx,
+                    y,
+                    x + width - rx + kappa * rx,
+                    y,
+                    x + width,
+                    y + ry - kappa * ry,
+                    x + width,
+                    y + ry,
+                    x + width,
+                    y + height - ry,
+                    x + width,
+                    y + height - ry + kappa * ry,
+                    x + width - rx + kappa * rx,
+                    y + height,
+                    x + width - rx,
+                    y + height,
+                    x + rx,
+                    y + height,
+                    x + rx - kappa * rx,
+                    y + height,
+                    x,
+                    y + height - ry + kappa * ry,
+                    x,
+                    y + height - ry,
+                    x,
+                    y + ry,
+                    x,
+                    y + ry - kappa * ry,
+                    x + rx - kappa * rx,
+                    y,
+                    x + rx,
+                    y
+                ))
+            } else {
+                rect_path_data(x, y, width, height)
+            };
+            if let Some(path_data) = path_data {
+                push_path_like_definition(
+                    &mut path_like_definitions,
+                    attr_value(rect_tag, "id"),
+                    rect_tag,
+                    rect_start,
+                    path_data,
+                );
+            }
         }
         search_index = rect_start + rect_end + 1;
     }
@@ -10289,6 +10340,55 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 rg 110 270 m 150 270 l 150 230 l h f"));
         assert!(!pdf_text.contains("1 0 0 rg 10 280 m 50 280 l 50 240 l h f"));
         assert!(!pdf_text.contains("[unsupported image: figures/defs-group-use.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_defs_rounded_rect_use_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/defs-rounded-rect-use.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:defs-rounded-rect-use".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/defs-rounded-rect-use.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <rect id="badge" x="0" y="0" width="6" height="4" rx="1" ry="1" fill="#ff0000"/>
+  </defs>
+  <use href="#badge" x="5" y="3" fill="#0000ff"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 rg 70 250 m 110 250 l"));
+        assert!(pdf_text.contains("120 240 c"));
+        assert!(pdf_text.contains("110 210 c 70 210 l"));
+        assert!(!pdf_text.contains("0 0 1 rg 60 250 m 120 250 l 120 210 l 60 210 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/defs-rounded-rect-use.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

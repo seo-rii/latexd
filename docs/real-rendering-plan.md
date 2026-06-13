@@ -221,7 +221,8 @@ children, and
 primitives, plus non-axis-aligned transformed rectangles rendered as closed
 vector polygons and transformed circle/ellipse primitives rendered as cubic
 vector paths, including simple path-like children in `<defs>` group and
-`symbol` definitions reused through `<use>`, with basic symbol `viewBox`
+`symbol` definitions reused through `<use>`, including rounded `rect`
+definitions, with basic symbol `viewBox`
 viewport fitting, simple `<line>`, `<polyline>`, `<polygon>`, and `<path>`
 arrow markers from path-like `<marker>` children, including `marker` shorthand
 and `marker-start` / `marker-mid` / `marker-end`, with `context-stroke` /
@@ -693,7 +694,8 @@ Implemented first slice:
   `skewY` transforms, non-axis-aligned
   transformed rectangles, and transformed circle/ellipse cubic paths, as vector
   drawing operations, including simple path-like children in `<defs>` group and
-  `symbol` definitions reused through `<use>`, with basic symbol `viewBox`
+  `symbol` definitions reused through `<use>`, including rounded `rect`
+  definitions, with basic symbol `viewBox`
   viewport fitting, simple `<line>`, `<polyline>`, `<polygon>`, and `<path>`
   arrow markers from path-like `<marker>` children, including `marker`
   shorthand and `marker-start` / `marker-mid` / `marker-end`, with
@@ -1132,7 +1134,7 @@ Status:
   cubic/smooth cubic,
   quadratic/smooth quadratic, and arc commands,
   including multiple closed subpaths in one path element and simple `<defs>`
-  path-like reuse for `path`, simple unrounded `rect`, `circle`, `ellipse`,
+  path-like reuse for `path`, simple `rect` including rounded corners, `circle`, `ellipse`,
   `line`, `polyline`, and `polygon` definitions, plus simple `<g>` and
   `symbol` definitions containing those path-like children, including symbol
   `viewBox` to `<use>` viewport fitting, through `href` / `xlink:href` `<use>`
