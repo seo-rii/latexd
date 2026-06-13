@@ -1134,10 +1134,10 @@ Status:
   SVG rectangle, rounded rectangle, line, circle, ellipse, polyline, polygon,
   percentage geometry for simple rect/line/circle/ellipse attributes,
   direct text content with simple XML named and numeric text entity decoding,
-  simple `xml:space="preserve"` edge whitespace, simple `text-anchor`, numeric
-  `dx`/`dy`, absolute and percentage `font-size`, `font-family`,
-  `font-weight`, and `font-style` cascade with simple PDF base-family mapping,
-  approximate
+  simple `xml:space="preserve"` edge whitespace and whitespace-only `tspan`
+  gaps, simple `text-anchor`, numeric `dx`/`dy`, absolute and percentage
+  `font-size`, `font-family`, `font-weight`, and `font-style` cascade with
+  simple PDF base-family mapping, approximate
   `middle`/`central` baseline alignment, simple `baseline-shift`, and multiple
   direct literal `tspan` children with numeric `dx`/`dy`, simple `tspan`
   leading/trailing text spaces, mixed literal text plus simple `tspan`
