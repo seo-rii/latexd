@@ -6784,12 +6784,24 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .alias_presentation
                 .map(|base_presentation| inherit_presentation(base_presentation, use_presentation))
                 .unwrap_or(use_presentation);
+            let mut alias_ids = Vec::new();
             if let Some(id) = attr_value(use_tag, "id").filter(|id| !id.trim().is_empty()) {
+                alias_ids.push(id);
+            }
+            for group_definition in &group_definitions {
+                if group_definition.content_start <= use_start
+                    && use_start < group_definition.content_end
+                    && !alias_ids.iter().any(|id| id == &group_definition.id)
+                {
+                    alias_ids.push(group_definition.id.clone());
+                }
+            }
+            for id in alias_ids {
                 path_like_definitions.push(SimpleSvgPathLikeDefinition {
                     id,
-                    tag: definition.tag,
+                    tag: definition.tag.clone(),
                     start: definition.start,
-                    path_data: definition.path_data,
+                    path_data: definition.path_data.clone(),
                     alias_transform: Some(alias_transform),
                     alias_presentation: Some(alias_presentation),
                 });
@@ -10544,7 +10556,11 @@ mod tests {
       <path d="M 0 0 L 2 0 L 2 2 Z"/>
     </g>
     <use id="glyphAlias" href="#glyph" x="4" y="0" fill="#0000ff"/>
+    <g id="composite" fill="#0000ff">
+      <use href="#tri" x="1" y="0"/>
+    </g>
   </defs>
+  <use href="#composite" x="0" y="0"/>
   <use href="#triAlias" x="5" y="2"/>
   <use href="#triAlias2" x="10" y="2"/>
   <use href="#glyph" x="0" y="7" fill="#ff00ff"/>
@@ -10555,6 +10571,7 @@ mod tests {
         });
         let pdf_text = String::from_utf8_lossy(&pdf);
 
+        assert!(pdf_text.contains("0 0 1 rg 30 280 m 70 280 l 70 240 l h f"));
         assert!(pdf_text.contains("0 0 1 rg 90 250 m 130 250 l 130 210 l h f"));
         assert!(pdf_text.contains("0 1 0 rg 150 240 m 190 240 l 190 200 l h f"));
         assert!(pdf_text.contains("1 0 1 rg 10 210 m 30 210 l 30 190 l h f"));
