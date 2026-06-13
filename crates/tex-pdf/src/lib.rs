@@ -7322,11 +7322,43 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         search_index = image_start + image_end + 1;
     }
     let decode_xml_text = |raw: &str| {
-        raw.replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .replace("&quot;", "\"")
-            .replace("&apos;", "'")
-            .replace("&amp;", "&")
+        let mut decoded = String::new();
+        let mut remaining = raw;
+        while let Some(entity_start) = remaining.find('&') {
+            decoded.push_str(&remaining[..entity_start]);
+            let entity_tail = &remaining[entity_start + 1..];
+            let Some(entity_end) = entity_tail.find(';') else {
+                decoded.push_str(&remaining[entity_start..]);
+                return decoded;
+            };
+            let entity = &entity_tail[..entity_end];
+            let numeric_char = if let Some(hex) = entity
+                .strip_prefix("#x")
+                .or_else(|| entity.strip_prefix("#X"))
+            {
+                u32::from_str_radix(hex, 16).ok().and_then(char::from_u32)
+            } else if let Some(decimal) = entity.strip_prefix('#') {
+                decimal.parse::<u32>().ok().and_then(char::from_u32)
+            } else {
+                None
+            };
+            match (entity, numeric_char) {
+                ("lt", _) => decoded.push('<'),
+                ("gt", _) => decoded.push('>'),
+                ("quot", _) => decoded.push('"'),
+                ("apos", _) => decoded.push('\''),
+                ("amp", _) => decoded.push('&'),
+                (_, Some(ch)) => decoded.push(ch),
+                _ => {
+                    decoded.push('&');
+                    decoded.push_str(entity);
+                    decoded.push(';');
+                }
+            }
+            remaining = &entity_tail[entity_end + 1..];
+        }
+        decoded.push_str(remaining);
+        decoded
     };
     let mut texts = Vec::new();
     let mut search_index = 0usize;
@@ -9607,6 +9639,52 @@ mod tests {
         assert!(pdf_text.contains("(Tail) Tj ET"));
         assert!(!pdf_text.contains("(Hot) Tj ET"));
         assert!(!pdf_text.contains("[unsupported image: figures/tspan-edge-spaces.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_numeric_text_entities_as_pdf_text() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/numeric-text-entities.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:numeric-text-entities".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/numeric-text-entities.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="2" y="6" font-size="2" fill="#0000ff">A&#45;B <tspan fill="#ff0000">&#x26; C</tspan></text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("(A-B ) Tj ET"));
+        assert!(pdf_text.contains("(& C) Tj ET"));
+        assert!(!pdf_text.contains("&#45;"));
+        assert!(!pdf_text.contains("&#x26;"));
+        assert!(!pdf_text.contains("[unsupported image: figures/numeric-text-entities.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
