@@ -1193,6 +1193,16 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         (None, Some(stroke)) => (stroke.opacity, stroke.opacity),
                                         (None, None) => (1.0, 1.0),
                                     };
+                                    let scoped_stroke_state = if stroke.is_some() {
+                                        push_pdf_stroke_state(
+                                            &mut stream,
+                                            svg_text.stroke_dasharray,
+                                            svg_text.stroke_style,
+                                            svg_width,
+                                        )
+                                    } else {
+                                        false
+                                    };
                                     let scoped_opacity = push_pdf_paint_opacity(
                                         &mut stream,
                                         &mut opacity_resource_keys,
@@ -1391,6 +1401,9 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         }
                                     }
                                     if scoped_opacity {
+                                        stream.push_str("Q ");
+                                    }
+                                    if scoped_stroke_state {
                                         stream.push_str("Q ");
                                     }
                                 }
@@ -1767,6 +1780,8 @@ struct SimpleSvgText {
     fill: Option<SimpleSvgPaint>,
     stroke: Option<SimpleSvgPaint>,
     stroke_width_ratio: f32,
+    stroke_dasharray: Option<SimpleSvgDashArray>,
+    stroke_style: SimpleSvgStrokeStyle,
     decoration: SimpleSvgTextDecoration,
     text: String,
 }
@@ -7946,6 +7961,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     fill: fill_paint(presentation, Some((0.0, 0.0, 0.0))),
                     stroke: stroke_paint(presentation),
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
+                    stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
+                    stroke_style: stroke_style(presentation),
                     decoration: presentation.text_decoration.unwrap_or_default(),
                     text,
                 });
@@ -9713,8 +9730,7 @@ mod tests {
         });
         let pdf_text = String::from_utf8_lossy(&pdf);
 
-        assert!(pdf_text
-            .contains("q 0 1 0 RG 0.72 w 84.672005 670.8 m 84.672005 656.39996 l S Q"));
+        assert!(pdf_text.contains("q 0 1 0 RG 0.72 w 84.672005 670.8 m 84.672005 656.39996 l S Q"));
         assert!(!pdf_text.contains("86.4 669.07196 m 100.8 669.07196 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/text-decoration-transform.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
@@ -10641,6 +10657,52 @@ mod tests {
         assert!(pdf_text.contains("2 Tr"));
         assert!(pdf_text.contains("(FS) Tj 0 Tr ET"));
         assert!(!pdf_text.contains("[unsupported image: figures/stroked-text.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_stroked_text_with_stroke_graphics_state() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/stroked-text-state.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:stroked-text-state".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/stroked-text-state.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="2" y="6" font-size="2" fill="none" stroke="#0000ff" stroke-width="0.2" stroke-dasharray="1 0.5" stroke-linecap="square" stroke-linejoin="round" stroke-miterlimit="3">DS</text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains(
+            "[7.2000003 3.6000001] 0 d 2 J 1 j 3 M 0 0 1 RG 1.4399999 w BT /F1 14.400001 Tf 1 Tr"
+        ));
+        assert!(pdf_text.contains("(DS) Tj 0 Tr ET Q Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/stroked-text-state.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
