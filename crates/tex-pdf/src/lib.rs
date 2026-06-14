@@ -7497,29 +7497,66 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             search_index = text_body_end + "</text>".len();
             continue;
         };
+        let estimate_text_advance =
+            |text: &str, font_size: f32, letter_spacing: f32, word_spacing: f32| {
+                text.chars()
+                    .map(|ch| {
+                        if ch.is_whitespace() || ch.is_ascii_punctuation() {
+                            0.33
+                        } else {
+                            0.5
+                        }
+                    })
+                    .sum::<f32>()
+                    * font_size
+                    + letter_spacing * text.chars().count().saturating_sub(1) as f32
+                    + word_spacing * text.chars().filter(|ch| *ch == ' ').count() as f32
+            };
+        let apply_text_length_spacing =
+            |tag: &str, mut presentation: SimpleSvgPresentation, text: &str, font_size: f32| {
+                let length_adjust =
+                    attr_value(tag, "lengthAdjust").unwrap_or_else(|| "spacing".to_string());
+                let length_adjust = length_adjust.trim();
+                if !(length_adjust.eq_ignore_ascii_case("spacing")
+                    || length_adjust.eq_ignore_ascii_case("spacingAndGlyphs"))
+                {
+                    return presentation;
+                }
+                let Some(text_length) = attr_value(tag, "textLength")
+                    .as_deref()
+                    .and_then(parse_x_length)
+                    .filter(|value| value.is_finite())
+                else {
+                    return presentation;
+                };
+                let spacing_gaps = text.chars().count().saturating_sub(1);
+                if spacing_gaps == 0 {
+                    return presentation;
+                }
+                let current_advance = estimate_text_advance(
+                    text,
+                    font_size,
+                    presentation.letter_spacing.unwrap_or(0.0),
+                    presentation.word_spacing.unwrap_or(0.0),
+                );
+                let extra_spacing = (text_length - current_advance) / spacing_gaps as f32;
+                if extra_spacing.is_finite() {
+                    presentation.letter_spacing =
+                        Some(presentation.letter_spacing.unwrap_or(0.0) + extra_spacing);
+                }
+                presentation
+            };
         let resolved_texts = if !text_body.contains('<') {
-            vec![(point, font_size, presentation, decode_xml_text(text_body))]
+            let text = decode_xml_text(text_body);
+            let presentation =
+                apply_text_length_spacing(text_tag, presentation, &text, local_font_size);
+            vec![(point, font_size, presentation, text)]
         } else {
             let mut remaining = text_body;
             let mut current_x = text_x;
             let mut current_y = text_raw_y;
             let mut tspan_texts = Vec::new();
             let mut valid_tspans = true;
-            let estimate_text_advance =
-                |text: &str, font_size: f32, letter_spacing: f32, word_spacing: f32| {
-                    text.chars()
-                        .map(|ch| {
-                            if ch.is_whitespace() || ch.is_ascii_punctuation() {
-                                0.33
-                            } else {
-                                0.5
-                            }
-                        })
-                        .sum::<f32>()
-                        * font_size
-                        + letter_spacing * text.chars().count().saturating_sub(1) as f32
-                        + word_spacing * text.chars().filter(|ch| *ch == ' ').count() as f32
-                };
             while !remaining.is_empty() {
                 let Some(tspan_start) = remaining.find("<tspan") else {
                     if !remaining.is_empty()
@@ -7613,7 +7650,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     remaining = &tspan_tail[tspan_close_end..];
                     continue;
                 }
+                let tspan_text = decode_xml_text(tspan_body);
                 let tspan_local_font_size = resolved_font_size(tspan_presentation);
+                let tspan_presentation = apply_text_length_spacing(
+                    tspan_tag,
+                    tspan_presentation,
+                    &tspan_text,
+                    tspan_local_font_size,
+                );
                 let tspan_font_size = tspan_local_font_size * transform.stroke_scale;
                 let tspan_x = tspan_x + tspan_dx;
                 let tspan_y = tspan_y + tspan_dy;
@@ -7626,7 +7670,6 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     valid_tspans = false;
                     break;
                 };
-                let tspan_text = decode_xml_text(tspan_body);
                 current_x = tspan_x
                     + estimate_text_advance(
                         &tspan_text,
@@ -10123,6 +10166,53 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 rg BT /F1 14.400001 Tf 10.8 Tw"));
         assert!(pdf_text.contains("(C D) Tj ET"));
         assert!(!pdf_text.contains("[unsupported image: figures/word-spacing.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_text_length_as_pdf_character_spacing() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-length.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-length".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-length.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="2" y="6" font-size="2" textLength="4" fill="#0000ff">AB</text>
+  <text x="2" y="8" font-size="2" fill="#ff0000"><tspan textLength="5" lengthAdjust="spacing">CD</tspan></text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 rg BT /F1 14.400001 Tf 14.400001 Tc"));
+        assert!(pdf_text.contains("(AB) Tj ET"));
+        assert!(pdf_text.contains("1 0 0 rg BT /F1 14.400001 Tf 21.6 Tc"));
+        assert!(pdf_text.contains("(CD) Tj ET"));
+        assert!(!pdf_text.contains("[unsupported image: figures/text-length.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

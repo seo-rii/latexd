@@ -1138,7 +1138,8 @@ Status:
   gaps/bodies, simple `text-anchor`, numeric `dx`/`dy`, absolute and
   percentage `font-size`, `font-family`, `font-weight`, and `font-style`
   cascade, simple `letter-spacing` and `word-spacing` via PDF text state,
-  simple PDF base-family mapping, approximate
+  simple `textLength` spacing adjustment via PDF character spacing, simple PDF
+  base-family mapping, approximate
   `middle`/`central` baseline alignment, simple `baseline-shift`, and multiple
   direct literal `tspan` children with numeric `dx`/`dy`, simple `tspan`
   leading/trailing text spaces, mixed literal text plus simple `tspan`
