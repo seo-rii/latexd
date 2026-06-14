@@ -1097,20 +1097,24 @@ pub fn render_display_list_pdf_with_converted_assets(
                                     }
                                 }
                                 for svg_text in &svg.texts {
-                                    let Some(fill) = svg_text.fill else {
+                                    let fill = svg_text.fill;
+                                    let stroke = svg_text.stroke;
+                                    if fill.is_none() && stroke.is_none() {
                                         continue;
-                                    };
+                                    }
                                     let mut x = svg_rect.x + svg_text.x_ratio * svg_width;
                                     let y = svg_rect.y + (1.0 - svg_text.y_ratio) * svg_height;
                                     let font_size = svg_text.font_size_ratio * svg_height;
                                     let letter_spacing = svg_text.letter_spacing_ratio * svg_width;
                                     let word_spacing = svg_text.word_spacing_ratio * svg_width;
+                                    let stroke_width = svg_text.stroke_width_ratio * svg_width;
                                     if !x.is_finite()
                                         || !y.is_finite()
                                         || !font_size.is_finite()
                                         || font_size <= 0.0
                                         || !letter_spacing.is_finite()
                                         || !word_spacing.is_finite()
+                                        || !stroke_width.is_finite()
                                         || svg_text.text.is_empty()
                                     {
                                         continue;
@@ -1147,10 +1151,12 @@ pub fn render_display_list_pdf_with_converted_assets(
                                     if !x.is_finite() {
                                         continue;
                                     }
+                                    let paint_opacity =
+                                        fill.or(stroke).map(|paint| paint.opacity).unwrap_or(1.0);
                                     let scoped_opacity = push_pdf_paint_opacity(
                                         &mut stream,
                                         &mut opacity_resource_keys,
-                                        fill.opacity,
+                                        paint_opacity,
                                     );
                                     let font_resource = match (
                                         svg_text.font_family,
@@ -1218,14 +1224,26 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             FontShape::Italic,
                                         ) => "F12",
                                     };
+                                    if let Some(fill) = fill {
+                                        stream.push_str(&format!(
+                                            "{} {} {} rg ",
+                                            fill.rgb.0, fill.rgb.1, fill.rgb.2
+                                        ));
+                                    }
+                                    if let Some(stroke) = stroke {
+                                        stream.push_str(&format!(
+                                            "{} {} {} RG {} w ",
+                                            stroke.rgb.0, stroke.rgb.1, stroke.rgb.2, stroke_width
+                                        ));
+                                    }
                                     stream.push_str(&format!(
-                                        "{} {} {} rg BT /{} {} Tf ",
-                                        fill.rgb.0,
-                                        fill.rgb.1,
-                                        fill.rgb.2,
-                                        font_resource,
-                                        font_size
+                                        "BT /{} {} Tf ",
+                                        font_resource, font_size
                                     ));
+                                    if stroke.is_some() {
+                                        let text_render_mode = if fill.is_some() { 2 } else { 1 };
+                                        stream.push_str(&format!("{text_render_mode} Tr "));
+                                    }
                                     if letter_spacing != 0.0 {
                                         stream.push_str(&format!("{letter_spacing} Tc "));
                                     }
@@ -1234,21 +1252,28 @@ pub fn render_display_list_pdf_with_converted_assets(
                                     }
                                     stream.push_str(&format!("1 0 0 1 {} {} Tm (", x, y));
                                     stream.push_str(&escape_pdf_text(&svg_text.text));
-                                    stream.push_str(") Tj ET ");
+                                    stream.push_str(") Tj ");
+                                    if stroke.is_some() {
+                                        stream.push_str("0 Tr ");
+                                    }
+                                    stream.push_str("ET ");
                                     if estimated_advance.is_finite()
                                         && estimated_advance > 0.0
                                         && (svg_text.decoration.underline
                                             || svg_text.decoration.overline
                                             || svg_text.decoration.line_through)
                                     {
+                                        let Some(decoration_paint) = fill.or(stroke) else {
+                                            continue;
+                                        };
                                         let stroke_width = (font_size * 0.05).max(0.25);
                                         if svg_text.decoration.underline {
                                             let line_y = y - font_size * 0.12;
                                             stream.push_str(&format!(
                                                 "q {} {} {} RG {} w {} {} m {} {} l S Q ",
-                                                fill.rgb.0,
-                                                fill.rgb.1,
-                                                fill.rgb.2,
+                                                decoration_paint.rgb.0,
+                                                decoration_paint.rgb.1,
+                                                decoration_paint.rgb.2,
                                                 stroke_width,
                                                 x,
                                                 line_y,
@@ -1260,9 +1285,9 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             let line_y = y + font_size * 0.78;
                                             stream.push_str(&format!(
                                                 "q {} {} {} RG {} w {} {} m {} {} l S Q ",
-                                                fill.rgb.0,
-                                                fill.rgb.1,
-                                                fill.rgb.2,
+                                                decoration_paint.rgb.0,
+                                                decoration_paint.rgb.1,
+                                                decoration_paint.rgb.2,
                                                 stroke_width,
                                                 x,
                                                 line_y,
@@ -1274,9 +1299,9 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             let line_y = y + font_size * 0.3;
                                             stream.push_str(&format!(
                                                 "q {} {} {} RG {} w {} {} m {} {} l S Q ",
-                                                fill.rgb.0,
-                                                fill.rgb.1,
-                                                fill.rgb.2,
+                                                decoration_paint.rgb.0,
+                                                decoration_paint.rgb.1,
+                                                decoration_paint.rgb.2,
                                                 stroke_width,
                                                 x,
                                                 line_y,
@@ -1652,6 +1677,8 @@ struct SimpleSvgText {
     font_series: FontSeries,
     font_shape: FontShape,
     fill: Option<SimpleSvgPaint>,
+    stroke: Option<SimpleSvgPaint>,
+    stroke_width_ratio: f32,
     decoration: SimpleSvgTextDecoration,
     text: String,
 }
@@ -7816,6 +7843,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     font_series: presentation.font_series.unwrap_or(FontSeries::Regular),
                     font_shape: presentation.font_shape.unwrap_or(FontShape::Upright),
                     fill: fill_paint(presentation, Some((0.0, 0.0, 0.0))),
+                    stroke: stroke_paint(presentation),
+                    stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
                     decoration: presentation.text_decoration.unwrap_or_default(),
                     text,
                 });
@@ -10372,6 +10401,56 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 RG"));
         assert!(pdf_text.matches(" l S ").count() >= 2);
         assert!(!pdf_text.contains("[unsupported image: figures/text-decoration.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_stroked_text_as_pdf_text() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/stroked-text.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:stroked-text".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/stroked-text.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="2" y="5" font-size="2" fill="none" stroke="#0000ff" stroke-width="0.2">S</text>
+  <text x="2" y="8" font-size="2" fill="#ff0000" stroke="#00ff00" stroke-width="0.3">FS</text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG"));
+        assert!(pdf_text.contains("1 Tr"));
+        assert!(pdf_text.contains("(S) Tj 0 Tr ET"));
+        assert!(pdf_text.contains("1 0 0 rg"));
+        assert!(pdf_text.contains("0 1 0 RG"));
+        assert!(pdf_text.contains("2 Tr"));
+        assert!(pdf_text.contains("(FS) Tj 0 Tr ET"));
+        assert!(!pdf_text.contains("[unsupported image: figures/stroked-text.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
