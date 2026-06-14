@@ -1137,7 +1137,8 @@ Status:
   simple `xml:space="preserve"` edge whitespace and whitespace-only `tspan`
   gaps/bodies, simple `text-anchor`, numeric `dx`/`dy`, absolute and
   percentage `font-size`, `font-family`, `font-weight`, and `font-style`
-  cascade with simple PDF base-family mapping, approximate
+  cascade, simple `letter-spacing` via PDF text state, simple PDF base-family
+  mapping, approximate
   `middle`/`central` baseline alignment, simple `baseline-shift`, and multiple
   direct literal `tspan` children with numeric `dx`/`dy`, simple `tspan`
   leading/trailing text spaces, mixed literal text plus simple `tspan`

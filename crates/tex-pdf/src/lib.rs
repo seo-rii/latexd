@@ -1103,10 +1103,12 @@ pub fn render_display_list_pdf_with_converted_assets(
                                     let mut x = svg_rect.x + svg_text.x_ratio * svg_width;
                                     let y = svg_rect.y + (1.0 - svg_text.y_ratio) * svg_height;
                                     let font_size = svg_text.font_size_ratio * svg_height;
+                                    let letter_spacing = svg_text.letter_spacing_ratio * svg_width;
                                     if !x.is_finite()
                                         || !y.is_finite()
                                         || !font_size.is_finite()
                                         || font_size <= 0.0
+                                        || !letter_spacing.is_finite()
                                         || svg_text.text.is_empty()
                                     {
                                         continue;
@@ -1124,7 +1126,10 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             }
                                         })
                                         .sum::<f32>()
-                                        * font_size;
+                                        * font_size
+                                        + letter_spacing
+                                            * svg_text.text.chars().count().saturating_sub(1)
+                                                as f32;
                                     match svg_text.anchor {
                                         SimpleSvgTextAnchor::Start => {}
                                         SimpleSvgTextAnchor::Middle => {
@@ -1209,15 +1214,17 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         ) => "F12",
                                     };
                                     stream.push_str(&format!(
-                                        "{} {} {} rg BT /{} {} Tf 1 0 0 1 {} {} Tm (",
+                                        "{} {} {} rg BT /{} {} Tf ",
                                         fill.rgb.0,
                                         fill.rgb.1,
                                         fill.rgb.2,
                                         font_resource,
-                                        font_size,
-                                        x,
-                                        y
+                                        font_size
                                     ));
+                                    if letter_spacing != 0.0 {
+                                        stream.push_str(&format!("{letter_spacing} Tc "));
+                                    }
+                                    stream.push_str(&format!("1 0 0 1 {} {} Tm (", x, y));
                                     stream.push_str(&escape_pdf_text(&svg_text.text));
                                     stream.push_str(") Tj ET ");
                                     if scoped_opacity {
@@ -1580,6 +1587,7 @@ struct SimpleSvgText {
     x_ratio: f32,
     y_ratio: f32,
     font_size_ratio: f32,
+    letter_spacing_ratio: f32,
     anchor: SimpleSvgTextAnchor,
     font_family: SimpleSvgFontFamily,
     font_series: FontSeries,
@@ -2478,6 +2486,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         font_family: Option<SimpleSvgFontFamily>,
         font_series: Option<FontSeries>,
         font_shape: Option<FontShape>,
+        letter_spacing: Option<f32>,
         text_baseline: Option<SimpleSvgTextBaseline>,
         baseline_shift: Option<SimpleSvgBaselineShift>,
         vector_effect_non_scaling_stroke: Option<bool>,
@@ -2505,6 +2514,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         |raw: &str| -> Option<f32> { parse_diagonal_length(raw).filter(|value| value.is_finite()) };
     let parse_stroke_width =
         |raw: &str| -> Option<f32> { parse_stroke_length(raw).filter(|width| *width > 0.0) };
+    let parse_letter_spacing = |raw: &str| -> Option<f32> {
+        let raw = raw.trim();
+        if raw.eq_ignore_ascii_case("normal") {
+            return Some(0.0);
+        }
+        parse_x_length(raw).filter(|value| value.is_finite())
+    };
     let parse_display = |raw: &str| -> Option<bool> {
         let raw = raw.trim();
         if raw.eq_ignore_ascii_case("inherit") || raw.is_empty() {
@@ -2798,6 +2814,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     font_family: Option<String>,
                                     font_weight: Option<String>,
                                     font_style: Option<String>,
+                                    letter_spacing: Option<String>,
                                     text_baseline: Option<String>,
                                     baseline_shift: Option<String>,
                                     vector_effect: Option<String>,
@@ -2835,6 +2852,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             font_family: font_family.as_deref().and_then(parse_font_family),
             font_series: font_weight.as_deref().and_then(parse_font_series),
             font_shape: font_style.as_deref().and_then(parse_font_shape),
+            letter_spacing: letter_spacing.as_deref().and_then(parse_letter_spacing),
             text_baseline: text_baseline.as_deref().and_then(parse_text_baseline),
             baseline_shift: baseline_shift.as_deref().and_then(parse_baseline_shift),
             vector_effect_non_scaling_stroke: vector_effect
@@ -2877,6 +2895,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             attr_value(tag, "font-family"),
             attr_value(tag, "font-weight"),
             attr_value(tag, "font-style"),
+            attr_value(tag, "letter-spacing"),
             first_some(
                 attr_value(tag, "dominant-baseline"),
                 attr_value(tag, "alignment-baseline"),
@@ -2912,6 +2931,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             style_value(tag, "font-family"),
             style_value(tag, "font-weight"),
             style_value(tag, "font-style"),
+            style_value(tag, "letter-spacing"),
             first_some(
                 style_value(tag, "dominant-baseline"),
                 style_value(tag, "alignment-baseline"),
@@ -2947,6 +2967,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             declaration_value(declarations, "font-family"),
             declaration_value(declarations, "font-weight"),
             declaration_value(declarations, "font-style"),
+            declaration_value(declarations, "letter-spacing"),
             first_some(
                 declaration_value(declarations, "dominant-baseline"),
                 declaration_value(declarations, "alignment-baseline"),
@@ -3150,6 +3171,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 font_family: local.font_family.or(base.font_family),
                 font_series: local.font_series.or(base.font_series),
                 font_shape: local.font_shape.or(base.font_shape),
+                letter_spacing: local.letter_spacing.or(base.letter_spacing),
                 text_baseline: local.text_baseline.or(base.text_baseline),
                 baseline_shift: local.baseline_shift.or(base.baseline_shift),
                 vector_effect_non_scaling_stroke: local
@@ -3213,6 +3235,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             font_family: local.font_family.or(parent.font_family),
             font_series: local.font_series.or(parent.font_series),
             font_shape: local.font_shape.or(parent.font_shape),
+            letter_spacing: local.letter_spacing.or(parent.letter_spacing),
             text_baseline: local.text_baseline.or(parent.text_baseline),
             baseline_shift: local.baseline_shift.or(parent.baseline_shift),
             vector_effect_non_scaling_stroke: local.vector_effect_non_scaling_stroke,
@@ -3265,6 +3288,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut font_family: Option<SimpleSvgCascadeValue<SimpleSvgFontFamily>> = None;
         let mut font_series: Option<SimpleSvgCascadeValue<FontSeries>> = None;
         let mut font_shape: Option<SimpleSvgCascadeValue<FontShape>> = None;
+        let mut letter_spacing: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut text_baseline: Option<SimpleSvgCascadeValue<SimpleSvgTextBaseline>> = None;
         let mut baseline_shift: Option<SimpleSvgCascadeValue<SimpleSvgBaselineShift>> = None;
         let mut vector_effect_non_scaling_stroke: Option<SimpleSvgCascadeValue<bool>> = None;
@@ -3508,6 +3532,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
+                if let Some(value) = rule.presentation.letter_spacing {
+                    let current = letter_spacing.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        letter_spacing = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
                 if let Some(value) = rule.presentation.text_baseline {
                     let current = text_baseline.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
@@ -3602,6 +3636,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             font_family: font_family.map(|value| value.value),
             font_series: font_series.map(|value| value.value),
             font_shape: font_shape.map(|value| value.value),
+            letter_spacing: letter_spacing.map(|value| value.value),
             text_baseline: text_baseline.map(|value| value.value),
             baseline_shift: baseline_shift.map(|value| value.value),
             vector_effect_non_scaling_stroke: vector_effect_non_scaling_stroke
@@ -7434,7 +7469,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             let mut current_y = text_raw_y;
             let mut tspan_texts = Vec::new();
             let mut valid_tspans = true;
-            let estimate_text_advance = |text: &str, font_size: f32| {
+            let estimate_text_advance = |text: &str, font_size: f32, letter_spacing: f32| {
                 text.chars()
                     .map(|ch| {
                         if ch.is_whitespace() || ch.is_ascii_punctuation() {
@@ -7445,6 +7480,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     })
                     .sum::<f32>()
                     * font_size
+                    + letter_spacing * text.chars().count().saturating_sub(1) as f32
             };
             while !remaining.is_empty() {
                 let Some(tspan_start) = remaining.find("<tspan") else {
@@ -7478,7 +7514,11 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         valid_tspans = false;
                         break;
                     };
-                    current_x += estimate_text_advance(&literal_text, local_font_size);
+                    current_x += estimate_text_advance(
+                        &literal_text,
+                        local_font_size,
+                        presentation.letter_spacing.unwrap_or(0.0),
+                    );
                     tspan_texts.push((point, font_size, presentation, literal_text));
                 }
                 let tspan_tail = &remaining[tspan_start..];
@@ -7548,7 +7588,12 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     break;
                 };
                 let tspan_text = decode_xml_text(tspan_body);
-                current_x = tspan_x + estimate_text_advance(&tspan_text, tspan_local_font_size);
+                current_x = tspan_x
+                    + estimate_text_advance(
+                        &tspan_text,
+                        tspan_local_font_size,
+                        tspan_presentation.letter_spacing.unwrap_or(0.0),
+                    );
                 tspan_texts.push((point, tspan_font_size, tspan_presentation, tspan_text));
                 current_y = tspan_y;
                 let tspan_close_end = tspan_body_end + "</tspan>".len();
@@ -7566,6 +7611,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     x_ratio: point.0,
                     y_ratio: point.1,
                     font_size_ratio: font_size / view_box.3,
+                    letter_spacing_ratio: presentation.letter_spacing.unwrap_or(0.0)
+                        * transform.stroke_scale
+                        / view_box.2,
                     anchor: presentation
                         .text_anchor
                         .unwrap_or(SimpleSvgTextAnchor::Start),
@@ -9932,6 +9980,56 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 rg BT /F1 14.400001 Tf 1 0 0 1 115.2 678 Tm (A) Tj ET"));
         assert!(pdf_text.contains("1 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 663.6 Tm (B) Tj ET"));
         assert!(!pdf_text.contains("[unsupported image: figures/text-offset.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_letter_spacing_as_pdf_text_state() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/letter-spacing.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:letter-spacing".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/letter-spacing.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    text.spaced { letter-spacing: 1; fill: #0000ff; font-size: 2; }
+  </style>
+  <text class="spaced" x="2" y="6">AB</text>
+  <text x="2" y="8" font-size="2" letter-spacing="0.5" fill="#ff0000"><tspan letter-spacing="1.5">CD</tspan></text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 rg BT /F1 14.400001 Tf 7.2000003 Tc"));
+        assert!(pdf_text.contains("(AB) Tj ET"));
+        assert!(pdf_text.contains("1 0 0 rg BT /F1 14.400001 Tf 10.8 Tc"));
+        assert!(pdf_text.contains("(CD) Tj ET"));
+        assert!(!pdf_text.contains("[unsupported image: figures/letter-spacing.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
