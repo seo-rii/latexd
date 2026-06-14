@@ -1141,7 +1141,8 @@ Status:
   simple `textLength` spacing adjustment via PDF character spacing, simple PDF
   base-family mapping, simple stroked text via PDF text rendering modes, simple
   fill/stroke opacity separation and dash/style state for stroked text, simple
-  transformed text matrices, simple transformed `text-decoration` lines, approximate
+  transformed text matrices, simple transformed `text-decoration` lines with
+  `text-decoration-color`, approximate
   `middle`/`central` baseline alignment, simple `baseline-shift`, and multiple
   direct literal `tspan` children with numeric `dx`/`dy`, simple `tspan`
   leading/trailing text spaces, mixed literal text plus simple `tspan`

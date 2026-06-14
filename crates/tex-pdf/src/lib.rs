@@ -1317,7 +1317,11 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             || svg_text.decoration.overline
                                             || svg_text.decoration.line_through)
                                     {
-                                        let Some(decoration_paint) = fill.or(stroke) else {
+                                        let decoration_paint = match svg_text.decoration_paint {
+                                            Some(decoration_paint) => decoration_paint,
+                                            None => fill.or(stroke),
+                                        };
+                                        let Some(decoration_paint) = decoration_paint else {
                                             continue;
                                         };
                                         let stroke_width = (font_size * 0.05).max(0.25);
@@ -1783,6 +1787,7 @@ struct SimpleSvgText {
     stroke_dasharray: Option<SimpleSvgDashArray>,
     stroke_style: SimpleSvgStrokeStyle,
     decoration: SimpleSvgTextDecoration,
+    decoration_paint: Option<Option<SimpleSvgPaint>>,
     text: String,
 }
 
@@ -2686,6 +2691,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         letter_spacing: Option<f32>,
         word_spacing: Option<f32>,
         text_decoration: Option<SimpleSvgTextDecoration>,
+        text_decoration_color: Option<Option<SimpleSvgColor>>,
         text_baseline: Option<SimpleSvgTextBaseline>,
         baseline_shift: Option<SimpleSvgBaselineShift>,
         vector_effect_non_scaling_stroke: Option<bool>,
@@ -3043,6 +3049,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     letter_spacing: Option<String>,
                                     word_spacing: Option<String>,
                                     text_decoration: Option<String>,
+                                    text_decoration_color: Option<String>,
                                     text_baseline: Option<String>,
                                     baseline_shift: Option<String>,
                                     vector_effect: Option<String>,
@@ -3083,6 +3090,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             letter_spacing: letter_spacing.as_deref().and_then(parse_letter_spacing),
             word_spacing: word_spacing.as_deref().and_then(parse_word_spacing),
             text_decoration: text_decoration.as_deref().and_then(parse_text_decoration),
+            text_decoration_color: parse_optional_paint(text_decoration_color),
             text_baseline: text_baseline.as_deref().and_then(parse_text_baseline),
             baseline_shift: baseline_shift.as_deref().and_then(parse_baseline_shift),
             vector_effect_non_scaling_stroke: vector_effect
@@ -3131,6 +3139,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 attr_value(tag, "text-decoration-line"),
                 attr_value(tag, "text-decoration"),
             ),
+            attr_value(tag, "text-decoration-color"),
             first_some(
                 attr_value(tag, "dominant-baseline"),
                 attr_value(tag, "alignment-baseline"),
@@ -3172,6 +3181,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 style_value(tag, "text-decoration-line"),
                 style_value(tag, "text-decoration"),
             ),
+            style_value(tag, "text-decoration-color"),
             first_some(
                 style_value(tag, "dominant-baseline"),
                 style_value(tag, "alignment-baseline"),
@@ -3213,6 +3223,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 declaration_value(declarations, "text-decoration-line"),
                 declaration_value(declarations, "text-decoration"),
             ),
+            declaration_value(declarations, "text-decoration-color"),
             first_some(
                 declaration_value(declarations, "dominant-baseline"),
                 declaration_value(declarations, "alignment-baseline"),
@@ -3419,6 +3430,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 letter_spacing: local.letter_spacing.or(base.letter_spacing),
                 word_spacing: local.word_spacing.or(base.word_spacing),
                 text_decoration: local.text_decoration.or(base.text_decoration),
+                text_decoration_color: local.text_decoration_color.or(base.text_decoration_color),
                 text_baseline: local.text_baseline.or(base.text_baseline),
                 baseline_shift: local.baseline_shift.or(base.baseline_shift),
                 vector_effect_non_scaling_stroke: local
@@ -3485,6 +3497,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             letter_spacing: local.letter_spacing.or(parent.letter_spacing),
             word_spacing: local.word_spacing.or(parent.word_spacing),
             text_decoration: local.text_decoration.or(parent.text_decoration),
+            text_decoration_color: local.text_decoration_color.or(parent.text_decoration_color),
             text_baseline: local.text_baseline.or(parent.text_baseline),
             baseline_shift: local.baseline_shift.or(parent.baseline_shift),
             vector_effect_non_scaling_stroke: local.vector_effect_non_scaling_stroke,
@@ -3540,6 +3553,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut letter_spacing: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut word_spacing: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut text_decoration: Option<SimpleSvgCascadeValue<SimpleSvgTextDecoration>> = None;
+        let mut text_decoration_color: Option<SimpleSvgCascadeValue<Option<SimpleSvgColor>>> = None;
         let mut text_baseline: Option<SimpleSvgCascadeValue<SimpleSvgTextBaseline>> = None;
         let mut baseline_shift: Option<SimpleSvgCascadeValue<SimpleSvgBaselineShift>> = None;
         let mut vector_effect_non_scaling_stroke: Option<SimpleSvgCascadeValue<bool>> = None;
@@ -3813,6 +3827,17 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
+                if let Some(value) = rule.presentation.text_decoration_color {
+                    let current =
+                        text_decoration_color.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        text_decoration_color = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
                 if let Some(value) = rule.presentation.text_baseline {
                     let current = text_baseline.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
@@ -3910,6 +3935,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             letter_spacing: letter_spacing.map(|value| value.value),
             word_spacing: word_spacing.map(|value| value.value),
             text_decoration: text_decoration.map(|value| value.value),
+            text_decoration_color: text_decoration_color.map(|value| value.value),
             text_baseline: text_baseline.map(|value| value.value),
             baseline_shift: baseline_shift.map(|value| value.value),
             vector_effect_non_scaling_stroke: vector_effect_non_scaling_stroke
@@ -4071,6 +4097,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     let stroke_paint = |presentation: SimpleSvgPresentation| -> Option<SimpleSvgPaint> {
         stroke_paint_with_context(presentation, None, None)
     };
+    let text_decoration_paint =
+        |presentation: SimpleSvgPresentation| -> Option<Option<SimpleSvgPaint>> {
+            let color = presentation.text_decoration_color?;
+            let current_color = presentation
+                .color
+                .unwrap_or_else(|| SimpleSvgResolvedColor::opaque((0.0, 0.0, 0.0)));
+            Some(paint_from_color_with_context(
+                color,
+                presentation.opacity.unwrap_or(1.0),
+                current_color,
+                None,
+                None,
+            ))
+        };
     #[derive(Debug, Clone, Copy)]
     struct SimpleSvgTransform {
         a: f32,
@@ -7964,6 +8004,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                     stroke_style: stroke_style(presentation),
                     decoration: presentation.text_decoration.unwrap_or_default(),
+                    decoration_paint: text_decoration_paint(presentation),
                     text,
                 });
             }
@@ -10607,6 +10648,58 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 RG"));
         assert!(pdf_text.matches(" l S ").count() >= 2);
         assert!(!pdf_text.contains("[unsupported image: figures/text-decoration.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_text_decoration_color_as_pdf_vector_line() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-decoration-color.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-decoration-color".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-decoration-color.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    text.blue-line { text-decoration: underline; text-decoration-color: #0000ff; fill: #00ff00; font-size: 2; }
+  </style>
+  <text class="blue-line" x="2" y="6">UC</text>
+  <text x="2" y="8" font-size="2" fill="#ff0000" text-decoration="line-through" style="color: #00ffff; text-decoration-color: currentColor">CC</text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 rg BT"));
+        assert!(pdf_text.contains("(UC) Tj ET"));
+        assert!(pdf_text.contains("0 0 1 RG"));
+        assert!(pdf_text.contains("1 0 0 rg BT"));
+        assert!(pdf_text.contains("(CC) Tj ET"));
+        assert!(pdf_text.contains("0 1 1 RG"));
+        assert!(!pdf_text.contains("[unsupported image: figures/text-decoration-color.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
