@@ -1312,46 +1312,82 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         };
                                         let stroke_width = (font_size * 0.05).max(0.25);
                                         if svg_text.decoration.underline {
-                                            let line_y = y - font_size * 0.12;
-                                            stream.push_str(&format!(
-                                                "q {} {} {} RG {} w {} {} m {} {} l S Q ",
-                                                decoration_paint.rgb.0,
-                                                decoration_paint.rgb.1,
-                                                decoration_paint.rgb.2,
-                                                stroke_width,
-                                                x,
-                                                line_y,
-                                                x + estimated_advance,
-                                                line_y
-                                            ));
+                                            let local_y_offset = -font_size * 0.12;
+                                            let line_start_x = x + matrix_c * local_y_offset;
+                                            let line_start_y = y + matrix_d * local_y_offset;
+                                            let line_end_x =
+                                                line_start_x + matrix_a * estimated_advance;
+                                            let line_end_y =
+                                                line_start_y + matrix_b * estimated_advance;
+                                            if line_start_x.is_finite()
+                                                && line_start_y.is_finite()
+                                                && line_end_x.is_finite()
+                                                && line_end_y.is_finite()
+                                            {
+                                                stream.push_str(&format!(
+                                                    "q {} {} {} RG {} w {} {} m {} {} l S Q ",
+                                                    decoration_paint.rgb.0,
+                                                    decoration_paint.rgb.1,
+                                                    decoration_paint.rgb.2,
+                                                    stroke_width,
+                                                    line_start_x,
+                                                    line_start_y,
+                                                    line_end_x,
+                                                    line_end_y
+                                                ));
+                                            }
                                         }
                                         if svg_text.decoration.overline {
-                                            let line_y = y + font_size * 0.78;
-                                            stream.push_str(&format!(
-                                                "q {} {} {} RG {} w {} {} m {} {} l S Q ",
-                                                decoration_paint.rgb.0,
-                                                decoration_paint.rgb.1,
-                                                decoration_paint.rgb.2,
-                                                stroke_width,
-                                                x,
-                                                line_y,
-                                                x + estimated_advance,
-                                                line_y
-                                            ));
+                                            let local_y_offset = font_size * 0.78;
+                                            let line_start_x = x + matrix_c * local_y_offset;
+                                            let line_start_y = y + matrix_d * local_y_offset;
+                                            let line_end_x =
+                                                line_start_x + matrix_a * estimated_advance;
+                                            let line_end_y =
+                                                line_start_y + matrix_b * estimated_advance;
+                                            if line_start_x.is_finite()
+                                                && line_start_y.is_finite()
+                                                && line_end_x.is_finite()
+                                                && line_end_y.is_finite()
+                                            {
+                                                stream.push_str(&format!(
+                                                    "q {} {} {} RG {} w {} {} m {} {} l S Q ",
+                                                    decoration_paint.rgb.0,
+                                                    decoration_paint.rgb.1,
+                                                    decoration_paint.rgb.2,
+                                                    stroke_width,
+                                                    line_start_x,
+                                                    line_start_y,
+                                                    line_end_x,
+                                                    line_end_y
+                                                ));
+                                            }
                                         }
                                         if svg_text.decoration.line_through {
-                                            let line_y = y + font_size * 0.3;
-                                            stream.push_str(&format!(
-                                                "q {} {} {} RG {} w {} {} m {} {} l S Q ",
-                                                decoration_paint.rgb.0,
-                                                decoration_paint.rgb.1,
-                                                decoration_paint.rgb.2,
-                                                stroke_width,
-                                                x,
-                                                line_y,
-                                                x + estimated_advance,
-                                                line_y
-                                            ));
+                                            let local_y_offset = font_size * 0.3;
+                                            let line_start_x = x + matrix_c * local_y_offset;
+                                            let line_start_y = y + matrix_d * local_y_offset;
+                                            let line_end_x =
+                                                line_start_x + matrix_a * estimated_advance;
+                                            let line_end_y =
+                                                line_start_y + matrix_b * estimated_advance;
+                                            if line_start_x.is_finite()
+                                                && line_start_y.is_finite()
+                                                && line_end_x.is_finite()
+                                                && line_end_y.is_finite()
+                                            {
+                                                stream.push_str(&format!(
+                                                    "q {} {} {} RG {} w {} {} m {} {} l S Q ",
+                                                    decoration_paint.rgb.0,
+                                                    decoration_paint.rgb.1,
+                                                    decoration_paint.rgb.2,
+                                                    stroke_width,
+                                                    line_start_x,
+                                                    line_start_y,
+                                                    line_end_x,
+                                                    line_end_y
+                                                ));
+                                            }
                                         }
                                     }
                                     if scoped_opacity {
@@ -9636,6 +9672,51 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 rg BT /F1 14.400001 Tf 0 -1 1 0 86.4 670.8 Tm (R) Tj ET"));
         assert!(!pdf_text.contains("1 0 0 1 86.4 670.8 Tm (R) Tj"));
         assert!(!pdf_text.contains("[unsupported image: figures/text-transform.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_transformed_text_decoration_with_text_matrix() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-decoration-transform.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-decoration-transform".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-decoration-transform.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="2" y="6" font-size="2" fill="#00ff00" text-decoration="underline" transform="rotate(90 2 6)">RU</text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text
+            .contains("q 0 1 0 RG 0.72 w 84.672005 670.8 m 84.672005 656.39996 l S Q"));
+        assert!(!pdf_text.contains("86.4 669.07196 m 100.8 669.07196 l S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/text-decoration-transform.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
