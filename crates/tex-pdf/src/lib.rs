@@ -1127,13 +1127,21 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         continue;
                                     }
                                     let mut x = svg_rect.x + svg_text.x_ratio * svg_width;
-                                    let y = svg_rect.y + (1.0 - svg_text.y_ratio) * svg_height;
+                                    let mut y = svg_rect.y + (1.0 - svg_text.y_ratio) * svg_height;
+                                    let matrix_a = svg_text.matrix_a;
+                                    let matrix_b = svg_text.matrix_b;
+                                    let matrix_c = svg_text.matrix_c;
+                                    let matrix_d = svg_text.matrix_d;
                                     let font_size = svg_text.font_size_ratio * svg_height;
                                     let letter_spacing = svg_text.letter_spacing_ratio * svg_width;
                                     let word_spacing = svg_text.word_spacing_ratio * svg_width;
                                     let stroke_width = svg_text.stroke_width_ratio * svg_width;
                                     if !x.is_finite()
                                         || !y.is_finite()
+                                        || !matrix_a.is_finite()
+                                        || !matrix_b.is_finite()
+                                        || !matrix_c.is_finite()
+                                        || !matrix_d.is_finite()
                                         || !font_size.is_finite()
                                         || font_size <= 0.0
                                         || !letter_spacing.is_finite()
@@ -1166,13 +1174,15 @@ pub fn render_display_list_pdf_with_converted_assets(
                                     match svg_text.anchor {
                                         SimpleSvgTextAnchor::Start => {}
                                         SimpleSvgTextAnchor::Middle => {
-                                            x -= estimated_advance / 2.0;
+                                            x -= matrix_a * estimated_advance / 2.0;
+                                            y -= matrix_b * estimated_advance / 2.0;
                                         }
                                         SimpleSvgTextAnchor::End => {
-                                            x -= estimated_advance;
+                                            x -= matrix_a * estimated_advance;
+                                            y -= matrix_b * estimated_advance;
                                         }
                                     }
-                                    if !x.is_finite() {
+                                    if !x.is_finite() || !y.is_finite() {
                                         continue;
                                     }
                                     let (fill_opacity, stroke_opacity) = match (fill, stroke) {
@@ -1281,7 +1291,10 @@ pub fn render_display_list_pdf_with_converted_assets(
                                     if word_spacing != 0.0 {
                                         stream.push_str(&format!("{word_spacing} Tw "));
                                     }
-                                    stream.push_str(&format!("1 0 0 1 {} {} Tm (", x, y));
+                                    stream.push_str(&format!(
+                                        "{} {} {} {} {} {} Tm (",
+                                        matrix_a, matrix_b, matrix_c, matrix_d, x, y
+                                    ));
                                     stream.push_str(&escape_pdf_text(&svg_text.text));
                                     stream.push_str(") Tj ");
                                     if stroke.is_some() {
@@ -1704,6 +1717,10 @@ struct SimpleSvgPath {
 struct SimpleSvgText {
     x_ratio: f32,
     y_ratio: f32,
+    matrix_a: f32,
+    matrix_b: f32,
+    matrix_c: f32,
+    matrix_d: f32,
     font_size_ratio: f32,
     letter_spacing_ratio: f32,
     word_spacing_ratio: f32,
@@ -4227,6 +4244,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         Some(transform)
     };
     let snap_transform_number = |value: f32| -> f32 {
+        if value.abs() <= 0.000_1 {
+            return 0.0;
+        }
         let rounded = value.round();
         if (value - rounded).abs() <= 0.000_1 {
             rounded
@@ -7859,9 +7879,19 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         };
         for (point, font_size, presentation, text) in resolved_texts {
             if font_size.is_finite() && font_size > 0.0 {
+                let matrix_scale =
+                    if transform.stroke_scale.is_finite() && transform.stroke_scale > 0.0 {
+                        transform.stroke_scale
+                    } else {
+                        1.0
+                    };
                 texts.push(SimpleSvgText {
                     x_ratio: point.0,
                     y_ratio: point.1,
+                    matrix_a: snap_transform_number(transform.a / matrix_scale),
+                    matrix_b: snap_transform_number(-transform.b / matrix_scale),
+                    matrix_c: snap_transform_number(-transform.c / matrix_scale),
+                    matrix_d: snap_transform_number(transform.d / matrix_scale),
                     font_size_ratio: font_size / view_box.3,
                     letter_spacing_ratio: presentation.letter_spacing.unwrap_or(0.0)
                         * transform.stroke_scale
@@ -9562,6 +9592,50 @@ mod tests {
             pdf_text.contains("0 1 0 rg BT /F1 14.400001 Tf 1 0 0 1 86.4 670.8 Tm (A & B) Tj ET")
         );
         assert!(!pdf_text.contains("[unsupported image: figures/text.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_transformed_text_with_pdf_text_matrix() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-transform.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-transform".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-transform.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="2" y="6" font-size="2" fill="#00ff00" transform="rotate(90 2 6)">R</text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 rg BT /F1 14.400001 Tf 0 -1 1 0 86.4 670.8 Tm (R) Tj ET"));
+        assert!(!pdf_text.contains("1 0 0 1 86.4 670.8 Tm (R) Tj"));
+        assert!(!pdf_text.contains("[unsupported image: figures/text-transform.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
