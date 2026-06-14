@@ -3070,6 +3070,35 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     clip_path: Option<String>|
      -> SimpleSvgPresentation {
         let marker = marker.as_deref().and_then(parse_marker_reference);
+        let text_decoration_color = parse_optional_paint(text_decoration_color).or_else(|| {
+            let text_decoration = text_decoration.as_deref()?;
+            for token in text_decoration.split_whitespace() {
+                let token = token.trim();
+                let lower = token.to_ascii_lowercase();
+                if matches!(
+                    lower.as_str(),
+                    "none"
+                        | "underline"
+                        | "overline"
+                        | "line-through"
+                        | "blink"
+                        | "solid"
+                        | "double"
+                        | "dotted"
+                        | "dashed"
+                        | "wavy"
+                ) {
+                    continue;
+                }
+                if lower == "transparent" {
+                    return Some(None);
+                }
+                if let Some(color) = parse_paint(token) {
+                    return Some(Some(color));
+                }
+            }
+            None
+        });
         SimpleSvgPresentation {
             fill: parse_optional_paint(fill),
             fill_rule: fill_rule.as_deref().and_then(parse_fill_rule),
@@ -3100,7 +3129,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             letter_spacing: letter_spacing.as_deref().and_then(parse_letter_spacing),
             word_spacing: word_spacing.as_deref().and_then(parse_word_spacing),
             text_decoration: text_decoration.as_deref().and_then(parse_text_decoration),
-            text_decoration_color: parse_optional_paint(text_decoration_color),
+            text_decoration_color,
             text_baseline: text_baseline.as_deref().and_then(parse_text_baseline),
             baseline_shift: baseline_shift.as_deref().and_then(parse_baseline_shift),
             vector_effect_non_scaling_stroke: vector_effect
@@ -10711,6 +10740,60 @@ mod tests {
         assert!(pdf_text.contains("(CC) Tj ET"));
         assert!(pdf_text.contains("0 1 1 RG"));
         assert!(!pdf_text.contains("[unsupported image: figures/text-decoration-color.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_text_decoration_shorthand_color_as_pdf_vector_line() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-decoration-shorthand-color.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-decoration-shorthand-color".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-decoration-shorthand-color.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    text.short { text-decoration: underline #0000ff; fill: #00ff00; font-size: 2; }
+  </style>
+  <text class="short" x="2" y="6">SC</text>
+  <text x="2" y="8" font-size="2" fill="#ff0000" style="color: #00ffff; text-decoration: line-through currentColor">CC</text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 rg BT"));
+        assert!(pdf_text.contains("(SC) Tj ET"));
+        assert!(pdf_text.contains("0 0 1 RG"));
+        assert!(pdf_text.contains("1 0 0 rg BT"));
+        assert!(pdf_text.contains("(CC) Tj ET"));
+        assert!(pdf_text.contains("0 1 1 RG"));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/text-decoration-shorthand-color.svg]")
+        );
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
