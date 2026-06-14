@@ -111,17 +111,31 @@ pub fn render_display_list_pdf_with_converted_assets(
         (opacity < 0.999_5).then(|| (opacity * 1000.0).round().clamp(0.0, 1000.0) as u16)
     };
     let pdf_opacity_resource_value = |key: u16| -> String { format!("{}", key as f32 / 1000.0) };
-    let push_pdf_paint_opacity =
-        |stream: &mut String, opacity_resource_keys: &mut Vec<u16>, opacity: f32| -> bool {
-            let Some(key) = pdf_opacity_resource_key(opacity) else {
-                return false;
-            };
-            if !opacity_resource_keys.contains(&key) {
-                opacity_resource_keys.push(key);
-            }
-            stream.push_str(&format!("q /GS{key} gs "));
-            true
-        };
+    let pdf_opacity_resource_name = |fill_key: u16, stroke_key: u16| -> String {
+        if fill_key == stroke_key {
+            format!("GS{fill_key}")
+        } else {
+            format!("GS{fill_key}_{stroke_key}")
+        }
+    };
+    let push_pdf_paint_opacity = |stream: &mut String,
+                                  opacity_resource_keys: &mut Vec<(u16, u16)>,
+                                  fill_opacity: f32,
+                                  stroke_opacity: f32|
+     -> bool {
+        let fill_key = pdf_opacity_resource_key(fill_opacity).unwrap_or(1000);
+        let stroke_key = pdf_opacity_resource_key(stroke_opacity).unwrap_or(1000);
+        if fill_key == 1000 && stroke_key == 1000 {
+            return false;
+        }
+        let key = (fill_key, stroke_key);
+        if !opacity_resource_keys.contains(&key) {
+            opacity_resource_keys.push(key);
+        }
+        let name = pdf_opacity_resource_name(fill_key, stroke_key);
+        stream.push_str(&format!("q /{name} gs "));
+        true
+    };
     let push_pdf_stroke_state = |stream: &mut String,
                                  dasharray: Option<SimpleSvgDashArray>,
                                  style: SimpleSvgStrokeStyle,
@@ -645,6 +659,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         &mut stream,
                                         &mut opacity_resource_keys,
                                         embedded_image.opacity,
+                                        embedded_image.opacity,
                                     );
                                     stream.push_str(&format!(
                                         "q {image_width} 0 0 {image_height} {image_x} {image_y} cm /{resource_name} Do Q "
@@ -683,6 +698,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                 &mut stream,
                                                 &mut opacity_resource_keys,
                                                 fill.opacity,
+                                                fill.opacity,
                                             );
                                             stream.push_str(&format!(
                                                 "{} {} {} rg {} {} {} {} re {} ",
@@ -711,6 +727,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                 let scoped_opacity = push_pdf_paint_opacity(
                                                     &mut stream,
                                                     &mut opacity_resource_keys,
+                                                    stroke.opacity,
                                                     stroke.opacity,
                                                 );
                                                 stream.push_str(&format!(
@@ -766,6 +783,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         let scoped_opacity = push_pdf_paint_opacity(
                                             &mut stream,
                                             &mut opacity_resource_keys,
+                                            line.stroke.opacity,
                                             line.stroke.opacity,
                                         );
                                         stream.push_str(&format!(
@@ -847,6 +865,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                 &mut stream,
                                                 &mut opacity_resource_keys,
                                                 fill.opacity,
+                                                fill.opacity,
                                             );
                                             stream.push_str(&format!(
                                                 "{} {} {} rg {}{} ",
@@ -873,6 +892,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                 let scoped_opacity = push_pdf_paint_opacity(
                                                     &mut stream,
                                                     &mut opacity_resource_keys,
+                                                    stroke.opacity,
                                                     stroke.opacity,
                                                 );
                                                 stream.push_str(&format!(
@@ -940,6 +960,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             &mut stream,
                                             &mut opacity_resource_keys,
                                             fill.opacity,
+                                            fill.opacity,
                                         );
                                         stream.push_str(&format!(
                                             "{} {} {} rg {}{} ",
@@ -961,6 +982,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             let scoped_opacity = push_pdf_paint_opacity(
                                                 &mut stream,
                                                 &mut opacity_resource_keys,
+                                                stroke.opacity,
                                                 stroke.opacity,
                                             );
                                             stream.push_str(&format!(
@@ -1053,6 +1075,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             &mut stream,
                                             &mut opacity_resource_keys,
                                             fill.opacity,
+                                            fill.opacity,
                                         );
                                         stream.push_str(&format!(
                                             "{} {} {} rg {}{} ",
@@ -1074,6 +1097,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             let scoped_opacity = push_pdf_paint_opacity(
                                                 &mut stream,
                                                 &mut opacity_resource_keys,
+                                                stroke.opacity,
                                                 stroke.opacity,
                                             );
                                             stream.push_str(&format!(
@@ -1151,12 +1175,19 @@ pub fn render_display_list_pdf_with_converted_assets(
                                     if !x.is_finite() {
                                         continue;
                                     }
-                                    let paint_opacity =
-                                        fill.or(stroke).map(|paint| paint.opacity).unwrap_or(1.0);
+                                    let (fill_opacity, stroke_opacity) = match (fill, stroke) {
+                                        (Some(fill), Some(stroke)) => {
+                                            (fill.opacity, stroke.opacity)
+                                        }
+                                        (Some(fill), None) => (fill.opacity, fill.opacity),
+                                        (None, Some(stroke)) => (stroke.opacity, stroke.opacity),
+                                        (None, None) => (1.0, 1.0),
+                                    };
                                     let scoped_opacity = push_pdf_paint_opacity(
                                         &mut stream,
                                         &mut opacity_resource_keys,
-                                        paint_opacity,
+                                        fill_opacity,
+                                        stroke_opacity,
                                     );
                                     let font_resource = match (
                                         svg_text.font_family,
@@ -1453,9 +1484,13 @@ pub fn render_display_list_pdf_with_converted_assets(
                 " /ExtGState << {} >>",
                 opacity_resource_keys
                     .iter()
-                    .map(|key| {
-                        let value = pdf_opacity_resource_value(*key);
-                        format!("/GS{key} << /Type /ExtGState /ca {value} /CA {value} >>")
+                    .map(|(fill_key, stroke_key)| {
+                        let name = pdf_opacity_resource_name(*fill_key, *stroke_key);
+                        let fill_value = pdf_opacity_resource_value(*fill_key);
+                        let stroke_value = pdf_opacity_resource_value(*stroke_key);
+                        format!(
+                            "/{name} << /Type /ExtGState /ca {fill_value} /CA {stroke_value} >>"
+                        )
                     })
                     .collect::<Vec<_>>()
                     .join(" ")
@@ -10451,6 +10486,55 @@ mod tests {
         assert!(pdf_text.contains("2 Tr"));
         assert!(pdf_text.contains("(FS) Tj 0 Tr ET"));
         assert!(!pdf_text.contains("[unsupported image: figures/stroked-text.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_text_fill_and_stroke_opacity_separately() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-opacity.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-opacity".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-opacity.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="2" y="6" font-size="2" fill="#ff0000" fill-opacity="0.25" stroke="#0000ff" stroke-opacity="0.75" stroke-width="0.2">OS</text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/GS250_750 << /Type /ExtGState /ca 0.25 /CA 0.75 >>"));
+        assert!(pdf_text.contains("q /GS250_750 gs"));
+        assert!(pdf_text.contains("1 0 0 rg"));
+        assert!(pdf_text.contains("0 0 1 RG"));
+        assert!(pdf_text.contains("2 Tr"));
+        assert!(pdf_text.contains("(OS) Tj 0 Tr ET"));
+        assert!(!pdf_text.contains("/GS250 << /Type /ExtGState /ca 0.25 /CA 0.25 >>"));
+        assert!(!pdf_text.contains("[unsupported image: figures/text-opacity.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
