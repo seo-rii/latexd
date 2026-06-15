@@ -1142,8 +1142,9 @@ Status:
   base-family mapping, simple stroked text via PDF text rendering modes, simple
   fill/stroke opacity separation and dash/style state for stroked text, simple
   transformed text matrices, simple transformed `text-decoration` lines with
-  `text-decoration-color`/`text-decoration-thickness` and shorthand color/thickness,
-  simple text `clip-path` rectangles, approximate
+  `text-decoration-color`/`text-decoration-thickness`, dashed/dotted
+  `text-decoration-style`, and shorthand color/thickness/style, simple text
+  `clip-path` rectangles, approximate
   `middle`/`central` baseline alignment, simple `baseline-shift`, and multiple
   direct literal `tspan` children with numeric `dx`/`dy`, simple `tspan`
   leading/trailing text spaces, mixed literal text plus simple `tspan`

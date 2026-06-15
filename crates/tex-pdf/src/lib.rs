@@ -1336,6 +1336,53 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                     thickness.is_finite() && *thickness > 0.0
                                                 })
                                                 .unwrap_or_else(|| (font_size * 0.05).max(0.25));
+                                            let decoration_dasharray = if svg_width.is_finite()
+                                                && svg_width > 0.0
+                                            {
+                                                match svg_text.decoration_style {
+                                                    SimpleSvgTextDecorationStyle::Solid => None,
+                                                    SimpleSvgTextDecorationStyle::Dashed => {
+                                                        let dash = stroke_width * 2.0 / svg_width;
+                                                        Some(SimpleSvgDashArray {
+                                                            values: [
+                                                                dash, dash, 0.0, 0.0, 0.0, 0.0,
+                                                                0.0, 0.0,
+                                                            ],
+                                                            len: 2,
+                                                            offset_ratio: 0.0,
+                                                        })
+                                                    }
+                                                    SimpleSvgTextDecorationStyle::Dotted => {
+                                                        let gap = stroke_width * 2.0 / svg_width;
+                                                        Some(SimpleSvgDashArray {
+                                                            values: [
+                                                                0.0, gap, 0.0, 0.0, 0.0, 0.0, 0.0,
+                                                                0.0,
+                                                            ],
+                                                            len: 2,
+                                                            offset_ratio: 0.0,
+                                                        })
+                                                    }
+                                                }
+                                            } else {
+                                                None
+                                            };
+                                            let decoration_stroke_style = SimpleSvgStrokeStyle {
+                                                linecap: match svg_text.decoration_style {
+                                                    SimpleSvgTextDecorationStyle::Dotted => {
+                                                        SimpleSvgStrokeLineCap::Round
+                                                    }
+                                                    _ => SimpleSvgStrokeLineCap::Butt,
+                                                },
+                                                linejoin: SimpleSvgStrokeLineJoin::Miter,
+                                                miterlimit: 10.0,
+                                            };
+                                            let scoped_decoration_style = push_pdf_stroke_state(
+                                                &mut stream,
+                                                decoration_dasharray,
+                                                decoration_stroke_style,
+                                                svg_width,
+                                            );
                                             if svg_text.decoration.underline {
                                                 let local_y_offset = -font_size * 0.12;
                                                 let line_start_x = x + matrix_c * local_y_offset;
@@ -1413,6 +1460,9 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                         line_end_y
                                                     ));
                                                 }
+                                            }
+                                            if scoped_decoration_style {
+                                                stream.push_str("Q ");
                                             }
                                         }
                                     }
@@ -1804,6 +1854,7 @@ struct SimpleSvgText {
     decoration: SimpleSvgTextDecoration,
     decoration_paint: Option<Option<SimpleSvgPaint>>,
     decoration_thickness_ratio: Option<f32>,
+    decoration_style: SimpleSvgTextDecorationStyle,
     clip_rect: Option<SimpleSvgClipRect>,
     text: String,
 }
@@ -1832,6 +1883,13 @@ struct SimpleSvgTextDecoration {
     underline: bool,
     overline: bool,
     line_through: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SimpleSvgTextDecorationStyle {
+    Solid,
+    Dashed,
+    Dotted,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2710,6 +2768,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         text_decoration: Option<SimpleSvgTextDecoration>,
         text_decoration_color: Option<Option<SimpleSvgColor>>,
         text_decoration_thickness: Option<f32>,
+        text_decoration_style: Option<SimpleSvgTextDecorationStyle>,
         text_baseline: Option<SimpleSvgTextBaseline>,
         baseline_shift: Option<SimpleSvgBaselineShift>,
         vector_effect_non_scaling_stroke: Option<bool>,
@@ -2781,6 +2840,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             return None;
         }
         parse_x_length(raw).filter(|value| value.is_finite() && *value > 0.0)
+    };
+    let parse_text_decoration_style = |raw: &str| -> Option<SimpleSvgTextDecorationStyle> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "solid" => Some(SimpleSvgTextDecorationStyle::Solid),
+            "dashed" => Some(SimpleSvgTextDecorationStyle::Dashed),
+            "dotted" => Some(SimpleSvgTextDecorationStyle::Dotted),
+            _ => None,
+        }
     };
     let parse_display = |raw: &str| -> Option<bool> {
         let raw = raw.trim();
@@ -3080,6 +3147,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     text_decoration: Option<String>,
                                     text_decoration_color: Option<String>,
                                     text_decoration_thickness: Option<String>,
+                                    text_decoration_style: Option<String>,
                                     text_baseline: Option<String>,
                                     baseline_shift: Option<String>,
                                     vector_effect: Option<String>,
@@ -3131,6 +3199,18 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 }
                 None
             });
+        let text_decoration_style = text_decoration_style
+            .as_deref()
+            .and_then(parse_text_decoration_style)
+            .or_else(|| {
+                let text_decoration = text_decoration.as_deref()?;
+                for token in text_decoration.split_whitespace() {
+                    if let Some(style) = parse_text_decoration_style(token) {
+                        return Some(style);
+                    }
+                }
+                None
+            });
         SimpleSvgPresentation {
             fill: parse_optional_paint(fill),
             fill_rule: fill_rule.as_deref().and_then(parse_fill_rule),
@@ -3163,6 +3243,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             text_decoration: text_decoration.as_deref().and_then(parse_text_decoration),
             text_decoration_color,
             text_decoration_thickness,
+            text_decoration_style,
             text_baseline: text_baseline.as_deref().and_then(parse_text_baseline),
             baseline_shift: baseline_shift.as_deref().and_then(parse_baseline_shift),
             vector_effect_non_scaling_stroke: vector_effect
@@ -3213,6 +3294,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             ),
             attr_value(tag, "text-decoration-color"),
             attr_value(tag, "text-decoration-thickness"),
+            attr_value(tag, "text-decoration-style"),
             first_some(
                 attr_value(tag, "dominant-baseline"),
                 attr_value(tag, "alignment-baseline"),
@@ -3256,6 +3338,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             ),
             style_value(tag, "text-decoration-color"),
             style_value(tag, "text-decoration-thickness"),
+            style_value(tag, "text-decoration-style"),
             first_some(
                 style_value(tag, "dominant-baseline"),
                 style_value(tag, "alignment-baseline"),
@@ -3299,6 +3382,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             ),
             declaration_value(declarations, "text-decoration-color"),
             declaration_value(declarations, "text-decoration-thickness"),
+            declaration_value(declarations, "text-decoration-style"),
             first_some(
                 declaration_value(declarations, "dominant-baseline"),
                 declaration_value(declarations, "alignment-baseline"),
@@ -3509,6 +3593,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 text_decoration_thickness: local
                     .text_decoration_thickness
                     .or(base.text_decoration_thickness),
+                text_decoration_style: local.text_decoration_style.or(base.text_decoration_style),
                 text_baseline: local.text_baseline.or(base.text_baseline),
                 baseline_shift: local.baseline_shift.or(base.baseline_shift),
                 vector_effect_non_scaling_stroke: local
@@ -3579,6 +3664,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             text_decoration_thickness: local
                 .text_decoration_thickness
                 .or(parent.text_decoration_thickness),
+            text_decoration_style: local.text_decoration_style.or(parent.text_decoration_style),
             text_baseline: local.text_baseline.or(parent.text_baseline),
             baseline_shift: local.baseline_shift.or(parent.baseline_shift),
             vector_effect_non_scaling_stroke: local.vector_effect_non_scaling_stroke,
@@ -3636,6 +3722,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut text_decoration: Option<SimpleSvgCascadeValue<SimpleSvgTextDecoration>> = None;
         let mut text_decoration_color: Option<SimpleSvgCascadeValue<Option<SimpleSvgColor>>> = None;
         let mut text_decoration_thickness: Option<SimpleSvgCascadeValue<f32>> = None;
+        let mut text_decoration_style: Option<SimpleSvgCascadeValue<SimpleSvgTextDecorationStyle>> =
+            None;
         let mut text_baseline: Option<SimpleSvgCascadeValue<SimpleSvgTextBaseline>> = None;
         let mut baseline_shift: Option<SimpleSvgCascadeValue<SimpleSvgBaselineShift>> = None;
         let mut vector_effect_non_scaling_stroke: Option<SimpleSvgCascadeValue<bool>> = None;
@@ -3931,6 +4019,17 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
+                if let Some(value) = rule.presentation.text_decoration_style {
+                    let current =
+                        text_decoration_style.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        text_decoration_style = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
                 if let Some(value) = rule.presentation.text_baseline {
                     let current = text_baseline.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
@@ -4030,6 +4129,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             text_decoration: text_decoration.map(|value| value.value),
             text_decoration_color: text_decoration_color.map(|value| value.value),
             text_decoration_thickness: text_decoration_thickness.map(|value| value.value),
+            text_decoration_style: text_decoration_style.map(|value| value.value),
             text_baseline: text_baseline.map(|value| value.value),
             baseline_shift: baseline_shift.map(|value| value.value),
             vector_effect_non_scaling_stroke: vector_effect_non_scaling_stroke
@@ -8103,6 +8203,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         .text_decoration_thickness
                         .map(|thickness| thickness * transform.stroke_scale / view_box.2)
                         .filter(|thickness| thickness.is_finite() && *thickness > 0.0),
+                    decoration_style: presentation
+                        .text_decoration_style
+                        .unwrap_or(SimpleSvgTextDecorationStyle::Solid),
                     clip_rect: clip_rect_for(presentation, transform),
                     text,
                 });
@@ -10905,6 +11008,58 @@ mod tests {
         assert!(pdf_text.contains("(SH) Tj ET"));
         assert!(pdf_text.contains("0 1 1 RG 1.8000001 w"));
         assert!(!pdf_text.contains("[unsupported image: figures/text-decoration-thickness.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_text_decoration_style_as_pdf_stroke_state() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-decoration-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-decoration-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-decoration-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    text.dash { text-decoration: underline #0000ff; text-decoration-style: dashed; text-decoration-thickness: 0.5; fill: #00ff00; font-size: 2; }
+  </style>
+  <text class="dash" x="2" y="6">DS</text>
+  <text x="2" y="8" font-size="2" fill="#ff0000" style="color: #00ffff; text-decoration: line-through currentColor 0.25 dotted">DT</text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 rg BT"));
+        assert!(pdf_text.contains("(DS) Tj ET"));
+        assert!(pdf_text.contains("q [7.2000003 7.2000003] 0 d q 0 0 1 RG 3.6000001 w"));
+        assert!(pdf_text.contains("1 0 0 rg BT"));
+        assert!(pdf_text.contains("(DT) Tj ET"));
+        assert!(pdf_text.contains("q [0 3.6000001] 0 d 1 J q 0 1 1 RG 1.8000001 w"));
+        assert!(!pdf_text.contains("[unsupported image: figures/text-decoration-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
