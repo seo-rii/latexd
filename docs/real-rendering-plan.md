@@ -201,7 +201,8 @@ comment-tolerant `<style>` / CDATA type, class, id, element-qualified class/id,
 and rightmost simple descendant/child selector approximation fill/stroke/stroke-width
 rules with basic specificity and
     source-order cascade, `display: none` / `visibility: hidden` paint
-    suppression, parse-tolerant `!important` value markers,
+    suppression with `visibility: initial` / `unset` keyword handling,
+    parse-tolerant `!important` value markers,
     3/4/6/8-digit hex/CSS/SVG named/`rgb(...)` /
     `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
     `currentColor` fill/stroke paint, simple `inherit` / `initial` / `unset`
@@ -679,7 +680,8 @@ Implemented first slice:
   comment-tolerant `<style>` / CDATA universal, type, class, id, element-qualified
   class/id, and rightmost simple descendant/child selector approximation
   fill/stroke/stroke-width rules with basic specificity and source-order cascade
-  plus `display: none` / `visibility: hidden` paint suppression and
+  plus `display: none` / `visibility: hidden` paint suppression with
+  `visibility: initial` / `unset` keyword handling and
   parse-tolerant `!important` value markers and 3/4/6/8-digit
   hex/CSS/SVG named/`rgb(...)` /
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
@@ -1176,7 +1178,8 @@ Status:
   comment-tolerant `<style>` / CDATA universal, type, class, id, element-qualified
   class/id, and rightmost simple descendant/child selector approximation
   fill/stroke/stroke-width rules with basic specificity and source-order cascade
-  plus `display: none` / `visibility: hidden` paint suppression and
+  plus `display: none` / `visibility: hidden` paint suppression with
+  `visibility: initial` / `unset` keyword handling and
   parse-tolerant `!important` value markers and 3/4/6/8-digit
   hex/CSS/SVG named/`rgb(...)` /
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited

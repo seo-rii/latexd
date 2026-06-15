@@ -2889,8 +2889,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     let parse_visibility = |raw: &str| -> Option<bool> {
         match raw.trim().to_ascii_lowercase().as_str() {
-            "visible" => Some(true),
+            "visible" | "initial" => Some(true),
             "hidden" | "collapse" => Some(false),
+            "inherit" | "unset" => None,
             _ => None,
         }
     };
@@ -14309,6 +14310,8 @@ mod tests {
   <g visibility="hidden">
     <rect x="7" y="1" width="2" height="2" fill="#00ff00"/>
     <rect class="child-visible" x="10" y="1" width="2" height="2"/>
+    <rect x="13" y="1" width="2" height="2" fill="#00ffff" visibility="initial"/>
+    <rect x="16" y="1" width="2" height="2" fill="#ff00ff" visibility="unset"/>
   </g>
   <text x="1" y="8" fill="#000000"><tspan display="none">hidden</tspan><tspan x="13" y="8">Shown</tspan></text>
 </svg>"##
@@ -14320,6 +14323,8 @@ mod tests {
         assert!(!pdf_text.contains("1 0 0 rg"));
         assert!(!pdf_text.contains("0 1 0 rg"));
         assert!(pdf_text.contains("0 0 1 rg 110 250 20 20 re f"));
+        assert!(pdf_text.contains("0 1 1 rg 140 250 20 20 re f"));
+        assert!(!pdf_text.contains("1 0 1 rg 170 250 20 20 re f"));
         assert!(!pdf_text.contains("(hidden)"));
         assert!(pdf_text.contains("(Shown) Tj"));
         assert!(!pdf_text.contains("[unsupported image: figures/visibility-style.svg]"));
