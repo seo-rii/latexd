@@ -1282,42 +1282,61 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             FontShape::Italic,
                                         ) => "F12",
                                     };
-                                    if let Some(fill) = fill {
-                                        stream.push_str(&format!(
-                                            "{} {} {} rg ",
-                                            fill.rgb.0, fill.rgb.1, fill.rgb.2
-                                        ));
+                                    {
+                                        let mut push_text_run = |fill: Option<SimpleSvgPaint>,
+                                                                 stroke: Option<SimpleSvgPaint>,
+                                                                 text_render_mode: Option<u8>| {
+                                            if let Some(fill) = fill {
+                                                stream.push_str(&format!(
+                                                    "{} {} {} rg ",
+                                                    fill.rgb.0, fill.rgb.1, fill.rgb.2
+                                                ));
+                                            }
+                                            if let Some(stroke) = stroke {
+                                                stream.push_str(&format!(
+                                                    "{} {} {} RG {} w ",
+                                                    stroke.rgb.0,
+                                                    stroke.rgb.1,
+                                                    stroke.rgb.2,
+                                                    stroke_width
+                                                ));
+                                            }
+                                            stream.push_str(&format!(
+                                                "BT /{} {} Tf ",
+                                                font_resource, font_size
+                                            ));
+                                            if let Some(text_render_mode) = text_render_mode {
+                                                stream.push_str(&format!("{text_render_mode} Tr "));
+                                            }
+                                            if letter_spacing != 0.0 {
+                                                stream.push_str(&format!("{letter_spacing} Tc "));
+                                            }
+                                            if word_spacing != 0.0 {
+                                                stream.push_str(&format!("{word_spacing} Tw "));
+                                            }
+                                            stream.push_str(&format!(
+                                                "{} {} {} {} {} {} Tm (",
+                                                matrix_a, matrix_b, matrix_c, matrix_d, x, y
+                                            ));
+                                            stream.push_str(&escape_pdf_text(&svg_text.text));
+                                            stream.push_str(") Tj ");
+                                            if text_render_mode.is_some() {
+                                                stream.push_str("0 Tr ");
+                                            }
+                                            stream.push_str("ET ");
+                                        };
+                                        if svg_text.paint_order == SimpleSvgPaintOrder::StrokeFill
+                                            && fill.is_some()
+                                            && stroke.is_some()
+                                        {
+                                            push_text_run(None, stroke, Some(1));
+                                            push_text_run(fill, None, None);
+                                        } else {
+                                            let text_render_mode =
+                                                stroke.map(|_| if fill.is_some() { 2 } else { 1 });
+                                            push_text_run(fill, stroke, text_render_mode);
+                                        }
                                     }
-                                    if let Some(stroke) = stroke {
-                                        stream.push_str(&format!(
-                                            "{} {} {} RG {} w ",
-                                            stroke.rgb.0, stroke.rgb.1, stroke.rgb.2, stroke_width
-                                        ));
-                                    }
-                                    stream.push_str(&format!(
-                                        "BT /{} {} Tf ",
-                                        font_resource, font_size
-                                    ));
-                                    if stroke.is_some() {
-                                        let text_render_mode = if fill.is_some() { 2 } else { 1 };
-                                        stream.push_str(&format!("{text_render_mode} Tr "));
-                                    }
-                                    if letter_spacing != 0.0 {
-                                        stream.push_str(&format!("{letter_spacing} Tc "));
-                                    }
-                                    if word_spacing != 0.0 {
-                                        stream.push_str(&format!("{word_spacing} Tw "));
-                                    }
-                                    stream.push_str(&format!(
-                                        "{} {} {} {} {} {} Tm (",
-                                        matrix_a, matrix_b, matrix_c, matrix_d, x, y
-                                    ));
-                                    stream.push_str(&escape_pdf_text(&svg_text.text));
-                                    stream.push_str(") Tj ");
-                                    if stroke.is_some() {
-                                        stream.push_str("0 Tr ");
-                                    }
-                                    stream.push_str("ET ");
                                     if estimated_advance.is_finite()
                                         && estimated_advance > 0.0
                                         && (svg_text.decoration.underline
@@ -1811,6 +1830,12 @@ enum SimpleSvgStrokeLineJoin {
     Bevel,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SimpleSvgPaintOrder {
+    Normal,
+    StrokeFill,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct SimpleSvgStrokeStyle {
     linecap: SimpleSvgStrokeLineCap,
@@ -1906,6 +1931,7 @@ struct SimpleSvgText {
     stroke_width_ratio: f32,
     stroke_dasharray: Option<SimpleSvgDashArray>,
     stroke_style: SimpleSvgStrokeStyle,
+    paint_order: SimpleSvgPaintOrder,
     decoration: SimpleSvgTextDecoration,
     decoration_paint: Option<Option<SimpleSvgPaint>>,
     decoration_thickness_ratio: Option<f32>,
@@ -2809,6 +2835,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         stroke_linecap: Option<SimpleSvgStrokeLineCap>,
         stroke_linejoin: Option<SimpleSvgStrokeLineJoin>,
         stroke_miterlimit: Option<f32>,
+        paint_order: Option<SimpleSvgPaintOrder>,
         color: Option<SimpleSvgResolvedColor>,
         display: Option<bool>,
         visibility: Option<bool>,
@@ -3067,6 +3094,37 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             _ => None,
         }
     };
+    let parse_paint_order = |raw: &str| -> Option<SimpleSvgPaintOrder> {
+        let raw = raw.trim();
+        if raw.eq_ignore_ascii_case("normal") {
+            return Some(SimpleSvgPaintOrder::Normal);
+        }
+        if raw.is_empty() || raw.eq_ignore_ascii_case("inherit") {
+            return None;
+        }
+        let mut fill_index = None;
+        let mut stroke_index = None;
+        for (index, token) in raw.split_whitespace().enumerate() {
+            match token.to_ascii_lowercase().as_str() {
+                "fill" => fill_index = fill_index.or(Some(index)),
+                "stroke" => stroke_index = stroke_index.or(Some(index)),
+                "markers" => {}
+                _ => return None,
+            }
+        }
+        let stroke_first = stroke_index
+            .map(|stroke_index| {
+                fill_index
+                    .map(|fill_index| stroke_index < fill_index)
+                    .unwrap_or(true)
+            })
+            .unwrap_or(false);
+        Some(if stroke_first {
+            SimpleSvgPaintOrder::StrokeFill
+        } else {
+            SimpleSvgPaintOrder::Normal
+        })
+    };
     let clip_path_id_hash = |id: &str| -> u64 {
         let mut hash = 0xcbf2_9ce4_8422_2325_u64;
         for byte in id.as_bytes() {
@@ -3190,6 +3248,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     stroke_linecap: Option<String>,
                                     stroke_linejoin: Option<String>,
                                     stroke_miterlimit: Option<String>,
+                                    paint_order: Option<String>,
                                     color: Option<String>,
                                     display: Option<String>,
                                     visibility: Option<String>,
@@ -3286,6 +3345,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .as_deref()
                 .and_then(parse_number_prefix)
                 .filter(|limit| *limit >= 1.0),
+            paint_order: paint_order.as_deref().and_then(parse_paint_order),
             color: parse_optional_color(color),
             display: display.as_deref().and_then(parse_display),
             visibility: visibility.as_deref().and_then(parse_visibility),
@@ -3334,6 +3394,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             attr_value(tag, "stroke-linecap"),
             attr_value(tag, "stroke-linejoin"),
             attr_value(tag, "stroke-miterlimit"),
+            attr_value(tag, "paint-order"),
             attr_value(tag, "color"),
             attr_value(tag, "display"),
             attr_value(tag, "visibility"),
@@ -3378,6 +3439,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             style_value(tag, "stroke-linecap"),
             style_value(tag, "stroke-linejoin"),
             style_value(tag, "stroke-miterlimit"),
+            style_value(tag, "paint-order"),
             style_value(tag, "color"),
             style_value(tag, "display"),
             style_value(tag, "visibility"),
@@ -3422,6 +3484,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             declaration_value(declarations, "stroke-linecap"),
             declaration_value(declarations, "stroke-linejoin"),
             declaration_value(declarations, "stroke-miterlimit"),
+            declaration_value(declarations, "paint-order"),
             declaration_value(declarations, "color"),
             declaration_value(declarations, "display"),
             declaration_value(declarations, "visibility"),
@@ -3634,6 +3697,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 stroke_linecap: local.stroke_linecap.or(base.stroke_linecap),
                 stroke_linejoin: local.stroke_linejoin.or(base.stroke_linejoin),
                 stroke_miterlimit: local.stroke_miterlimit.or(base.stroke_miterlimit),
+                paint_order: local.paint_order.or(base.paint_order),
                 color: local.color.or(base.color),
                 display: local.display.or(base.display),
                 visibility: local.visibility.or(base.visibility),
@@ -3705,6 +3769,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             stroke_linecap: local.stroke_linecap.or(parent.stroke_linecap),
             stroke_linejoin: local.stroke_linejoin.or(parent.stroke_linejoin),
             stroke_miterlimit: local.stroke_miterlimit.or(parent.stroke_miterlimit),
+            paint_order: local.paint_order.or(parent.paint_order),
             color: local.color.or(parent.color),
             display,
             visibility: local.visibility.or(parent.visibility),
@@ -3765,6 +3830,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut stroke_linecap: Option<SimpleSvgCascadeValue<SimpleSvgStrokeLineCap>> = None;
         let mut stroke_linejoin: Option<SimpleSvgCascadeValue<SimpleSvgStrokeLineJoin>> = None;
         let mut stroke_miterlimit: Option<SimpleSvgCascadeValue<f32>> = None;
+        let mut paint_order: Option<SimpleSvgCascadeValue<SimpleSvgPaintOrder>> = None;
         let mut color: Option<SimpleSvgCascadeValue<SimpleSvgResolvedColor>> = None;
         let mut display: Option<SimpleSvgCascadeValue<bool>> = None;
         let mut visibility: Option<SimpleSvgCascadeValue<bool>> = None;
@@ -3910,6 +3976,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     let current = stroke_miterlimit.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
                         stroke_miterlimit = Some(SimpleSvgCascadeValue {
+                            value,
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule.presentation.paint_order {
+                    let current = paint_order.map(|value| (value.specificity, value.order));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        paint_order = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
                             order,
@@ -4172,6 +4248,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             stroke_linecap: stroke_linecap.map(|value| value.value),
             stroke_linejoin: stroke_linejoin.map(|value| value.value),
             stroke_miterlimit: stroke_miterlimit.map(|value| value.value),
+            paint_order: paint_order.map(|value| value.value),
             color: color.map(|value| value.value),
             display: display.map(|value| value.value),
             visibility: visibility.map(|value| value.value),
@@ -8256,6 +8333,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
                     stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                     stroke_style: stroke_style(presentation),
+                    paint_order: presentation
+                        .paint_order
+                        .unwrap_or(SimpleSvgPaintOrder::Normal),
                     decoration: presentation.text_decoration.unwrap_or_default(),
                     decoration_paint: text_decoration_paint(presentation),
                     decoration_thickness_ratio: presentation
@@ -11274,6 +11354,61 @@ mod tests {
         assert!(pdf_text.contains("2 Tr"));
         assert!(pdf_text.contains("(FS) Tj 0 Tr ET"));
         assert!(!pdf_text.contains("[unsupported image: figures/stroked-text.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_text_paint_order_stroke_before_fill() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-paint-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-paint-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-paint-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    text.order { paint-order: stroke fill; fill: #ff0000; stroke: #0000ff; stroke-width: 0.3; font-size: 2; }
+  </style>
+  <text class="order" x="2" y="5">PO</text>
+  <text x="2" y="8" font-size="2" fill="#00ff00" stroke="#ff00ff" stroke-width="0.2" style="paint-order: stroke fill">IP</text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert_eq!(pdf_text.matches("(PO) Tj").count(), 2);
+        assert_eq!(pdf_text.matches("(IP) Tj").count(), 2);
+        let po_stroke_index = pdf_text.find("0 0 1 RG").unwrap();
+        let po_fill_index = pdf_text.find("1 0 0 rg BT").unwrap();
+        let ip_stroke_index = pdf_text.find("1 0 1 RG").unwrap();
+        let ip_fill_index = pdf_text.find("0 1 0 rg BT").unwrap();
+        assert!(po_stroke_index < po_fill_index);
+        assert!(ip_stroke_index < ip_fill_index);
+        assert!(!pdf_text.contains("2 Tr"));
+        assert!(!pdf_text.contains("[unsupported image: figures/text-paint-order.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
