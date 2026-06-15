@@ -147,19 +147,24 @@ pub fn render_display_list_pdf_with_converted_assets(
                 return false;
             }
             let mut values = Vec::new();
+            let mut pattern_sum = 0.0_f32;
             for value in dasharray.values.iter().take(dasharray.len) {
                 let value = *value * scale;
                 if !value.is_finite() || value < 0.0 {
                     return false;
                 }
+                pattern_sum += value;
                 values.push(format!("{value}"));
             }
-            if values.is_empty() {
+            if values.is_empty() || !pattern_sum.is_finite() || pattern_sum <= 0.0 {
                 return false;
             }
-            let phase = dasharray.offset_ratio * scale;
-            if !phase.is_finite() || phase < 0.0 {
+            let mut phase = dasharray.offset_ratio * scale;
+            if !phase.is_finite() {
                 return false;
+            }
+            if phase < 0.0 {
+                phase = phase.rem_euclid(pattern_sum);
             }
             operators.push(format!("[{}] {phase} d", values.join(" ")));
         }
@@ -3275,10 +3280,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             stroke: parse_optional_paint(stroke),
             stroke_width: stroke_width.as_deref().and_then(parse_stroke_width),
             stroke_dasharray: stroke_dasharray.as_deref().and_then(parse_dasharray),
-            stroke_dashoffset: stroke_dashoffset
-                .as_deref()
-                .and_then(parse_stroke_length)
-                .filter(|offset| *offset >= 0.0),
+            stroke_dashoffset: stroke_dashoffset.as_deref().and_then(parse_stroke_length),
             stroke_linecap: stroke_linecap.as_deref().and_then(parse_stroke_linecap),
             stroke_linejoin: stroke_linejoin.as_deref().and_then(parse_stroke_linejoin),
             stroke_miterlimit: stroke_miterlimit
@@ -15518,6 +15520,53 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 RG 10 w 10 230 m 60 230 l S"));
         assert!(!pdf_text.contains("q [20 10] 5 d 4 M 0 1 0 RG 10 w 10 230 m 60 230 l S Q"));
         assert!(!pdf_text.contains("[unsupported image: figures/dashoffset-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_negative_stroke_dashoffset_as_pdf_dash_phase() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/negative-dashoffset-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:negative-dashoffset-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/negative-dashoffset-style.svg").then(|| {
+                br##"<svg width="20" height="10" stroke-dasharray="2 1">
+  <style type="text/css">
+    line { stroke: #ff0000; stroke-width: 1; fill: none; stroke-dashoffset: -0.5; }
+  </style>
+  <line x1="0" y1="0" x2="5" y2="0"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q [20 10] 25 d 4 M 1 0 0 RG 10 w 10 280 m 60 280 l S Q"));
+        assert!(!pdf_text.contains("q [20 10] 0 d 4 M 1 0 0 RG 10 w 10 280 m 60 280 l S Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/negative-dashoffset-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

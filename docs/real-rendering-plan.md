@@ -212,7 +212,7 @@ rules with basic specificity and
 operators, simple `opacity` / `fill-opacity` / `stroke-opacity` mapped to PDF
 ExtGState resources, simple `stroke-dasharray` absolute/percentage lengths
 mapped to PDF dash patterns with `stroke-dashoffset` absolute/percentage phase
-support and transform scaling, simple `stroke-linecap` /
+support, negative phase normalization, and transform scaling, simple `stroke-linecap` /
 `stroke-linejoin` / `stroke-miterlimit` mapped to PDF graphics state, simple
 `vector-effect: non-scaling-stroke` stroke-width/dash preservation, and
 simple rect-backed `clipPath` clipping including transformed group-wrapped rect
@@ -690,7 +690,8 @@ Implemented first slice:
   nonzero/even-odd fill operators, simple `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with `stroke-dashoffset`
-  absolute/percentage phase support and transform scaling, simple
+  absolute/percentage phase support, negative phase normalization, and transform
+  scaling, simple
   zero `stroke-width` suppression, `stroke-linecap` / `stroke-linejoin` /
   `stroke-miterlimit` mapped to PDF graphics state, simple
   `vector-effect: non-scaling-stroke` stroke-width/dash
@@ -1185,7 +1186,8 @@ Status:
   nonzero/even-odd fill operators, simple `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with `stroke-dashoffset`
-  absolute/percentage phase support and transform scaling, simple
+  absolute/percentage phase support, negative phase normalization, and transform
+  scaling, simple
   zero `stroke-width` suppression, `stroke-linecap` / `stroke-linejoin` /
   `stroke-miterlimit` mapped to PDF graphics state, simple
   `vector-effect: non-scaling-stroke` stroke-width/dash preservation, simple
