@@ -675,7 +675,7 @@ Implemented first slice:
   inherited root/group-level fill/stroke/absolute and percentage stroke-width
   metadata, simple root
   `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`, simple
-  comment-tolerant `<style>` / CDATA type, class, id, element-qualified
+  comment-tolerant `<style>` / CDATA universal, type, class, id, element-qualified
   class/id, and rightmost simple descendant/child selector approximation
   fill/stroke/stroke-width rules with basic specificity and source-order cascade
   plus `display: none` / `visibility: hidden` paint suppression and
@@ -1170,7 +1170,7 @@ Status:
   inherited root/group-level fill/stroke/absolute and percentage stroke-width
   metadata, simple root
   `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`, simple
-  comment-tolerant `<style>` / CDATA type, class, id, element-qualified
+  comment-tolerant `<style>` / CDATA universal, type, class, id, element-qualified
   class/id, and rightmost simple descendant/child selector approximation
   fill/stroke/stroke-width rules with basic specificity and source-order cascade
   plus `display: none` / `visibility: hidden` paint suppression and

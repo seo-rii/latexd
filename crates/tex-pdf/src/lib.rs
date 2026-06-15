@@ -3460,6 +3460,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     #[derive(Debug, Clone)]
     enum SimpleSvgStyleSelector {
+        Universal,
         Type {
             element_name: String,
         },
@@ -3504,7 +3505,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if selector.chars().any(char::is_whitespace) {
             return None;
         }
-        if selector.contains('.') {
+        if selector == "*" {
+            Some(SimpleSvgStyleSelector::Universal)
+        } else if selector.contains('.') {
             let (element_name, class_selector) =
                 if let Some(class_selector) = selector.strip_prefix('.') {
                     (None, class_selector)
@@ -3557,6 +3560,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     let selector_specificity = |selector: &SimpleSvgStyleSelector| -> u16 {
         match selector {
+            SimpleSvgStyleSelector::Universal => 0,
             SimpleSvgStyleSelector::Type { .. } => 1,
             SimpleSvgStyleSelector::Class { element_name, .. } => {
                 10 + u16::from(element_name.is_some())
@@ -3798,6 +3802,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut clip_path: Option<SimpleSvgCascadeValue<Option<u64>>> = None;
         for (order, rule) in style_rules.iter().enumerate() {
             let matches = match &rule.selector {
+                SimpleSvgStyleSelector::Universal => true,
                 SimpleSvgStyleSelector::Type { element_name } => {
                     tag_element_name.as_deref() == Some(element_name.as_str())
                 }
@@ -14435,6 +14440,56 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
         assert!(pdf_text.contains("0 1 0 RG 10 w 20 250 20 20 re S"));
         assert!(!pdf_text.contains("[unsupported image: figures/type-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_universal_selector_style_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/universal-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:universal-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/universal-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    * { fill: #ff0000; stroke: none; }
+    line { stroke: #0000ff; stroke-width: 2; fill: none; }
+  </style>
+  <rect x="1" y="1" width="2" height="2"/>
+  <line x1="0" y1="0" x2="5" y2="0"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 RG 20 w 10 280 m 60 280 l S"));
+        assert!(!pdf_text.contains("0 0 0 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/universal-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
