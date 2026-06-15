@@ -1342,6 +1342,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                 match svg_text.decoration_style {
                                                     SimpleSvgTextDecorationStyle::Solid => None,
                                                     SimpleSvgTextDecorationStyle::Double => None,
+                                                    SimpleSvgTextDecorationStyle::Wavy => None,
                                                     SimpleSvgTextDecorationStyle::Dashed => {
                                                         let dash = stroke_width * 2.0 / svg_width;
                                                         Some(SimpleSvgDashArray {
@@ -1370,12 +1371,18 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             };
                                             let decoration_stroke_style = SimpleSvgStrokeStyle {
                                                 linecap: match svg_text.decoration_style {
-                                                    SimpleSvgTextDecorationStyle::Dotted => {
+                                                    SimpleSvgTextDecorationStyle::Dotted
+                                                    | SimpleSvgTextDecorationStyle::Wavy => {
                                                         SimpleSvgStrokeLineCap::Round
                                                     }
                                                     _ => SimpleSvgStrokeLineCap::Butt,
                                                 },
-                                                linejoin: SimpleSvgStrokeLineJoin::Miter,
+                                                linejoin: match svg_text.decoration_style {
+                                                    SimpleSvgTextDecorationStyle::Wavy => {
+                                                        SimpleSvgStrokeLineJoin::Round
+                                                    }
+                                                    _ => SimpleSvgStrokeLineJoin::Miter,
+                                                },
                                                 miterlimit: 10.0,
                                             };
                                             let scoped_decoration_style = push_pdf_stroke_state(
@@ -1388,6 +1395,75 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             {
                                                 let mut push_decoration_lines =
                                                     |local_y_offset: f32| {
+                                                        if svg_text.decoration_style
+                                                            == SimpleSvgTextDecorationStyle::Wavy
+                                                        {
+                                                            let amplitude = (stroke_width * 0.8)
+                                                                .max(font_size * 0.03);
+                                                            let wavelength = (stroke_width * 4.0)
+                                                                .max(2.0)
+                                                                .min((font_size * 0.8).max(2.0));
+                                                            if !amplitude.is_finite()
+                                                                || amplitude <= 0.0
+                                                                || !wavelength.is_finite()
+                                                                || wavelength <= 0.0
+                                                            {
+                                                                return;
+                                                            }
+                                                            let segment_length = wavelength / 4.0;
+                                                            if !segment_length.is_finite()
+                                                                || segment_length <= 0.0
+                                                            {
+                                                                return;
+                                                            }
+                                                            let segment_count = (estimated_advance
+                                                                / segment_length)
+                                                                .ceil()
+                                                                .clamp(4.0, 96.0)
+                                                                as usize;
+                                                            let mut path = format!(
+                                                                "q {} {} {} RG {} w ",
+                                                                decoration_paint.rgb.0,
+                                                                decoration_paint.rgb.1,
+                                                                decoration_paint.rgb.2,
+                                                                stroke_width
+                                                            );
+                                                            for segment_index in 0..=segment_count {
+                                                                let local_x = estimated_advance
+                                                                    * segment_index as f32
+                                                                    / segment_count as f32;
+                                                                let wave_y_offset = local_y_offset
+                                                                    + (local_x / wavelength
+                                                                        * std::f32::consts::TAU)
+                                                                        .sin()
+                                                                        * amplitude;
+                                                                let point_x = x
+                                                                    + matrix_a * local_x
+                                                                    + matrix_c * wave_y_offset;
+                                                                let point_y = y
+                                                                    + matrix_b * local_x
+                                                                    + matrix_d * wave_y_offset;
+                                                                if !point_x.is_finite()
+                                                                    || !point_y.is_finite()
+                                                                {
+                                                                    return;
+                                                                }
+                                                                if segment_index == 0 {
+                                                                    path.push_str(&format!(
+                                                                        "{} {} m ",
+                                                                        point_x, point_y
+                                                                    ));
+                                                                } else {
+                                                                    path.push_str(&format!(
+                                                                        "{} {} l ",
+                                                                        point_x, point_y
+                                                                    ));
+                                                                }
+                                                            }
+                                                            path.push_str("S Q ");
+                                                            stream.push_str(&path);
+                                                            return;
+                                                        }
                                                         let local_y_offsets = if svg_text
                                                             .decoration_style
                                                             == SimpleSvgTextDecorationStyle::Double
@@ -1868,6 +1944,7 @@ struct SimpleSvgTextDecoration {
 enum SimpleSvgTextDecorationStyle {
     Solid,
     Double,
+    Wavy,
     Dashed,
     Dotted,
 }
@@ -2825,6 +2902,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         match raw.trim().to_ascii_lowercase().as_str() {
             "solid" => Some(SimpleSvgTextDecorationStyle::Solid),
             "double" => Some(SimpleSvgTextDecorationStyle::Double),
+            "wavy" => Some(SimpleSvgTextDecorationStyle::Wavy),
             "dashed" => Some(SimpleSvgTextDecorationStyle::Dashed),
             "dotted" => Some(SimpleSvgTextDecorationStyle::Dotted),
             _ => None,
@@ -11093,6 +11171,59 @@ mod tests {
         assert!(pdf_text.contains("(SD) Tj ET"));
         assert_eq!(pdf_text.matches("0 1 1 RG 1.8000001 w").count(), 2);
         assert!(!pdf_text.contains("[unsupported image: figures/text-decoration-double.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_wavy_text_decoration_as_pdf_polyline() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-decoration-wavy.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-decoration-wavy".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-decoration-wavy.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    text.wave { text-decoration: underline #0000ff; text-decoration-style: wavy; text-decoration-thickness: 0.5; fill: #00ff00; font-size: 2; }
+  </style>
+  <text class="wave" x="2" y="6">WV</text>
+  <text x="2" y="8" font-size="2" fill="#ff0000" style="color: #00ffff; text-decoration: line-through currentColor 0.25 wavy">SW</text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 rg BT"));
+        assert!(pdf_text.contains("(WV) Tj ET"));
+        assert!(pdf_text.contains("0 0 1 RG 3.6000001 w"));
+        assert!(pdf_text.contains("1 0 0 rg BT"));
+        assert!(pdf_text.contains("(SW) Tj ET"));
+        assert!(pdf_text.contains("0 1 1 RG 1.8000001 w"));
+        assert!(pdf_text.matches(" l ").count() >= 10);
+        assert!(!pdf_text.contains("[unsupported image: figures/text-decoration-wavy.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
