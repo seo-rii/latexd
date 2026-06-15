@@ -3170,19 +3170,50 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         decode_pdf_image(&bytes)
     };
     let first_some = |left: Option<String>, right: Option<String>| left.or(right);
-    let parse_optional_paint = |value: Option<String>| -> Option<Option<SimpleSvgColor>> {
+    let initial_color = || SimpleSvgResolvedColor::opaque((0.0, 0.0, 0.0));
+    let parse_optional_fill_paint = |value: Option<String>| -> Option<Option<SimpleSvgColor>> {
         let value = value?;
-        if value.trim().eq_ignore_ascii_case("inherit") {
+        let value = value.trim();
+        if value.eq_ignore_ascii_case("inherit") || value.eq_ignore_ascii_case("unset") {
             return None;
         }
-        Some(parse_paint(&value))
+        if value.eq_ignore_ascii_case("initial") {
+            return Some(Some(SimpleSvgColor::Resolved(initial_color())));
+        }
+        Some(parse_paint(value))
+    };
+    let parse_optional_stroke_paint = |value: Option<String>| -> Option<Option<SimpleSvgColor>> {
+        let value = value?;
+        let value = value.trim();
+        if value.eq_ignore_ascii_case("inherit") || value.eq_ignore_ascii_case("unset") {
+            return None;
+        }
+        if value.eq_ignore_ascii_case("initial") {
+            return Some(None);
+        }
+        Some(parse_paint(value))
+    };
+    let parse_optional_paint = |value: Option<String>| -> Option<Option<SimpleSvgColor>> {
+        let value = value?;
+        let value = value.trim();
+        if value.eq_ignore_ascii_case("inherit") || value.eq_ignore_ascii_case("unset") {
+            return None;
+        }
+        if value.eq_ignore_ascii_case("initial") {
+            return Some(Some(SimpleSvgColor::Resolved(initial_color())));
+        }
+        Some(parse_paint(value))
     };
     let parse_optional_color = |value: Option<String>| -> Option<SimpleSvgResolvedColor> {
         let value = value?;
-        if value.trim().eq_ignore_ascii_case("inherit") {
+        let value = value.trim();
+        if value.eq_ignore_ascii_case("inherit") || value.eq_ignore_ascii_case("unset") {
             return None;
         }
-        parse_color(&value)
+        if value.eq_ignore_ascii_case("initial") {
+            return Some(initial_color());
+        }
+        parse_color(value)
     };
     let presentation_from_values = |fill: Option<String>,
                                     fill_rule: Option<String>,
@@ -3275,9 +3306,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 None
             });
         SimpleSvgPresentation {
-            fill: parse_optional_paint(fill),
+            fill: parse_optional_fill_paint(fill),
             fill_rule: fill_rule.as_deref().and_then(parse_fill_rule),
-            stroke: parse_optional_paint(stroke),
+            stroke: parse_optional_stroke_paint(stroke),
             stroke_width: stroke_width.as_deref().and_then(parse_stroke_width),
             stroke_dasharray: stroke_dasharray.as_deref().and_then(parse_dasharray),
             stroke_dashoffset: stroke_dashoffset.as_deref().and_then(parse_stroke_length),
@@ -15211,6 +15242,103 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 RG 10 w 10 260 m 60 260 l S"));
         assert!(pdf_text.contains("0 0 1 rg 50 250 20 20 re f"));
         assert!(!pdf_text.contains("[unsupported image: figures/inherit-paint.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_initial_paint_as_initial_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/initial-paint.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:initial-paint".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/initial-paint.svg").then(|| {
+                br##"<svg width="20" height="10" fill="#ff0000" stroke="#00ff00" stroke-width="1" color="#0000ff">
+  <rect x="1" y="1" width="2" height="2" fill="initial"/>
+  <line x1="0" y1="2" x2="5" y2="2" stroke="initial" fill="none"/>
+  <rect x="4" y="1" width="2" height="2" color="initial" fill="currentColor" stroke="none"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 0 rg 50 250 20 20 re f"));
+        assert!(!pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 1 0 RG 10 w 10 260 m 60 260 l S"));
+        assert!(!pdf_text.contains("0 0 1 rg 50 250 20 20 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/initial-paint.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_unset_paint_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/unset-paint.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:unset-paint".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/unset-paint.svg").then(|| {
+                br##"<svg width="20" height="10" fill="#ff0000" stroke="#00ff00" stroke-width="1" color="#0000ff">
+  <rect x="1" y="1" width="2" height="2" fill="unset" stroke="none"/>
+  <line x1="0" y1="2" x2="5" y2="2" stroke="unset" fill="none"/>
+  <rect x="4" y="1" width="2" height="2" color="unset" fill="currentColor" stroke="none"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 1 0 RG 10 w 10 260 m 60 260 l S"));
+        assert!(pdf_text.contains("0 0 1 rg 50 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 0 0 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/unset-paint.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

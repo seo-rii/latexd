@@ -204,7 +204,8 @@ rules with basic specificity and
     suppression, parse-tolerant `!important` value markers,
     3/4/6/8-digit hex/CSS/SVG named/`rgb(...)` /
     `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
-    `currentColor` fill/stroke paint, simple `inherit` paint/color values,
+    `currentColor` fill/stroke paint, simple `inherit` / `initial` / `unset`
+    paint/color values,
     transparent paint as no-paint, simple gradient paint-server first-stop solid
     approximations with `href` inheritance, and paint-server `url(...)`
     fallback colors,
@@ -682,7 +683,8 @@ Implemented first slice:
   parse-tolerant `!important` value markers and 3/4/6/8-digit
   hex/CSS/SVG named/`rgb(...)` /
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
-  `currentColor` fill/stroke paint, simple `inherit` paint/color values,
+  `currentColor` fill/stroke paint, simple `inherit` / `initial` / `unset`
+  paint/color values,
   transparent paint as no-paint, simple gradient paint-server first-stop solid
   approximations with `href` inheritance, and paint-server `url(...)` fallback
   colors,
@@ -1178,7 +1180,8 @@ Status:
   parse-tolerant `!important` value markers and 3/4/6/8-digit
   hex/CSS/SVG named/`rgb(...)` /
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
-  `currentColor` fill/stroke paint, simple `inherit` paint/color values,
+  `currentColor` fill/stroke paint, simple `inherit` / `initial` / `unset`
+  paint/color values,
   transparent paint as no-paint, simple gradient paint-server first-stop solid
   approximations with `href` inheritance, and paint-server `url(...)` fallback
   colors,
