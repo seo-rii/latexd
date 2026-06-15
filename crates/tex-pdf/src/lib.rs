@@ -2821,10 +2821,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .filter(|value| value.is_finite())
             .map(|value| value.clamp(0.0, 1.0))
     };
-    let parse_stroke_length =
-        |raw: &str| -> Option<f32> { parse_diagonal_length(raw).filter(|value| value.is_finite()) };
-    let parse_stroke_width =
-        |raw: &str| -> Option<f32> { parse_stroke_length(raw).filter(|width| *width >= 0.0) };
+    let parse_stroke_length = |raw: &str| -> Option<f32> {
+        let raw = raw.trim();
+        if raw.eq_ignore_ascii_case("initial") {
+            return Some(0.0);
+        }
+        parse_diagonal_length(raw).filter(|value| value.is_finite())
+    };
+    let parse_stroke_width = |raw: &str| -> Option<f32> {
+        let raw = raw.trim();
+        if raw.eq_ignore_ascii_case("initial") {
+            return Some(1.0);
+        }
+        parse_stroke_length(raw).filter(|width| *width >= 0.0)
+    };
     let parse_letter_spacing = |raw: &str| -> Option<f32> {
         let raw = raw.trim();
         if raw.eq_ignore_ascii_case("normal") {
@@ -2897,8 +2907,11 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     let parse_dasharray = |raw: &str| -> Option<Option<SimpleSvgDashArray>> {
         let raw = raw.trim();
-        if raw.eq_ignore_ascii_case("none") {
+        if raw.eq_ignore_ascii_case("none") || raw.eq_ignore_ascii_case("initial") {
             return Some(None);
+        }
+        if raw.eq_ignore_ascii_case("inherit") || raw.eq_ignore_ascii_case("unset") {
+            return None;
         }
         let mut values = [0.0_f32; 8];
         let mut len = 0usize;
@@ -2925,7 +2938,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     let parse_stroke_linecap = |raw: &str| -> Option<SimpleSvgStrokeLineCap> {
         match raw.trim().to_ascii_lowercase().as_str() {
-            "butt" => Some(SimpleSvgStrokeLineCap::Butt),
+            "butt" | "initial" => Some(SimpleSvgStrokeLineCap::Butt),
             "round" => Some(SimpleSvgStrokeLineCap::Round),
             "square" => Some(SimpleSvgStrokeLineCap::Square),
             _ => None,
@@ -2933,15 +2946,25 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     let parse_stroke_linejoin = |raw: &str| -> Option<SimpleSvgStrokeLineJoin> {
         match raw.trim().to_ascii_lowercase().as_str() {
-            "miter" | "miter-clip" => Some(SimpleSvgStrokeLineJoin::Miter),
+            "miter" | "miter-clip" | "initial" => Some(SimpleSvgStrokeLineJoin::Miter),
             "round" => Some(SimpleSvgStrokeLineJoin::Round),
             "bevel" => Some(SimpleSvgStrokeLineJoin::Bevel),
             _ => None,
         }
     };
+    let parse_stroke_miterlimit = |raw: &str| -> Option<f32> {
+        let raw = raw.trim();
+        if raw.eq_ignore_ascii_case("initial") {
+            return Some(4.0);
+        }
+        if raw.eq_ignore_ascii_case("inherit") || raw.eq_ignore_ascii_case("unset") {
+            return None;
+        }
+        parse_number_prefix(raw).filter(|limit| limit.is_finite() && *limit >= 1.0)
+    };
     let parse_fill_rule = |raw: &str| -> Option<SimpleSvgFillRule> {
         match raw.trim().to_ascii_lowercase().as_str() {
-            "nonzero" => Some(SimpleSvgFillRule::NonZero),
+            "nonzero" | "initial" => Some(SimpleSvgFillRule::NonZero),
             "evenodd" => Some(SimpleSvgFillRule::EvenOdd),
             _ => None,
         }
@@ -3317,8 +3340,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             stroke_linejoin: stroke_linejoin.as_deref().and_then(parse_stroke_linejoin),
             stroke_miterlimit: stroke_miterlimit
                 .as_deref()
-                .and_then(parse_number_prefix)
-                .filter(|limit| *limit >= 1.0),
+                .and_then(parse_stroke_miterlimit),
             paint_order: paint_order.as_deref().and_then(parse_paint_order),
             color: parse_optional_color(color),
             display: display.as_deref().and_then(parse_display),
@@ -15853,6 +15875,58 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 RG 10 w 10 230 m 60 230 l S"));
         assert!(!pdf_text.contains("q 5 M 0 1 0 RG 10 w 10 230 m 60 230 l S Q"));
         assert!(!pdf_text.contains("[unsupported image: figures/miterlimit-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_initial_stroke_and_fill_rule_as_initial_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/initial-stroke-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:initial-stroke-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/initial-stroke-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <g stroke-width="3" stroke-dasharray="2 1" stroke-linecap="round" stroke-linejoin="bevel" stroke-miterlimit="12" fill-rule="evenodd">
+    <line x1="0" y1="0" x2="5" y2="0" stroke="#ff0000" fill="none" stroke-width="initial" stroke-dasharray="initial" stroke-linecap="initial" stroke-linejoin="initial" stroke-miterlimit="initial"/>
+    <path d="M 7 1 H 9 V 3 H 7 Z" fill="#0000ff" stroke="none" fill-rule="initial"/>
+  </g>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 RG 10 w 10 280 m 60 280 l S"));
+        assert!(!pdf_text.contains("[20 10]"));
+        assert!(!pdf_text.contains("1 J"));
+        assert!(!pdf_text.contains("2 j"));
+        assert!(!pdf_text.contains("12 M"));
+        assert!(pdf_text.contains("0 0 1 rg 80 270 m 100 270 l 100 250 l 80 250 l h f "));
+        assert!(!pdf_text.contains("0 0 1 rg 80 270 m 100 270 l 100 250 l 80 250 l h f*"));
+        assert!(!pdf_text.contains("[unsupported image: figures/initial-stroke-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

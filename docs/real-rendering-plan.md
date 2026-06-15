@@ -211,11 +211,12 @@ rules with basic specificity and
     approximations with `href` inheritance, and paint-server `url(...)`
     fallback colors,
     simple `fill-rule` mapped to PDF nonzero/even-odd fill
-operators, simple `opacity` / `fill-opacity` / `stroke-opacity` mapped to PDF
-ExtGState resources, simple `stroke-dasharray` absolute/percentage lengths
+operators with `initial` reset handling, simple `opacity` / `fill-opacity` /
+`stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray` absolute/percentage lengths
 mapped to PDF dash patterns with `stroke-dashoffset` absolute/percentage phase
 support, negative phase normalization, and transform scaling, simple `stroke-linecap` /
-`stroke-linejoin` / `stroke-miterlimit` mapped to PDF graphics state, simple
+`stroke-linejoin` / `stroke-miterlimit` mapped to PDF graphics state with
+`initial` reset handling, simple
 `vector-effect: non-scaling-stroke` stroke-width/dash preservation, and
 simple rect-backed `clipPath` clipping including transformed group-wrapped rect
 children, and
@@ -691,13 +692,15 @@ Implemented first slice:
   approximations with `href` inheritance, and paint-server `url(...)` fallback
   colors,
   simple `fill-rule` mapped to PDF
-  nonzero/even-odd fill operators, simple `opacity` / `fill-opacity` /
+  nonzero/even-odd fill operators with `initial` reset handling, simple
+  `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with `stroke-dashoffset`
   absolute/percentage phase support, negative phase normalization, and transform
   scaling, simple
   zero `stroke-width` suppression, `stroke-linecap` / `stroke-linejoin` /
-  `stroke-miterlimit` mapped to PDF graphics state, simple
+  `stroke-miterlimit` mapped to PDF graphics state with `initial` reset
+  handling, simple
   `vector-effect: non-scaling-stroke` stroke-width/dash
   preservation, simple rect-backed `clipPath` clipping including transformed
   group-wrapped rect children, path-like `matrix` / `rotate` / `skewX` /
@@ -1189,13 +1192,15 @@ Status:
   approximations with `href` inheritance, and paint-server `url(...)` fallback
   colors,
   simple `fill-rule` mapped to PDF
-  nonzero/even-odd fill operators, simple `opacity` / `fill-opacity` /
+  nonzero/even-odd fill operators with `initial` reset handling, simple
+  `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with `stroke-dashoffset`
   absolute/percentage phase support, negative phase normalization, and transform
   scaling, simple
   zero `stroke-width` suppression, `stroke-linecap` / `stroke-linejoin` /
-  `stroke-miterlimit` mapped to PDF graphics state, simple
+  `stroke-miterlimit` mapped to PDF graphics state with `initial` reset
+  handling, simple
   `vector-effect: non-scaling-stroke` stroke-width/dash preservation, simple
   rect-backed `clipPath` clipping including transformed
   group-wrapped rect children, and path-like `matrix` / `rotate` / `skewX` /
