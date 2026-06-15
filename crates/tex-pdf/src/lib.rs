@@ -1054,10 +1054,6 @@ pub fn render_display_list_pdf_with_converted_assets(
                                 }
                                 for svg_text in &svg.texts {
                                     let fill = svg_text.fill;
-                                    let stroke = svg_text.stroke;
-                                    if fill.is_none() && stroke.is_none() {
-                                        continue;
-                                    }
                                     let mut x = svg_rect.x + svg_text.x_ratio * svg_width;
                                     let mut y = svg_rect.y + (1.0 - svg_text.y_ratio) * svg_height;
                                     let matrix_a = svg_text.matrix_a;
@@ -1081,6 +1077,14 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         || !stroke_width.is_finite()
                                         || svg_text.text.is_empty()
                                     {
+                                        continue;
+                                    }
+                                    let stroke = if stroke_width > 0.0 {
+                                        svg_text.stroke
+                                    } else {
+                                        None
+                                    };
+                                    if fill.is_none() && stroke.is_none() {
                                         continue;
                                     }
                                     let estimated_advance = svg_text
@@ -2815,7 +2819,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     let parse_stroke_length =
         |raw: &str| -> Option<f32> { parse_diagonal_length(raw).filter(|value| value.is_finite()) };
     let parse_stroke_width =
-        |raw: &str| -> Option<f32> { parse_stroke_length(raw).filter(|width| *width > 0.0) };
+        |raw: &str| -> Option<f32> { parse_stroke_length(raw).filter(|width| *width >= 0.0) };
     let parse_letter_spacing = |raw: &str| -> Option<f32> {
         let raw = raw.trim();
         if raw.eq_ignore_ascii_case("normal") {
@@ -11431,6 +11435,55 @@ mod tests {
         assert!(rect_stroke_index < rect_fill_index);
         assert!(path_stroke_index < path_fill_index);
         assert!(!pdf_text.contains("[unsupported image: figures/shape-paint-order.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_zero_stroke_width_as_no_stroke() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/zero-stroke-width.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:zero-stroke-width".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/zero-stroke-width.svg").then(|| {
+                br##"<svg width="20" height="10" stroke="#0000ff" stroke-width="1">
+  <rect x="2" y="2" width="4" height="4" fill="#ff0000" stroke-width="0"/>
+  <text x="8" y="6" font-size="2" fill="#00ff00" stroke="#ff00ff" stroke-width="0">Z</text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg"));
+        assert!(pdf_text.contains("0 1 0 rg BT"));
+        assert!(pdf_text.contains("(Z) Tj ET"));
+        assert!(!pdf_text.contains("0 0 1 RG"));
+        assert!(!pdf_text.contains("1 0 1 RG"));
+        assert!(!pdf_text.contains(" Tr "));
+        assert!(!pdf_text.contains("[unsupported image: figures/zero-stroke-width.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

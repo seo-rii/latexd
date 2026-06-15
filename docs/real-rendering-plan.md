@@ -691,8 +691,9 @@ Implemented first slice:
   `stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with `stroke-dashoffset`
   absolute/percentage phase support and transform scaling, simple
-  `stroke-linecap` / `stroke-linejoin` / `stroke-miterlimit` mapped to PDF
-  graphics state, simple `vector-effect: non-scaling-stroke` stroke-width/dash
+  zero `stroke-width` suppression, `stroke-linecap` / `stroke-linejoin` /
+  `stroke-miterlimit` mapped to PDF graphics state, simple
+  `vector-effect: non-scaling-stroke` stroke-width/dash
   preservation, simple rect-backed `clipPath` clipping including transformed
   group-wrapped rect children, path-like `matrix` / `rotate` / `skewX` /
   `skewY` transforms, non-axis-aligned
@@ -1185,9 +1186,10 @@ Status:
   `stroke-opacity` mapped to PDF ExtGState resources, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with `stroke-dashoffset`
   absolute/percentage phase support and transform scaling, simple
-  `stroke-linecap` / `stroke-linejoin` / `stroke-miterlimit` mapped to PDF
-  graphics state, simple `vector-effect: non-scaling-stroke` stroke-width/dash
-  preservation, simple rect-backed `clipPath` clipping including transformed
+  zero `stroke-width` suppression, `stroke-linecap` / `stroke-linejoin` /
+  `stroke-miterlimit` mapped to PDF graphics state, simple
+  `vector-effect: non-scaling-stroke` stroke-width/dash preservation, simple
+  rect-backed `clipPath` clipping including transformed
   group-wrapped rect children, and path-like `matrix` / `rotate` / `skewX` /
   `skewY` transform attributes plus
   non-axis-aligned transformed rectangles and transformed circle/ellipse cubic
