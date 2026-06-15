@@ -1140,8 +1140,9 @@ Status:
   cascade, simple `letter-spacing` and `word-spacing` via PDF text state,
   simple `textLength` spacing adjustment via PDF character spacing, simple PDF
   base-family mapping, simple stroked text via PDF text rendering modes, simple
-  `paint-order: stroke fill` ordering for stroked text, simple fill/stroke
-  opacity separation and dash/style state for stroked text, simple
+  `paint-order: stroke fill` ordering for stroked text and filled/stroked
+  shapes, simple fill/stroke opacity separation and dash/style state for
+  stroked text, simple
   transformed text matrices, simple transformed `text-decoration` lines with
   `text-decoration-color`/`text-decoration-thickness`, dashed/dotted/double/wavy
   `text-decoration-style`, and shorthand color/thickness/style, simple text

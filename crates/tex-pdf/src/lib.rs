@@ -674,6 +674,91 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         stream.push_str("Q ");
                                     }
                                 }
+                                let push_pdf_shape_paint =
+                                    |stream: &mut String,
+                                     opacity_resource_keys: &mut Vec<(u16, u16)>,
+                                     fill: Option<SimpleSvgPaint>,
+                                     fill_rule: SimpleSvgFillRule,
+                                     stroke: Option<SimpleSvgPaint>,
+                                     stroke_width_ratio: f32,
+                                     stroke_dasharray: Option<SimpleSvgDashArray>,
+                                     stroke_style: SimpleSvgStrokeStyle,
+                                     paint_order: SimpleSvgPaintOrder,
+                                     path: &str| {
+                                        let push_fill = |stream: &mut String,
+                                                         opacity_resource_keys: &mut Vec<(
+                                            u16,
+                                            u16,
+                                        )>| {
+                                            if let Some(fill) = fill {
+                                                let fill_operator = pdf_fill_operator(fill_rule);
+                                                let scoped_opacity = push_pdf_paint_opacity(
+                                                    stream,
+                                                    opacity_resource_keys,
+                                                    fill.opacity,
+                                                    fill.opacity,
+                                                );
+                                                stream.push_str(&format!(
+                                                    "{} {} {} rg {}{} ",
+                                                    fill.rgb.0,
+                                                    fill.rgb.1,
+                                                    fill.rgb.2,
+                                                    path,
+                                                    fill_operator
+                                                ));
+                                                if scoped_opacity {
+                                                    stream.push_str("Q ");
+                                                }
+                                            }
+                                        };
+                                        let push_stroke = |stream: &mut String,
+                                                           opacity_resource_keys: &mut Vec<(
+                                            u16,
+                                            u16,
+                                        )>| {
+                                            if let Some(stroke) = stroke {
+                                                let stroke_width = stroke_width_ratio * svg_width;
+                                                if stroke_width.is_finite() && stroke_width > 0.0 {
+                                                    let scoped_stroke_state = push_pdf_stroke_state(
+                                                        stream,
+                                                        stroke_dasharray,
+                                                        stroke_style,
+                                                        svg_width,
+                                                    );
+                                                    let scoped_opacity = push_pdf_paint_opacity(
+                                                        stream,
+                                                        opacity_resource_keys,
+                                                        stroke.opacity,
+                                                        stroke.opacity,
+                                                    );
+                                                    stream.push_str(&format!(
+                                                        "{} {} {} RG {} w {}S ",
+                                                        stroke.rgb.0,
+                                                        stroke.rgb.1,
+                                                        stroke.rgb.2,
+                                                        stroke_width,
+                                                        path
+                                                    ));
+                                                    if scoped_opacity {
+                                                        stream.push_str("Q ");
+                                                    }
+                                                    if scoped_stroke_state {
+                                                        stream.push_str("Q ");
+                                                    }
+                                                }
+                                            }
+                                        };
+                                        if paint_order == SimpleSvgPaintOrder::StrokeFill
+                                            && fill.is_some()
+                                            && stroke.is_some()
+                                        {
+                                            push_stroke(stream, opacity_resource_keys);
+                                            push_fill(stream, opacity_resource_keys);
+                                        } else {
+                                            push_fill(stream, opacity_resource_keys);
+                                            push_stroke(stream, opacity_resource_keys);
+                                        }
+                                    };
                                 for rect in svg.rects {
                                     let rect_x = svg_rect.x + rect.x_ratio * svg_width;
                                     let rect_y = svg_rect.y
@@ -692,63 +777,21 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             svg_width,
                                             svg_height,
                                         );
-                                        if let Some(fill) = rect.fill {
-                                            let fill_operator = pdf_fill_operator(rect.fill_rule);
-                                            let scoped_opacity = push_pdf_paint_opacity(
-                                                &mut stream,
-                                                &mut opacity_resource_keys,
-                                                fill.opacity,
-                                                fill.opacity,
-                                            );
-                                            stream.push_str(&format!(
-                                                "{} {} {} rg {} {} {} {} re {} ",
-                                                fill.rgb.0,
-                                                fill.rgb.1,
-                                                fill.rgb.2,
-                                                rect_x,
-                                                rect_y,
-                                                rect_width,
-                                                rect_height,
-                                                fill_operator
-                                            ));
-                                            if scoped_opacity {
-                                                stream.push_str("Q ");
-                                            }
-                                        }
-                                        if let Some(stroke) = rect.stroke {
-                                            let stroke_width = rect.stroke_width_ratio * svg_width;
-                                            if stroke_width.is_finite() && stroke_width > 0.0 {
-                                                let scoped_stroke_state = push_pdf_stroke_state(
-                                                    &mut stream,
-                                                    rect.stroke_dasharray,
-                                                    rect.stroke_style,
-                                                    svg_width,
-                                                );
-                                                let scoped_opacity = push_pdf_paint_opacity(
-                                                    &mut stream,
-                                                    &mut opacity_resource_keys,
-                                                    stroke.opacity,
-                                                    stroke.opacity,
-                                                );
-                                                stream.push_str(&format!(
-                                                    "{} {} {} RG {} w {} {} {} {} re S ",
-                                                    stroke.rgb.0,
-                                                    stroke.rgb.1,
-                                                    stroke.rgb.2,
-                                                    stroke_width,
-                                                    rect_x,
-                                                    rect_y,
-                                                    rect_width,
-                                                    rect_height
-                                                ));
-                                                if scoped_opacity {
-                                                    stream.push_str("Q ");
-                                                }
-                                                if scoped_stroke_state {
-                                                    stream.push_str("Q ");
-                                                }
-                                            }
-                                        }
+                                        let path = format!(
+                                            "{rect_x} {rect_y} {rect_width} {rect_height} re "
+                                        );
+                                        push_pdf_shape_paint(
+                                            &mut stream,
+                                            &mut opacity_resource_keys,
+                                            rect.fill,
+                                            rect.fill_rule,
+                                            rect.stroke,
+                                            rect.stroke_width_ratio,
+                                            rect.stroke_dasharray,
+                                            rect.stroke_style,
+                                            rect.paint_order,
+                                            &path,
+                                        );
                                         if scoped_clip {
                                             stream.push_str("Q ");
                                         }
@@ -858,59 +901,18 @@ pub fn render_display_list_pdf_with_converted_assets(
                                             svg_width,
                                             svg_height,
                                         );
-                                        if let Some(fill) = ellipse.fill {
-                                            let fill_operator =
-                                                pdf_fill_operator(ellipse.fill_rule);
-                                            let scoped_opacity = push_pdf_paint_opacity(
-                                                &mut stream,
-                                                &mut opacity_resource_keys,
-                                                fill.opacity,
-                                                fill.opacity,
-                                            );
-                                            stream.push_str(&format!(
-                                                "{} {} {} rg {}{} ",
-                                                fill.rgb.0,
-                                                fill.rgb.1,
-                                                fill.rgb.2,
-                                                path,
-                                                fill_operator
-                                            ));
-                                            if scoped_opacity {
-                                                stream.push_str("Q ");
-                                            }
-                                        }
-                                        if let Some(stroke) = ellipse.stroke {
-                                            let stroke_width =
-                                                ellipse.stroke_width_ratio * svg_width;
-                                            if stroke_width.is_finite() && stroke_width > 0.0 {
-                                                let scoped_stroke_state = push_pdf_stroke_state(
-                                                    &mut stream,
-                                                    ellipse.stroke_dasharray,
-                                                    ellipse.stroke_style,
-                                                    svg_width,
-                                                );
-                                                let scoped_opacity = push_pdf_paint_opacity(
-                                                    &mut stream,
-                                                    &mut opacity_resource_keys,
-                                                    stroke.opacity,
-                                                    stroke.opacity,
-                                                );
-                                                stream.push_str(&format!(
-                                                    "{} {} {} RG {} w {}S ",
-                                                    stroke.rgb.0,
-                                                    stroke.rgb.1,
-                                                    stroke.rgb.2,
-                                                    stroke_width,
-                                                    path
-                                                ));
-                                                if scoped_opacity {
-                                                    stream.push_str("Q ");
-                                                }
-                                                if scoped_stroke_state {
-                                                    stream.push_str("Q ");
-                                                }
-                                            }
-                                        }
+                                        push_pdf_shape_paint(
+                                            &mut stream,
+                                            &mut opacity_resource_keys,
+                                            ellipse.fill,
+                                            ellipse.fill_rule,
+                                            ellipse.stroke,
+                                            ellipse.stroke_width_ratio,
+                                            ellipse.stroke_dasharray,
+                                            ellipse.stroke_style,
+                                            ellipse.paint_order,
+                                            &path,
+                                        );
                                         if scoped_clip {
                                             stream.push_str("Q ");
                                         }
@@ -954,53 +956,18 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         svg_width,
                                         svg_height,
                                     );
-                                    if let Some(fill) = poly.fill {
-                                        let fill_operator = pdf_fill_operator(poly.fill_rule);
-                                        let scoped_opacity = push_pdf_paint_opacity(
-                                            &mut stream,
-                                            &mut opacity_resource_keys,
-                                            fill.opacity,
-                                            fill.opacity,
-                                        );
-                                        stream.push_str(&format!(
-                                            "{} {} {} rg {}{} ",
-                                            fill.rgb.0, fill.rgb.1, fill.rgb.2, path, fill_operator
-                                        ));
-                                        if scoped_opacity {
-                                            stream.push_str("Q ");
-                                        }
-                                    }
-                                    if let Some(stroke) = poly.stroke {
-                                        let stroke_width = poly.stroke_width_ratio * svg_width;
-                                        if stroke_width.is_finite() && stroke_width > 0.0 {
-                                            let scoped_stroke_state = push_pdf_stroke_state(
-                                                &mut stream,
-                                                poly.stroke_dasharray,
-                                                poly.stroke_style,
-                                                svg_width,
-                                            );
-                                            let scoped_opacity = push_pdf_paint_opacity(
-                                                &mut stream,
-                                                &mut opacity_resource_keys,
-                                                stroke.opacity,
-                                                stroke.opacity,
-                                            );
-                                            stream.push_str(&format!(
-                                                "{} {} {} RG {} w {}S ",
-                                                stroke.rgb.0,
-                                                stroke.rgb.1,
-                                                stroke.rgb.2,
-                                                stroke_width,
-                                                path
-                                            ));
-                                            if scoped_opacity {
-                                                stream.push_str("Q ");
-                                            }
-                                            if scoped_stroke_state {
-                                                stream.push_str("Q ");
-                                            }
-                                        }
-                                    }
+                                    push_pdf_shape_paint(
+                                        &mut stream,
+                                        &mut opacity_resource_keys,
+                                        poly.fill,
+                                        poly.fill_rule,
+                                        poly.stroke,
+                                        poly.stroke_width_ratio,
+                                        poly.stroke_dasharray,
+                                        poly.stroke_style,
+                                        poly.paint_order,
+                                        &path,
+                                    );
                                     if scoped_clip {
                                         stream.push_str("Q ");
                                     }
@@ -1069,53 +1036,18 @@ pub fn render_display_list_pdf_with_converted_assets(
                                         svg_width,
                                         svg_height,
                                     );
-                                    if let Some(fill) = svg_path.fill {
-                                        let fill_operator = pdf_fill_operator(svg_path.fill_rule);
-                                        let scoped_opacity = push_pdf_paint_opacity(
-                                            &mut stream,
-                                            &mut opacity_resource_keys,
-                                            fill.opacity,
-                                            fill.opacity,
-                                        );
-                                        stream.push_str(&format!(
-                                            "{} {} {} rg {}{} ",
-                                            fill.rgb.0, fill.rgb.1, fill.rgb.2, path, fill_operator
-                                        ));
-                                        if scoped_opacity {
-                                            stream.push_str("Q ");
-                                        }
-                                    }
-                                    if let Some(stroke) = svg_path.stroke {
-                                        let stroke_width = svg_path.stroke_width_ratio * svg_width;
-                                        if stroke_width.is_finite() && stroke_width > 0.0 {
-                                            let scoped_stroke_state = push_pdf_stroke_state(
-                                                &mut stream,
-                                                svg_path.stroke_dasharray,
-                                                svg_path.stroke_style,
-                                                svg_width,
-                                            );
-                                            let scoped_opacity = push_pdf_paint_opacity(
-                                                &mut stream,
-                                                &mut opacity_resource_keys,
-                                                stroke.opacity,
-                                                stroke.opacity,
-                                            );
-                                            stream.push_str(&format!(
-                                                "{} {} {} RG {} w {}S ",
-                                                stroke.rgb.0,
-                                                stroke.rgb.1,
-                                                stroke.rgb.2,
-                                                stroke_width,
-                                                path
-                                            ));
-                                            if scoped_opacity {
-                                                stream.push_str("Q ");
-                                            }
-                                            if scoped_stroke_state {
-                                                stream.push_str("Q ");
-                                            }
-                                        }
-                                    }
+                                    push_pdf_shape_paint(
+                                        &mut stream,
+                                        &mut opacity_resource_keys,
+                                        svg_path.fill,
+                                        svg_path.fill_rule,
+                                        svg_path.stroke,
+                                        svg_path.stroke_width_ratio,
+                                        svg_path.stroke_dasharray,
+                                        svg_path.stroke_style,
+                                        svg_path.paint_order,
+                                        &path,
+                                    );
                                     if scoped_clip {
                                         stream.push_str("Q ");
                                     }
@@ -1855,6 +1787,7 @@ struct SimpleSvgRect {
     stroke_width_ratio: f32,
     stroke_dasharray: Option<SimpleSvgDashArray>,
     stroke_style: SimpleSvgStrokeStyle,
+    paint_order: SimpleSvgPaintOrder,
     clip_rect: Option<SimpleSvgClipRect>,
 }
 
@@ -1883,6 +1816,7 @@ struct SimpleSvgEllipse {
     stroke_width_ratio: f32,
     stroke_dasharray: Option<SimpleSvgDashArray>,
     stroke_style: SimpleSvgStrokeStyle,
+    paint_order: SimpleSvgPaintOrder,
     clip_rect: Option<SimpleSvgClipRect>,
 }
 
@@ -1896,6 +1830,7 @@ struct SimpleSvgPoly {
     stroke_width_ratio: f32,
     stroke_dasharray: Option<SimpleSvgDashArray>,
     stroke_style: SimpleSvgStrokeStyle,
+    paint_order: SimpleSvgPaintOrder,
     clip_rect: Option<SimpleSvgClipRect>,
 }
 
@@ -1908,6 +1843,7 @@ struct SimpleSvgPath {
     stroke_width_ratio: f32,
     stroke_dasharray: Option<SimpleSvgDashArray>,
     stroke_style: SimpleSvgStrokeStyle,
+    paint_order: SimpleSvgPaintOrder,
     clip_rect: Option<SimpleSvgClipRect>,
 }
 
@@ -6169,6 +6105,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 stroke_width_ratio: transformed_stroke_width_ratio(shape.presentation, transform),
                 stroke_dasharray: transformed_stroke_dasharray_ratio(shape.presentation, transform),
                 stroke_style: stroke_style(shape.presentation),
+                paint_order: shape
+                    .presentation
+                    .paint_order
+                    .unwrap_or(SimpleSvgPaintOrder::Normal),
                 clip_rect: None,
             });
         }
@@ -6353,6 +6293,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                             transform,
                         ),
                         stroke_style: stroke_style(presentation),
+                        paint_order: presentation
+                            .paint_order
+                            .unwrap_or(SimpleSvgPaintOrder::Normal),
                         clip_rect: clip_rect_for(presentation, transform),
                     });
                 }
@@ -6394,6 +6337,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                             transform,
                         ),
                         stroke_style: stroke_style(presentation),
+                        paint_order: presentation
+                            .paint_order
+                            .unwrap_or(SimpleSvgPaintOrder::Normal),
                         clip_rect: clip_rect_for(presentation, transform),
                     });
                 }
@@ -6424,6 +6370,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
                     stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                     stroke_style: stroke_style(presentation),
+                    paint_order: presentation
+                        .paint_order
+                        .unwrap_or(SimpleSvgPaintOrder::Normal),
                     clip_rect: clip_rect_for(presentation, transform),
                 });
             }
@@ -6591,6 +6540,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                             transform,
                         ),
                         stroke_style: stroke_style(presentation),
+                        paint_order: presentation
+                            .paint_order
+                            .unwrap_or(SimpleSvgPaintOrder::Normal),
                         clip_rect: clip_rect_for(presentation, transform),
                     });
                 }
@@ -6623,6 +6575,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
                     stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                     stroke_style: stroke_style(presentation),
+                    paint_order: presentation
+                        .paint_order
+                        .unwrap_or(SimpleSvgPaintOrder::Normal),
                     clip_rect: clip_rect_for(presentation, transform),
                 });
             }
@@ -6690,6 +6645,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                             transform,
                         ),
                         stroke_style: stroke_style(presentation),
+                        paint_order: presentation
+                            .paint_order
+                            .unwrap_or(SimpleSvgPaintOrder::Normal),
                         clip_rect: clip_rect_for(presentation, transform),
                     });
                 }
@@ -6722,6 +6680,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
                     stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                     stroke_style: stroke_style(presentation),
+                    paint_order: presentation
+                        .paint_order
+                        .unwrap_or(SimpleSvgPaintOrder::Normal),
                     clip_rect: clip_rect_for(presentation, transform),
                 });
             }
@@ -6861,6 +6822,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
                     stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                     stroke_style: stroke_style(presentation),
+                    paint_order: presentation
+                        .paint_order
+                        .unwrap_or(SimpleSvgPaintOrder::Normal),
                     clip_rect: clip_rect_for(presentation, transform),
                 });
             }
@@ -6909,6 +6873,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
                     stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
                     stroke_style: stroke_style(presentation),
+                    paint_order: presentation
+                        .paint_order
+                        .unwrap_or(SimpleSvgPaintOrder::Normal),
                     clip_rect: clip_rect_for(presentation, transform),
                 });
             }
@@ -7082,6 +7049,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
             stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
             stroke_style: stroke_style(presentation),
+            paint_order: presentation
+                .paint_order
+                .unwrap_or(SimpleSvgPaintOrder::Normal),
             clip_rect: clip_rect_for(presentation, transform),
         });
         push_path_markers(paths, tag, &marker_ops, presentation, transform);
@@ -11409,6 +11379,58 @@ mod tests {
         assert!(ip_stroke_index < ip_fill_index);
         assert!(!pdf_text.contains("2 Tr"));
         assert!(!pdf_text.contains("[unsupported image: figures/text-paint-order.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_shape_paint_order_stroke_before_fill() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/shape-paint-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:shape-paint-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/shape-paint-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .shape { paint-order: stroke fill; fill: #ff0000; stroke: #0000ff; stroke-width: 1; }
+  </style>
+  <rect class="shape" x="2" y="2" width="4" height="4"/>
+  <path d="M 10 2 L 16 2 L 16 6 L 10 6 Z" fill="#00ff00" stroke="#ff00ff" stroke-width="0.5" style="paint-order: stroke fill"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        let rect_stroke_index = pdf_text.find("0 0 1 RG").unwrap();
+        let rect_fill_index = pdf_text.find("1 0 0 rg").unwrap();
+        let path_stroke_index = pdf_text.find("1 0 1 RG").unwrap();
+        let path_fill_index = pdf_text.find("0 1 0 rg").unwrap();
+        assert!(rect_stroke_index < rect_fill_index);
+        assert!(path_stroke_index < path_fill_index);
+        assert!(!pdf_text.contains("[unsupported image: figures/shape-paint-order.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
