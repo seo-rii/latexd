@@ -1146,7 +1146,8 @@ Status:
   simple `xml:space="preserve"` edge whitespace and whitespace-only `tspan`
   gaps/bodies, simple `text-anchor`, numeric `dx`/`dy`, absolute and
   percentage `font-size`, `font-family`, `font-weight`, and `font-style`
-  cascade, simple `letter-spacing` and `word-spacing` via PDF text state,
+  cascade with `initial` reset handling, simple `letter-spacing` and
+  `word-spacing` via PDF text state with `initial` reset handling,
   simple `textLength` spacing adjustment via PDF character spacing, simple PDF
   base-family mapping, simple stroked text via PDF text rendering modes, simple
   `paint-order: stroke fill` ordering for stroked text and filled/stroked

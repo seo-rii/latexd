@@ -2837,14 +2837,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     let parse_letter_spacing = |raw: &str| -> Option<f32> {
         let raw = raw.trim();
-        if raw.eq_ignore_ascii_case("normal") {
+        if raw.eq_ignore_ascii_case("normal") || raw.eq_ignore_ascii_case("initial") {
             return Some(0.0);
         }
         parse_x_length(raw).filter(|value| value.is_finite())
     };
     let parse_word_spacing = |raw: &str| -> Option<f32> {
         let raw = raw.trim();
-        if raw.eq_ignore_ascii_case("normal") {
+        if raw.eq_ignore_ascii_case("normal") || raw.eq_ignore_ascii_case("initial") {
             return Some(0.0);
         }
         parse_x_length(raw).filter(|value| value.is_finite())
@@ -3008,7 +3008,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     let parse_font_series = |raw: &str| -> Option<FontSeries> {
         let raw = raw.trim().to_ascii_lowercase();
         match raw.as_str() {
-            "normal" | "lighter" => Some(FontSeries::Regular),
+            "normal" | "lighter" | "initial" => Some(FontSeries::Regular),
             "bold" | "bolder" => Some(FontSeries::Bold),
             _ => raw.parse::<u16>().ok().and_then(|weight| match weight {
                 1..=599 => Some(FontSeries::Regular),
@@ -3019,13 +3019,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     let parse_font_shape = |raw: &str| -> Option<FontShape> {
         match raw.trim().to_ascii_lowercase().as_str() {
-            "normal" => Some(FontShape::Upright),
+            "normal" | "initial" => Some(FontShape::Upright),
             "italic" | "oblique" => Some(FontShape::Italic),
             _ => None,
         }
     };
     let parse_font_size = |raw: &str| -> Option<SimpleSvgFontSize> {
         let raw = raw.trim();
+        if raw.eq_ignore_ascii_case("initial") {
+            return Some(SimpleSvgFontSize::Absolute(12.0));
+        }
         if let Some(percent) = raw.strip_suffix('%') {
             return percent
                 .trim()
@@ -3039,6 +3042,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .map(SimpleSvgFontSize::Absolute)
     };
     let parse_font_family = |raw: &str| -> Option<SimpleSvgFontFamily> {
+        if raw.trim().eq_ignore_ascii_case("initial") {
+            return Some(SimpleSvgFontFamily::Serif);
+        }
         raw.split(',').find_map(|family| {
             let family = family
                 .trim()
@@ -10352,6 +10358,54 @@ mod tests {
         assert!(pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 670.8 Tm (P) Tj ET"));
         assert!(!pdf_text.contains("/F1 360 Tf"));
         assert!(!pdf_text.contains("[unsupported image: figures/font-size-percent.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_initial_text_font_and_spacing_as_initial_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/initial-text-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:initial-text-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/initial-text-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="2" y="6" fill="#000000" font-family="Arial" font-weight="bold" font-style="italic" font-size="4" letter-spacing="1" word-spacing="1">
+    <tspan font-family="initial" font-weight="initial" font-style="initial" font-size="initial" letter-spacing="initial" word-spacing="initial">A B</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 0 rg BT /F1 86.4 Tf 1 0 0 1 86.4 670.8 Tm (A B) Tj ET"));
+        assert!(!pdf_text.contains("/F8 28.800001 Tf"));
+        assert!(!pdf_text.contains("7.2000003 Tc"));
+        assert!(!pdf_text.contains("7.2000003 Tw"));
+        assert!(!pdf_text.contains("[unsupported image: figures/initial-text-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
