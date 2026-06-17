@@ -2854,7 +2854,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if raw.is_empty() || raw.eq_ignore_ascii_case("inherit") {
             return None;
         }
-        if raw.eq_ignore_ascii_case("none") {
+        if raw.eq_ignore_ascii_case("none") || raw.eq_ignore_ascii_case("initial") {
             return Some(SimpleSvgTextDecoration::default());
         }
         let mut decoration = SimpleSvgTextDecoration::default();
@@ -2871,6 +2871,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     let parse_text_decoration_thickness = |raw: &str| -> Option<f32> {
         let raw = raw.trim();
+        if raw.eq_ignore_ascii_case("initial") {
+            return Some(0.0);
+        }
         if raw.is_empty()
             || raw.eq_ignore_ascii_case("inherit")
             || raw.eq_ignore_ascii_case("auto")
@@ -2882,7 +2885,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     let parse_text_decoration_style = |raw: &str| -> Option<SimpleSvgTextDecorationStyle> {
         match raw.trim().to_ascii_lowercase().as_str() {
-            "solid" => Some(SimpleSvgTextDecorationStyle::Solid),
+            "solid" | "initial" => Some(SimpleSvgTextDecorationStyle::Solid),
             "double" => Some(SimpleSvgTextDecorationStyle::Double),
             "wavy" => Some(SimpleSvgTextDecorationStyle::Wavy),
             "dashed" => Some(SimpleSvgTextDecorationStyle::Dashed),
@@ -3230,7 +3233,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             return None;
         }
         if value.eq_ignore_ascii_case("initial") {
-            return Some(Some(SimpleSvgColor::Resolved(initial_color())));
+            return Some(Some(SimpleSvgColor::CurrentColor));
         }
         Some(parse_paint(value))
     };
@@ -3304,6 +3307,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 }
                 if lower == "transparent" {
                     return Some(None);
+                }
+                if lower == "initial" {
+                    return Some(Some(SimpleSvgColor::CurrentColor));
                 }
                 if let Some(color) = parse_paint(token) {
                     return Some(Some(color));
@@ -11288,6 +11294,57 @@ mod tests {
         assert!(pdf_text.contains("(DT) Tj ET"));
         assert!(pdf_text.contains("q [0 3.6000001] 0 d 1 J q 0 1 1 RG 1.8000001 w"));
         assert!(!pdf_text.contains("[unsupported image: figures/text-decoration-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_initial_text_decoration_as_initial_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/initial-text-decoration.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:initial-text-decoration".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/initial-text-decoration.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="2" y="6" font-size="2" fill="#ff0000" color="#00ff00" text-decoration="underline" text-decoration-color="#0000ff" text-decoration-thickness="0.5" text-decoration-style="dashed">
+    <tspan text-decoration-color="initial" text-decoration-thickness="initial" text-decoration-style="initial">IC</tspan>
+    <tspan x="2" y="8" text-decoration="initial">NO</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("(IC) Tj ET"));
+        assert!(pdf_text.contains("(NO) Tj ET"));
+        assert!(pdf_text.contains("0 1 0 RG 0.72 w"));
+        assert_eq!(pdf_text.matches(" l S Q").count(), 1);
+        assert!(!pdf_text.contains("0 0 1 RG 3.6000001 w"));
+        assert!(!pdf_text.contains("[7.2000003 7.2000003]"));
+        assert!(!pdf_text.contains("[unsupported image: figures/initial-text-decoration.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
