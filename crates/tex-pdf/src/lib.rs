@@ -4381,6 +4381,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if inline_inherit_or_unset("baseline-shift") {
             presentation.baseline_shift = None;
         }
+        if inline_inherit_or_unset("marker") {
+            presentation.marker_start = None;
+            presentation.marker_mid = None;
+            presentation.marker_end = None;
+        }
+        if inline_inherit_or_unset("marker-start") {
+            presentation.marker_start = None;
+        }
+        if inline_inherit_or_unset("marker-mid") {
+            presentation.marker_mid = None;
+        }
+        if inline_inherit_or_unset("marker-end") {
+            presentation.marker_end = None;
+        }
         if style_value(tag, "display")
             .map(|value| value.trim().eq_ignore_ascii_case("inherit"))
             .unwrap_or(false)
@@ -12823,6 +12837,64 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 rg 170 260 m 190 250 l 170 240 l h f"));
         assert!(!pdf_text.contains("1 0 0 rg 170 220 m 190 210 l 170 200 l h f"));
         assert!(!pdf_text.contains("[unsupported image: figures/marker-initial.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_inline_unset_marker_reference_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/marker-unset.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:marker-unset".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/marker-unset.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .marked { marker-end: url(#tick); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+    <marker id="tick" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 4" fill="none" stroke="#00ff00" stroke-width="1"/>
+    </marker>
+  </defs>
+  <g marker-end="url(#arrow)">
+    <line class="marked" x1="2" y1="5" x2="18" y2="5" stroke="#0000ff" stroke-width="0.5" style="marker-end: unset"/>
+  </g>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 190 230 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
+        assert!(!pdf_text.contains("0 1 0 RG"));
+        assert!(!pdf_text.contains("[unsupported image: figures/marker-unset.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

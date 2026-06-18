@@ -237,7 +237,8 @@ aliases and `<defs>` symbol aliases with basic symbol `viewBox`
 viewport fitting, simple `<line>`, `<polyline>`, `<polygon>`, and `<path>`
 arrow markers from path-like `<marker>` children, including cascaded
 presentation/CSS `marker` shorthand and `marker-start` / `marker-mid` /
-`marker-end` with `initial` reset handling, `context-stroke` /
+`marker-end` with `initial` reset handling and inline `unset` overriding class
+marker references, `context-stroke` /
 `context-fill` paint inheritance, rounded marker `rect` children, and nested group
 transform/presentation state,
 plus simple embedded `data:image/png` / `data:image/jpeg` SVG
@@ -725,7 +726,8 @@ Implemented first slice:
   viewport fitting, simple `<line>`, `<polyline>`, `<polygon>`, and `<path>`
   arrow markers from path-like `<marker>` children, including cascaded
   presentation/CSS `marker` shorthand and `marker-start` / `marker-mid` /
-  `marker-end` with `initial` reset handling,
+  `marker-end` with `initial` reset handling and inline `unset` overriding
+  class marker references,
   `context-stroke` / `context-fill` paint inheritance, rounded marker `rect`
   children, and nested group transform/presentation state, plus simple embedded
   `data:image/png` / `data:image/jpeg`
