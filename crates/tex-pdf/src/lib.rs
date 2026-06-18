@@ -4334,6 +4334,15 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if inline_inherit_or_unset("stroke-dasharray") {
             presentation.stroke_dasharray = None;
         }
+        if inline_inherit_or_unset("stroke-linecap") {
+            presentation.stroke_linecap = None;
+        }
+        if inline_inherit_or_unset("stroke-linejoin") {
+            presentation.stroke_linejoin = None;
+        }
+        if inline_inherit_or_unset("stroke-miterlimit") {
+            presentation.stroke_miterlimit = None;
+        }
         if inline_inherit_or_unset("color") {
             presentation.color = None;
         }
@@ -16788,6 +16797,54 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 RG 10 w 10 230 m 60 230 l S"));
         assert!(!pdf_text.contains("q 5 M 0 1 0 RG 10 w 10 230 m 60 230 l S Q"));
         assert!(!pdf_text.contains("[unsupported image: figures/miterlimit-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_inline_unset_stroke_line_styles_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/stroke-line-style-unset.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:stroke-line-style-unset".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/stroke-line-style-unset.svg").then(|| {
+                br##"<svg width="20" height="10" stroke-linecap="round" stroke-linejoin="bevel" stroke-miterlimit="7">
+  <style type="text/css">
+    .styled { stroke: #ff0000; stroke-width: 1; fill: none; stroke-linecap: square; stroke-linejoin: miter; stroke-miterlimit: 2; }
+  </style>
+  <line class="styled" x1="0" y1="1" x2="5" y2="1" style="stroke-linecap: unset; stroke-linejoin: unset; stroke-miterlimit: unset"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q 1 J 2 j 7 M 1 0 0 RG 10 w 10 270 m 60 270 l S Q"));
+        assert!(!pdf_text.contains("2 J"));
+        assert!(!pdf_text.contains("2 M 1 0 0 RG 10 w 10 270 m 60 270 l S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/stroke-line-style-unset.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

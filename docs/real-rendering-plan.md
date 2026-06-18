@@ -220,7 +220,8 @@ mapped to PDF dash patterns with inline `unset` overriding class dash patterns,
 `stroke-dashoffset` absolute/percentage phase support, negative phase
 normalization, and transform scaling, simple `stroke-linecap` /
 `stroke-linejoin` / `stroke-miterlimit` mapped to PDF graphics state with
-`initial` reset handling, simple
+`initial` reset handling and inline `unset` overriding class line-style rules,
+simple
 `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
 `initial` / `unset` reset handling, and simple rect-backed `clipPath` clipping with
 `initial` / `unset` reset handling, including
@@ -708,7 +709,7 @@ Implemented first slice:
   support, negative phase normalization, and transform scaling, simple
   zero `stroke-width` suppression, `stroke-linecap` / `stroke-linejoin` /
   `stroke-miterlimit` mapped to PDF graphics state with `initial` reset
-  handling, simple
+  handling and inline `unset` overriding class line-style rules, simple
   `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
   `initial` / `unset` reset handling, simple rect-backed `clipPath` clipping with
   `initial` / `unset` reset handling, including
@@ -1216,7 +1217,7 @@ Status:
   support, negative phase normalization, and transform scaling, simple
   zero `stroke-width` suppression, `stroke-linecap` / `stroke-linejoin` /
   `stroke-miterlimit` mapped to PDF graphics state with `initial` reset
-  handling, simple
+  handling and inline `unset` overriding class line-style rules, simple
   `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
   `initial` / `unset` reset handling, simple rect-backed `clipPath` clipping with
   `initial` / `unset` reset handling, including
