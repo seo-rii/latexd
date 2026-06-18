@@ -3543,6 +3543,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             declaration_value(declarations, "clip-path"),
         )
     };
+    let declaration_inherit_or_unset = |declarations: &str, name: &str| {
+        declaration_value(declarations, name)
+            .map(|value| {
+                let value = value.trim().to_ascii_lowercase();
+                value == "inherit" || value == "unset"
+            })
+            .unwrap_or(false)
+    };
     #[derive(Debug, Clone)]
     enum SimpleSvgStyleSelector {
         Universal,
@@ -3563,6 +3571,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         selector: SimpleSvgStyleSelector,
         specificity: u16,
         presentation: SimpleSvgPresentation,
+        stroke_width_inherit_or_unset: bool,
     }
     #[derive(Debug, Clone, Copy)]
     struct SimpleSvgCascadeValue<T> {
@@ -3698,7 +3707,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 break;
             };
             let body_end = body_start + body_end_relative;
-            let presentation = parse_declaration_presentation(&css[body_start..body_end]);
+            let declarations = &css[body_start..body_end];
+            let presentation = parse_declaration_presentation(declarations);
+            let stroke_width_inherit_or_unset =
+                declaration_inherit_or_unset(declarations, "stroke-width");
             for selector in css[css_offset..selector_end].split(',') {
                 let Some(selector) = parse_style_selector(selector) else {
                     continue;
@@ -3708,6 +3720,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     selector,
                     specificity,
                     presentation,
+                    stroke_width_inherit_or_unset,
                 });
             }
             css_offset = body_end + 1;
@@ -3854,6 +3867,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut fill_rule: Option<SimpleSvgCascadeValue<SimpleSvgFillRule>> = None;
         let mut stroke: Option<SimpleSvgCascadeValue<Option<SimpleSvgColor>>> = None;
         let mut stroke_width: Option<SimpleSvgCascadeValue<f32>> = None;
+        let mut stroke_width_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut stroke_dasharray: Option<SimpleSvgCascadeValue<Option<SimpleSvgDashArray>>> = None;
         let mut stroke_dashoffset: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_linecap: Option<SimpleSvgCascadeValue<SimpleSvgStrokeLineCap>> = None;
@@ -3952,9 +3966,29 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.stroke_width {
-                    let current = stroke_width.map(|value| (value.specificity, value.order));
+                if rule.stroke_width_inherit_or_unset {
+                    let current = stroke_width
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            stroke_width_clear.map(|value| (value.specificity, value.order))
+                        });
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        stroke_width = None;
+                        stroke_width_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule.presentation.stroke_width {
+                    let current = stroke_width
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            stroke_width_clear.map(|value| (value.specificity, value.order))
+                        });
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        stroke_width_clear = None;
                         stroke_width = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -17362,6 +17396,54 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 RG 10 w 10 270 m 60 270 l S"));
         assert!(!pdf_text.contains("1 0 0 RG 30 w 10 270 m 60 270 l S"));
         assert!(!pdf_text.contains("[unsupported image: figures/stroke-width-unset.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_unset_stroke_width_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/stroke-width-rule-unset.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:stroke-width-rule-unset".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/stroke-width-rule-unset.svg").then(|| {
+                br##"<svg width="20" height="10" stroke-width="1">
+  <style type="text/css">
+    .wide { stroke: #ff0000; stroke-width: 3; fill: none; }
+    line.wide { stroke-width: unset; }
+  </style>
+  <line class="wide" x1="0" y1="1" x2="5" y2="1"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 RG 10 w 10 270 m 60 270 l S"));
+        assert!(!pdf_text.contains("1 0 0 RG 30 w 10 270 m 60 270 l S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/stroke-width-rule-unset.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

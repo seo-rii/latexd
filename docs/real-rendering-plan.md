@@ -199,7 +199,8 @@ root/group-level fill/stroke/absolute and percentage stroke-width presentation m
 root `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`,
 comment-tolerant `<style>` / CDATA type, class, id, element-qualified class/id,
 and rightmost simple descendant/child selector approximation fill/stroke/stroke-width
-rules with basic specificity, inline `stroke-width: unset` overriding class rules, and
+rules with basic specificity, inline and style-rule `stroke-width: unset`
+overriding class rules, and
     source-order cascade, `display: none` / `visibility: hidden` paint
     suppression with `display` and `visibility` `initial` / `unset` keyword
     handling, including inline `display: inherit` and `visibility: unset`
@@ -688,7 +689,7 @@ Implemented first slice:
   `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`, simple
   comment-tolerant `<style>` / CDATA universal, type, class, id, element-qualified
   class/id, and rightmost simple descendant/child selector approximation
-  fill/stroke/stroke-width rules with basic specificity, inline
+  fill/stroke/stroke-width rules with basic specificity, inline and style-rule
   `stroke-width: unset` overriding class rules, and source-order cascade
   plus `display: none` / `visibility: hidden` paint suppression with
   `display` and `visibility` `initial` / `unset` keyword handling and
@@ -1203,7 +1204,7 @@ Status:
   `preserveAspectRatio` viewport fitting for `none`, `meet`, and `slice`, simple
   comment-tolerant `<style>` / CDATA universal, type, class, id, element-qualified
   class/id, and rightmost simple descendant/child selector approximation
-  fill/stroke/stroke-width rules with basic specificity, inline
+  fill/stroke/stroke-width rules with basic specificity, inline and style-rule
   `stroke-width: unset` overriding class rules, and source-order cascade
   plus `display: none` / `visibility: hidden` paint suppression with
   `display` and `visibility` `initial` / `unset` keyword handling and
