@@ -202,7 +202,8 @@ and rightmost simple descendant/child selector approximation fill/stroke/stroke-
 rules with basic specificity and
     source-order cascade, `display: none` / `visibility: hidden` paint
     suppression with `display` and `visibility` `initial` / `unset` keyword
-    handling, including inline `visibility: unset` overriding class rules,
+    handling, including inline `display: inherit` and `visibility: unset`
+    overriding class rules,
     parse-tolerant `!important` value markers,
     3/4/6/8-digit hex/CSS/SVG named/`rgb(...)` /
     `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
@@ -686,8 +687,8 @@ Implemented first slice:
   fill/stroke/stroke-width rules with basic specificity and source-order cascade
   plus `display: none` / `visibility: hidden` paint suppression with
   `display` and `visibility` `initial` / `unset` keyword handling and
-  inline `visibility: unset` overriding class rules, plus parse-tolerant
-  `!important` value markers and 3/4/6/8-digit
+  inline `display: inherit` and `visibility: unset` overriding class rules,
+  plus parse-tolerant `!important` value markers and 3/4/6/8-digit
   hex/CSS/SVG named/`rgb(...)` /
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
   `currentColor` fill/stroke paint, simple `inherit` / `initial` / `unset`
@@ -1193,8 +1194,8 @@ Status:
   fill/stroke/stroke-width rules with basic specificity and source-order cascade
   plus `display: none` / `visibility: hidden` paint suppression with
   `display` and `visibility` `initial` / `unset` keyword handling and
-  inline `visibility: unset` overriding class rules, plus parse-tolerant
-  `!important` value markers and 3/4/6/8-digit
+  inline `display: inherit` and `visibility: unset` overriding class rules,
+  plus parse-tolerant `!important` value markers and 3/4/6/8-digit
   hex/CSS/SVG named/`rgb(...)` /
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
   `currentColor` fill/stroke paint, simple `inherit` / `initial` / `unset`
