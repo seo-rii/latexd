@@ -207,7 +207,7 @@ rules with basic specificity and
     3/4/6/8-digit hex/CSS/SVG named/`rgb(...)` /
     `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
     `currentColor` fill/stroke paint, simple `inherit` / `initial` / `unset`
-    paint/color values,
+    paint/color values with inline `unset` overriding class paint rules,
     transparent paint as no-paint, simple gradient paint-server first-stop solid
     approximations with `href` inheritance, and paint-server `url(...)`
     fallback colors,
@@ -691,7 +691,7 @@ Implemented first slice:
   hex/CSS/SVG named/`rgb(...)` /
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
   `currentColor` fill/stroke paint, simple `inherit` / `initial` / `unset`
-  paint/color values,
+  paint/color values with inline `unset` overriding class paint rules,
   transparent paint as no-paint, simple gradient paint-server first-stop solid
   approximations with `href` inheritance, and paint-server `url(...)` fallback
   colors,
@@ -1198,7 +1198,7 @@ Status:
   hex/CSS/SVG named/`rgb(...)` /
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
   `currentColor` fill/stroke paint, simple `inherit` / `initial` / `unset`
-  paint/color values,
+  paint/color values with inline `unset` overriding class paint rules,
   transparent paint as no-paint, simple gradient paint-server first-stop solid
   approximations with `href` inheritance, and paint-server `url(...)` fallback
   colors,
