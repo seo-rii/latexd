@@ -4352,6 +4352,18 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if inline_inherit_or_unset("visibility") {
             presentation.visibility = None;
         }
+        if inline_inherit_or_unset("font-size") {
+            presentation.font_size = None;
+        }
+        if inline_inherit_or_unset("font-family") {
+            presentation.font_family = None;
+        }
+        if inline_inherit_or_unset("font-weight") {
+            presentation.font_series = None;
+        }
+        if inline_inherit_or_unset("font-style") {
+            presentation.font_shape = None;
+        }
         if style_value(tag, "display")
             .map(|value| value.trim().eq_ignore_ascii_case("inherit"))
             .unwrap_or(false)
@@ -10474,6 +10486,57 @@ mod tests {
         assert!(!pdf_text.contains("7.2000003 Tc"));
         assert!(!pdf_text.contains("7.2000003 Tw"));
         assert!(!pdf_text.contains("[unsupported image: figures/initial-text-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_inline_unset_font_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/font-unset-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:font-unset-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/font-unset-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    tspan.hot { font-family: "Courier New", monospace; font-weight: normal; font-style: normal; font-size: 2; }
+  </style>
+  <text x="2" y="6" fill="#000000" font-family="Arial" font-weight="bold" font-style="italic" font-size="4">
+    <tspan class="hot" style="font-family: unset; font-weight: unset; font-style: unset; font-size: unset">FONT</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(
+            pdf_text.contains("0 0 0 rg BT /F8 28.800001 Tf 1 0 0 1 86.4 670.8 Tm (FONT) Tj ET")
+        );
+        assert!(!pdf_text.contains("/F9 14.400001 Tf"));
+        assert!(!pdf_text.contains("[unsupported image: figures/font-unset-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

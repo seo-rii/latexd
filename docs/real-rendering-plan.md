@@ -1158,7 +1158,8 @@ Status:
   gaps/bodies, simple `text-anchor` with `initial` reset handling, numeric
   `dx`/`dy`, absolute and
   percentage `font-size`, `font-family`, `font-weight`, and `font-style`
-  cascade with `initial` reset handling, simple `letter-spacing` and
+  cascade with `initial` reset handling and inline `unset` overriding class
+  font rules, simple `letter-spacing` and
   `word-spacing` via PDF text state with `initial` reset handling,
   simple `textLength` spacing adjustment via PDF character spacing, simple PDF
   base-family mapping, simple stroked text via PDF text rendering modes, simple
