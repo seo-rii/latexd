@@ -1146,7 +1146,8 @@ Status:
   percentage geometry for simple rect/line/circle/ellipse attributes,
   direct text content with simple XML named and numeric text entity decoding,
   simple `xml:space="preserve"` edge whitespace and whitespace-only `tspan`
-  gaps/bodies, simple `text-anchor`, numeric `dx`/`dy`, absolute and
+  gaps/bodies, simple `text-anchor` with `initial` reset handling, numeric
+  `dx`/`dy`, absolute and
   percentage `font-size`, `font-family`, `font-weight`, and `font-style`
   cascade with `initial` reset handling, simple `letter-spacing` and
   `word-spacing` via PDF text state with `initial` reset handling,
@@ -1160,7 +1161,8 @@ Status:
   `text-decoration-style`, shorthand color/thickness/style, and `initial`
   reset handling for decoration line/color/thickness/style, simple text
   `clip-path` rectangles, approximate
-  `middle`/`central` baseline alignment, simple `baseline-shift`, and multiple
+  `middle`/`central` baseline alignment and simple `baseline-shift` with
+  `initial` reset handling, and multiple
   direct literal `tspan` children with numeric `dx`/`dy`, simple `tspan`
   leading/trailing text spaces, mixed literal text plus simple `tspan`
   children, and the same simple baseline alignment/shift behavior, and path

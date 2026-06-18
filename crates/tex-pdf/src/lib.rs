@@ -2980,7 +2980,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     let parse_text_anchor = |raw: &str| -> Option<SimpleSvgTextAnchor> {
         match raw.trim().to_ascii_lowercase().as_str() {
-            "start" => Some(SimpleSvgTextAnchor::Start),
+            "start" | "initial" => Some(SimpleSvgTextAnchor::Start),
             "middle" => Some(SimpleSvgTextAnchor::Middle),
             "end" => Some(SimpleSvgTextAnchor::End),
             _ => None,
@@ -2988,7 +2988,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     let parse_text_baseline = |raw: &str| -> Option<SimpleSvgTextBaseline> {
         match raw.trim().to_ascii_lowercase().as_str() {
-            "auto" | "alphabetic" | "baseline" => Some(SimpleSvgTextBaseline::Alphabetic),
+            "auto" | "alphabetic" | "baseline" | "initial" => {
+                Some(SimpleSvgTextBaseline::Alphabetic)
+            }
             "middle" | "central" => Some(SimpleSvgTextBaseline::Middle),
             _ => None,
         }
@@ -2996,7 +2998,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     let parse_baseline_shift = |raw: &str| -> Option<SimpleSvgBaselineShift> {
         let raw = raw.trim();
         match raw.to_ascii_lowercase().as_str() {
-            "baseline" => Some(SimpleSvgBaselineShift::Offset(0.0)),
+            "baseline" | "initial" => Some(SimpleSvgBaselineShift::Offset(0.0)),
             "super" => Some(SimpleSvgBaselineShift::Super),
             "sub" => Some(SimpleSvgBaselineShift::Sub),
             _ => {
@@ -11806,6 +11808,52 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 rg BT /F1 14.400001 Tf 1 0 0 1 144 670.8 Tm (M) Tj ET"));
         assert!(pdf_text.contains("1 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 663.6 Tm (T) Tj ET"));
         assert!(!pdf_text.contains("[unsupported image: figures/text-baseline.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_initial_text_position_as_initial_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/initial-text-position.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:initial-text-position".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/initial-text-position.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="10" y="6" font-size="2" fill="#000000" text-anchor="middle" dominant-baseline="middle" baseline-shift="0.5">
+    <tspan x="10" y="6" text-anchor="initial" alignment-baseline="initial" baseline-shift="initial">AB</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 670.8 Tm (AB) Tj ET"));
+        assert!(!pdf_text.contains("1 0 0 1 136.8 667.2 Tm (AB) Tj"));
+        assert!(!pdf_text.contains("[unsupported image: figures/initial-text-position.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
