@@ -219,9 +219,9 @@ support, negative phase normalization, and transform scaling, simple `stroke-lin
 `stroke-linejoin` / `stroke-miterlimit` mapped to PDF graphics state with
 `initial` reset handling, simple
 `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
-`initial` reset handling, and
-simple rect-backed `clipPath` clipping including transformed group-wrapped rect
-children, and
+`initial` reset handling, and simple rect-backed `clipPath` clipping with
+`initial` reset handling, including
+transformed group-wrapped rect children, and
     `matrix` / `rotate` / `skewX` / `skewY` transforms for path-like line/poly/path
 primitives, plus non-axis-aligned transformed rectangles rendered as closed
 vector polygons and transformed circle/ellipse primitives rendered as cubic
@@ -705,7 +705,8 @@ Implemented first slice:
   `stroke-miterlimit` mapped to PDF graphics state with `initial` reset
   handling, simple
   `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
-  `initial` reset handling, simple rect-backed `clipPath` clipping including
+  `initial` reset handling, simple rect-backed `clipPath` clipping with
+  `initial` reset handling, including
   transformed group-wrapped rect children, path-like `matrix` / `rotate` / `skewX` /
   `skewY` transforms, non-axis-aligned
   transformed rectangles, and transformed circle/ellipse cubic paths, as vector
@@ -1210,7 +1211,8 @@ Status:
   `stroke-miterlimit` mapped to PDF graphics state with `initial` reset
   handling, simple
   `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
-  `initial` reset handling, simple rect-backed `clipPath` clipping including
+  `initial` reset handling, simple rect-backed `clipPath` clipping with
+  `initial` reset handling, including
   transformed group-wrapped rect children, and path-like `matrix` / `rotate` / `skewX` /
   `skewY` transform attributes plus
   non-axis-aligned transformed rectangles and transformed circle/ellipse cubic
