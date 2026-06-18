@@ -4310,10 +4310,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let attr_presentation = parse_attr_presentation(tag);
         let class_presentation = style_rule_presentation_for(tag);
         let inline_style_presentation = parse_inline_style_presentation(tag);
-        overlay_presentation(
+        let mut presentation = overlay_presentation(
             overlay_presentation(attr_presentation, class_presentation),
             inline_style_presentation,
-        )
+        );
+        if style_value(tag, "visibility")
+            .map(|value| {
+                let value = value.trim().to_ascii_lowercase();
+                value == "inherit" || value == "unset"
+            })
+            .unwrap_or(false)
+        {
+            presentation.visibility = None;
+        }
+        presentation
     };
     let resolved_font_size = |presentation: SimpleSvgPresentation| -> f32 {
         match presentation.font_size {
@@ -14884,6 +14894,54 @@ mod tests {
         assert!(!pdf_text.contains("(hidden)"));
         assert!(pdf_text.contains("(Shown) Tj"));
         assert!(!pdf_text.contains("[unsupported image: figures/visibility-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_inline_unset_visibility_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/visibility-unset.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:visibility-unset".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/visibility-unset.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .hidden-by-css { visibility: hidden; }
+  </style>
+  <rect class="hidden-by-css" x="1" y="1" width="2" height="2" fill="#ff0000"/>
+  <rect class="hidden-by-css" x="4" y="1" width="2" height="2" fill="#0000ff" style="visibility: unset"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(!pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 rg 50 250 20 20 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/visibility-unset.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
