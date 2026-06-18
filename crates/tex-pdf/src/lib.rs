@@ -4328,6 +4328,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if inline_inherit_or_unset("stroke") {
             presentation.stroke = None;
         }
+        if inline_inherit_or_unset("stroke-width") {
+            presentation.stroke_width = None;
+        }
         if inline_inherit_or_unset("color") {
             presentation.color = None;
         }
@@ -16787,6 +16790,53 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 rg 80 270 m 100 270 l 100 250 l 80 250 l h f "));
         assert!(!pdf_text.contains("0 0 1 rg 80 270 m 100 270 l 100 250 l 80 250 l h f*"));
         assert!(!pdf_text.contains("[unsupported image: figures/initial-stroke-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_inline_unset_stroke_width_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/stroke-width-unset.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:stroke-width-unset".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/stroke-width-unset.svg").then(|| {
+                br##"<svg width="20" height="10" stroke-width="1">
+  <style type="text/css">
+    .wide { stroke: #ff0000; stroke-width: 3; fill: none; }
+  </style>
+  <line class="wide" x1="0" y1="1" x2="5" y2="1" style="stroke-width: unset"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 RG 10 w 10 270 m 60 270 l S"));
+        assert!(!pdf_text.contains("1 0 0 RG 30 w 10 270 m 60 270 l S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/stroke-width-unset.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
