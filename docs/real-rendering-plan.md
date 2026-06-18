@@ -1155,12 +1155,14 @@ Status:
   percentage geometry for simple rect/line/circle/ellipse attributes,
   direct text content with simple XML named and numeric text entity decoding,
   simple `xml:space="preserve"` edge whitespace and whitespace-only `tspan`
-  gaps/bodies, simple `text-anchor` with `initial` reset handling, numeric
+  gaps/bodies, simple `text-anchor` with `initial` reset handling and inline
+  `unset` overriding class anchor rules, numeric
   `dx`/`dy`, absolute and
   percentage `font-size`, `font-family`, `font-weight`, and `font-style`
   cascade with `initial` reset handling and inline `unset` overriding class
   font rules, simple `letter-spacing` and
-  `word-spacing` via PDF text state with `initial` reset handling,
+  `word-spacing` via PDF text state with `initial` reset handling and inline
+  `unset` overriding class spacing rules,
   simple `textLength` spacing adjustment via PDF character spacing, simple PDF
   base-family mapping, simple stroked text via PDF text rendering modes, simple
   `paint-order: stroke fill` ordering for stroked text and filled/stroked
