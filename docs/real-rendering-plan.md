@@ -216,9 +216,9 @@ rules with basic specificity, inline `stroke-width: unset` overriding class rule
 operators with `initial` reset handling, simple `opacity` / `fill-opacity` /
 `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
 handling, simple `stroke-dasharray` absolute/percentage lengths
-mapped to PDF dash patterns with inline `unset` overriding class dash patterns,
-`stroke-dashoffset` absolute/percentage phase support, negative phase
-normalization, and transform scaling, simple `stroke-linecap` /
+mapped to PDF dash patterns with inline `unset` overriding class dash patterns
+and offsets, `stroke-dashoffset` absolute/percentage phase support, negative
+phase normalization, and transform scaling, simple `stroke-linecap` /
 `stroke-linejoin` / `stroke-miterlimit` mapped to PDF graphics state with
 `initial` reset handling and inline `unset` overriding class line-style rules,
 simple
@@ -705,8 +705,9 @@ Implemented first slice:
   `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
   handling, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with inline `unset`
-  overriding class dash patterns, `stroke-dashoffset` absolute/percentage phase
-  support, negative phase normalization, and transform scaling, simple
+  overriding class dash patterns and offsets, `stroke-dashoffset`
+  absolute/percentage phase support, negative phase normalization, and transform
+  scaling, simple
   zero `stroke-width` suppression, `stroke-linecap` / `stroke-linejoin` /
   `stroke-miterlimit` mapped to PDF graphics state with `initial` reset
   handling and inline `unset` overriding class line-style rules, simple
@@ -1213,8 +1214,9 @@ Status:
   `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
   handling, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with inline `unset`
-  overriding class dash patterns, `stroke-dashoffset` absolute/percentage phase
-  support, negative phase normalization, and transform scaling, simple
+  overriding class dash patterns and offsets, `stroke-dashoffset`
+  absolute/percentage phase support, negative phase normalization, and transform
+  scaling, simple
   zero `stroke-width` suppression, `stroke-linecap` / `stroke-linejoin` /
   `stroke-miterlimit` mapped to PDF graphics state with `initial` reset
   handling and inline `unset` overriding class line-style rules, simple
