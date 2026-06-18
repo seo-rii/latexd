@@ -218,7 +218,8 @@ mapped to PDF dash patterns with `stroke-dashoffset` absolute/percentage phase
 support, negative phase normalization, and transform scaling, simple `stroke-linecap` /
 `stroke-linejoin` / `stroke-miterlimit` mapped to PDF graphics state with
 `initial` reset handling, simple
-`vector-effect: non-scaling-stroke` stroke-width/dash preservation, and
+`vector-effect: non-scaling-stroke` stroke-width/dash preservation with
+`initial` reset handling, and
 simple rect-backed `clipPath` clipping including transformed group-wrapped rect
 children, and
     `matrix` / `rotate` / `skewX` / `skewY` transforms for path-like line/poly/path
@@ -703,9 +704,9 @@ Implemented first slice:
   zero `stroke-width` suppression, `stroke-linecap` / `stroke-linejoin` /
   `stroke-miterlimit` mapped to PDF graphics state with `initial` reset
   handling, simple
-  `vector-effect: non-scaling-stroke` stroke-width/dash
-  preservation, simple rect-backed `clipPath` clipping including transformed
-  group-wrapped rect children, path-like `matrix` / `rotate` / `skewX` /
+  `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
+  `initial` reset handling, simple rect-backed `clipPath` clipping including
+  transformed group-wrapped rect children, path-like `matrix` / `rotate` / `skewX` /
   `skewY` transforms, non-axis-aligned
   transformed rectangles, and transformed circle/ellipse cubic paths, as vector
   drawing operations, including simple path-like children in `<defs>` group and
@@ -1208,9 +1209,9 @@ Status:
   zero `stroke-width` suppression, `stroke-linecap` / `stroke-linejoin` /
   `stroke-miterlimit` mapped to PDF graphics state with `initial` reset
   handling, simple
-  `vector-effect: non-scaling-stroke` stroke-width/dash preservation, simple
-  rect-backed `clipPath` clipping including transformed
-  group-wrapped rect children, and path-like `matrix` / `rotate` / `skewX` /
+  `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
+  `initial` reset handling, simple rect-backed `clipPath` clipping including
+  transformed group-wrapped rect children, and path-like `matrix` / `rotate` / `skewX` /
   `skewY` transform attributes plus
   non-axis-aligned transformed rectangles and transformed circle/ellipse cubic
   paths, with root/style/element scanners requiring tag-name boundaries to
