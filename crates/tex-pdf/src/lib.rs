@@ -2808,10 +2808,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     }
     let parse_opacity = |raw: &str| -> Option<f32> {
         let raw = raw.trim();
-        if raw.eq_ignore_ascii_case("initial") {
+        if raw.eq_ignore_ascii_case("initial") || raw.eq_ignore_ascii_case("unset") {
             return Some(1.0);
         }
-        if raw.eq_ignore_ascii_case("inherit") || raw.eq_ignore_ascii_case("unset") {
+        if raw.eq_ignore_ascii_case("inherit") {
             return None;
         }
         if let Some(percent) = raw.strip_suffix('%') {
@@ -16038,6 +16038,58 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 RG 10 w 20 250 20 20 re S"));
         assert!(!pdf_text.contains("/ExtGState <<"));
         assert!(!pdf_text.contains("[unsupported image: figures/initial-opacity-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_unset_paint_opacity_as_initial_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/unset-opacity-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:unset-opacity-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/unset-opacity-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .dim { opacity: 0.4; fill-opacity: 0.5; stroke-opacity: 0.25; }
+  </style>
+  <rect class="dim" x="1" y="1" width="2" height="2" fill="#ff0000" stroke="#0000ff" stroke-width="1"/>
+  <rect class="dim" x="4" y="1" width="2" height="2" fill="#0000ff" stroke="#00ff00" stroke-width="1" style="opacity: unset; fill-opacity: unset; stroke-opacity: unset"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/ExtGState <<"));
+        assert!(pdf_text.contains("gs 1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 rg 50 250 20 20 re f"));
+        assert!(pdf_text.contains("0 1 0 RG 10 w 50 250 20 20 re S"));
+        assert!(!pdf_text.contains("gs 0 0 1 rg 50 250 20 20 re f"));
+        assert!(!pdf_text.contains("gs 0 1 0 RG 10 w 50 250 20 20 re S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/unset-opacity-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

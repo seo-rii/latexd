@@ -213,7 +213,7 @@ rules with basic specificity and
     fallback colors,
     simple `fill-rule` mapped to PDF nonzero/even-odd fill
 operators with `initial` reset handling, simple `opacity` / `fill-opacity` /
-`stroke-opacity` mapped to PDF ExtGState resources with `initial` reset
+`stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
 handling, simple `stroke-dasharray` absolute/percentage lengths
 mapped to PDF dash patterns with `stroke-dashoffset` absolute/percentage phase
 support, negative phase normalization, and transform scaling, simple `stroke-linecap` /
@@ -697,7 +697,7 @@ Implemented first slice:
   simple `fill-rule` mapped to PDF
   nonzero/even-odd fill operators with `initial` reset handling, simple
   `opacity` / `fill-opacity` /
-  `stroke-opacity` mapped to PDF ExtGState resources with `initial` reset
+  `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
   handling, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with `stroke-dashoffset`
   absolute/percentage phase support, negative phase normalization, and transform
@@ -1203,7 +1203,7 @@ Status:
   simple `fill-rule` mapped to PDF
   nonzero/even-odd fill operators with `initial` reset handling, simple
   `opacity` / `fill-opacity` /
-  `stroke-opacity` mapped to PDF ExtGState resources with `initial` reset
+  `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
   handling, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with `stroke-dashoffset`
   absolute/percentage phase support, negative phase normalization, and transform
