@@ -1174,7 +1174,8 @@ Status:
   `unset` reset handling for decoration line/color/thickness/style, simple
   `clip-path` rectangles with `initial` / `unset` reset handling, approximate
   `middle`/`central` baseline alignment and simple `baseline-shift` with
-  `initial` reset handling, and multiple
+  `initial` reset handling and inline `unset` overriding class baseline rules,
+  and multiple
   direct literal `tspan` children with numeric `dx`/`dy`, simple `tspan`
   leading/trailing text spaces, mixed literal text plus simple `tspan`
   children, and the same simple baseline alignment/shift behavior, and path
