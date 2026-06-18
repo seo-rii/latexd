@@ -219,7 +219,8 @@ rules, simple `opacity` / `fill-opacity` /
 `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
 handling and inline `unset` overriding class fill/stroke opacity rules, simple `stroke-dasharray` absolute/percentage lengths
 mapped to PDF dash patterns with inline and style-rule `unset` overriding class
-dash patterns and offsets, `stroke-dashoffset` absolute/percentage phase support, negative
+dash patterns and offsets, `stroke-dashoffset` absolute/percentage phase support
+with inline and style-rule `unset` overriding class offsets, negative
 phase normalization, and transform scaling, simple `stroke-linecap` /
 `stroke-linejoin` / `stroke-miterlimit` mapped to PDF graphics state with
 `initial` reset handling and inline `unset` overriding class line-style rules,
@@ -710,7 +711,8 @@ Implemented first slice:
   handling and inline `unset` overriding class fill/stroke opacity rules, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with inline and style-rule
   `unset` overriding class dash patterns and offsets, `stroke-dashoffset`
-  absolute/percentage phase support, negative phase normalization, and transform
+  absolute/percentage phase support with inline and style-rule `unset` overriding
+  class offsets, negative phase normalization, and transform
   scaling, simple
   zero `stroke-width` suppression, `stroke-linecap` / `stroke-linejoin` /
   `stroke-miterlimit` mapped to PDF graphics state with `initial` reset
@@ -1224,7 +1226,8 @@ Status:
   handling, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with inline and style-rule
   `unset` overriding class dash patterns and offsets, `stroke-dashoffset`
-  absolute/percentage phase support, negative phase normalization, and transform
+  absolute/percentage phase support with inline and style-rule `unset` overriding
+  class offsets, negative phase normalization, and transform
   scaling, simple
   zero `stroke-width` suppression, `stroke-linecap` / `stroke-linejoin` /
   `stroke-miterlimit` mapped to PDF graphics state with `initial` reset
