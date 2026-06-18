@@ -3079,7 +3079,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     let parse_vector_effect = |raw: &str| -> Option<bool> {
         match raw.trim().to_ascii_lowercase().as_str() {
             "non-scaling-stroke" => Some(true),
-            "default" | "none" | "initial" => Some(false),
+            "default" | "none" | "initial" | "unset" => Some(false),
             _ => None,
         }
     };
@@ -13859,6 +13859,54 @@ mod tests {
         assert!(pdf_text.contains("q [10 5] 2.5 d 4 M 1 0 0 RG 10 w 10 280 m 110 280 l S Q"));
         assert!(pdf_text.contains("q [20 10] 5 d 4 M 0 1 0 RG 20 w 10 240 m 110 240 l S Q"));
         assert!(!pdf_text.contains("[unsupported image: figures/vector-effect-initial.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_unset_vector_effect_as_scaling_stroke() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector-effect-unset.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector-effect-unset".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/vector-effect-unset.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .fixed { vector-effect: non-scaling-stroke; }
+  </style>
+  <path class="fixed" d="M 0 0 L 5 0" transform="scale(2)" fill="none" stroke-width="1" stroke-dasharray="1 0.5" stroke-dashoffset="0.25" stroke="#ff0000"/>
+  <path class="fixed" d="M 0 2 L 5 2" transform="scale(2)" fill="none" stroke-width="1" stroke-dasharray="1 0.5" stroke-dashoffset="0.25" stroke="#00ff00" style="vector-effect: unset"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q [10 5] 2.5 d 4 M 1 0 0 RG 10 w 10 280 m 110 280 l S Q"));
+        assert!(pdf_text.contains("q [20 10] 5 d 4 M 0 1 0 RG 20 w 10 240 m 110 240 l S Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/vector-effect-unset.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
