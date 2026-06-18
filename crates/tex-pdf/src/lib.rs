@@ -4325,6 +4325,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if inline_inherit_or_unset("fill") {
             presentation.fill = None;
         }
+        if inline_inherit_or_unset("fill-rule") {
+            presentation.fill_rule = None;
+        }
         if inline_inherit_or_unset("stroke") {
             presentation.stroke = None;
         }
@@ -4351,6 +4354,12 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         if inline_inherit_or_unset("visibility") {
             presentation.visibility = None;
+        }
+        if inline_inherit_or_unset("fill-opacity") {
+            presentation.fill_opacity = None;
+        }
+        if inline_inherit_or_unset("stroke-opacity") {
+            presentation.stroke_opacity = None;
         }
         if inline_inherit_or_unset("font-size") {
             presentation.font_size = None;
@@ -16709,6 +16718,56 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_unset_paint_opacity_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/inherited-opacity-unset.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:inherited-opacity-unset".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/inherited-opacity-unset.svg").then(|| {
+                br##"<svg width="20" height="10" fill-opacity="0.75" stroke-opacity="0.5">
+  <style type="text/css">
+    .dim { fill-opacity: 0.25; stroke-opacity: 0.25; }
+  </style>
+  <rect class="dim" x="1" y="1" width="2" height="2" fill="#ff0000" stroke="#0000ff" stroke-width="1" style="fill-opacity: unset; stroke-opacity: unset"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/GS750 << /Type /ExtGState /ca 0.75 /CA 0.75 >>"));
+        assert!(pdf_text.contains("/GS500 << /Type /ExtGState /ca 0.5 /CA 0.5 >>"));
+        assert!(pdf_text.contains("q /GS750 gs 1 0 0 rg 20 250 20 20 re f Q"));
+        assert!(pdf_text.contains("q /GS500 gs 0 0 1 RG 10 w 20 250 20 20 re S Q"));
+        assert!(!pdf_text.contains("/GS250 << /Type /ExtGState /ca 0.25 /CA 0.25 >>"));
+        assert!(!pdf_text.contains("[unsupported image: figures/inherited-opacity-unset.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn renders_simple_svg_stroke_dasharray_as_pdf_dash_pattern() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
@@ -17304,6 +17363,57 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 rg 130 270 m 190 270 l 190 200 l 130 200 l h f "));
         assert!(!pdf_text.contains("0 0 1 rg 130 270 m 190 270 l 190 200 l 130 200 l h f*"));
         assert!(!pdf_text.contains("[unsupported image: figures/fill-rule-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_inline_unset_fill_rule_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/fill-rule-unset.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:fill-rule-unset".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/fill-rule-unset.svg").then(|| {
+                br##"<svg width="20" height="10" fill-rule="evenodd">
+  <style type="text/css">
+    .solid { fill: #ff0000; stroke: none; fill-rule: nonzero; }
+  </style>
+  <path class="solid" style="fill-rule: unset" d="M 0 0 H 10 V 10 H 0 Z M 2 2 H 8 V 8 H 2 Z"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains(
+            "1 0 0 rg 10 280 m 110 280 l 110 180 l 10 180 l h 30 260 m 90 260 l 90 200 l 30 200 l h f*"
+        ));
+        assert!(!pdf_text.contains(
+            "1 0 0 rg 10 280 m 110 280 l 110 180 l 10 180 l h 30 260 m 90 260 l 90 200 l 30 200 l h f "
+        ));
+        assert!(!pdf_text.contains("[unsupported image: figures/fill-rule-unset.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

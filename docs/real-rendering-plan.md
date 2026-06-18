@@ -213,9 +213,10 @@ rules with basic specificity, inline `stroke-width: unset` overriding class rule
     approximations with `href` inheritance, and paint-server `url(...)`
     fallback colors,
     simple `fill-rule` mapped to PDF nonzero/even-odd fill
-operators with `initial` reset handling, simple `opacity` / `fill-opacity` /
+operators with `initial` reset handling and inline `unset` overriding class fill
+rules, simple `opacity` / `fill-opacity` /
 `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
-handling, simple `stroke-dasharray` absolute/percentage lengths
+handling and inline `unset` overriding class fill/stroke opacity rules, simple `stroke-dasharray` absolute/percentage lengths
 mapped to PDF dash patterns with inline `unset` overriding class dash patterns
 and offsets, `stroke-dashoffset` absolute/percentage phase support, negative
 phase normalization, and transform scaling, simple `stroke-linecap` /
@@ -701,10 +702,11 @@ Implemented first slice:
   approximations with `href` inheritance, and paint-server `url(...)` fallback
   colors,
   simple `fill-rule` mapped to PDF
-  nonzero/even-odd fill operators with `initial` reset handling, simple
+  nonzero/even-odd fill operators with `initial` reset handling and inline
+  `unset` overriding class fill rules, simple
   `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
-  handling, simple `stroke-dasharray`
+  handling and inline `unset` overriding class fill/stroke opacity rules, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with inline `unset`
   overriding class dash patterns and offsets, `stroke-dashoffset`
   absolute/percentage phase support, negative phase normalization, and transform
