@@ -3121,7 +3121,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     let parse_url_fragment_reference = |raw: &str| -> Option<Option<u64>> {
         let raw = raw.trim();
-        if raw.eq_ignore_ascii_case("none") {
+        if raw.eq_ignore_ascii_case("none") || raw.eq_ignore_ascii_case("initial") {
             return Some(None);
         }
         if raw.len() >= 4 && raw[..4].eq_ignore_ascii_case("url(") {
@@ -12474,6 +12474,61 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 rg 10 240 m 30 230 l 10 220 l h f"));
         assert!(pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
         assert!(!pdf_text.contains("[unsupported image: figures/line-marker-shorthand.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_initial_marker_reference_as_no_marker() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/marker-initial.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:marker-initial".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/marker-initial.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .marked { marker-end: url(#arrow); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+  </defs>
+  <line class="marked" x1="2" y1="3" x2="18" y2="3" stroke="#0000ff" stroke-width="0.5"/>
+  <line class="marked" x1="2" y1="7" x2="18" y2="7" stroke="#00ff00" stroke-width="0.5" style="marker-end: initial"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 250 m 190 250 l S"));
+        assert!(pdf_text.contains("0 1 0 RG 5 w 30 210 m 190 210 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 170 260 m 190 250 l 170 240 l h f"));
+        assert!(!pdf_text.contains("1 0 0 rg 170 220 m 190 210 l 170 200 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/marker-initial.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
