@@ -2860,7 +2860,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if raw.is_empty() || raw.eq_ignore_ascii_case("inherit") {
             return None;
         }
-        if raw.eq_ignore_ascii_case("none") || raw.eq_ignore_ascii_case("initial") {
+        if raw.eq_ignore_ascii_case("none")
+            || raw.eq_ignore_ascii_case("initial")
+            || raw.eq_ignore_ascii_case("unset")
+        {
             return Some(SimpleSvgTextDecoration::default());
         }
         let mut decoration = SimpleSvgTextDecoration::default();
@@ -2877,7 +2880,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     let parse_text_decoration_thickness = |raw: &str| -> Option<f32> {
         let raw = raw.trim();
-        if raw.eq_ignore_ascii_case("initial") {
+        if raw.eq_ignore_ascii_case("initial") || raw.eq_ignore_ascii_case("unset") {
             return Some(0.0);
         }
         if raw.is_empty()
@@ -2891,7 +2894,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     };
     let parse_text_decoration_style = |raw: &str| -> Option<SimpleSvgTextDecorationStyle> {
         match raw.trim().to_ascii_lowercase().as_str() {
-            "solid" | "initial" => Some(SimpleSvgTextDecorationStyle::Solid),
+            "solid" | "initial" | "unset" => Some(SimpleSvgTextDecorationStyle::Solid),
             "double" => Some(SimpleSvgTextDecorationStyle::Double),
             "wavy" => Some(SimpleSvgTextDecorationStyle::Wavy),
             "dashed" => Some(SimpleSvgTextDecorationStyle::Dashed),
@@ -3237,10 +3240,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     let parse_optional_paint = |value: Option<String>| -> Option<Option<SimpleSvgColor>> {
         let value = value?;
         let value = value.trim();
-        if value.eq_ignore_ascii_case("inherit") || value.eq_ignore_ascii_case("unset") {
+        if value.eq_ignore_ascii_case("inherit") {
             return None;
         }
-        if value.eq_ignore_ascii_case("initial") {
+        if value.eq_ignore_ascii_case("initial") || value.eq_ignore_ascii_case("unset") {
             return Some(Some(SimpleSvgColor::CurrentColor));
         }
         Some(parse_paint(value))
@@ -3316,7 +3319,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 if lower == "transparent" {
                     return Some(None);
                 }
-                if lower == "initial" {
+                if lower == "initial" || lower == "unset" {
                     return Some(Some(SimpleSvgColor::CurrentColor));
                 }
                 if let Some(color) = parse_paint(token) {
@@ -11353,6 +11356,60 @@ mod tests {
         assert!(!pdf_text.contains("0 0 1 RG 3.6000001 w"));
         assert!(!pdf_text.contains("[7.2000003 7.2000003]"));
         assert!(!pdf_text.contains("[unsupported image: figures/initial-text-decoration.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_unset_text_decoration_as_initial_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/unset-text-decoration.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:unset-text-decoration".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/unset-text-decoration.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .decorated { text-decoration: underline; text-decoration-color: #0000ff; text-decoration-thickness: 0.5; text-decoration-style: dashed; fill: #ff0000; color: #00ff00; font-size: 2; }
+  </style>
+  <text class="decorated" x="2" y="6">
+    <tspan text-decoration-color="unset" text-decoration-thickness="unset" text-decoration-style="unset">UC</tspan>
+    <tspan x="2" y="8" text-decoration="unset">NO</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("(UC) Tj ET"));
+        assert!(pdf_text.contains("(NO) Tj ET"));
+        assert!(pdf_text.contains("0 1 0 RG 0.72 w"));
+        assert_eq!(pdf_text.matches(" l S Q").count(), 1);
+        assert!(!pdf_text.contains("0 0 1 RG 3.6000001 w"));
+        assert!(!pdf_text.contains("[7.2000003 7.2000003]"));
+        assert!(!pdf_text.contains("[unsupported image: figures/unset-text-decoration.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

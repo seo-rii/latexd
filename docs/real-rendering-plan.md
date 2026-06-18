@@ -1161,8 +1161,8 @@ Status:
   and dash/style state for stroked text, simple
   transformed text matrices, simple transformed `text-decoration` lines with
   `text-decoration-color`/`text-decoration-thickness`, dashed/dotted/double/wavy
-  `text-decoration-style`, shorthand color/thickness/style, and `initial`
-  reset handling for decoration line/color/thickness/style, simple text
+  `text-decoration-style`, shorthand color/thickness/style, and `initial` /
+  `unset` reset handling for decoration line/color/thickness/style, simple text
   `clip-path` rectangles, approximate
   `middle`/`central` baseline alignment and simple `baseline-shift` with
   `initial` reset handling, and multiple
