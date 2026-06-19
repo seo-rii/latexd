@@ -3571,13 +3571,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         selector: SimpleSvgStyleSelector,
         specificity: u16,
         presentation: SimpleSvgPresentation,
+        fill_inherit_or_unset: bool,
         fill_rule_inherit_or_unset: bool,
+        stroke_inherit_or_unset: bool,
         stroke_width_inherit_or_unset: bool,
         stroke_dasharray_inherit_or_unset: bool,
         stroke_dashoffset_inherit_or_unset: bool,
         stroke_linecap_inherit_or_unset: bool,
         stroke_linejoin_inherit_or_unset: bool,
         stroke_miterlimit_inherit_or_unset: bool,
+        color_inherit_or_unset: bool,
     }
     #[derive(Debug, Clone, Copy)]
     struct SimpleSvgCascadeValue<T> {
@@ -3715,8 +3718,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             let body_end = body_start + body_end_relative;
             let declarations = &css[body_start..body_end];
             let presentation = parse_declaration_presentation(declarations);
+            let fill_inherit_or_unset = declaration_inherit_or_unset(declarations, "fill");
             let fill_rule_inherit_or_unset =
                 declaration_inherit_or_unset(declarations, "fill-rule");
+            let stroke_inherit_or_unset = declaration_inherit_or_unset(declarations, "stroke");
             let stroke_width_inherit_or_unset =
                 declaration_inherit_or_unset(declarations, "stroke-width");
             let stroke_dasharray_inherit_or_unset =
@@ -3729,6 +3734,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 declaration_inherit_or_unset(declarations, "stroke-linejoin");
             let stroke_miterlimit_inherit_or_unset =
                 declaration_inherit_or_unset(declarations, "stroke-miterlimit");
+            let color_inherit_or_unset = declaration_inherit_or_unset(declarations, "color");
             for selector in css[css_offset..selector_end].split(',') {
                 let Some(selector) = parse_style_selector(selector) else {
                     continue;
@@ -3738,13 +3744,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     selector,
                     specificity,
                     presentation,
+                    fill_inherit_or_unset,
                     fill_rule_inherit_or_unset,
+                    stroke_inherit_or_unset,
                     stroke_width_inherit_or_unset,
                     stroke_dasharray_inherit_or_unset,
                     stroke_dashoffset_inherit_or_unset,
                     stroke_linecap_inherit_or_unset,
                     stroke_linejoin_inherit_or_unset,
                     stroke_miterlimit_inherit_or_unset,
+                    color_inherit_or_unset,
                 });
             }
             css_offset = body_end + 1;
@@ -3888,9 +3897,11 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     .unwrap_or(true)
             };
         let mut fill: Option<SimpleSvgCascadeValue<Option<SimpleSvgColor>>> = None;
+        let mut fill_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut fill_rule: Option<SimpleSvgCascadeValue<SimpleSvgFillRule>> = None;
         let mut fill_rule_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut stroke: Option<SimpleSvgCascadeValue<Option<SimpleSvgColor>>> = None;
+        let mut stroke_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut stroke_width: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_width_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut stroke_dasharray: Option<SimpleSvgCascadeValue<Option<SimpleSvgDashArray>>> = None;
@@ -3905,6 +3916,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut stroke_miterlimit_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut paint_order: Option<SimpleSvgCascadeValue<SimpleSvgPaintOrder>> = None;
         let mut color: Option<SimpleSvgCascadeValue<SimpleSvgResolvedColor>> = None;
+        let mut color_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut display: Option<SimpleSvgCascadeValue<bool>> = None;
         let mut visibility: Option<SimpleSvgCascadeValue<bool>> = None;
         let mut opacity: Option<SimpleSvgCascadeValue<f32>> = None;
@@ -3966,9 +3978,25 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 }
             };
             if matches {
-                if let Some(value) = rule.presentation.fill {
-                    let current = fill.map(|value| (value.specificity, value.order));
+                if rule.fill_inherit_or_unset {
+                    let current = fill
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| fill_clear.map(|value| (value.specificity, value.order)));
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        fill = None;
+                        fill_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule.presentation.fill {
+                    let current = fill
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| fill_clear.map(|value| (value.specificity, value.order)));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        fill_clear = None;
                         fill = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -4002,9 +4030,25 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.stroke {
-                    let current = stroke.map(|value| (value.specificity, value.order));
+                if rule.stroke_inherit_or_unset {
+                    let current = stroke
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| stroke_clear.map(|value| (value.specificity, value.order)));
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        stroke = None;
+                        stroke_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule.presentation.stroke {
+                    let current = stroke
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| stroke_clear.map(|value| (value.specificity, value.order)));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        stroke_clear = None;
                         stroke = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -4202,9 +4246,25 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.color {
-                    let current = color.map(|value| (value.specificity, value.order));
+                if rule.color_inherit_or_unset {
+                    let current = color
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| color_clear.map(|value| (value.specificity, value.order)));
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        color = None;
+                        color_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule.presentation.color {
+                    let current = color
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| color_clear.map(|value| (value.specificity, value.order)));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        color_clear = None;
                         color = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -16645,6 +16705,62 @@ mod tests {
         assert!(!pdf_text.contains("1 0 0 RG 10 w 10 260 m 60 260 l S"));
         assert!(!pdf_text.contains("1 0 0 rg 50 250 20 20 re f"));
         assert!(!pdf_text.contains("[unsupported image: figures/unset-paint-cascade.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_unset_paint_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/unset-paint-rule-cascade.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:unset-paint-rule-cascade".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/unset-paint-rule-cascade.svg").then(|| {
+                br##"<svg width="20" height="10" fill="#00ff00" stroke="#0000ff" stroke-width="1" color="#00ffff">
+  <style type="text/css">
+    .painted { fill: #ff0000; stroke: #ff0000; color: #ff0000; }
+    rect.paint-fill { fill: unset; stroke: none; }
+    line.paint-stroke { stroke: unset; fill: none; }
+    rect.paint-color { fill: currentColor; color: unset; stroke: none; }
+  </style>
+  <rect class="painted paint-fill" x="1" y="1" width="2" height="2"/>
+  <line class="painted paint-stroke" x1="0" y1="2" x2="5" y2="2"/>
+  <rect class="painted paint-color" x="4" y="1" width="2" height="2"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 RG 10 w 10 260 m 60 260 l S"));
+        assert!(pdf_text.contains("0 1 1 rg 50 250 20 20 re f"));
+        assert!(!pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("1 0 0 RG 10 w 10 260 m 60 260 l S"));
+        assert!(!pdf_text.contains("1 0 0 rg 50 250 20 20 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/unset-paint-rule-cascade.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
