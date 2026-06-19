@@ -1169,8 +1169,8 @@ Status:
   inline/style-rule `unset` overriding class anchor rules, numeric
   `dx`/`dy`, absolute and
   percentage `font-size`, `font-family`, `font-weight`, and `font-style`
-  cascade with `initial` reset handling and inline `unset` overriding class
-  font rules, simple `letter-spacing` and
+  cascade with `initial` reset handling and inline/style-rule `unset`
+  overriding class font rules, simple `letter-spacing` and
   `word-spacing` via PDF text state with `initial` reset handling and
   inline/style-rule `unset` overriding class spacing rules,
   simple `textLength` spacing adjustment via PDF character spacing, simple PDF

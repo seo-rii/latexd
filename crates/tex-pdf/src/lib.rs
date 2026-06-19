@@ -3590,6 +3590,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         text_anchor_inherit_or_unset: bool,
         letter_spacing_inherit_or_unset: bool,
         word_spacing_inherit_or_unset: bool,
+        font_size_inherit_or_unset: bool,
+        font_family_inherit_or_unset: bool,
+        font_series_inherit_or_unset: bool,
+        font_shape_inherit_or_unset: bool,
     }
     #[derive(Debug, Clone, Copy)]
     struct SimpleSvgCascadeValue<T> {
@@ -3763,6 +3767,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 declaration_inherit_or_unset(declarations, "letter-spacing");
             let word_spacing_inherit_or_unset =
                 declaration_inherit_or_unset(declarations, "word-spacing");
+            let font_size_inherit_or_unset =
+                declaration_inherit_or_unset(declarations, "font-size");
+            let font_family_inherit_or_unset =
+                declaration_inherit_or_unset(declarations, "font-family");
+            let font_series_inherit_or_unset =
+                declaration_inherit_or_unset(declarations, "font-weight");
+            let font_shape_inherit_or_unset =
+                declaration_inherit_or_unset(declarations, "font-style");
             for selector in css[css_offset..selector_end].split(',') {
                 let Some(selector) = parse_style_selector(selector) else {
                     continue;
@@ -3791,6 +3803,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     text_anchor_inherit_or_unset,
                     letter_spacing_inherit_or_unset,
                     word_spacing_inherit_or_unset,
+                    font_size_inherit_or_unset,
+                    font_family_inherit_or_unset,
+                    font_series_inherit_or_unset,
+                    font_shape_inherit_or_unset,
                 });
             }
             css_offset = body_end + 1;
@@ -3965,9 +3981,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut text_anchor: Option<SimpleSvgCascadeValue<SimpleSvgTextAnchor>> = None;
         let mut text_anchor_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut font_size: Option<SimpleSvgCascadeValue<SimpleSvgFontSize>> = None;
+        let mut font_size_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut font_family: Option<SimpleSvgCascadeValue<SimpleSvgFontFamily>> = None;
+        let mut font_family_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut font_series: Option<SimpleSvgCascadeValue<FontSeries>> = None;
+        let mut font_series_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut font_shape: Option<SimpleSvgCascadeValue<FontShape>> = None;
+        let mut font_shape_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut letter_spacing: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut letter_spacing_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut word_spacing: Option<SimpleSvgCascadeValue<f32>> = None;
@@ -4470,9 +4490,29 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.font_size {
-                    let current = font_size.map(|value| (value.specificity, value.order));
+                if rule.font_size_inherit_or_unset {
+                    let current = font_size
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| font_size_clear.map(|value| (value.specificity, value.order)));
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        font_size = None;
+                        font_size_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .font_size
+                    .filter(|_| !rule.font_size_inherit_or_unset)
+                {
+                    let current = font_size
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| font_size_clear.map(|value| (value.specificity, value.order)));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        font_size_clear = None;
                         font_size = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -4480,9 +4520,33 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.font_family {
-                    let current = font_family.map(|value| (value.specificity, value.order));
+                if rule.font_family_inherit_or_unset {
+                    let current = font_family
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            font_family_clear.map(|value| (value.specificity, value.order))
+                        });
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        font_family = None;
+                        font_family_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .font_family
+                    .filter(|_| !rule.font_family_inherit_or_unset)
+                {
+                    let current = font_family
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            font_family_clear.map(|value| (value.specificity, value.order))
+                        });
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        font_family_clear = None;
                         font_family = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -4490,9 +4554,33 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.font_series {
-                    let current = font_series.map(|value| (value.specificity, value.order));
+                if rule.font_series_inherit_or_unset {
+                    let current = font_series
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            font_series_clear.map(|value| (value.specificity, value.order))
+                        });
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        font_series = None;
+                        font_series_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .font_series
+                    .filter(|_| !rule.font_series_inherit_or_unset)
+                {
+                    let current = font_series
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            font_series_clear.map(|value| (value.specificity, value.order))
+                        });
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        font_series_clear = None;
                         font_series = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -4500,9 +4588,29 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.font_shape {
-                    let current = font_shape.map(|value| (value.specificity, value.order));
+                if rule.font_shape_inherit_or_unset {
+                    let current = font_shape
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| font_shape_clear.map(|value| (value.specificity, value.order)));
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        font_shape = None;
+                        font_shape_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .font_shape
+                    .filter(|_| !rule.font_shape_inherit_or_unset)
+                {
+                    let current = font_shape
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| font_shape_clear.map(|value| (value.specificity, value.order)));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        font_shape_clear = None;
                         font_shape = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -11070,6 +11178,58 @@ mod tests {
         );
         assert!(!pdf_text.contains("/F9 14.400001 Tf"));
         assert!(!pdf_text.contains("[unsupported image: figures/font-unset-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_unset_font_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/font-rule-unset-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:font-rule-unset-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/font-rule-unset-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    tspan.hot { font-family: "Courier New", monospace; font-weight: normal; font-style: normal; font-size: 2; }
+    tspan.hot.reset { font-family: unset; font-weight: unset; font-style: unset; font-size: unset; }
+  </style>
+  <text x="2" y="6" fill="#000000" font-family="Arial" font-weight="bold" font-style="italic" font-size="4">
+    <tspan class="hot reset">FONT</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(
+            pdf_text.contains("0 0 0 rg BT /F8 28.800001 Tf 1 0 0 1 86.4 670.8 Tm (FONT) Tj ET")
+        );
+        assert!(!pdf_text.contains("/F9 14.400001 Tf"));
+        assert!(!pdf_text.contains("[unsupported image: figures/font-rule-unset-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
