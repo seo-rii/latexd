@@ -3584,6 +3584,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         fill_opacity_inherit_or_unset: bool,
         stroke_opacity_inherit_or_unset: bool,
         visibility_inherit_or_unset: bool,
+        marker_start_inherit_or_unset: bool,
+        marker_mid_inherit_or_unset: bool,
+        marker_end_inherit_or_unset: bool,
     }
     #[derive(Debug, Clone, Copy)]
     struct SimpleSvgCascadeValue<T> {
@@ -3744,6 +3747,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 declaration_inherit_or_unset(declarations, "stroke-opacity");
             let visibility_inherit_or_unset =
                 declaration_inherit_or_unset(declarations, "visibility");
+            let marker_inherit_or_unset = declaration_inherit_or_unset(declarations, "marker");
+            let marker_start_inherit_or_unset = marker_inherit_or_unset
+                || declaration_inherit_or_unset(declarations, "marker-start");
+            let marker_mid_inherit_or_unset =
+                marker_inherit_or_unset || declaration_inherit_or_unset(declarations, "marker-mid");
+            let marker_end_inherit_or_unset =
+                marker_inherit_or_unset || declaration_inherit_or_unset(declarations, "marker-end");
             for selector in css[css_offset..selector_end].split(',') {
                 let Some(selector) = parse_style_selector(selector) else {
                     continue;
@@ -3766,6 +3776,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     fill_opacity_inherit_or_unset,
                     stroke_opacity_inherit_or_unset,
                     visibility_inherit_or_unset,
+                    marker_start_inherit_or_unset,
+                    marker_mid_inherit_or_unset,
+                    marker_end_inherit_or_unset,
                 });
             }
             css_offset = body_end + 1;
@@ -3953,8 +3966,11 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut baseline_shift: Option<SimpleSvgCascadeValue<SimpleSvgBaselineShift>> = None;
         let mut vector_effect_non_scaling_stroke: Option<SimpleSvgCascadeValue<bool>> = None;
         let mut marker_start: Option<SimpleSvgCascadeValue<Option<u64>>> = None;
+        let mut marker_start_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut marker_mid: Option<SimpleSvgCascadeValue<Option<u64>>> = None;
+        let mut marker_mid_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut marker_end: Option<SimpleSvgCascadeValue<Option<u64>>> = None;
+        let mut marker_end_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut clip_path: Option<SimpleSvgCascadeValue<Option<u64>>> = None;
         for (order, rule) in style_rules.iter().enumerate() {
             let matches = match &rule.selector {
@@ -4549,9 +4565,33 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.marker_start {
-                    let current = marker_start.map(|value| (value.specificity, value.order));
+                if rule.marker_start_inherit_or_unset {
+                    let current = marker_start
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            marker_start_clear.map(|value| (value.specificity, value.order))
+                        });
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        marker_start = None;
+                        marker_start_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .marker_start
+                    .filter(|_| !rule.marker_start_inherit_or_unset)
+                {
+                    let current = marker_start
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            marker_start_clear.map(|value| (value.specificity, value.order))
+                        });
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        marker_start_clear = None;
                         marker_start = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -4559,9 +4599,29 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.marker_mid {
-                    let current = marker_mid.map(|value| (value.specificity, value.order));
+                if rule.marker_mid_inherit_or_unset {
+                    let current = marker_mid
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| marker_mid_clear.map(|value| (value.specificity, value.order)));
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        marker_mid = None;
+                        marker_mid_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .marker_mid
+                    .filter(|_| !rule.marker_mid_inherit_or_unset)
+                {
+                    let current = marker_mid
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| marker_mid_clear.map(|value| (value.specificity, value.order)));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        marker_mid_clear = None;
                         marker_mid = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -4569,9 +4629,29 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.marker_end {
-                    let current = marker_end.map(|value| (value.specificity, value.order));
+                if rule.marker_end_inherit_or_unset {
+                    let current = marker_end
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| marker_end_clear.map(|value| (value.specificity, value.order)));
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        marker_end = None;
+                        marker_end_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .marker_end
+                    .filter(|_| !rule.marker_end_inherit_or_unset)
+                {
+                    let current = marker_end
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| marker_end_clear.map(|value| (value.specificity, value.order)));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        marker_end_clear = None;
                         marker_end = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -13278,6 +13358,65 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
         assert!(!pdf_text.contains("0 1 0 RG"));
         assert!(!pdf_text.contains("[unsupported image: figures/marker-unset.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_unset_marker_reference_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/marker-rule-unset.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:marker-rule-unset".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/marker-rule-unset.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .marked { marker-end: url(#tick); }
+    line.marked { marker-end: unset; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+    <marker id="tick" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 4" fill="none" stroke="#00ff00" stroke-width="1"/>
+    </marker>
+  </defs>
+  <g marker-end="url(#arrow)">
+    <line class="marked" x1="2" y1="5" x2="18" y2="5" stroke="#0000ff" stroke-width="0.5"/>
+  </g>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 190 230 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
+        assert!(!pdf_text.contains("0 1 0 RG"));
+        assert!(!pdf_text.contains("[unsupported image: figures/marker-rule-unset.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
