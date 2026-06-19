@@ -3583,6 +3583,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         paint_order_inherit_or_unset: bool,
         color_inherit_or_unset: bool,
         display_inherit: bool,
+        opacity_inherit: bool,
         fill_opacity_inherit_or_unset: bool,
         stroke_opacity_inherit_or_unset: bool,
         visibility_inherit_or_unset: bool,
@@ -3758,6 +3759,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             let display_inherit = declaration_value(declarations, "display")
                 .map(|value| value.trim().eq_ignore_ascii_case("inherit"))
                 .unwrap_or(false);
+            let opacity_inherit = declaration_value(declarations, "opacity")
+                .map(|value| value.trim().eq_ignore_ascii_case("inherit"))
+                .unwrap_or(false);
             let fill_opacity_inherit_or_unset =
                 declaration_inherit_or_unset(declarations, "fill-opacity");
             let stroke_opacity_inherit_or_unset =
@@ -3814,6 +3818,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     paint_order_inherit_or_unset,
                     color_inherit_or_unset,
                     display_inherit,
+                    opacity_inherit,
                     fill_opacity_inherit_or_unset,
                     stroke_opacity_inherit_or_unset,
                     visibility_inherit_or_unset,
@@ -3999,6 +4004,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut visibility: Option<SimpleSvgCascadeValue<bool>> = None;
         let mut visibility_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut opacity: Option<SimpleSvgCascadeValue<f32>> = None;
+        let mut opacity_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut fill_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut fill_opacity_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut stroke_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
@@ -4446,9 +4452,25 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.opacity {
-                    let current = opacity.map(|value| (value.specificity, value.order));
+                if rule.opacity_inherit {
+                    let current = opacity
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| opacity_clear.map(|value| (value.specificity, value.order)));
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        opacity = None;
+                        opacity_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule.presentation.opacity.filter(|_| !rule.opacity_inherit) {
+                    let current = opacity
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| opacity_clear.map(|value| (value.specificity, value.order)));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        opacity_clear = None;
                         opacity = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -5091,6 +5113,12 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         if inline_inherit_or_unset("visibility") {
             presentation.visibility = None;
+        }
+        if style_value(tag, "opacity")
+            .map(|value| value.trim().eq_ignore_ascii_case("inherit"))
+            .unwrap_or(false)
+        {
+            presentation.opacity = None;
         }
         if inline_inherit_or_unset("fill-opacity") {
             presentation.fill_opacity = None;
@@ -18135,6 +18163,104 @@ mod tests {
         assert!(
             !pdf_text.contains("[unsupported image: figures/inherited-opacity-rule-unset.svg]")
         );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_inline_inherit_opacity_as_parent_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/inherited-opacity.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:inherited-opacity".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/inherited-opacity.svg").then(|| {
+                br##"<svg width="20" height="10" opacity="0.5">
+  <style type="text/css">
+    .dim { opacity: 0.25; }
+  </style>
+  <rect class="dim" x="1" y="1" width="2" height="2" fill="#0000ff" style="opacity: inherit"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/GS500 << /Type /ExtGState /ca 0.5 /CA 0.5 >>"));
+        assert!(pdf_text.contains("q /GS500 gs 0 0 1 rg 20 250 20 20 re f Q"));
+        assert!(!pdf_text.contains("/GS125 << /Type /ExtGState /ca 0.125 /CA 0.125 >>"));
+        assert!(!pdf_text.contains("[unsupported image: figures/inherited-opacity.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_inherit_opacity_as_parent_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/inherited-opacity-rule.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:inherited-opacity-rule".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/inherited-opacity-rule.svg").then(|| {
+                br##"<svg width="20" height="10" opacity="0.5">
+  <style type="text/css">
+    .dim { opacity: 0.25; fill: #ff0000; }
+    rect.dim { opacity: inherit; fill: #0000ff; }
+  </style>
+  <rect class="dim" x="1" y="1" width="2" height="2"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/GS500 << /Type /ExtGState /ca 0.5 /CA 0.5 >>"));
+        assert!(pdf_text.contains("q /GS500 gs 0 0 1 rg 20 250 20 20 re f Q"));
+        assert!(!pdf_text.contains("/GS125 << /Type /ExtGState /ca 0.125 /CA 0.125 >>"));
+        assert!(!pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/inherited-opacity-rule.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

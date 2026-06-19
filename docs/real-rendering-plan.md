@@ -217,7 +217,7 @@ overriding class rules, and
 operators with `initial` reset handling and inline/style-rule `unset`
 overriding class fill rules, simple `opacity` / `fill-opacity` /
 `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
-handling and inline/style-rule `unset` overriding class fill/stroke opacity
+handling, inline/style-rule `opacity: inherit`, and inline/style-rule `unset` overriding class fill/stroke opacity
 rules, simple `stroke-dasharray` absolute/percentage lengths
 mapped to PDF dash patterns with inline and style-rule `unset` overriding class
 dash patterns and offsets, `stroke-dashoffset` absolute/percentage phase support
@@ -710,7 +710,7 @@ Implemented first slice:
   inline/style-rule `unset` overriding class fill rules, simple
   `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
-  handling and inline/style-rule `unset` overriding class fill/stroke opacity
+  handling, inline/style-rule `opacity: inherit`, and inline/style-rule `unset` overriding class fill/stroke opacity
   rules, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with inline and style-rule
   `unset` overriding class dash patterns and offsets, `stroke-dashoffset`
@@ -1228,7 +1228,7 @@ Status:
   inline/style-rule `unset` overriding class fill rules, simple
   `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
-  handling and inline/style-rule `unset` overriding class fill/stroke opacity
+  handling, inline/style-rule `opacity: inherit`, and inline/style-rule `unset` overriding class fill/stroke opacity
   rules, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with inline and style-rule
   `unset` overriding class dash patterns and offsets, `stroke-dashoffset`
