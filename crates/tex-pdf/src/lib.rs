@@ -3598,6 +3598,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         font_shape_inherit_or_unset: bool,
         text_baseline_inherit_or_unset: bool,
         baseline_shift_inherit_or_unset: bool,
+        clip_path_inherit: bool,
     }
     #[derive(Debug, Clone, Copy)]
     struct SimpleSvgCascadeValue<T> {
@@ -3789,6 +3790,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     || declaration_inherit_or_unset(declarations, "alignment-baseline");
             let baseline_shift_inherit_or_unset =
                 declaration_inherit_or_unset(declarations, "baseline-shift");
+            let clip_path_inherit = declaration_value(declarations, "clip-path")
+                .map(|value| value.trim().eq_ignore_ascii_case("inherit"))
+                .unwrap_or(false);
             for selector in css[css_offset..selector_end].split(',') {
                 let Some(selector) = parse_style_selector(selector) else {
                     continue;
@@ -3825,6 +3829,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     font_shape_inherit_or_unset,
                     text_baseline_inherit_or_unset,
                     baseline_shift_inherit_or_unset,
+                    clip_path_inherit,
                 });
             }
             css_offset = body_end + 1;
@@ -4029,6 +4034,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut marker_end: Option<SimpleSvgCascadeValue<Option<u64>>> = None;
         let mut marker_end_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut clip_path: Option<SimpleSvgCascadeValue<Option<u64>>> = None;
+        let mut clip_path_clear: Option<SimpleSvgCascadeValue<()>> = None;
         for (order, rule) in style_rules.iter().enumerate() {
             let matches = match &rule.selector {
                 SimpleSvgStyleSelector::Universal => true,
@@ -4964,9 +4970,29 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.clip_path {
-                    let current = clip_path.map(|value| (value.specificity, value.order));
+                if rule.clip_path_inherit {
+                    let current = clip_path
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| clip_path_clear.map(|value| (value.specificity, value.order)));
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        clip_path = None;
+                        clip_path_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .clip_path
+                    .filter(|_| !rule.clip_path_inherit)
+                {
+                    let current = clip_path
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| clip_path_clear.map(|value| (value.specificity, value.order)));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        clip_path_clear = None;
                         clip_path = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -5114,6 +5140,12 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         if inline_inherit_or_unset("marker-end") {
             presentation.marker_end = None;
+        }
+        if style_value(tag, "clip-path")
+            .map(|value| value.trim().eq_ignore_ascii_case("inherit"))
+            .unwrap_or(false)
+        {
+            presentation.clip_path = None;
         }
         if style_value(tag, "display")
             .map(|value| value.trim().eq_ignore_ascii_case("inherit"))
@@ -15595,6 +15627,111 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 rg 10 180 200 40 re f"));
         assert!(!pdf_text.contains("q 60 180 40 100 re W n 0 0 1 rg"));
         assert!(!pdf_text.contains("[unsupported image: figures/clip-path-unset.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_inline_inherit_clip_path_reference_as_parent_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/clip-path-inherit.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:clip-path-inherit".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/clip-path-inherit.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .cropped { clip-path: url(#crop); }
+  </style>
+  <defs>
+    <clipPath id="crop"><rect x="5" y="0" width="4" height="10"/></clipPath>
+  </defs>
+  <rect class="cropped" x="0" y="0" width="20" height="4" fill="#ff0000"/>
+  <rect class="cropped" x="0" y="6" width="20" height="4" fill="#0000ff" style="clip-path: inherit"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q 60 180 40 100 re W n 1 0 0 rg 10 240 200 40 re f Q"));
+        assert!(pdf_text.contains("0 0 1 rg 10 180 200 40 re f"));
+        assert!(!pdf_text.contains("q 60 180 40 100 re W n 0 0 1 rg"));
+        assert!(!pdf_text.contains("[unsupported image: figures/clip-path-inherit.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_inherit_clip_path_reference_as_parent_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/clip-path-rule-inherit.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:clip-path-rule-inherit".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/clip-path-rule-inherit.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    rect.cropped { clip-path: url(#crop); }
+    rect.reset { clip-path: inherit; }
+  </style>
+  <defs>
+    <clipPath id="crop"><rect x="5" y="0" width="4" height="10"/></clipPath>
+  </defs>
+  <rect class="cropped" x="0" y="0" width="20" height="4" fill="#ff0000"/>
+  <rect class="cropped reset" x="0" y="6" width="20" height="4" fill="#0000ff"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q 60 180 40 100 re W n 1 0 0 rg 10 240 200 40 re f Q"));
+        assert!(pdf_text.contains("0 0 1 rg 10 180 200 40 re f"));
+        assert!(!pdf_text.contains("q 60 180 40 100 re W n 0 0 1 rg"));
+        assert!(!pdf_text.contains("[unsupported image: figures/clip-path-rule-inherit.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

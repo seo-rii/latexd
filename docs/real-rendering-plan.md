@@ -229,7 +229,7 @@ line-style rules,
 simple
 `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
 `initial` / `unset` reset handling, and simple rect-backed `clipPath` clipping with
-`initial` / `unset` reset handling, including
+`initial` / `unset` reset handling and inline/style-rule `inherit` handling, including
 transformed group-wrapped rect children, and
     `matrix` / `rotate` / `skewX` / `skewY` transforms for path-like line/poly/path
 primitives, plus non-axis-aligned transformed rectangles rendered as closed
@@ -722,7 +722,7 @@ Implemented first slice:
   handling and inline/style-rule `unset` overriding class line-style rules, simple
   `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
   `initial` / `unset` reset handling, simple rect-backed `clipPath` clipping with
-  `initial` / `unset` reset handling, including
+  `initial` / `unset` reset handling and inline/style-rule `inherit` handling, including
   transformed group-wrapped rect children, path-like `matrix` / `rotate` / `skewX` /
   `skewY` transforms, non-axis-aligned
   transformed rectangles, and transformed circle/ellipse cubic paths, as vector
@@ -1182,7 +1182,8 @@ Status:
   `text-decoration-color`/`text-decoration-thickness`, dashed/dotted/double/wavy
   `text-decoration-style`, shorthand color/thickness/style, and `initial` /
   `unset` reset handling for decoration line/color/thickness/style, simple
-  `clip-path` rectangles with `initial` / `unset` reset handling, approximate
+  `clip-path` rectangles with `initial` / `unset` reset handling and
+  inline/style-rule `inherit` handling, approximate
   `middle`/`central` baseline alignment and simple `baseline-shift` with
   `initial` reset handling and inline/style-rule `unset` overriding class baseline rules,
   and multiple
@@ -1239,7 +1240,7 @@ Status:
   handling and inline/style-rule `unset` overriding class line-style rules, simple
   `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
   `initial` / `unset` reset handling, simple rect-backed `clipPath` clipping with
-  `initial` / `unset` reset handling, including
+  `initial` / `unset` reset handling and inline/style-rule `inherit` handling, including
   transformed group-wrapped rect children, and path-like `matrix` / `rotate` / `skewX` /
   `skewY` transform attributes plus
   non-axis-aligned transformed rectangles and transformed circle/ellipse cubic
