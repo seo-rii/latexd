@@ -3581,6 +3581,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         stroke_linejoin_inherit_or_unset: bool,
         stroke_miterlimit_inherit_or_unset: bool,
         color_inherit_or_unset: bool,
+        fill_opacity_inherit_or_unset: bool,
+        stroke_opacity_inherit_or_unset: bool,
     }
     #[derive(Debug, Clone, Copy)]
     struct SimpleSvgCascadeValue<T> {
@@ -3735,6 +3737,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             let stroke_miterlimit_inherit_or_unset =
                 declaration_inherit_or_unset(declarations, "stroke-miterlimit");
             let color_inherit_or_unset = declaration_inherit_or_unset(declarations, "color");
+            let fill_opacity_inherit_or_unset =
+                declaration_inherit_or_unset(declarations, "fill-opacity");
+            let stroke_opacity_inherit_or_unset =
+                declaration_inherit_or_unset(declarations, "stroke-opacity");
             for selector in css[css_offset..selector_end].split(',') {
                 let Some(selector) = parse_style_selector(selector) else {
                     continue;
@@ -3754,6 +3760,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     stroke_linejoin_inherit_or_unset,
                     stroke_miterlimit_inherit_or_unset,
                     color_inherit_or_unset,
+                    fill_opacity_inherit_or_unset,
+                    stroke_opacity_inherit_or_unset,
                 });
             }
             css_offset = body_end + 1;
@@ -3921,7 +3929,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut visibility: Option<SimpleSvgCascadeValue<bool>> = None;
         let mut opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut fill_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
+        let mut fill_opacity_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut stroke_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
+        let mut stroke_opacity_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut text_anchor: Option<SimpleSvgCascadeValue<SimpleSvgTextAnchor>> = None;
         let mut font_size: Option<SimpleSvgCascadeValue<SimpleSvgFontSize>> = None;
         let mut font_family: Option<SimpleSvgCascadeValue<SimpleSvgFontFamily>> = None;
@@ -4302,9 +4312,33 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.fill_opacity {
-                    let current = fill_opacity.map(|value| (value.specificity, value.order));
+                if rule.fill_opacity_inherit_or_unset {
+                    let current = fill_opacity
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            fill_opacity_clear.map(|value| (value.specificity, value.order))
+                        });
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        fill_opacity = None;
+                        fill_opacity_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .fill_opacity
+                    .filter(|_| !rule.fill_opacity_inherit_or_unset)
+                {
+                    let current = fill_opacity
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            fill_opacity_clear.map(|value| (value.specificity, value.order))
+                        });
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        fill_opacity_clear = None;
                         fill_opacity = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -4312,9 +4346,33 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.stroke_opacity {
-                    let current = stroke_opacity.map(|value| (value.specificity, value.order));
+                if rule.stroke_opacity_inherit_or_unset {
+                    let current = stroke_opacity
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            stroke_opacity_clear.map(|value| (value.specificity, value.order))
+                        });
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        stroke_opacity = None;
+                        stroke_opacity_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .stroke_opacity
+                    .filter(|_| !rule.stroke_opacity_inherit_or_unset)
+                {
+                    let current = stroke_opacity
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            stroke_opacity_clear.map(|value| (value.specificity, value.order))
+                        });
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        stroke_opacity_clear = None;
                         stroke_opacity = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -17111,6 +17169,59 @@ mod tests {
         assert!(pdf_text.contains("q /GS500 gs 0 0 1 RG 10 w 20 250 20 20 re S Q"));
         assert!(!pdf_text.contains("/GS250 << /Type /ExtGState /ca 0.25 /CA 0.25 >>"));
         assert!(!pdf_text.contains("[unsupported image: figures/inherited-opacity-unset.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_unset_paint_opacity_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/inherited-opacity-rule-unset.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:inherited-opacity-rule-unset".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/inherited-opacity-rule-unset.svg").then(|| {
+                br##"<svg width="20" height="10" fill-opacity="0.75" stroke-opacity="0.5">
+  <style type="text/css">
+    .dim { fill-opacity: 0.25; stroke-opacity: 0.25; }
+    rect.dim { fill-opacity: unset; stroke-opacity: unset; }
+  </style>
+  <rect class="dim" x="1" y="1" width="2" height="2" fill="#ff0000" stroke="#0000ff" stroke-width="1"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/GS750 << /Type /ExtGState /ca 0.75 /CA 0.75 >>"));
+        assert!(pdf_text.contains("/GS500 << /Type /ExtGState /ca 0.5 /CA 0.5 >>"));
+        assert!(pdf_text.contains("q /GS750 gs 1 0 0 rg 20 250 20 20 re f Q"));
+        assert!(pdf_text.contains("q /GS500 gs 0 0 1 RG 10 w 20 250 20 20 re S Q"));
+        assert!(!pdf_text.contains("/GS250 << /Type /ExtGState /ca 0.25 /CA 0.25 >>"));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/inherited-opacity-rule-unset.svg]")
+        );
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

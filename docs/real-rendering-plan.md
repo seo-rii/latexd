@@ -217,7 +217,8 @@ overriding class rules, and
 operators with `initial` reset handling and inline/style-rule `unset`
 overriding class fill rules, simple `opacity` / `fill-opacity` /
 `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
-handling and inline `unset` overriding class fill/stroke opacity rules, simple `stroke-dasharray` absolute/percentage lengths
+handling and inline/style-rule `unset` overriding class fill/stroke opacity
+rules, simple `stroke-dasharray` absolute/percentage lengths
 mapped to PDF dash patterns with inline and style-rule `unset` overriding class
 dash patterns and offsets, `stroke-dashoffset` absolute/percentage phase support
 with inline and style-rule `unset` overriding class offsets, negative
@@ -709,7 +710,8 @@ Implemented first slice:
   inline/style-rule `unset` overriding class fill rules, simple
   `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
-  handling and inline `unset` overriding class fill/stroke opacity rules, simple `stroke-dasharray`
+  handling and inline/style-rule `unset` overriding class fill/stroke opacity
+  rules, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with inline and style-rule
   `unset` overriding class dash patterns and offsets, `stroke-dashoffset`
   absolute/percentage phase support with inline and style-rule `unset` overriding
@@ -1225,7 +1227,8 @@ Status:
   inline/style-rule `unset` overriding class fill rules, simple
   `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
-  handling, simple `stroke-dasharray`
+  handling and inline/style-rule `unset` overriding class fill/stroke opacity
+  rules, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with inline and style-rule
   `unset` overriding class dash patterns and offsets, `stroke-dashoffset`
   absolute/percentage phase support with inline and style-rule `unset` overriding
