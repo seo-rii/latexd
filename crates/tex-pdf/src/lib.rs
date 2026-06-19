@@ -3583,6 +3583,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         color_inherit_or_unset: bool,
         fill_opacity_inherit_or_unset: bool,
         stroke_opacity_inherit_or_unset: bool,
+        visibility_inherit_or_unset: bool,
     }
     #[derive(Debug, Clone, Copy)]
     struct SimpleSvgCascadeValue<T> {
@@ -3741,6 +3742,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 declaration_inherit_or_unset(declarations, "fill-opacity");
             let stroke_opacity_inherit_or_unset =
                 declaration_inherit_or_unset(declarations, "stroke-opacity");
+            let visibility_inherit_or_unset =
+                declaration_inherit_or_unset(declarations, "visibility");
             for selector in css[css_offset..selector_end].split(',') {
                 let Some(selector) = parse_style_selector(selector) else {
                     continue;
@@ -3762,6 +3765,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     color_inherit_or_unset,
                     fill_opacity_inherit_or_unset,
                     stroke_opacity_inherit_or_unset,
+                    visibility_inherit_or_unset,
                 });
             }
             css_offset = body_end + 1;
@@ -3927,6 +3931,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut color_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut display: Option<SimpleSvgCascadeValue<bool>> = None;
         let mut visibility: Option<SimpleSvgCascadeValue<bool>> = None;
+        let mut visibility_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut fill_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut fill_opacity_clear: Option<SimpleSvgCascadeValue<()>> = None;
@@ -4292,9 +4297,29 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.visibility {
-                    let current = visibility.map(|value| (value.specificity, value.order));
+                if rule.visibility_inherit_or_unset {
+                    let current = visibility
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| visibility_clear.map(|value| (value.specificity, value.order)));
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        visibility = None;
+                        visibility_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .visibility
+                    .filter(|_| !rule.visibility_inherit_or_unset)
+                {
+                    let current = visibility
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| visibility_clear.map(|value| (value.specificity, value.order)));
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        visibility_clear = None;
                         visibility = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -15593,6 +15618,53 @@ mod tests {
         assert!(!pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
         assert!(pdf_text.contains("0 0 1 rg 50 250 20 20 re f"));
         assert!(!pdf_text.contains("[unsupported image: figures/visibility-unset.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_unset_visibility_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/visibility-rule-unset.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:visibility-rule-unset".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/visibility-rule-unset.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .hidden-by-css { visibility: hidden; }
+    rect.hidden-by-css { visibility: unset; }
+  </style>
+  <rect class="hidden-by-css" x="1" y="1" width="2" height="2" fill="#0000ff"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/visibility-rule-unset.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
