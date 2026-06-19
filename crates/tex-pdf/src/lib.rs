@@ -3580,6 +3580,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         stroke_linecap_inherit_or_unset: bool,
         stroke_linejoin_inherit_or_unset: bool,
         stroke_miterlimit_inherit_or_unset: bool,
+        paint_order_inherit_or_unset: bool,
         color_inherit_or_unset: bool,
         fill_opacity_inherit_or_unset: bool,
         stroke_opacity_inherit_or_unset: bool,
@@ -3749,6 +3750,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 declaration_inherit_or_unset(declarations, "stroke-linejoin");
             let stroke_miterlimit_inherit_or_unset =
                 declaration_inherit_or_unset(declarations, "stroke-miterlimit");
+            let paint_order_inherit_or_unset =
+                declaration_inherit_or_unset(declarations, "paint-order");
             let color_inherit_or_unset = declaration_inherit_or_unset(declarations, "color");
             let fill_opacity_inherit_or_unset =
                 declaration_inherit_or_unset(declarations, "fill-opacity");
@@ -3800,6 +3803,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     stroke_linecap_inherit_or_unset,
                     stroke_linejoin_inherit_or_unset,
                     stroke_miterlimit_inherit_or_unset,
+                    paint_order_inherit_or_unset,
                     color_inherit_or_unset,
                     fill_opacity_inherit_or_unset,
                     stroke_opacity_inherit_or_unset,
@@ -3977,6 +3981,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut stroke_miterlimit: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_miterlimit_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut paint_order: Option<SimpleSvgCascadeValue<SimpleSvgPaintOrder>> = None;
+        let mut paint_order_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut color: Option<SimpleSvgCascadeValue<SimpleSvgResolvedColor>> = None;
         let mut color_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut display: Option<SimpleSvgCascadeValue<bool>> = None;
@@ -4313,9 +4318,33 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.paint_order {
-                    let current = paint_order.map(|value| (value.specificity, value.order));
+                if rule.paint_order_inherit_or_unset {
+                    let current = paint_order
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            paint_order_clear.map(|value| (value.specificity, value.order))
+                        });
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        paint_order = None;
+                        paint_order_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .paint_order
+                    .filter(|_| !rule.paint_order_inherit_or_unset)
+                {
+                    let current = paint_order
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            paint_order_clear.map(|value| (value.specificity, value.order))
+                        });
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        paint_order_clear = None;
                         paint_order = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -12755,6 +12784,55 @@ mod tests {
         let rect_fill_index = pdf_text.find("1 0 0 rg").unwrap();
         assert!(rect_stroke_index < rect_fill_index);
         assert!(!pdf_text.contains("[unsupported image: figures/paint-order-unset.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_unset_paint_order_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/paint-order-rule-unset.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:paint-order-rule-unset".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/paint-order-rule-unset.svg").then(|| {
+                br##"<svg width="20" height="10" paint-order="stroke fill">
+  <style type="text/css">
+    rect.normal { paint-order: normal; fill: #ff0000; stroke: #0000ff; stroke-width: 1; }
+    rect.reset { paint-order: unset; }
+  </style>
+  <rect class="normal reset" x="2" y="2" width="4" height="4"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        let rect_stroke_index = pdf_text.find("0 0 1 RG").unwrap();
+        let rect_fill_index = pdf_text.find("1 0 0 rg").unwrap();
+        assert!(rect_stroke_index < rect_fill_index);
+        assert!(!pdf_text.contains("[unsupported image: figures/paint-order-rule-unset.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
