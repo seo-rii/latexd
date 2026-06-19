@@ -3587,6 +3587,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         marker_start_inherit_or_unset: bool,
         marker_mid_inherit_or_unset: bool,
         marker_end_inherit_or_unset: bool,
+        text_anchor_inherit_or_unset: bool,
+        letter_spacing_inherit_or_unset: bool,
+        word_spacing_inherit_or_unset: bool,
     }
     #[derive(Debug, Clone, Copy)]
     struct SimpleSvgCascadeValue<T> {
@@ -3754,6 +3757,12 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 marker_inherit_or_unset || declaration_inherit_or_unset(declarations, "marker-mid");
             let marker_end_inherit_or_unset =
                 marker_inherit_or_unset || declaration_inherit_or_unset(declarations, "marker-end");
+            let text_anchor_inherit_or_unset =
+                declaration_inherit_or_unset(declarations, "text-anchor");
+            let letter_spacing_inherit_or_unset =
+                declaration_inherit_or_unset(declarations, "letter-spacing");
+            let word_spacing_inherit_or_unset =
+                declaration_inherit_or_unset(declarations, "word-spacing");
             for selector in css[css_offset..selector_end].split(',') {
                 let Some(selector) = parse_style_selector(selector) else {
                     continue;
@@ -3779,6 +3788,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     marker_start_inherit_or_unset,
                     marker_mid_inherit_or_unset,
                     marker_end_inherit_or_unset,
+                    text_anchor_inherit_or_unset,
+                    letter_spacing_inherit_or_unset,
+                    word_spacing_inherit_or_unset,
                 });
             }
             css_offset = body_end + 1;
@@ -3951,12 +3963,15 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut stroke_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_opacity_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut text_anchor: Option<SimpleSvgCascadeValue<SimpleSvgTextAnchor>> = None;
+        let mut text_anchor_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut font_size: Option<SimpleSvgCascadeValue<SimpleSvgFontSize>> = None;
         let mut font_family: Option<SimpleSvgCascadeValue<SimpleSvgFontFamily>> = None;
         let mut font_series: Option<SimpleSvgCascadeValue<FontSeries>> = None;
         let mut font_shape: Option<SimpleSvgCascadeValue<FontShape>> = None;
         let mut letter_spacing: Option<SimpleSvgCascadeValue<f32>> = None;
+        let mut letter_spacing_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut word_spacing: Option<SimpleSvgCascadeValue<f32>> = None;
+        let mut word_spacing_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut text_decoration: Option<SimpleSvgCascadeValue<SimpleSvgTextDecoration>> = None;
         let mut text_decoration_color: Option<SimpleSvgCascadeValue<Option<SimpleSvgColor>>> = None;
         let mut text_decoration_thickness: Option<SimpleSvgCascadeValue<f32>> = None;
@@ -4421,9 +4436,33 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.text_anchor {
-                    let current = text_anchor.map(|value| (value.specificity, value.order));
+                if rule.text_anchor_inherit_or_unset {
+                    let current = text_anchor
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            text_anchor_clear.map(|value| (value.specificity, value.order))
+                        });
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        text_anchor = None;
+                        text_anchor_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .text_anchor
+                    .filter(|_| !rule.text_anchor_inherit_or_unset)
+                {
+                    let current = text_anchor
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            text_anchor_clear.map(|value| (value.specificity, value.order))
+                        });
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        text_anchor_clear = None;
                         text_anchor = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -4471,9 +4510,33 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.letter_spacing {
-                    let current = letter_spacing.map(|value| (value.specificity, value.order));
+                if rule.letter_spacing_inherit_or_unset {
+                    let current = letter_spacing
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            letter_spacing_clear.map(|value| (value.specificity, value.order))
+                        });
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        letter_spacing = None;
+                        letter_spacing_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .letter_spacing
+                    .filter(|_| !rule.letter_spacing_inherit_or_unset)
+                {
+                    let current = letter_spacing
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            letter_spacing_clear.map(|value| (value.specificity, value.order))
+                        });
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        letter_spacing_clear = None;
                         letter_spacing = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -4481,9 +4544,33 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.word_spacing {
-                    let current = word_spacing.map(|value| (value.specificity, value.order));
+                if rule.word_spacing_inherit_or_unset {
+                    let current = word_spacing
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            word_spacing_clear.map(|value| (value.specificity, value.order))
+                        });
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        word_spacing = None;
+                        word_spacing_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .word_spacing
+                    .filter(|_| !rule.word_spacing_inherit_or_unset)
+                {
+                    let current = word_spacing
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            word_spacing_clear.map(|value| (value.specificity, value.order))
+                        });
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        word_spacing_clear = None;
                         word_spacing = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -11040,6 +11127,67 @@ mod tests {
         assert!(pdf_text.contains("7.2000003 Tc 7.2000003 Tw"));
         assert!(!pdf_text.contains("1.8000001 Tc 1.8000001 Tw"));
         assert!(!pdf_text.contains("[unsupported image: figures/text-anchor-spacing-unset.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_unset_text_anchor_and_spacing_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-anchor-spacing-rule-unset.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-anchor-spacing-rule-unset".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-anchor-spacing-rule-unset.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    tspan.anchored { text-anchor: end; fill: #000000; }
+    tspan.anchored.reset { text-anchor: unset; }
+    tspan.spaced { letter-spacing: 0.25; word-spacing: 0.25; fill: #000000; }
+    tspan.spaced.reset { letter-spacing: unset; word-spacing: unset; }
+  </style>
+  <text x="10" y="4" fill="#000000" font-size="2" text-anchor="middle">
+    <tspan class="anchored reset">aa</tspan>
+  </text>
+  <text x="2" y="8" fill="#000000" font-size="2" letter-spacing="1" word-spacing="1">
+    <tspan class="spaced reset">A B</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(
+            pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 136.8 685.2 Tm (aa) Tj ET")
+        );
+        assert!(!pdf_text.contains("1 0 0 1 129.6 685.2 Tm (aa) Tj"));
+        assert!(pdf_text.contains("7.2000003 Tc 7.2000003 Tw"));
+        assert!(!pdf_text.contains("1.8000001 Tc 1.8000001 Tw"));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/text-anchor-spacing-rule-unset.svg]")
+        );
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
