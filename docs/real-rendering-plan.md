@@ -1181,7 +1181,8 @@ Status:
   transformed text matrices, simple transformed `text-decoration` lines with
   `text-decoration-color`/`text-decoration-thickness`, dashed/dotted/double/wavy
   `text-decoration-style`, shorthand color/thickness/style, and `initial` /
-  `unset` reset handling for decoration line/color/thickness/style, simple
+  `unset` reset handling for decoration line/color/thickness/style plus
+  inline/style-rule `inherit` handling for decoration line state, simple
   `clip-path` rectangles with `initial` / `unset` reset handling and
   inline/style-rule `inherit` handling, approximate
   `middle`/`central` baseline alignment and simple `baseline-shift` with
