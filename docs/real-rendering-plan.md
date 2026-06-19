@@ -203,7 +203,7 @@ rules with basic specificity, inline and style-rule `stroke-width: unset`
 overriding class rules, and
     source-order cascade, `display: none` / `visibility: hidden` paint
     suppression with `display` and `visibility` `initial` / `unset` keyword
-    handling, including inline `display: inherit` and inline/style-rule `visibility: unset`
+    handling, including inline/style-rule `display: inherit` and inline/style-rule `visibility: unset`
     overriding class rules,
     parse-tolerant `!important` value markers,
     3/4/6/8-digit hex/CSS/SVG named/`rgb(...)` /
@@ -696,7 +696,7 @@ Implemented first slice:
   `stroke-width: unset` overriding class rules, and source-order cascade
   plus `display: none` / `visibility: hidden` paint suppression with
   `display` and `visibility` `initial` / `unset` keyword handling and
-  inline `display: inherit` and inline/style-rule `visibility: unset` overriding class rules,
+  inline/style-rule `display: inherit` and inline/style-rule `visibility: unset` overriding class rules,
   plus parse-tolerant `!important` value markers and 3/4/6/8-digit
   hex/CSS/SVG named/`rgb(...)` /
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
@@ -1213,7 +1213,7 @@ Status:
   `stroke-width: unset` overriding class rules, and source-order cascade
   plus `display: none` / `visibility: hidden` paint suppression with
   `display` and `visibility` `initial` / `unset` keyword handling and
-  inline `display: inherit` and inline/style-rule `visibility: unset` overriding class rules,
+  inline/style-rule `display: inherit` and inline/style-rule `visibility: unset` overriding class rules,
   plus parse-tolerant `!important` value markers and 3/4/6/8-digit
   hex/CSS/SVG named/`rgb(...)` /
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
