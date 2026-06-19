@@ -214,8 +214,8 @@ overriding class rules, and
     approximations with `href` inheritance, and paint-server `url(...)`
     fallback colors,
     simple `fill-rule` mapped to PDF nonzero/even-odd fill
-operators with `initial` reset handling and inline `unset` overriding class fill
-rules, simple `opacity` / `fill-opacity` /
+operators with `initial` reset handling and inline/style-rule `unset`
+overriding class fill rules, simple `opacity` / `fill-opacity` /
 `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
 handling and inline `unset` overriding class fill/stroke opacity rules, simple `stroke-dasharray` absolute/percentage lengths
 mapped to PDF dash patterns with inline and style-rule `unset` overriding class
@@ -705,8 +705,8 @@ Implemented first slice:
   approximations with `href` inheritance, and paint-server `url(...)` fallback
   colors,
   simple `fill-rule` mapped to PDF
-  nonzero/even-odd fill operators with `initial` reset handling and inline
-  `unset` overriding class fill rules, simple
+  nonzero/even-odd fill operators with `initial` reset handling and
+  inline/style-rule `unset` overriding class fill rules, simple
   `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
   handling and inline `unset` overriding class fill/stroke opacity rules, simple `stroke-dasharray`
@@ -1221,7 +1221,8 @@ Status:
   approximations with `href` inheritance, and paint-server `url(...)` fallback
   colors,
   simple `fill-rule` mapped to PDF
-  nonzero/even-odd fill operators with `initial` reset handling, simple
+  nonzero/even-odd fill operators with `initial` reset handling and
+  inline/style-rule `unset` overriding class fill rules, simple
   `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
   handling, simple `stroke-dasharray`
