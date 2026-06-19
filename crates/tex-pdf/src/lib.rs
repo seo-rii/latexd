@@ -3594,6 +3594,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         font_family_inherit_or_unset: bool,
         font_series_inherit_or_unset: bool,
         font_shape_inherit_or_unset: bool,
+        text_baseline_inherit_or_unset: bool,
+        baseline_shift_inherit_or_unset: bool,
     }
     #[derive(Debug, Clone, Copy)]
     struct SimpleSvgCascadeValue<T> {
@@ -3775,6 +3777,11 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 declaration_inherit_or_unset(declarations, "font-weight");
             let font_shape_inherit_or_unset =
                 declaration_inherit_or_unset(declarations, "font-style");
+            let text_baseline_inherit_or_unset =
+                declaration_inherit_or_unset(declarations, "dominant-baseline")
+                    || declaration_inherit_or_unset(declarations, "alignment-baseline");
+            let baseline_shift_inherit_or_unset =
+                declaration_inherit_or_unset(declarations, "baseline-shift");
             for selector in css[css_offset..selector_end].split(',') {
                 let Some(selector) = parse_style_selector(selector) else {
                     continue;
@@ -3807,6 +3814,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     font_family_inherit_or_unset,
                     font_series_inherit_or_unset,
                     font_shape_inherit_or_unset,
+                    text_baseline_inherit_or_unset,
+                    baseline_shift_inherit_or_unset,
                 });
             }
             css_offset = body_end + 1;
@@ -3998,7 +4007,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut text_decoration_style: Option<SimpleSvgCascadeValue<SimpleSvgTextDecorationStyle>> =
             None;
         let mut text_baseline: Option<SimpleSvgCascadeValue<SimpleSvgTextBaseline>> = None;
+        let mut text_baseline_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut baseline_shift: Option<SimpleSvgCascadeValue<SimpleSvgBaselineShift>> = None;
+        let mut baseline_shift_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut vector_effect_non_scaling_stroke: Option<SimpleSvgCascadeValue<bool>> = None;
         let mut marker_start: Option<SimpleSvgCascadeValue<Option<u64>>> = None;
         let mut marker_start_clear: Option<SimpleSvgCascadeValue<()>> = None;
@@ -4729,9 +4740,33 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.text_baseline {
-                    let current = text_baseline.map(|value| (value.specificity, value.order));
+                if rule.text_baseline_inherit_or_unset {
+                    let current = text_baseline
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            text_baseline_clear.map(|value| (value.specificity, value.order))
+                        });
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        text_baseline = None;
+                        text_baseline_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .text_baseline
+                    .filter(|_| !rule.text_baseline_inherit_or_unset)
+                {
+                    let current = text_baseline
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            text_baseline_clear.map(|value| (value.specificity, value.order))
+                        });
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        text_baseline_clear = None;
                         text_baseline = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -4739,9 +4774,33 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.baseline_shift {
-                    let current = baseline_shift.map(|value| (value.specificity, value.order));
+                if rule.baseline_shift_inherit_or_unset {
+                    let current = baseline_shift
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            baseline_shift_clear.map(|value| (value.specificity, value.order))
+                        });
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        baseline_shift = None;
+                        baseline_shift_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .baseline_shift
+                    .filter(|_| !rule.baseline_shift_inherit_or_unset)
+                {
+                    let current = baseline_shift
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            baseline_shift_clear.map(|value| (value.specificity, value.order))
+                        });
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        baseline_shift_clear = None;
                         baseline_shift = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -12984,6 +13043,56 @@ mod tests {
         assert!(pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 667.2 Tm (B) Tj ET"));
         assert!(!pdf_text.contains("1 0 0 1 144 663.6 Tm (B) Tj"));
         assert!(!pdf_text.contains("[unsupported image: figures/text-baseline-unset.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_unset_text_baseline_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-baseline-rule-unset.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-baseline-rule-unset".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-baseline-rule-unset.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    tspan.flat { alignment-baseline: baseline; baseline-shift: -1; fill: #000000; }
+    tspan.reset { alignment-baseline: unset; baseline-shift: unset; }
+  </style>
+  <text x="10" y="6" font-size="2" fill="#000000" dominant-baseline="middle" baseline-shift="0.5">
+    <tspan class="flat reset" x="10" y="6">B</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 667.2 Tm (B) Tj ET"));
+        assert!(!pdf_text.contains("1 0 0 1 144 663.6 Tm (B) Tj"));
+        assert!(!pdf_text.contains("[unsupported image: figures/text-baseline-rule-unset.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
