@@ -228,7 +228,7 @@ phase normalization, and transform scaling, simple `stroke-linecap` /
 line-style rules,
 simple
 `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
-`initial` / `unset` reset handling, and simple rect-backed `clipPath` clipping with
+`initial` / `unset` reset handling and inline/style-rule `inherit` handling, and simple rect-backed `clipPath` clipping with
 `initial` / `unset` reset handling and inline/style-rule `inherit` handling, including
 transformed group-wrapped rect children, and
     `matrix` / `rotate` / `skewX` / `skewY` transforms for path-like line/poly/path
@@ -721,7 +721,7 @@ Implemented first slice:
   `stroke-miterlimit` mapped to PDF graphics state with `initial` reset
   handling and inline/style-rule `unset` overriding class line-style rules, simple
   `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
-  `initial` / `unset` reset handling, simple rect-backed `clipPath` clipping with
+  `initial` / `unset` reset handling and inline/style-rule `inherit` handling, simple rect-backed `clipPath` clipping with
   `initial` / `unset` reset handling and inline/style-rule `inherit` handling, including
   transformed group-wrapped rect children, path-like `matrix` / `rotate` / `skewX` /
   `skewY` transforms, non-axis-aligned
@@ -1239,7 +1239,7 @@ Status:
   `stroke-miterlimit` mapped to PDF graphics state with `initial` reset
   handling and inline/style-rule `unset` overriding class line-style rules, simple
   `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
-  `initial` / `unset` reset handling, simple rect-backed `clipPath` clipping with
+  `initial` / `unset` reset handling and inline/style-rule `inherit` handling, simple rect-backed `clipPath` clipping with
   `initial` / `unset` reset handling and inline/style-rule `inherit` handling, including
   transformed group-wrapped rect children, and path-like `matrix` / `rotate` / `skewX` /
   `skewY` transform attributes plus

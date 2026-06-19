@@ -3599,6 +3599,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         font_shape_inherit_or_unset: bool,
         text_baseline_inherit_or_unset: bool,
         baseline_shift_inherit_or_unset: bool,
+        vector_effect_inherit: bool,
         clip_path_inherit: bool,
     }
     #[derive(Debug, Clone, Copy)]
@@ -3794,6 +3795,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     || declaration_inherit_or_unset(declarations, "alignment-baseline");
             let baseline_shift_inherit_or_unset =
                 declaration_inherit_or_unset(declarations, "baseline-shift");
+            let vector_effect_inherit = declaration_value(declarations, "vector-effect")
+                .map(|value| value.trim().eq_ignore_ascii_case("inherit"))
+                .unwrap_or(false);
             let clip_path_inherit = declaration_value(declarations, "clip-path")
                 .map(|value| value.trim().eq_ignore_ascii_case("inherit"))
                 .unwrap_or(false);
@@ -3834,6 +3838,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     font_shape_inherit_or_unset,
                     text_baseline_inherit_or_unset,
                     baseline_shift_inherit_or_unset,
+                    vector_effect_inherit,
                     clip_path_inherit,
                 });
             }
@@ -4033,6 +4038,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut baseline_shift: Option<SimpleSvgCascadeValue<SimpleSvgBaselineShift>> = None;
         let mut baseline_shift_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut vector_effect_non_scaling_stroke: Option<SimpleSvgCascadeValue<bool>> = None;
+        let mut vector_effect_non_scaling_stroke_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut marker_start: Option<SimpleSvgCascadeValue<Option<u64>>> = None;
         let mut marker_start_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut marker_mid: Option<SimpleSvgCascadeValue<Option<u64>>> = None;
@@ -4887,10 +4893,35 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.vector_effect_non_scaling_stroke {
+                if rule.vector_effect_inherit {
                     let current = vector_effect_non_scaling_stroke
-                        .map(|value| (value.specificity, value.order));
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            vector_effect_non_scaling_stroke_clear
+                                .map(|value| (value.specificity, value.order))
+                        });
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        vector_effect_non_scaling_stroke = None;
+                        vector_effect_non_scaling_stroke_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .vector_effect_non_scaling_stroke
+                    .filter(|_| !rule.vector_effect_inherit)
+                {
+                    let current = vector_effect_non_scaling_stroke
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            vector_effect_non_scaling_stroke_clear
+                                .map(|value| (value.specificity, value.order))
+                        });
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        vector_effect_non_scaling_stroke_clear = None;
                         vector_effect_non_scaling_stroke = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -5154,6 +5185,12 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         if inline_inherit_or_unset("baseline-shift") {
             presentation.baseline_shift = None;
+        }
+        if style_value(tag, "vector-effect")
+            .map(|value| value.trim().eq_ignore_ascii_case("inherit"))
+            .unwrap_or(false)
+        {
+            presentation.vector_effect_non_scaling_stroke = None;
         }
         if inline_inherit_or_unset("marker") {
             presentation.marker_start = None;
@@ -15309,6 +15346,103 @@ mod tests {
         assert!(pdf_text.contains("q [10 5] 2.5 d 4 M 1 0 0 RG 10 w 10 280 m 110 280 l S Q"));
         assert!(pdf_text.contains("q [20 10] 5 d 4 M 0 1 0 RG 20 w 10 240 m 110 240 l S Q"));
         assert!(!pdf_text.contains("[unsupported image: figures/vector-effect-unset.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_inline_inherit_vector_effect_as_scaling_stroke() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector-effect-inherit.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector-effect-inherit".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/vector-effect-inherit.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .fixed { vector-effect: non-scaling-stroke; }
+  </style>
+  <path class="fixed" d="M 0 0 L 5 0" transform="scale(2)" fill="none" stroke-width="1" stroke-dasharray="1 0.5" stroke-dashoffset="0.25" stroke="#ff0000"/>
+  <path class="fixed" d="M 0 2 L 5 2" transform="scale(2)" fill="none" stroke-width="1" stroke-dasharray="1 0.5" stroke-dashoffset="0.25" stroke="#00ff00" style="vector-effect: inherit"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q [10 5] 2.5 d 4 M 1 0 0 RG 10 w 10 280 m 110 280 l S Q"));
+        assert!(pdf_text.contains("q [20 10] 5 d 4 M 0 1 0 RG 20 w 10 240 m 110 240 l S Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/vector-effect-inherit.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_inherit_vector_effect_as_scaling_stroke() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector-effect-rule-inherit.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector-effect-rule-inherit".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/vector-effect-rule-inherit.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    path.fixed { vector-effect: non-scaling-stroke; }
+    path.scaling { vector-effect: inherit; }
+  </style>
+  <path class="fixed" d="M 0 0 L 5 0" transform="scale(2)" fill="none" stroke-width="1" stroke-dasharray="1 0.5" stroke-dashoffset="0.25" stroke="#ff0000"/>
+  <path class="fixed scaling" d="M 0 2 L 5 2" transform="scale(2)" fill="none" stroke-width="1" stroke-dasharray="1 0.5" stroke-dashoffset="0.25" stroke="#00ff00"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q [10 5] 2.5 d 4 M 1 0 0 RG 10 w 10 280 m 110 280 l S Q"));
+        assert!(pdf_text.contains("q [20 10] 5 d 4 M 0 1 0 RG 20 w 10 240 m 110 240 l S Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/vector-effect-rule-inherit.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
