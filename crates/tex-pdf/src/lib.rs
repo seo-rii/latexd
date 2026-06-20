@@ -3613,6 +3613,11 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         specificity: u16,
         order: usize,
     }
+    #[derive(Debug, Clone, Copy, Default)]
+    struct SimpleSvgStyleCascade {
+        presentation: SimpleSvgPresentation,
+        stroke_dasharray_clear: bool,
+    }
     let valid_svg_element_name = |element_name: &str| {
         !element_name.is_empty()
             && element_name
@@ -4003,7 +4008,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .collect::<String>();
         (!name.is_empty()).then(|| name.to_ascii_lowercase())
     };
-    let style_rule_presentation_for = |tag: &str| -> SimpleSvgPresentation {
+    let style_rule_presentation_for = |tag: &str| -> SimpleSvgStyleCascade {
         let tag_element_name = tag_element_name(tag);
         let class_attr = attr_value(tag, "class");
         let id_attr = attr_value(tag, "id");
@@ -5192,52 +5197,56 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 }
             }
         }
-        SimpleSvgPresentation {
-            fill: fill.map(|value| value.value),
-            fill_rule: fill_rule.map(|value| value.value),
-            stroke: stroke.map(|value| value.value),
-            stroke_width: stroke_width.map(|value| value.value),
-            stroke_dasharray: stroke_dasharray.map(|value| value.value),
-            stroke_dashoffset: stroke_dashoffset.map(|value| value.value),
-            stroke_linecap: stroke_linecap.map(|value| value.value),
-            stroke_linejoin: stroke_linejoin.map(|value| value.value),
-            stroke_miterlimit: stroke_miterlimit.map(|value| value.value),
-            paint_order: paint_order.map(|value| value.value),
-            color: color.map(|value| value.value),
-            display: display.map(|value| value.value),
-            visibility: visibility.map(|value| value.value),
-            opacity: opacity.map(|value| value.value),
-            fill_opacity: fill_opacity.map(|value| value.value),
-            stroke_opacity: stroke_opacity.map(|value| value.value),
-            text_anchor: text_anchor.map(|value| value.value),
-            font_size: font_size.map(|value| value.value),
-            font_family: font_family.map(|value| value.value),
-            font_series: font_series.map(|value| value.value),
-            font_shape: font_shape.map(|value| value.value),
-            letter_spacing: letter_spacing.map(|value| value.value),
-            word_spacing: word_spacing.map(|value| value.value),
-            text_decoration: text_decoration.map(|value| value.value),
-            text_decoration_color: text_decoration_color.map(|value| value.value),
-            text_decoration_thickness: text_decoration_thickness.map(|value| value.value),
-            text_decoration_style: text_decoration_style.map(|value| value.value),
-            text_baseline: text_baseline.map(|value| value.value),
-            baseline_shift: baseline_shift.map(|value| value.value),
-            vector_effect_non_scaling_stroke: vector_effect_non_scaling_stroke
-                .map(|value| value.value),
-            marker_start: marker_start.map(|value| value.value),
-            marker_mid: marker_mid.map(|value| value.value),
-            marker_end: marker_end.map(|value| value.value),
-            clip_path: clip_path.map(|value| value.value),
+        SimpleSvgStyleCascade {
+            presentation: SimpleSvgPresentation {
+                fill: fill.map(|value| value.value),
+                fill_rule: fill_rule.map(|value| value.value),
+                stroke: stroke.map(|value| value.value),
+                stroke_width: stroke_width.map(|value| value.value),
+                stroke_dasharray: stroke_dasharray.map(|value| value.value),
+                stroke_dashoffset: stroke_dashoffset.map(|value| value.value),
+                stroke_linecap: stroke_linecap.map(|value| value.value),
+                stroke_linejoin: stroke_linejoin.map(|value| value.value),
+                stroke_miterlimit: stroke_miterlimit.map(|value| value.value),
+                paint_order: paint_order.map(|value| value.value),
+                color: color.map(|value| value.value),
+                display: display.map(|value| value.value),
+                visibility: visibility.map(|value| value.value),
+                opacity: opacity.map(|value| value.value),
+                fill_opacity: fill_opacity.map(|value| value.value),
+                stroke_opacity: stroke_opacity.map(|value| value.value),
+                text_anchor: text_anchor.map(|value| value.value),
+                font_size: font_size.map(|value| value.value),
+                font_family: font_family.map(|value| value.value),
+                font_series: font_series.map(|value| value.value),
+                font_shape: font_shape.map(|value| value.value),
+                letter_spacing: letter_spacing.map(|value| value.value),
+                word_spacing: word_spacing.map(|value| value.value),
+                text_decoration: text_decoration.map(|value| value.value),
+                text_decoration_color: text_decoration_color.map(|value| value.value),
+                text_decoration_thickness: text_decoration_thickness.map(|value| value.value),
+                text_decoration_style: text_decoration_style.map(|value| value.value),
+                text_baseline: text_baseline.map(|value| value.value),
+                baseline_shift: baseline_shift.map(|value| value.value),
+                vector_effect_non_scaling_stroke: vector_effect_non_scaling_stroke
+                    .map(|value| value.value),
+                marker_start: marker_start.map(|value| value.value),
+                marker_mid: marker_mid.map(|value| value.value),
+                marker_end: marker_end.map(|value| value.value),
+                clip_path: clip_path.map(|value| value.value),
+            },
+            stroke_dasharray_clear: stroke_dasharray_clear.is_some(),
         }
     };
     let parse_presentation = |tag: &str| -> SimpleSvgPresentation {
         let attr_presentation = parse_attr_presentation(tag);
-        let class_presentation = style_rule_presentation_for(tag);
+        let style_cascade = style_rule_presentation_for(tag);
         let inline_style_presentation = parse_inline_style_presentation(tag);
-        let mut presentation = overlay_presentation(
-            overlay_presentation(attr_presentation, class_presentation),
-            inline_style_presentation,
-        );
+        let mut presentation = overlay_presentation(attr_presentation, style_cascade.presentation);
+        if style_cascade.stroke_dasharray_clear {
+            presentation.stroke_dasharray = None;
+        }
+        let mut presentation = overlay_presentation(presentation, inline_style_presentation);
         let inline_inherit_or_unset = |name: &str| {
             style_value(tag, name)
                 .map(|value| {
@@ -19239,6 +19248,58 @@ mod tests {
         assert!(pdf_text.contains("q [20 10] 0 d 4 M 1 0 0 RG 10 w 10 270 m 60 270 l S Q"));
         assert!(!pdf_text.contains("[5 5] 0 d"));
         assert!(!pdf_text.contains("[unsupported image: figures/stroke-dasharray-rule-unset.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_clear_stroke_dasharray_as_attr_override() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/stroke-dasharray-rule-clear-attr.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:stroke-dasharray-rule-clear-attr".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/stroke-dasharray-rule-clear-attr.svg").then(|| {
+                br##"<svg width="20" height="10" stroke-dasharray="2 1">
+  <style type="text/css">
+    line { stroke: #ff0000; stroke-width: 1; fill: none; stroke-dasharray: inherit; }
+    line.reset { stroke-dasharray: unset; }
+  </style>
+  <line x1="0" y1="1" x2="5" y2="1" stroke-dasharray="0.5 0.5"/>
+  <line class="reset" x1="0" y1="3" x2="5" y2="3" stroke-dasharray="0.25 0.25"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert_eq!(pdf_text.matches("[20 10] 0 d").count(), 2);
+        assert!(!pdf_text.contains("[5 5] 0 d"));
+        assert!(!pdf_text.contains("[2.5 2.5] 0 d"));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/stroke-dasharray-rule-clear-attr.svg]")
+        );
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

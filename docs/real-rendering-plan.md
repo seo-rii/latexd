@@ -220,6 +220,7 @@ overriding class fill rules, simple `opacity` / `fill-opacity` /
 handling, inline/style-rule `opacity: inherit`, and inline/style-rule `unset` overriding class fill/stroke opacity
 rules, simple `stroke-dasharray` absolute/percentage lengths
 mapped to PDF dash patterns with inline and style-rule `unset` overriding class
+dash patterns and style-rule `inherit` / `unset` overriding presentation-attribute
 dash patterns and offsets, `stroke-dashoffset` absolute/percentage phase support
 with inline and style-rule `unset` overriding class offsets, negative
 phase normalization, and transform scaling, simple `stroke-linecap` /
@@ -713,7 +714,8 @@ Implemented first slice:
   handling, inline/style-rule `opacity: inherit`, and inline/style-rule `unset` overriding class fill/stroke opacity
   rules, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with inline and style-rule
-  `unset` overriding class dash patterns and offsets, `stroke-dashoffset`
+  `unset` overriding class dash patterns and style-rule `inherit` / `unset`
+  overriding presentation-attribute dash patterns and offsets, `stroke-dashoffset`
   absolute/percentage phase support with inline and style-rule `unset` overriding
   class offsets, negative phase normalization, and transform
   scaling, simple
@@ -1232,7 +1234,8 @@ Status:
   handling, inline/style-rule `opacity: inherit`, and inline/style-rule `unset` overriding class fill/stroke opacity
   rules, simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with inline and style-rule
-  `unset` overriding class dash patterns and offsets, `stroke-dashoffset`
+  `unset` overriding class dash patterns and style-rule `inherit` / `unset`
+  overriding presentation-attribute dash patterns and offsets, `stroke-dashoffset`
   absolute/percentage phase support with inline and style-rule `unset` overriding
   class offsets, negative phase normalization, and transform
   scaling, simple
