@@ -1175,7 +1175,8 @@ Status:
   `dx`/`dy`, absolute and
   percentage `font-size`, `font-family`, `font-weight`, and `font-style`
   cascade with `initial` reset handling and inline/style-rule `unset`
-  overriding class font rules, simple `letter-spacing` and
+  overriding class font rules plus style-rule `inherit` / `unset` overriding
+  presentation-attribute font properties, simple `letter-spacing` and
   `word-spacing` via PDF text state with `initial` reset handling and
   inline/style-rule `unset` overriding class spacing rules plus style-rule
   `inherit` / `unset` overriding presentation-attribute spacing,

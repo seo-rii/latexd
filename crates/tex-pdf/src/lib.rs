@@ -3623,6 +3623,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         text_anchor_clear: bool,
         letter_spacing_clear: bool,
         word_spacing_clear: bool,
+        font_size_clear: bool,
+        font_family_clear: bool,
+        font_series_clear: bool,
+        font_shape_clear: bool,
     }
     let valid_svg_element_name = |element_name: &str| {
         !element_name.is_empty()
@@ -5248,6 +5252,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             text_anchor_clear: text_anchor_clear.is_some(),
             letter_spacing_clear: letter_spacing_clear.is_some(),
             word_spacing_clear: word_spacing_clear.is_some(),
+            font_size_clear: font_size_clear.is_some(),
+            font_family_clear: font_family_clear.is_some(),
+            font_series_clear: font_series_clear.is_some(),
+            font_shape_clear: font_shape_clear.is_some(),
         }
     };
     let parse_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -5275,6 +5283,18 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         if style_cascade.word_spacing_clear {
             presentation.word_spacing = None;
+        }
+        if style_cascade.font_size_clear {
+            presentation.font_size = None;
+        }
+        if style_cascade.font_family_clear {
+            presentation.font_family = None;
+        }
+        if style_cascade.font_series_clear {
+            presentation.font_series = None;
+        }
+        if style_cascade.font_shape_clear {
+            presentation.font_shape = None;
         }
         let mut presentation = overlay_presentation(presentation, inline_style_presentation);
         let inline_inherit_or_unset = |name: &str| {
@@ -11649,6 +11669,59 @@ mod tests {
         );
         assert!(!pdf_text.contains("/F9 14.400001 Tf"));
         assert!(!pdf_text.contains("[unsupported image: figures/font-rule-unset-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_clear_font_as_attr_override() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/font-rule-clear-attr.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:font-rule-clear-attr".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/font-rule-clear-attr.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    tspan { font-family: inherit; font-weight: inherit; font-style: inherit; font-size: inherit; }
+    tspan.reset { font-family: unset; font-weight: unset; font-style: unset; font-size: unset; }
+  </style>
+  <text x="2" y="6" fill="#000000" font-family="Arial" font-weight="bold" font-style="italic" font-size="4">
+    <tspan font-family="'Courier New', monospace" font-weight="normal" font-style="normal" font-size="2">FONT</tspan>
+  </text>
+  <text x="2" y="8" fill="#000000" font-family="Arial" font-weight="bold" font-style="italic" font-size="4">
+    <tspan class="reset" font-family="'Courier New', monospace" font-weight="normal" font-style="normal" font-size="2">FONT</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert_eq!(pdf_text.matches("/F8 28.800001 Tf").count(), 2);
+        assert!(!pdf_text.contains("/F9 14.400001 Tf"));
+        assert!(!pdf_text.contains("[unsupported image: figures/font-rule-clear-attr.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
