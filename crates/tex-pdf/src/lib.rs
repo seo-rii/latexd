@@ -3596,6 +3596,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         text_decoration_inherit: bool,
         text_decoration_color_inherit: bool,
         text_decoration_thickness_inherit: bool,
+        text_decoration_style_inherit: bool,
         font_size_inherit_or_unset: bool,
         font_family_inherit_or_unset: bool,
         font_series_inherit_or_unset: bool,
@@ -3804,6 +3805,12 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     || declaration_value(declarations, "text-decoration-thickness")
                         .map(|value| value.trim().eq_ignore_ascii_case("inherit"))
                         .unwrap_or(false);
+            let text_decoration_style_inherit = declaration_value(declarations, "text-decoration")
+                .map(|value| value.trim().eq_ignore_ascii_case("inherit"))
+                .unwrap_or(false)
+                || declaration_value(declarations, "text-decoration-style")
+                    .map(|value| value.trim().eq_ignore_ascii_case("inherit"))
+                    .unwrap_or(false);
             let font_size_inherit_or_unset =
                 declaration_inherit_or_unset(declarations, "font-size");
             let font_family_inherit_or_unset =
@@ -3857,6 +3864,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     text_decoration_inherit,
                     text_decoration_color_inherit,
                     text_decoration_thickness_inherit,
+                    text_decoration_style_inherit,
                     font_size_inherit_or_unset,
                     font_family_inherit_or_unset,
                     font_series_inherit_or_unset,
@@ -4061,6 +4069,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut text_decoration_thickness_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut text_decoration_style: Option<SimpleSvgCascadeValue<SimpleSvgTextDecorationStyle>> =
             None;
+        let mut text_decoration_style_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut text_baseline: Option<SimpleSvgCascadeValue<SimpleSvgTextBaseline>> = None;
         let mut text_baseline_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut baseline_shift: Option<SimpleSvgCascadeValue<SimpleSvgBaselineShift>> = None;
@@ -4916,10 +4925,35 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         });
                     }
                 }
-                if let Some(value) = rule.presentation.text_decoration_style {
-                    let current =
-                        text_decoration_style.map(|value| (value.specificity, value.order));
+                if rule.text_decoration_style_inherit {
+                    let current = text_decoration_style
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            text_decoration_style_clear
+                                .map(|value| (value.specificity, value.order))
+                        });
                     if should_replace_cascade_value(current, rule.specificity, order) {
+                        text_decoration_style = None;
+                        text_decoration_style_clear = Some(SimpleSvgCascadeValue {
+                            value: (),
+                            specificity: rule.specificity,
+                            order,
+                        });
+                    }
+                }
+                if let Some(value) = rule
+                    .presentation
+                    .text_decoration_style
+                    .filter(|_| !rule.text_decoration_style_inherit)
+                {
+                    let current = text_decoration_style
+                        .map(|value| (value.specificity, value.order))
+                        .or_else(|| {
+                            text_decoration_style_clear
+                                .map(|value| (value.specificity, value.order))
+                        });
+                    if should_replace_cascade_value(current, rule.specificity, order) {
+                        text_decoration_style_clear = None;
                         text_decoration_style = Some(SimpleSvgCascadeValue {
                             value,
                             specificity: rule.specificity,
@@ -5306,6 +5340,15 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .unwrap_or(false)
         {
             presentation.text_decoration_thickness = None;
+        }
+        if style_value(tag, "text-decoration")
+            .map(|value| value.trim().eq_ignore_ascii_case("inherit"))
+            .unwrap_or(false)
+            || style_value(tag, "text-decoration-style")
+                .map(|value| value.trim().eq_ignore_ascii_case("inherit"))
+                .unwrap_or(false)
+        {
+            presentation.text_decoration_style = None;
         }
         if inline_inherit_or_unset("dominant-baseline")
             || inline_inherit_or_unset("alignment-baseline")
@@ -12985,6 +13028,112 @@ mod tests {
             !pdf_text.contains(
                 "[unsupported image: figures/text-decoration-thickness-rule-inherit.svg]"
             )
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_inline_inherit_text_decoration_style_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-decoration-style-inherit.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-decoration-style-inherit".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-decoration-style-inherit.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .dashed { text-decoration-style: dashed; }
+  </style>
+  <text x="2" y="6" font-size="2" fill="#ff0000" text-decoration="underline" text-decoration-thickness="0.25" text-decoration-style="solid">
+    <tspan class="dashed" style="text-decoration-style: inherit">IS</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("(IS) Tj ET"));
+        assert!(pdf_text.contains("1 0 0 RG 1.8000001 w"));
+        assert!(!pdf_text.contains(" 0 d "));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/text-decoration-style-inherit.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_inherit_text_decoration_style_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-decoration-style-rule-inherit.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-decoration-style-rule-inherit".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-decoration-style-rule-inherit.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .dashed { text-decoration-style: dashed; }
+    tspan.dashed { text-decoration-style: inherit; }
+  </style>
+  <text x="2" y="6" font-size="2" fill="#ff0000" text-decoration="underline" text-decoration-thickness="0.25" text-decoration-style="solid">
+    <tspan class="dashed">IS</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("(IS) Tj ET"));
+        assert!(pdf_text.contains("1 0 0 RG 1.8000001 w"));
+        assert!(!pdf_text.contains(" 0 d "));
+        assert!(
+            !pdf_text
+                .contains("[unsupported image: figures/text-decoration-style-rule-inherit.svg]")
         );
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
