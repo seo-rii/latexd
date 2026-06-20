@@ -204,7 +204,8 @@ overriding class rules, and
     source-order cascade and same-property declaration order, `display: none` / `visibility: hidden` paint
     suppression with `display` and `visibility` `initial` / `unset` keyword
     handling, including inline/style-rule `display: inherit` and inline/style-rule `visibility: unset`
-    overriding class rules,
+    overriding class rules and style-rule `inherit` / `unset` overriding presentation-attribute
+    display/visibility,
     parse-tolerant `!important` value markers,
     3/4/6/8-digit hex/CSS/SVG named/`rgb(...)` /
     `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
@@ -219,8 +220,9 @@ operators with `initial` reset handling, inline/style-rule `unset`
 overriding class fill rules, and style-rule `inherit` / `unset` overriding
 presentation-attribute fill rules, simple `opacity` / `fill-opacity` /
 `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
-handling, inline/style-rule `opacity: inherit`, and inline/style-rule `unset` overriding class fill/stroke opacity
-rules, simple `stroke-dasharray` absolute/percentage lengths
+handling, inline/style-rule `opacity: inherit`, inline/style-rule `unset` overriding class fill/stroke opacity
+rules, and style-rule `inherit` / `unset` overriding presentation-attribute opacity,
+simple `stroke-dasharray` absolute/percentage lengths
 mapped to PDF dash patterns with inline and style-rule `unset` overriding class
 dash patterns and style-rule `inherit` / `unset` overriding presentation-attribute
 dash patterns and offsets, `stroke-dashoffset` absolute/percentage phase support
@@ -701,7 +703,8 @@ Implemented first slice:
   `stroke-width: unset` overriding class rules, source-order cascade, and same-property declaration order
   plus `display: none` / `visibility: hidden` paint suppression with
   `display` and `visibility` `initial` / `unset` keyword handling and
-  inline/style-rule `display: inherit` and inline/style-rule `visibility: unset` overriding class rules,
+  inline/style-rule `display: inherit` and inline/style-rule `visibility: unset` overriding class rules
+  and style-rule `inherit` / `unset` overriding presentation-attribute display/visibility,
   plus parse-tolerant `!important` value markers and 3/4/6/8-digit
   hex/CSS/SVG named/`rgb(...)` /
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
@@ -717,8 +720,9 @@ Implemented first slice:
   `inherit` / `unset` overriding presentation-attribute fill rules, simple
   `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
-  handling, inline/style-rule `opacity: inherit`, and inline/style-rule `unset` overriding class fill/stroke opacity
-  rules, simple `stroke-dasharray`
+  handling, inline/style-rule `opacity: inherit`, inline/style-rule `unset` overriding class fill/stroke opacity
+  rules, and style-rule `inherit` / `unset` overriding presentation-attribute opacity,
+  simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with inline and style-rule
   `unset` overriding class dash patterns and style-rule `inherit` / `unset`
   overriding presentation-attribute dash patterns and offsets, `stroke-dashoffset`
@@ -1231,7 +1235,8 @@ Status:
   `stroke-width: unset` overriding class rules, source-order cascade, and same-property declaration order
   plus `display: none` / `visibility: hidden` paint suppression with
   `display` and `visibility` `initial` / `unset` keyword handling and
-  inline/style-rule `display: inherit` and inline/style-rule `visibility: unset` overriding class rules,
+  inline/style-rule `display: inherit` and inline/style-rule `visibility: unset` overriding class rules
+  and style-rule `inherit` / `unset` overriding presentation-attribute display/visibility,
   plus parse-tolerant `!important` value markers and 3/4/6/8-digit
   hex/CSS/SVG named/`rgb(...)` /
   `rgba(...)` / `hsl(...)` / `hsla(...)` color forms, inherited
@@ -1247,8 +1252,9 @@ Status:
   `inherit` / `unset` overriding presentation-attribute fill rules, simple
   `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
-  handling, inline/style-rule `opacity: inherit`, and inline/style-rule `unset` overriding class fill/stroke opacity
-  rules, simple `stroke-dasharray`
+  handling, inline/style-rule `opacity: inherit`, inline/style-rule `unset` overriding class fill/stroke opacity
+  rules, and style-rule `inherit` / `unset` overriding presentation-attribute opacity,
+  simple `stroke-dasharray`
   absolute/percentage lengths mapped to PDF dash patterns with inline and style-rule
   `unset` overriding class dash patterns and style-rule `inherit` / `unset`
   overriding presentation-attribute dash patterns and offsets, `stroke-dashoffset`
