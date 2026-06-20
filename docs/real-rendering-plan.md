@@ -1170,13 +1170,15 @@ Status:
   direct text content with simple XML named and numeric text entity decoding,
   simple `xml:space="preserve"` edge whitespace and whitespace-only `tspan`
   gaps/bodies, simple `text-anchor` with `initial` reset handling and
-  inline/style-rule `unset` overriding class anchor rules, numeric
+  inline/style-rule `unset` overriding class anchor rules plus style-rule
+  `inherit` / `unset` overriding presentation-attribute anchors, numeric
   `dx`/`dy`, absolute and
   percentage `font-size`, `font-family`, `font-weight`, and `font-style`
   cascade with `initial` reset handling and inline/style-rule `unset`
   overriding class font rules, simple `letter-spacing` and
   `word-spacing` via PDF text state with `initial` reset handling and
-  inline/style-rule `unset` overriding class spacing rules,
+  inline/style-rule `unset` overriding class spacing rules plus style-rule
+  `inherit` / `unset` overriding presentation-attribute spacing,
   simple `textLength` spacing adjustment via PDF character spacing, simple PDF
   base-family mapping, simple stroked text via PDF text rendering modes, simple
   `paint-order: stroke fill` ordering for stroked text and filled/stroked

@@ -3620,6 +3620,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         stroke_linecap_clear: bool,
         stroke_linejoin_clear: bool,
         stroke_miterlimit_clear: bool,
+        text_anchor_clear: bool,
+        letter_spacing_clear: bool,
+        word_spacing_clear: bool,
     }
     let valid_svg_element_name = |element_name: &str| {
         !element_name.is_empty()
@@ -5242,6 +5245,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             stroke_linecap_clear: stroke_linecap_clear.is_some(),
             stroke_linejoin_clear: stroke_linejoin_clear.is_some(),
             stroke_miterlimit_clear: stroke_miterlimit_clear.is_some(),
+            text_anchor_clear: text_anchor_clear.is_some(),
+            letter_spacing_clear: letter_spacing_clear.is_some(),
+            word_spacing_clear: word_spacing_clear.is_some(),
         }
     };
     let parse_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -5260,6 +5266,15 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         if style_cascade.stroke_miterlimit_clear {
             presentation.stroke_miterlimit = None;
+        }
+        if style_cascade.text_anchor_clear {
+            presentation.text_anchor = None;
+        }
+        if style_cascade.letter_spacing_clear {
+            presentation.letter_spacing = None;
+        }
+        if style_cascade.word_spacing_clear {
+            presentation.word_spacing = None;
         }
         let mut presentation = overlay_presentation(presentation, inline_style_presentation);
         let inline_inherit_or_unset = |name: &str| {
@@ -11751,6 +11766,66 @@ mod tests {
         assert!(!pdf_text.contains("1.8000001 Tc 1.8000001 Tw"));
         assert!(
             !pdf_text.contains("[unsupported image: figures/text-anchor-spacing-rule-unset.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_clear_text_anchor_and_spacing_as_attr_override() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-anchor-spacing-rule-clear-attr.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-anchor-spacing-rule-clear-attr".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-anchor-spacing-rule-clear-attr.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    tspan { text-anchor: inherit; letter-spacing: inherit; word-spacing: inherit; fill: #000000; }
+    tspan.reset { text-anchor: unset; letter-spacing: unset; word-spacing: unset; }
+  </style>
+  <text x="10" y="4" fill="#000000" font-size="2" text-anchor="middle">
+    <tspan text-anchor="end">aa</tspan>
+  </text>
+  <text x="2" y="8" fill="#000000" font-size="2" letter-spacing="1" word-spacing="1">
+    <tspan class="reset" letter-spacing="0.25" word-spacing="0.25">A B</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(
+            pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 136.8 685.2 Tm (aa) Tj ET")
+        );
+        assert!(!pdf_text.contains("1 0 0 1 129.6 685.2 Tm (aa) Tj"));
+        assert!(pdf_text.contains("7.2000003 Tc 7.2000003 Tw"));
+        assert!(!pdf_text.contains("1.8000001 Tc 1.8000001 Tw"));
+        assert!(
+            !pdf_text
+                .contains("[unsupported image: figures/text-anchor-spacing-rule-clear-attr.svg]")
         );
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
