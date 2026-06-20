@@ -1193,7 +1193,9 @@ Status:
   `clip-path` rectangles with `initial` / `unset` reset handling and
   inline/style-rule `inherit` handling, approximate
   `middle`/`central` baseline alignment and simple `baseline-shift` with
-  `initial` reset handling and inline/style-rule `unset` overriding class baseline rules,
+  `initial` reset handling, inline/style-rule `unset` overriding class baseline
+  rules, and style-rule `inherit` / `unset` overriding presentation-attribute
+  baseline properties,
   and multiple
   direct literal `tspan` children with numeric `dx`/`dy`, simple `tspan`
   leading/trailing text spaces, mixed literal text plus simple `tspan`
