@@ -3617,6 +3617,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     struct SimpleSvgStyleCascade {
         presentation: SimpleSvgPresentation,
         stroke_dasharray_clear: bool,
+        stroke_linecap_clear: bool,
+        stroke_linejoin_clear: bool,
+        stroke_miterlimit_clear: bool,
     }
     let valid_svg_element_name = |element_name: &str| {
         !element_name.is_empty()
@@ -5236,6 +5239,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 clip_path: clip_path.map(|value| value.value),
             },
             stroke_dasharray_clear: stroke_dasharray_clear.is_some(),
+            stroke_linecap_clear: stroke_linecap_clear.is_some(),
+            stroke_linejoin_clear: stroke_linejoin_clear.is_some(),
+            stroke_miterlimit_clear: stroke_miterlimit_clear.is_some(),
         }
     };
     let parse_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -5245,6 +5251,15 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut presentation = overlay_presentation(attr_presentation, style_cascade.presentation);
         if style_cascade.stroke_dasharray_clear {
             presentation.stroke_dasharray = None;
+        }
+        if style_cascade.stroke_linecap_clear {
+            presentation.stroke_linecap = None;
+        }
+        if style_cascade.stroke_linejoin_clear {
+            presentation.stroke_linejoin = None;
+        }
+        if style_cascade.stroke_miterlimit_clear {
+            presentation.stroke_miterlimit = None;
         }
         let mut presentation = overlay_presentation(presentation, inline_style_presentation);
         let inline_inherit_or_unset = |name: &str| {
@@ -19748,6 +19763,60 @@ mod tests {
         assert!(!pdf_text.contains("2 M 1 0 0 RG 10 w 10 270 m 60 270 l S"));
         assert!(
             !pdf_text.contains("[unsupported image: figures/stroke-line-style-rule-unset.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_clear_stroke_line_styles_as_attr_override() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/stroke-line-style-rule-clear-attr.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:stroke-line-style-rule-clear-attr".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/stroke-line-style-rule-clear-attr.svg").then(|| {
+                br##"<svg width="20" height="10" stroke-linecap="round" stroke-linejoin="bevel" stroke-miterlimit="7">
+  <style type="text/css">
+    line { stroke: #ff0000; stroke-width: 1; fill: none; stroke-linecap: inherit; stroke-linejoin: inherit; stroke-miterlimit: inherit; }
+    line.reset { stroke-linecap: unset; stroke-linejoin: unset; stroke-miterlimit: unset; }
+  </style>
+  <line x1="0" y1="1" x2="5" y2="1" stroke-linecap="square" stroke-linejoin="miter" stroke-miterlimit="2"/>
+  <line class="reset" x1="0" y1="3" x2="5" y2="3" stroke-linecap="butt" stroke-linejoin="round" stroke-miterlimit="3"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert_eq!(pdf_text.matches("1 J 2 j 7 M").count(), 2);
+        assert!(!pdf_text.contains("2 J"));
+        assert!(!pdf_text.contains("0 j 2 M"));
+        assert!(!pdf_text.contains("1 j 3 M"));
+        assert!(
+            !pdf_text
+                .contains("[unsupported image: figures/stroke-line-style-rule-clear-attr.svg]")
         );
         assert!(!pdf_text.contains("/Subtype /Image"));
     }

@@ -226,7 +226,8 @@ with inline and style-rule `unset` overriding class offsets, negative
 phase normalization, and transform scaling, simple `stroke-linecap` /
 `stroke-linejoin` / `stroke-miterlimit` mapped to PDF graphics state with
 `initial` reset handling and inline/style-rule `unset` overriding class
-line-style rules,
+line-style rules plus style-rule `inherit` / `unset` overriding
+presentation-attribute line styles,
 simple
 `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
 `initial` / `unset` reset handling and inline/style-rule `inherit` handling, and simple rect-backed `clipPath` clipping with
@@ -721,7 +722,8 @@ Implemented first slice:
   scaling, simple
   zero `stroke-width` suppression, `stroke-linecap` / `stroke-linejoin` /
   `stroke-miterlimit` mapped to PDF graphics state with `initial` reset
-  handling and inline/style-rule `unset` overriding class line-style rules, simple
+  handling and inline/style-rule `unset` overriding class line-style rules plus
+  style-rule `inherit` / `unset` overriding presentation-attribute line styles, simple
   `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
   `initial` / `unset` reset handling and inline/style-rule `inherit` handling, simple rect-backed `clipPath` clipping with
   `initial` / `unset` reset handling and inline/style-rule `inherit` handling, including
@@ -1241,7 +1243,8 @@ Status:
   scaling, simple
   zero `stroke-width` suppression, `stroke-linecap` / `stroke-linejoin` /
   `stroke-miterlimit` mapped to PDF graphics state with `initial` reset
-  handling and inline/style-rule `unset` overriding class line-style rules, simple
+  handling and inline/style-rule `unset` overriding class line-style rules plus
+  style-rule `inherit` / `unset` overriding presentation-attribute line styles, simple
   `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
   `initial` / `unset` reset handling and inline/style-rule `inherit` handling, simple rect-backed `clipPath` clipping with
   `initial` / `unset` reset handling and inline/style-rule `inherit` handling, including
