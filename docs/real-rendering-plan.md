@@ -215,15 +215,17 @@ overriding class rules, and
     approximations with `href` inheritance, and paint-server `url(...)`
     fallback colors,
     simple `fill-rule` mapped to PDF nonzero/even-odd fill
-operators with `initial` reset handling and inline/style-rule `unset`
-overriding class fill rules, simple `opacity` / `fill-opacity` /
+operators with `initial` reset handling, inline/style-rule `unset`
+overriding class fill rules, and style-rule `inherit` / `unset` overriding
+presentation-attribute fill rules, simple `opacity` / `fill-opacity` /
 `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
 handling, inline/style-rule `opacity: inherit`, and inline/style-rule `unset` overriding class fill/stroke opacity
 rules, simple `stroke-dasharray` absolute/percentage lengths
 mapped to PDF dash patterns with inline and style-rule `unset` overriding class
 dash patterns and style-rule `inherit` / `unset` overriding presentation-attribute
 dash patterns and offsets, `stroke-dashoffset` absolute/percentage phase support
-with inline and style-rule `unset` overriding class offsets, negative
+with inline and style-rule `unset` overriding class offsets and style-rule
+`inherit` / `unset` overriding presentation-attribute stroke widths/offsets, negative
 phase normalization, and transform scaling, simple `stroke-linecap` /
 `stroke-linejoin` / `stroke-miterlimit` mapped to PDF graphics state with
 `initial` reset handling and inline/style-rule `unset` overriding class
@@ -710,8 +712,9 @@ Implemented first slice:
   approximations with `href` inheritance, and paint-server `url(...)` fallback
   colors,
   simple `fill-rule` mapped to PDF
-  nonzero/even-odd fill operators with `initial` reset handling and
-  inline/style-rule `unset` overriding class fill rules, simple
+  nonzero/even-odd fill operators with `initial` reset handling,
+  inline/style-rule `unset` overriding class fill rules, and style-rule
+  `inherit` / `unset` overriding presentation-attribute fill rules, simple
   `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
   handling, inline/style-rule `opacity: inherit`, and inline/style-rule `unset` overriding class fill/stroke opacity
@@ -720,7 +723,8 @@ Implemented first slice:
   `unset` overriding class dash patterns and style-rule `inherit` / `unset`
   overriding presentation-attribute dash patterns and offsets, `stroke-dashoffset`
   absolute/percentage phase support with inline and style-rule `unset` overriding
-  class offsets, negative phase normalization, and transform
+  class offsets and style-rule `inherit` / `unset` overriding presentation-attribute
+  stroke widths/offsets, negative phase normalization, and transform
   scaling, simple
   zero `stroke-width` suppression, `stroke-linecap` / `stroke-linejoin` /
   `stroke-miterlimit` mapped to PDF graphics state with `initial` reset
@@ -1185,7 +1189,8 @@ Status:
   simple `textLength` spacing adjustment via PDF character spacing, simple PDF
   base-family mapping, simple stroked text via PDF text rendering modes, simple
   `paint-order: stroke fill` ordering for stroked text and filled/stroked
-  shapes with `initial` reset handling and inline/style-rule `unset` overriding class order rules, simple fill/stroke opacity separation
+  shapes with `initial` reset handling, inline/style-rule `unset` overriding class order rules,
+  and style-rule `inherit` / `unset` overriding presentation-attribute order, simple fill/stroke opacity separation
   and dash/style state for stroked text, simple
   transformed text matrices, simple transformed `text-decoration` lines with
   `text-decoration-color`/`text-decoration-thickness`, dashed/dotted/double/wavy
@@ -1237,8 +1242,9 @@ Status:
   approximations with `href` inheritance, and paint-server `url(...)` fallback
   colors,
   simple `fill-rule` mapped to PDF
-  nonzero/even-odd fill operators with `initial` reset handling and
-  inline/style-rule `unset` overriding class fill rules, simple
+  nonzero/even-odd fill operators with `initial` reset handling,
+  inline/style-rule `unset` overriding class fill rules, and style-rule
+  `inherit` / `unset` overriding presentation-attribute fill rules, simple
   `opacity` / `fill-opacity` /
   `stroke-opacity` mapped to PDF ExtGState resources with `initial` / `unset` reset
   handling, inline/style-rule `opacity: inherit`, and inline/style-rule `unset` overriding class fill/stroke opacity
@@ -1247,7 +1253,8 @@ Status:
   `unset` overriding class dash patterns and style-rule `inherit` / `unset`
   overriding presentation-attribute dash patterns and offsets, `stroke-dashoffset`
   absolute/percentage phase support with inline and style-rule `unset` overriding
-  class offsets, negative phase normalization, and transform
+  class offsets and style-rule `inherit` / `unset` overriding presentation-attribute
+  stroke widths/offsets, negative phase normalization, and transform
   scaling, simple
   zero `stroke-width` suppression, `stroke-linecap` / `stroke-linejoin` /
   `stroke-miterlimit` mapped to PDF graphics state with `initial` reset

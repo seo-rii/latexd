@@ -3617,11 +3617,15 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
     struct SimpleSvgStyleCascade {
         presentation: SimpleSvgPresentation,
         fill_clear: bool,
+        fill_rule_clear: bool,
         stroke_clear: bool,
+        stroke_width_clear: bool,
         stroke_dasharray_clear: bool,
+        stroke_dashoffset_clear: bool,
         stroke_linecap_clear: bool,
         stroke_linejoin_clear: bool,
         stroke_miterlimit_clear: bool,
+        paint_order_clear: bool,
         color_clear: bool,
         text_anchor_clear: bool,
         letter_spacing_clear: bool,
@@ -5251,11 +5255,15 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 clip_path: clip_path.map(|value| value.value),
             },
             fill_clear: fill_clear.is_some(),
+            fill_rule_clear: fill_rule_clear.is_some(),
             stroke_clear: stroke_clear.is_some(),
+            stroke_width_clear: stroke_width_clear.is_some(),
             stroke_dasharray_clear: stroke_dasharray_clear.is_some(),
+            stroke_dashoffset_clear: stroke_dashoffset_clear.is_some(),
             stroke_linecap_clear: stroke_linecap_clear.is_some(),
             stroke_linejoin_clear: stroke_linejoin_clear.is_some(),
             stroke_miterlimit_clear: stroke_miterlimit_clear.is_some(),
+            paint_order_clear: paint_order_clear.is_some(),
             color_clear: color_clear.is_some(),
             text_anchor_clear: text_anchor_clear.is_some(),
             letter_spacing_clear: letter_spacing_clear.is_some(),
@@ -5276,11 +5284,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         if style_cascade.fill_clear {
             presentation.fill = None;
         }
+        if style_cascade.fill_rule_clear {
+            presentation.fill_rule = None;
+        }
         if style_cascade.stroke_clear {
             presentation.stroke = None;
         }
+        if style_cascade.stroke_width_clear {
+            presentation.stroke_width = None;
+        }
         if style_cascade.stroke_dasharray_clear {
             presentation.stroke_dasharray = None;
+        }
+        if style_cascade.stroke_dashoffset_clear {
+            presentation.stroke_dashoffset = None;
         }
         if style_cascade.stroke_linecap_clear {
             presentation.stroke_linecap = None;
@@ -5290,6 +5307,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         if style_cascade.stroke_miterlimit_clear {
             presentation.stroke_miterlimit = None;
+        }
+        if style_cascade.paint_order_clear {
+            presentation.paint_order = None;
         }
         if style_cascade.color_clear {
             presentation.color = None;
@@ -13849,6 +13869,55 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_style_rule_clear_paint_order_as_attr_override() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/paint-order-rule-clear-attr.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:paint-order-rule-clear-attr".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/paint-order-rule-clear-attr.svg").then(|| {
+                br##"<svg width="20" height="10" paint-order="stroke fill">
+  <style type="text/css">
+    rect.normal { paint-order: normal; fill: #ff0000; stroke: #0000ff; stroke-width: 1; }
+    rect.reset { paint-order: unset; }
+  </style>
+  <rect class="normal reset" x="2" y="2" width="4" height="4" paint-order="normal"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        let rect_stroke_index = pdf_text.find("0 0 1 RG").unwrap();
+        let rect_fill_index = pdf_text.find("1 0 0 rg").unwrap();
+        assert!(rect_stroke_index < rect_fill_index);
+        assert!(!pdf_text.contains("[unsupported image: figures/paint-order-rule-clear-attr.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn renders_simple_svg_zero_stroke_width_as_no_stroke() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
@@ -20261,6 +20330,57 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_style_rule_clear_stroke_metrics_as_attr_override() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/stroke-metrics-rule-clear-attr.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:stroke-metrics-rule-clear-attr".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/stroke-metrics-rule-clear-attr.svg").then(|| {
+                br##"<svg width="20" height="10" stroke-width="1" stroke-dasharray="2 1" stroke-dashoffset="0.5">
+  <style type="text/css">
+    .wide { stroke: #ff0000; stroke-width: 3; fill: none; stroke-dashoffset: 0.25; }
+    line.wide { stroke-width: unset; stroke-dashoffset: unset; }
+  </style>
+  <line class="wide" x1="0" y1="1" x2="5" y2="1" stroke-width="4" stroke-dashoffset="0.75"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q [20 10] 5 d 4 M 1 0 0 RG 10 w 10 270 m 60 270 l S Q"));
+        assert!(!pdf_text.contains("[20 10] 7.5 d"));
+        assert!(!pdf_text.contains("1 0 0 RG 40 w 10 270 m 60 270 l S"));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/stroke-metrics-rule-clear-attr.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn renders_simple_svg_fill_rule_as_pdf_fill_operator() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
@@ -20412,6 +20532,58 @@ mod tests {
             "1 0 0 rg 10 280 m 110 280 l 110 180 l 10 180 l h 30 260 m 90 260 l 90 200 l 30 200 l h f "
         ));
         assert!(!pdf_text.contains("[unsupported image: figures/fill-rule-rule-unset.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_clear_fill_rule_as_attr_override() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/fill-rule-rule-clear-attr.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:fill-rule-rule-clear-attr".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/fill-rule-rule-clear-attr.svg").then(|| {
+                br##"<svg width="20" height="10" fill-rule="evenodd">
+  <style type="text/css">
+    .solid { fill: #ff0000; stroke: none; fill-rule: nonzero; }
+    path.solid { fill-rule: unset; }
+  </style>
+  <path class="solid" fill-rule="nonzero" d="M 0 0 H 10 V 10 H 0 Z M 2 2 H 8 V 8 H 2 Z"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains(
+            "1 0 0 rg 10 280 m 110 280 l 110 180 l 10 180 l h 30 260 m 90 260 l 90 200 l 30 200 l h f*"
+        ));
+        assert!(!pdf_text.contains(
+            "1 0 0 rg 10 280 m 110 280 l 110 180 l 10 180 l h 30 260 m 90 260 l 90 200 l 30 200 l h f "
+        ));
+        assert!(!pdf_text.contains("[unsupported image: figures/fill-rule-rule-clear-attr.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
