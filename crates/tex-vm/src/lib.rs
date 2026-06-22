@@ -681,6 +681,7 @@ enum Primitive {
     Input,
     Include,
     IncludeOnly,
+    Citation,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -13948,6 +13949,29 @@ impl<'i> Vm<'i> {
     ) {
         match primitive {
             Primitive::Relax | Primitive::Immediate | Primitive::Protect => {}
+            Primitive::Citation => {
+                self.skip_optional_spaces(queue);
+                if let Some(token) = self.pop_next_token(queue) {
+                    if !matches!(
+                        token.kind,
+                        TokenKind::Character {
+                            ch: '*',
+                            catcode: CatCode::Other | CatCode::Letter | CatCode::Active
+                        }
+                    ) {
+                        self.push_token_front(queue, token);
+                    }
+                }
+                loop {
+                    self.skip_optional_spaces(queue);
+                    if self.read_optional_bracket_tokens(queue).is_none() {
+                        break;
+                    }
+                }
+                if self.read_macro_argument(queue).is_some() {
+                    self.output.push_str("[?]");
+                }
+            }
             Primitive::NewRead => {
                 let force_global = mem::take(&mut self.global_prefix);
                 let Some(name) = self.read_control_sequence_name(queue) else {
@@ -20284,6 +20308,14 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "input" => Some(Primitive::Input),
         "include" => Some(Primitive::Include),
         "includeonly" => Some(Primitive::IncludeOnly),
+        "cite" | "citet" | "Citet" | "citep" | "Citep" | "citealt" | "Citealt" | "citealp"
+        | "Citealp" | "citeauthor" | "citeyear" | "citeyearpar" | "parencite" | "Parencite"
+        | "textcite" | "Textcite" | "autocite" | "Autocite" | "footcite" | "supercite"
+        | "Citeauthor" | "Citeyear" | "Citeyearpar" | "citetitle" | "Citetitle"
+        | "citefullauthor" | "Citefullauthor" | "citedoi" | "citeeprint" | "citeisbn"
+        | "citeissn" | "citeurl" | "citenum" | "citedate" | "Citedate" | "citeurldate"
+        | "Citeurldate" | "onlinecite" | "smartcite" | "fullcite" | "footfullcite" | "bibentry"
+        | "citetalias" | "citepalias" | "Citetalias" => Some(Primitive::Citation),
         _ => None,
     }
 }
@@ -20494,6 +20526,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::Input => "input",
         Primitive::Include => "include",
         Primitive::IncludeOnly => "includeonly",
+        Primitive::Citation => "cite",
     }
 }
 
@@ -28301,6 +28334,31 @@ mod tests {
         assert!(outcome.output.contains("Step text."));
         assert!(outcome.output.contains("Wide figure."));
         assert!(outcome.output.contains("[visible]Custom text."));
+    }
+
+    #[test]
+    fn legacy_output_redacts_citation_keys() {
+        for source in [
+            r"\begin{document}Text \cite{alpha}.\end{document}",
+            r"\documentclass{article}\usepackage{natbib}\begin{document}Text~\citep{alpha,beta} and \citet{gamma}.\end{document}",
+        ] {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            let outcome = vm.run_plain(source);
+
+            assert!(
+                outcome.output.contains("[?]"),
+                "citation placeholder missing from {:?}",
+                outcome.output
+            );
+            for hidden in ["alpha", "beta", "gamma", "citep", "citet"] {
+                assert!(
+                    !outcome.output.contains(hidden),
+                    "{hidden} leaked into {:?}",
+                    outcome.output
+                );
+            }
+        }
     }
 
     #[test]

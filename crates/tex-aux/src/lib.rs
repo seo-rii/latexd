@@ -4621,7 +4621,7 @@ fn rewrite_source(
                     let mut rendered = aux
                         .citation_alias_text(&key)
                         .map(ToOwned::to_owned)
-                        .unwrap_or(key);
+                        .unwrap_or_else(|| "?".to_string());
                     if matches!(command_name.as_str(), "citepalias" | "Citepalias") {
                         rendered = format!("({rendered})");
                     }
@@ -4664,7 +4664,7 @@ fn rewrite_source(
                         .map(|key| {
                             aux.bibliography_number(key)
                                 .map(|number| number.to_string())
-                                .unwrap_or_else(|| key.to_string())
+                                .unwrap_or_else(|| "?".to_string())
                         })
                         .collect::<Vec<_>>();
                     let mut rendered = rendered.join(", ");
@@ -4709,7 +4709,7 @@ fn rewrite_source(
                         .map(|key| {
                             aux.bibliography_number(key)
                                 .map(|number| number.to_string())
-                                .unwrap_or_else(|| key.to_string())
+                                .unwrap_or_else(|| "?".to_string())
                         })
                         .collect::<Vec<_>>();
                     let mut rendered = rendered.join(", ");
@@ -4761,7 +4761,7 @@ fn rewrite_source(
                                 _ => aux
                                     .bibliography_number(key)
                                     .map(|number| number.to_string())
-                                    .unwrap_or_else(|| key.to_string()),
+                                    .unwrap_or_else(|| "?".to_string()),
                             }
                         })
                         .collect::<Vec<_>>();
@@ -4806,7 +4806,7 @@ fn rewrite_source(
                                 .map(|key| {
                                     aux.bibliography_number(key)
                                         .map(|number| number.to_string())
-                                        .unwrap_or_else(|| key.to_string())
+                                        .unwrap_or_else(|| "?".to_string())
                                 })
                                 .collect::<Vec<_>>()
                                 .join(", ");
@@ -4853,7 +4853,7 @@ fn rewrite_source(
                                 .map(|key| {
                                     aux.bibliography_number(key)
                                         .map(|number| number.to_string())
-                                        .unwrap_or_else(|| key.to_string())
+                                        .unwrap_or_else(|| "?".to_string())
                                 })
                                 .collect::<Vec<_>>()
                                 .join(", ");
@@ -4919,7 +4919,7 @@ fn rewrite_source(
                                 _ => aux
                                     .bibliography_number(key)
                                     .map(|number| number.to_string())
-                                    .unwrap_or_else(|| key.to_string()),
+                                    .unwrap_or_else(|| "?".to_string()),
                             },
                         )
                         .collect::<Vec<_>>();
@@ -4966,7 +4966,7 @@ fn rewrite_source(
                                         _ => aux
                                             .bibliography_number(key)
                                             .map(|number| number.to_string())
-                                            .unwrap_or_else(|| key.to_string()),
+                                            .unwrap_or_else(|| "?".to_string()),
                                     }
                                 })
                                 .collect::<Vec<_>>()
@@ -5030,7 +5030,7 @@ fn rewrite_source(
                                 _ => aux
                                     .bibliography_number(key)
                                     .map(|number| format!("[{number}]"))
-                                    .unwrap_or_else(|| key.to_string()),
+                                    .unwrap_or_else(|| "[?]".to_string()),
                             }
                         })
                         .collect::<Vec<_>>();
@@ -5092,7 +5092,7 @@ fn rewrite_source(
                                 _ => aux
                                     .bibliography_number(key)
                                     .map(|number| number.to_string())
-                                    .unwrap_or_else(|| key.to_string()),
+                                    .unwrap_or_else(|| "?".to_string()),
                             }
                         })
                         .collect::<Vec<_>>();
@@ -5171,7 +5171,7 @@ fn rewrite_source(
                                 _ => aux
                                     .bibliography_number(key)
                                     .map(|number| format!("[{number}]"))
-                                    .unwrap_or_else(|| key.to_string()),
+                                    .unwrap_or_else(|| "[?]".to_string()),
                             }
                         })
                         .collect::<Vec<_>>();
@@ -5222,7 +5222,7 @@ fn rewrite_source(
                                         _ => aux
                                             .bibliography_number(key)
                                             .map(|number| format!("[{number}]"))
-                                            .unwrap_or_else(|| key.to_string()),
+                                            .unwrap_or_else(|| "[?]".to_string()),
                                     }
                                 })
                                 .collect::<Vec<_>>()
@@ -5270,7 +5270,7 @@ fn rewrite_source(
                         .map(|key| {
                             aux.bibliography_text(key)
                                 .map(ToOwned::to_owned)
-                                .unwrap_or_else(|| key.to_string())
+                                .unwrap_or_else(|| "?".to_string())
                         })
                         .collect::<Vec<_>>()
                         .join("; ");
@@ -5297,7 +5297,7 @@ fn rewrite_source(
                         .map(|key| {
                             aux.bibliography_number(key)
                                 .map(|number| number.to_string())
-                                .unwrap_or_else(|| key.to_string())
+                                .unwrap_or_else(|| "?".to_string())
                         })
                         .collect::<Vec<_>>()
                         .join(", ");
@@ -5327,10 +5327,10 @@ fn rewrite_source(
                             {
                                 aux.citation_full_author(key)
                                     .or_else(|| aux.citation_display_author(key, starred))
-                                    .unwrap_or_else(|| key.to_string())
+                                    .unwrap_or_else(|| "?".to_string())
                             } else {
                                 aux.citation_display_author(key, starred)
-                                    .unwrap_or_else(|| key.to_string())
+                                    .unwrap_or_else(|| "?".to_string())
                             }
                         })
                         .collect::<Vec<_>>();
@@ -5474,7 +5474,7 @@ fn rewrite_source(
                         .map(|key| {
                             aux.citation_title(key)
                                 .map(ToOwned::to_owned)
-                                .unwrap_or_else(|| key.to_string())
+                                .unwrap_or_else(|| "?".to_string())
                         })
                         .collect::<Vec<_>>();
                     let rendered = rendered.join(", ");
@@ -10263,6 +10263,41 @@ mod tests {
         assert!(!main.contains("\\citetalias"));
         assert!(!main.contains("\\citepalias"));
         assert!(!main.contains("\\Citetalias"));
+    }
+
+    #[test]
+    fn materialize_project_redacts_unresolved_citation_keys() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            concat!(
+                "See \\cite{missing}, \\citep{missing,other}, \\citet{missing}, ",
+                "\\parencite{missing}, \\citetalias{alias}, \\citepalias{alias}, ",
+                "\\fullcite{missing}, \\citeauthor{missing}, \\citetitle{missing}, ",
+                "and \\citenum{missing}."
+            ),
+        )
+        .expect("write main");
+        let aux = SemanticAux::default();
+
+        let materialized =
+            materialize_project(&root, &Utf8PathBuf::from("main.tex"), &aux).expect("materialize");
+        let main = materialized
+            .files
+            .get(&Utf8PathBuf::from("main.tex"))
+            .expect("materialized main");
+
+        for leaked in ["missing", "other", "alias"] {
+            assert!(
+                !main.contains(leaked),
+                "{leaked} leaked into materialized source: {main:?}"
+            );
+        }
+        assert!(
+            main.matches('?').count() >= 10,
+            "expected citation placeholders in materialized source: {main:?}"
+        );
     }
 
     #[test]
