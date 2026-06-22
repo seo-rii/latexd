@@ -377,7 +377,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                         page.height_pt - run.origin.y
                     ));
                     stream.push('(');
-                    stream.push_str(&escape_pdf_text(&run.text));
+                    stream.push_str(&escape_pdf_visible_text(&run.text));
                     stream.push_str(") Tj ET ");
                 }
                 DrawOp::Rule(rect) => {
@@ -1259,7 +1259,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                                                 "{} {} {} {} {} {} Tm (",
                                                 matrix_a, matrix_b, matrix_c, matrix_d, x, y
                                             ));
-                                            stream.push_str(&escape_pdf_text(&svg_text.text));
+                                            stream.push_str(&escape_pdf_visible_text(&svg_text.text));
                                             stream.push_str(") Tj ");
                                             if text_render_mode.is_some() {
                                                 stream.push_str("0 Tr ");
@@ -9919,7 +9919,9 @@ fn push_image_placeholder(
         page_height_pt - image.rect.y - image.rect.height / 2.0
     ));
     stream.push('(');
-    stream.push_str(&escape_pdf_text(&image_placeholder_text(image, status)));
+    stream.push_str(&escape_pdf_visible_text(&image_placeholder_text(
+        image, status,
+    )));
     stream.push_str(") Tj ET ");
     if rotated {
         stream.push_str("Q ");
@@ -10531,7 +10533,7 @@ fn build_page_stream(page: &PageLayout, page_height_pt: f32) -> String {
             stream.push_str("T* ");
         }
         stream.push('(');
-        stream.push_str(&escape_pdf_text(line));
+        stream.push_str(&escape_pdf_visible_text(line));
         stream.push_str(") Tj ");
     }
     stream.push_str("ET");
@@ -10552,6 +10554,132 @@ fn escape_pdf_text(text: &str) -> String {
         }
     }
     escaped
+}
+
+fn escape_pdf_visible_text(text: &str) -> String {
+    let mut visible = String::new();
+    for ch in text.chars() {
+        let replacement = match ch {
+            '\u{00ad}' => continue,
+            '\u{0300}'..='\u{036f}' => continue,
+            '\u{fb00}' => "ff",
+            '\u{fb01}' => "fi",
+            '\u{fb02}' => "fl",
+            '\u{fb03}' => "ffi",
+            '\u{fb04}' => "ffl",
+            '\u{00c0}'..='\u{00c5}' | '\u{0100}' | '\u{0102}' | '\u{0104}' => "A",
+            '\u{00e0}'..='\u{00e5}' | '\u{0101}' | '\u{0103}' | '\u{0105}' => "a",
+            '\u{00c6}' => "AE",
+            '\u{00e6}' => "ae",
+            '\u{00c7}' | '\u{0106}' | '\u{0108}' | '\u{010a}' | '\u{010c}' => "C",
+            '\u{00e7}' | '\u{0107}' | '\u{0109}' | '\u{010b}' | '\u{010d}' => "c",
+            '\u{010e}' | '\u{0110}' => "D",
+            '\u{010f}' | '\u{0111}' => "d",
+            '\u{00c8}'..='\u{00cb}'
+            | '\u{0112}'
+            | '\u{0114}'
+            | '\u{0116}'
+            | '\u{0118}'
+            | '\u{011a}' => "E",
+            '\u{00e8}'..='\u{00eb}'
+            | '\u{0113}'
+            | '\u{0115}'
+            | '\u{0117}'
+            | '\u{0119}'
+            | '\u{011b}' => "e",
+            '\u{011c}' | '\u{011e}' | '\u{0120}' | '\u{0122}' => "G",
+            '\u{011d}' | '\u{011f}' | '\u{0121}' | '\u{0123}' => "g",
+            '\u{0124}' | '\u{0126}' => "H",
+            '\u{0125}' | '\u{0127}' => "h",
+            '\u{00cc}'..='\u{00cf}'
+            | '\u{0128}'
+            | '\u{012a}'
+            | '\u{012c}'
+            | '\u{012e}'
+            | '\u{0130}' => "I",
+            '\u{00ec}'..='\u{00ef}'
+            | '\u{0129}'
+            | '\u{012b}'
+            | '\u{012d}'
+            | '\u{012f}'
+            | '\u{0131}' => "i",
+            '\u{0134}' => "J",
+            '\u{0135}' => "j",
+            '\u{0136}' => "K",
+            '\u{0137}' | '\u{0138}' => "k",
+            '\u{0139}' | '\u{013b}' | '\u{013d}' | '\u{013f}' | '\u{0141}' => "L",
+            '\u{013a}' | '\u{013c}' | '\u{013e}' | '\u{0140}' | '\u{0142}' => "l",
+            '\u{00d1}' | '\u{0143}' | '\u{0145}' | '\u{0147}' => "N",
+            '\u{00f1}' | '\u{0144}' | '\u{0146}' | '\u{0148}' | '\u{0149}' => "n",
+            '\u{00d2}'..='\u{00d6}' | '\u{00d8}' | '\u{014c}' | '\u{014e}' | '\u{0150}' => "O",
+            '\u{00f2}'..='\u{00f6}' | '\u{00f8}' | '\u{014d}' | '\u{014f}' | '\u{0151}' => "o",
+            '\u{0152}' => "OE",
+            '\u{0153}' => "oe",
+            '\u{0154}' | '\u{0156}' | '\u{0158}' => "R",
+            '\u{0155}' | '\u{0157}' | '\u{0159}' => "r",
+            '\u{015a}' | '\u{015c}' | '\u{015e}' | '\u{0160}' => "S",
+            '\u{015b}' | '\u{015d}' | '\u{015f}' | '\u{0161}' => "s",
+            '\u{0162}' | '\u{0164}' | '\u{0166}' => "T",
+            '\u{0163}' | '\u{0165}' | '\u{0167}' => "t",
+            '\u{00d9}'..='\u{00dc}'
+            | '\u{0168}'
+            | '\u{016a}'
+            | '\u{016c}'
+            | '\u{016e}'
+            | '\u{0170}'
+            | '\u{0172}' => "U",
+            '\u{00f9}'..='\u{00fc}'
+            | '\u{0169}'
+            | '\u{016b}'
+            | '\u{016d}'
+            | '\u{016f}'
+            | '\u{0171}'
+            | '\u{0173}' => "u",
+            '\u{0174}' => "W",
+            '\u{0175}' => "w",
+            '\u{00dd}' | '\u{0176}' | '\u{0178}' => "Y",
+            '\u{00fd}' | '\u{00ff}' | '\u{0177}' => "y",
+            '\u{0179}' | '\u{017b}' | '\u{017d}' => "Z",
+            '\u{017a}' | '\u{017c}' | '\u{017e}' => "z",
+            '\u{00de}' => "Th",
+            '\u{00fe}' => "th",
+            '\u{00df}' => "ss",
+            '\u{03b1}' | '\u{0391}' => "alpha",
+            '\u{03b2}' | '\u{0392}' => "beta",
+            '\u{03b3}' | '\u{0393}' => "gamma",
+            '\u{03b4}' | '\u{0394}' => "delta",
+            '\u{03b5}' | '\u{0395}' => "epsilon",
+            '\u{03b6}' | '\u{0396}' => "zeta",
+            '\u{03b7}' | '\u{0397}' => "eta",
+            '\u{03b8}' | '\u{0398}' => "theta",
+            '\u{03b9}' | '\u{0399}' => "iota",
+            '\u{03ba}' | '\u{039a}' => "kappa",
+            '\u{03bb}' | '\u{039b}' => "lambda",
+            '\u{03bc}' | '\u{039c}' => "mu",
+            '\u{03bd}' | '\u{039d}' => "nu",
+            '\u{03be}' | '\u{039e}' => "xi",
+            '\u{03bf}' | '\u{039f}' => "omicron",
+            '\u{03c0}' | '\u{03a0}' => "pi",
+            '\u{03c1}' | '\u{03a1}' => "rho",
+            '\u{03c3}' | '\u{03c2}' | '\u{03a3}' => "sigma",
+            '\u{03c4}' | '\u{03a4}' => "tau",
+            '\u{03c5}' | '\u{03a5}' => "upsilon",
+            '\u{03c6}' | '\u{03a6}' => "phi",
+            '\u{03c7}' | '\u{03a7}' => "chi",
+            '\u{03c8}' | '\u{03a8}' => "psi",
+            '\u{03c9}' | '\u{03a9}' => "omega",
+            '\u{2010}'..='\u{2015}' => "-",
+            '\u{2018}' | '\u{2019}' | '\u{201a}' | '\u{201b}' => "'",
+            '\u{201c}' | '\u{201d}' | '\u{201e}' | '\u{201f}' => "\"",
+            '\u{2026}' => "...",
+            other => {
+                visible.push(other);
+                continue;
+            }
+        };
+        visible.push_str(replacement);
+    }
+    escape_pdf_text(&visible)
 }
 
 fn escape_xml_text(text: &str) -> String {
@@ -10669,6 +10797,35 @@ mod tests {
     }
 
     #[test]
+    fn transliterates_latin_unicode_for_extractable_pdf_text() {
+        let layout = layout_text(
+            "François CentraleSupélec Saarbrücken Física Víctor α β ﬁeld co\u{00ad}author",
+            LayoutOptions {
+                chars_per_line: 200,
+                ..LayoutOptions::default()
+            },
+        );
+        let pdf = render_pdf(&layout);
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(
+            text.contains(
+                "(Francois CentraleSupelec Saarbrucken Fisica Victor alpha beta field coauthor) Tj"
+            ),
+            "{text}"
+        );
+        for hidden in [
+            "François",
+            "Supélec",
+            "Saarbrücken",
+            "ﬁeld",
+            "co\u{00ad}author",
+        ] {
+            assert!(!text.contains(hidden), "{hidden} leaked in {text}");
+        }
+    }
+
+    #[test]
     fn emits_one_text_draw_per_line() {
         let layout = layout_text(
             "alpha\nbeta\ngamma",
@@ -10735,6 +10892,41 @@ mod tests {
         assert!(text.starts_with("%PDF-1.4"));
         assert!(text.contains("/Count 1"));
         assert!(text.contains("/F1 11 Tf 1 0 0 1 72 720 Tm (Hello display list) Tj"));
+    }
+
+    #[test]
+    fn transliterates_display_list_unicode_for_extractable_pdf_text() {
+        let pdf = render_display_list_pdf(&[PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::TextRun(PositionedTextRun {
+                origin: Point { x: 72.0, y: 72.0 },
+                text: "Pierre-François and Saarbrücken".to_string(),
+                font: FontRequest {
+                    family: FontFamilyRequest::Serif,
+                    series: FontSeries::Regular,
+                    shape: FontShape::Upright,
+                    size_pt: 11.0,
+                    role: FontRole::Body,
+                },
+                size_pt: 11.0,
+                approximate_advance_pt: 200.0,
+                glyphs: None,
+                clusters: None,
+                source: SourceProvenance::generated("test", "unicode text test"),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        }]);
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(
+            text.contains("(Pierre-Francois and Saarbrucken) Tj"),
+            "{text}"
+        );
+        assert!(!text.contains("François"), "{text}");
+        assert!(!text.contains("Saarbrücken"), "{text}");
     }
 
     #[test]
