@@ -235,8 +235,11 @@ line-style rules plus style-rule `inherit` / `unset` overriding
 presentation-attribute line styles,
 simple
 `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
-`initial` / `unset` reset handling and inline/style-rule `inherit` handling, and simple rect-backed `clipPath` clipping with
-`initial` / `unset` reset handling and inline/style-rule `inherit` handling, including
+`initial` / `unset` reset handling and inline/style-rule `inherit` handling,
+including style-rule `inherit` overriding presentation-attribute vector
+effects, and simple rect-backed `clipPath` clipping with
+`initial` / `unset` reset handling and inline/style-rule `inherit` handling,
+including style-rule `inherit` overriding presentation-attribute clip paths and
 transformed group-wrapped rect children, and
     `matrix` / `rotate` / `skewX` / `skewY` transforms for path-like line/poly/path
 primitives, plus non-axis-aligned transformed rectangles rendered as closed
@@ -249,8 +252,9 @@ aliases and `<defs>` symbol aliases with basic symbol `viewBox`
 viewport fitting, simple `<line>`, `<polyline>`, `<polygon>`, and `<path>`
 arrow markers from path-like `<marker>` children, including cascaded
 presentation/CSS `marker` shorthand and `marker-start` / `marker-mid` /
-`marker-end` with `initial` reset handling and inline/style-rule `unset`
-overriding class marker references, `context-stroke` /
+`marker-end` with `initial` reset handling and inline/style-rule `inherit` /
+`unset` overriding class and presentation-attribute marker references,
+`context-stroke` /
 `context-fill` paint inheritance, rounded marker `rect` children, and nested group
 transform/presentation state,
 plus simple embedded `data:image/png` / `data:image/jpeg` SVG
@@ -735,8 +739,11 @@ Implemented first slice:
   handling and inline/style-rule `unset` overriding class line-style rules plus
   style-rule `inherit` / `unset` overriding presentation-attribute line styles, simple
   `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
-  `initial` / `unset` reset handling and inline/style-rule `inherit` handling, simple rect-backed `clipPath` clipping with
-  `initial` / `unset` reset handling and inline/style-rule `inherit` handling, including
+  `initial` / `unset` reset handling and inline/style-rule `inherit` handling,
+  including style-rule `inherit` overriding presentation-attribute vector
+  effects, simple rect-backed `clipPath` clipping with
+  `initial` / `unset` reset handling and inline/style-rule `inherit` handling,
+  including style-rule `inherit` overriding presentation-attribute clip paths and
   transformed group-wrapped rect children, path-like `matrix` / `rotate` / `skewX` /
   `skewY` transforms, non-axis-aligned
   transformed rectangles, and transformed circle/ellipse cubic paths, as vector
@@ -748,8 +755,8 @@ Implemented first slice:
   viewport fitting, simple `<line>`, `<polyline>`, `<polygon>`, and `<path>`
   arrow markers from path-like `<marker>` children, including cascaded
   presentation/CSS `marker` shorthand and `marker-start` / `marker-mid` /
-  `marker-end` with `initial` reset handling and inline/style-rule `unset`
-  overriding class marker references,
+  `marker-end` with `initial` reset handling and inline/style-rule `inherit` /
+  `unset` overriding class and presentation-attribute marker references,
   `context-stroke` / `context-fill` paint inheritance, rounded marker `rect`
   children, and nested group transform/presentation state, plus simple embedded
   `data:image/png` / `data:image/jpeg`
@@ -1203,7 +1210,8 @@ Status:
   inline/style-rule `inherit` handling for decoration line/color/thickness/style state,
   including style-rule `inherit` overriding presentation-attribute decoration state, simple
   `clip-path` rectangles with `initial` / `unset` reset handling and
-  inline/style-rule `inherit` handling, approximate
+  inline/style-rule `inherit` handling, including style-rule `inherit`
+  overriding presentation-attribute clip paths, approximate
   `middle`/`central` baseline alignment and simple `baseline-shift` with
   `initial` reset handling, inline/style-rule `unset` overriding class baseline
   rules, and style-rule `inherit` / `unset` overriding presentation-attribute
@@ -1268,8 +1276,11 @@ Status:
   handling and inline/style-rule `unset` overriding class line-style rules plus
   style-rule `inherit` / `unset` overriding presentation-attribute line styles, simple
   `vector-effect: non-scaling-stroke` stroke-width/dash preservation with
-  `initial` / `unset` reset handling and inline/style-rule `inherit` handling, simple rect-backed `clipPath` clipping with
-  `initial` / `unset` reset handling and inline/style-rule `inherit` handling, including
+  `initial` / `unset` reset handling and inline/style-rule `inherit` handling,
+  including style-rule `inherit` overriding presentation-attribute vector
+  effects, simple rect-backed `clipPath` clipping with
+  `initial` / `unset` reset handling and inline/style-rule `inherit` handling,
+  including style-rule `inherit` overriding presentation-attribute clip paths and
   transformed group-wrapped rect children, and path-like `matrix` / `rotate` / `skewX` /
   `skewY` transform attributes plus
   non-axis-aligned transformed rectangles and transformed circle/ellipse cubic

@@ -3645,6 +3645,11 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         font_shape_clear: bool,
         text_baseline_clear: bool,
         baseline_shift_clear: bool,
+        vector_effect_non_scaling_stroke_clear: bool,
+        marker_start_clear: bool,
+        marker_mid_clear: bool,
+        marker_end_clear: bool,
+        clip_path_clear: bool,
     }
     let valid_svg_element_name = |element_name: &str| {
         !element_name.is_empty()
@@ -5292,6 +5297,12 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             font_shape_clear: font_shape_clear.is_some(),
             text_baseline_clear: text_baseline_clear.is_some(),
             baseline_shift_clear: baseline_shift_clear.is_some(),
+            vector_effect_non_scaling_stroke_clear: vector_effect_non_scaling_stroke_clear
+                .is_some(),
+            marker_start_clear: marker_start_clear.is_some(),
+            marker_mid_clear: marker_mid_clear.is_some(),
+            marker_end_clear: marker_end_clear.is_some(),
+            clip_path_clear: clip_path_clear.is_some(),
         }
     };
     let parse_presentation = |tag: &str| -> SimpleSvgPresentation {
@@ -5385,6 +5396,21 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         if style_cascade.baseline_shift_clear {
             presentation.baseline_shift = None;
+        }
+        if style_cascade.vector_effect_non_scaling_stroke_clear {
+            presentation.vector_effect_non_scaling_stroke = None;
+        }
+        if style_cascade.marker_start_clear {
+            presentation.marker_start = None;
+        }
+        if style_cascade.marker_mid_clear {
+            presentation.marker_mid = None;
+        }
+        if style_cascade.marker_end_clear {
+            presentation.marker_end = None;
+        }
+        if style_cascade.clip_path_clear {
+            presentation.clip_path = None;
         }
         let mut presentation = overlay_presentation(presentation, inline_style_presentation);
         let inline_inherit_or_unset = |name: &str| {
@@ -15202,6 +15228,65 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_style_rule_clear_marker_reference_as_attr_override() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/marker-rule-attr-clear.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:marker-rule-attr-clear".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/marker-rule-attr-clear.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .marked { marker-end: url(#tick); }
+    line.marked { marker-end: unset; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+    <marker id="tick" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 4" fill="none" stroke="#00ff00" stroke-width="1"/>
+    </marker>
+  </defs>
+  <g marker-end="url(#arrow)">
+    <line class="marked" marker-end="url(#tick)" x1="2" y1="5" x2="18" y2="5" stroke="#0000ff" stroke-width="0.5"/>
+  </g>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 190 230 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
+        assert!(!pdf_text.contains("0 1 0 RG"));
+        assert!(!pdf_text.contains("[unsupported image: figures/marker-rule-attr-clear.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn renders_simple_svg_poly_path_marker_shorthand_as_pdf_vector_content() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
@@ -16614,6 +16699,57 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_style_rule_clear_vector_effect_as_attr_override() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector-effect-rule-attr-clear.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector-effect-rule-attr-clear".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/vector-effect-rule-attr-clear.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    path.fixed { vector-effect: non-scaling-stroke; }
+    path.scaling { vector-effect: inherit; }
+  </style>
+  <path class="fixed" d="M 0 0 L 5 0" transform="scale(2)" fill="none" stroke-width="1" stroke-dasharray="1 0.5" stroke-dashoffset="0.25" stroke="#ff0000"/>
+  <path class="fixed scaling" vector-effect="non-scaling-stroke" d="M 0 2 L 5 2" transform="scale(2)" fill="none" stroke-width="1" stroke-dasharray="1 0.5" stroke-dashoffset="0.25" stroke="#00ff00"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q [10 5] 2.5 d 4 M 1 0 0 RG 10 w 10 280 m 110 280 l S Q"));
+        assert!(pdf_text.contains("q [20 10] 5 d 4 M 0 1 0 RG 20 w 10 240 m 110 240 l S Q"));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/vector-effect-rule-attr-clear.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn renders_simple_svg_matrix_and_rotate_transforms_as_pdf_vector_content() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
@@ -17061,6 +17197,59 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 rg 10 180 200 40 re f"));
         assert!(!pdf_text.contains("q 60 180 40 100 re W n 0 0 1 rg"));
         assert!(!pdf_text.contains("[unsupported image: figures/clip-path-rule-inherit.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_clear_clip_path_as_attr_override() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/clip-path-rule-attr-clear.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:clip-path-rule-attr-clear".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/clip-path-rule-attr-clear.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    rect.cropped { clip-path: url(#crop); }
+    rect.reset { clip-path: inherit; }
+  </style>
+  <defs>
+    <clipPath id="crop"><rect x="5" y="0" width="4" height="10"/></clipPath>
+  </defs>
+  <rect class="cropped" x="0" y="0" width="20" height="4" fill="#ff0000"/>
+  <rect class="cropped reset" clip-path="url(#crop)" x="0" y="6" width="20" height="4" fill="#0000ff"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q 60 180 40 100 re W n 1 0 0 rg 10 240 200 40 re f Q"));
+        assert!(pdf_text.contains("0 0 1 rg 10 180 200 40 re f"));
+        assert!(!pdf_text.contains("q 60 180 40 100 re W n 0 0 1 rg"));
+        assert!(!pdf_text.contains("[unsupported image: figures/clip-path-rule-attr-clear.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
