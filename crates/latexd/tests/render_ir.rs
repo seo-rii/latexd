@@ -953,6 +953,52 @@ fn class_frontmatter_shims_survive_ir_and_display_list() {
 }
 
 #[test]
+fn frontmatter_metadata_comments_do_not_leak_into_ir_or_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        WACV_COMMENTED_AUTHOR_SOURCE,
+        &SemanticAux::default(),
+    );
+    let title = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::TitleBlock(title) => Some(title),
+            _ => None,
+        })
+        .expect("title block");
+
+    assert_eq!(title.title.as_deref(), Some("HSViT"));
+    assert_eq!(
+        title.authors,
+        vec!["Chenhao Xu School of IT, Deakin University Geelong, VIC, Australia"]
+    );
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture
+        .page_display_lists
+        .iter()
+        .flat_map(|page| &page.ops)
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    for visible in [
+        "HSViT",
+        "Chenhao Xu School of IT, Deakin University Geelong, VIC, Australia",
+    ] {
+        assert!(extracted_text.contains(visible), "{extracted_text}");
+        assert!(display_list_text.contains(visible), "{display_list_text}");
+    }
+    for hidden in ["whose", "authors", "omit", "following", "closing"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn footnote_bodies_survive_ir_and_display_list_without_raw_braces() {
     let capture =
         capture_internal_render_ir("main.tex", FOOTNOTE_BODY_SOURCE, &SemanticAux::default());
@@ -22265,6 +22311,16 @@ const LLNCS_FRONTMATTER_SOURCE: &str = r"\documentclass{llncs}\title{LNCS Paper}
 const REVTEX_FRONTMATTER_SOURCE: &str = r"\documentclass{revtex4-2}\title{REVTeX Paper}\author{Alice}\email{alice@example.test}\affiliation{Quantum Lab}\pacs{12.34.-x}\keywords{Quantum systems}\begin{document}\maketitle\end{document}";
 
 const WACV_FRONTMATTER_SOURCE: &str = r"\usepackage{wacv}\title{WACV Paper}\author{Alice}\affiliation{Vision Lab}\begin{document}\maketitle\end{document}";
+
+const WACV_COMMENTED_AUTHOR_SOURCE: &str = r"\usepackage{wacv}
+\title{HSViT}
+\author{Chenhao Xu\\
+School of IT, Deakin University\\
+Geelong, VIC, Australia
+% For a paper whose authors are all at the same institution,
+% omit the following lines up until the closing brace.
+}
+\begin{document}\maketitle\end{document}";
 
 const IEEE_FRONTMATTER_SOURCE: &str = r"\documentclass{IEEEtran}\title{IEEE Paper}\author{\IEEEauthorblockN{Alice Smith\IEEEauthorrefmark{1} \and Bob Jones\IEEEauthorrefmark{2}}\IEEEauthorblockA{Vision Lab}}\begin{document}\maketitle\end{document}";
 

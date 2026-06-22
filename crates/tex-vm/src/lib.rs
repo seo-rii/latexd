@@ -21357,6 +21357,28 @@ fn parse_graphic_page_selection(options: Option<&str>) -> Option<GraphicPageSele
 }
 
 fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
+    let stripped_comments;
+    let source = if source.as_bytes().contains(&b'%') {
+        let mut stripped = String::with_capacity(source.len());
+        let mut cursor = 0usize;
+        let bytes = source.as_bytes();
+        while cursor < bytes.len() {
+            if bytes[cursor] == b'%' && !is_escaped_percent(source, cursor) {
+                cursor = skip_latex_line_comment(source, cursor);
+                continue;
+            }
+            let ch = source[cursor..]
+                .chars()
+                .next()
+                .expect("cursor should be inside source");
+            stripped.push(ch);
+            cursor += ch.len_utf8();
+        }
+        stripped_comments = stripped;
+        stripped_comments.as_str()
+    } else {
+        source
+    };
     let mut text = String::new();
     let mut chunk_start = 0;
     let mut scan_index = 0;
@@ -40154,6 +40176,53 @@ Fallback text.
             assert!(!author.contains("[2]"));
             assert!(!author.contains("affil"));
             assert!(!author.contains("thanks"));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_strips_line_comments_from_metadata_arguments() {
+        let source = r"\title{Progress \% Report}
+\author{Ada Lovelace\\
+Analytical Engine Lab
+% For a paper whose authors are all at the same institution,
+% omit the following lines up until the closing brace.
+}
+\begin{document}\maketitle\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let title = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::SetDocumentMetadata(metadata)
+                    if metadata.field == MetadataField::Title =>
+                {
+                    Some(metadata.value.as_str())
+                }
+                _ => None,
+            })
+            .expect("title metadata event");
+        let author = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::SetDocumentMetadata(metadata)
+                    if metadata.field == MetadataField::Author =>
+                {
+                    Some(metadata.value.as_str())
+                }
+                _ => None,
+            })
+            .expect("author metadata event");
+
+        assert_eq!(title, "Progress % Report");
+        assert_eq!(author, "Ada Lovelace Analytical Engine Lab");
+        for hidden in ["whose", "authors", "omit", "following", "closing"] {
+            assert!(!author.contains(hidden), "{author}");
         }
     }
 
