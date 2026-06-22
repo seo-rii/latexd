@@ -5825,6 +5825,52 @@ fn math_invisible_delimiters_do_not_leak_visible_dots() {
 }
 
 #[test]
+fn math_numbering_font_and_quantum_commands_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Quantum \[\nonumber \rm{NC}_{\rm{array}} + \ket{0}\leftrightarrow\ket{1} + \ketbra{N}{N} + \sum N + \partial\mathcal{L} + \omega_{\ell}a_{\ell}^{\dag}a_{\ell}\]\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let display_math = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::DisplayMath(display) => Some(display),
+            _ => None,
+        })
+        .expect("display math");
+
+    assert_eq!(
+        display_math.raw_source,
+        r"\nonumber \rm{NC}_{\rm{array}} + \ket{0}\leftrightarrow\ket{1} + \ketbra{N}{N} + \sum N + \partial\mathcal{L} + \omega_{\ell}a_{\ell}^{\dag}a_{\ell}"
+    );
+    assert_eq!(
+        display_math.normalized_text.as_deref(),
+        Some("NC_array + |0> <-> |1> + |N><N| + sum N + partial L + omega_ell a_ell^dag a_ell")
+    );
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let display_list_flat = display_list_text.replace('\n', "");
+    assert!(
+        display_list_flat.contains("NC_array + |0> <-> |1> + |N><N| + sum N + partial L"),
+        "{display_list_text}"
+    );
+    assert!(
+        display_list_flat.contains("omega_ell a_ell^dag a_ell"),
+        "{display_list_text}"
+    );
+    for hidden in [r"\nonumber", r"\rm", r"\ket", r"\ketbra"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_style_and_limit_controls_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Controls \(\displaystyle\sum\limits_{i=1}^{n} x_i + \textstyle\int\nolimits_{0}^{1} f(x)\,dx + \scriptstyle a + \scriptscriptstyle b\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

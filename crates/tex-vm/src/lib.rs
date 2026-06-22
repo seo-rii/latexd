@@ -23175,6 +23175,43 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
         }};
     }
 
+    macro_rules! push_command_token {
+        ($token:expr) => {{
+            let token = $token;
+            if !token.is_empty() {
+                if !pending_space
+                    && !text.is_empty()
+                    && text.ends_with(|ch: char| {
+                        ch.is_ascii_alphanumeric() || matches!(ch, ')' | ']' | '}' | '>')
+                    })
+                    && token.starts_with(|ch: char| {
+                        ch.is_ascii_alphanumeric() || ch == '<' || ch == '|'
+                    })
+                {
+                    pending_space = true;
+                }
+                push_token!(token);
+            }
+        }};
+    }
+
+    macro_rules! push_token_then_space {
+        ($token:expr) => {{
+            let token = $token;
+            if !token.is_empty() {
+                if pending_space
+                    && !text.is_empty()
+                    && !token.starts_with(['.', ',', ';', ':', '!', '?', ')', ']', '/', '^', '_'])
+                    && !text.ends_with([' ', '(', '[', '/', '^', '_'])
+                {
+                    text.push(' ');
+                }
+                text.push_str(token);
+                pending_space = true;
+            }
+        }};
+    }
+
     macro_rules! push_operator {
         ($operator:expr) => {{
             if !text.is_empty() && !text.ends_with([' ', '(', '[', '/', '^', '_']) {
@@ -23216,6 +23253,9 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         } else {
                             return None;
                         }
+                    }
+                    "nonumber" | "notag" => {
+                        index = command_index;
                     }
                     "frac" | "dfrac" | "tfrac" => {
                         let numerator_index = skip_ascii_whitespace(source, command_index);
@@ -23429,7 +23469,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!(&format!("{wrapper}({})", rows.join("; ")));
                         index = body_end + end_tag.len();
                     }
-                    "text" | "textrm" | "textnormal" | "mathrm" | "mathbf" | "mathit"
+                    "text" | "textrm" | "textnormal" | "rm" | "mathrm" | "mathbf" | "mathit"
                     | "mathsf" | "mathtt" | "mathbb" | "mathcal" | "mathfrak" | "mathscr"
                     | "operatorname" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);
@@ -23440,7 +23480,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         };
                         let argument = normalize_latex_math_text(argument)
                             .unwrap_or_else(|| normalize_latex_text(argument));
-                        push_token!(&argument);
+                        push_command_token!(&argument);
                         index = after_argument;
                     }
                     "hat" | "widehat" | "bar" | "overline" | "vec" | "tilde" | "widetilde"
@@ -23459,8 +23499,44 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                             "widetilde" => "tilde",
                             _ => command,
                         };
-                        push_token!(&format!("{accent}({argument})"));
+                        push_command_token!(&format!("{accent}({argument})"));
                         index = after_argument;
+                    }
+                    "ket" | "bra" => {
+                        let argument_index = skip_ascii_whitespace(source, command_index);
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_math_source(argument));
+                        if command == "ket" {
+                            push_command_token!(&format!("|{argument}>"));
+                        } else {
+                            push_command_token!(&format!("<{argument}|"));
+                        }
+                        index = after_argument;
+                    }
+                    "ketbra" => {
+                        let ket_index = skip_ascii_whitespace(source, command_index);
+                        let Some((ket, _, _, after_ket)) =
+                            read_braced_source_argument(source, ket_index)
+                        else {
+                            return None;
+                        };
+                        let bra_index = skip_ascii_whitespace(source, after_ket);
+                        let Some((bra, _, _, after_bra)) =
+                            read_braced_source_argument(source, bra_index)
+                        else {
+                            return None;
+                        };
+                        let ket = normalize_latex_math_text(ket)
+                            .unwrap_or_else(|| normalize_latex_math_source(ket));
+                        let bra = normalize_latex_math_text(bra)
+                            .unwrap_or_else(|| normalize_latex_math_source(bra));
+                        push_command_token!(&format!("|{ket}><{bra}|"));
+                        index = after_bra;
                     }
                     "left" | "right" | "middle" | "big" | "Big" | "bigg" | "Bigg" | "bigl"
                     | "bigr" | "Bigl" | "Bigr" | "biggl" | "biggr" | "Biggl" | "Biggr" | "bigm"
@@ -23829,7 +23905,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         index = after_upper;
                     }
                     "infty" => {
-                        push_token!("infinity");
+                        push_command_token!("infinity");
                         index = command_index;
                     }
                     "sum" | "prod" | "int" | "lim" | "bigcup" | "bigcap" | "bigoplus"
@@ -23924,13 +24000,13 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                             operator.push_str(&upper);
                             operator.push('}');
                         }
-                        push_token!(&operator);
+                        push_token_then_space!(&operator);
                         index = script_index;
                     }
                     "sin" | "cos" | "tan" | "cot" | "sec" | "csc" | "log" | "ln" | "exp"
                     | "min" | "max" | "arg" | "deg" | "det" | "dim" | "gcd" | "hom" | "ker"
                     | "Pr" | "sup" | "inf" => {
-                        push_token!(command);
+                        push_command_token!(command);
                         index = command_index;
                     }
                     "mod" | "bmod" => {
@@ -23946,31 +24022,31 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         index = command_index;
                     }
                     "partial" => {
-                        push_token!("partial");
+                        push_command_token!("partial");
                         index = command_index;
                     }
                     "nabla" => {
-                        push_token!("nabla");
+                        push_command_token!("nabla");
                         index = command_index;
                     }
                     "ell" | "aleph" | "hbar" | "Re" | "Im" => {
-                        push_token!(command);
+                        push_command_token!(command);
                         index = command_index;
                     }
                     "forall" => {
-                        push_token!("forall");
+                        push_command_token!("forall");
                         index = command_index;
                     }
                     "exists" => {
-                        push_token!("exists");
+                        push_command_token!("exists");
                         index = command_index;
                     }
                     "emptyset" | "varnothing" => {
-                        push_token!("emptyset");
+                        push_command_token!("emptyset");
                         index = command_index;
                     }
                     "neg" | "lnot" => {
-                        push_token!("not");
+                        push_command_token!("not");
                         index = command_index;
                     }
                     "ldots" | "cdots" | "dots" | "dotsc" | "dotsb" | "dotsm" | "dotsi"
@@ -23984,7 +24060,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     | "upsilon" | "phi" | "varphi" | "chi" | "psi" | "omega" | "Gamma"
                     | "Delta" | "Theta" | "Lambda" | "Xi" | "Pi" | "Sigma" | "Upsilon" | "Phi"
                     | "Psi" | "Omega" => {
-                        push_token!(command);
+                        push_command_token!(command);
                         index = command_index;
                     }
                     "{" | "}" | "$" | "#" | "%" | "&" | "_" | "^" => {
@@ -24021,6 +24097,32 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         .unwrap_or_else(|| normalize_latex_math_source(script));
                     text.push_str(&script);
                     index = after_script;
+                    let next_index = skip_ascii_whitespace(source, index);
+                    if next_index < bytes.len()
+                        && !matches!(
+                            bytes[next_index],
+                            b'^' | b'_'
+                                | b'='
+                                | b'+'
+                                | b'-'
+                                | b'<'
+                                | b'>'
+                                | b','
+                                | b'.'
+                                | b';'
+                                | b':'
+                                | b'('
+                                | b')'
+                                | b'['
+                                | b']'
+                                | b'{'
+                                | b'}'
+                                | b'/'
+                                | b'&'
+                        )
+                    {
+                        pending_space = true;
+                    }
                 } else {
                     index = script_index;
                 }
@@ -34076,6 +34178,34 @@ Fallback text.
             Some(
                 "A oplus B otimes C odot D ominus E oslash F circ G bullet H star I diamond J + bigcup_{i = 1}^{n} U_i + bigcap_{j = 1}^{m} V_j + bigoplus_{k = 1}^{r} W_k"
             )
+        );
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_numbering_font_and_quantum_commands() {
+        let source = r"\begin{document}\[\nonumber \rm{NC}_{\rm{array}} + \ket{0}\leftrightarrow\ket{1} + \ketbra{N}{N} + \sum N + \partial\mathcal{L} + \omega_{\ell}a_{\ell}^{\dag}a_{\ell}\]\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let display_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::DisplayMath(_)))
+            .expect("display math event");
+
+        let RenderEvent::DisplayMath(math) = &display_math.event else {
+            panic!("display math event");
+        };
+
+        assert_eq!(
+            math.raw_source,
+            r"\nonumber \rm{NC}_{\rm{array}} + \ket{0}\leftrightarrow\ket{1} + \ketbra{N}{N} + \sum N + \partial\mathcal{L} + \omega_{\ell}a_{\ell}^{\dag}a_{\ell}"
+        );
+        assert_eq!(
+            math.normalized_text.as_deref(),
+            Some("NC_array + |0> <-> |1> + |N><N| + sum N + partial L + omega_ell a_ell^dag a_ell")
         );
     }
 
