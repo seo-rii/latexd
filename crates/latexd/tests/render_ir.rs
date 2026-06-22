@@ -5871,6 +5871,105 @@ fn math_numbering_font_and_quantum_commands_use_normalized_text_in_ir_and_displa
 }
 
 #[test]
+fn math_quantum_notation_macros_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Notation \[\boldsymbol{(\EnergyNo-\EnergyYes)/M=\Omega(1)} + \expec{\psi}{H} + \proj{x}\reg{out} + \norm{H} + \myO{\cdot} + \{\textsc{hadamard},\notgate,\cnot\}\]\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let display_math = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::DisplayMath(display) => Some(display),
+            _ => None,
+        })
+        .expect("display math");
+
+    assert_eq!(
+        display_math.normalized_text.as_deref(),
+        Some(
+            "(E_no - E_yes)/M = Omega(1) + <psi|H|psi> + |x><x|_out + ||H|| + O^*(*) + {hadamard, not, cnot}"
+        )
+    );
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let display_list_flat = display_list_text.replace('\n', "");
+    assert!(
+        display_list_flat.contains("(E_no - E_yes)/M = Omega(1) + <psi|H|psi>"),
+        "{display_list_text}"
+    );
+    assert!(
+        display_list_flat.contains("|x><x|_out + ||H|| + O^*(*) + {hadamard, not, cnot}"),
+        "{display_list_text}"
+    );
+    for hidden in [
+        r"\boldsymbol",
+        r"\EnergyNo",
+        r"\EnergyYes",
+        r"\expec",
+        r"\proj",
+        r"\reg",
+        r"\notgate",
+        r"\cnot",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
+fn math_problem_atoms_and_clock_wrappers_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Atoms \[\kLH(H,\EnergyYes,\EnergyNo)+\kSAT(\Phi)+\kQPF(H,\beta,\delta)+\zout+\Hh_{\textrm{clock}}+\stay{t}+\add{t-1}+\taddd{t+2}\hspace{5mm}\tag{C1}\]\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let display_math = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::DisplayMath(display) => Some(display),
+            _ => None,
+        })
+        .expect("display math");
+
+    assert_eq!(
+        display_math.normalized_text.as_deref(),
+        Some(
+            "k LH(H, E_yes, E_no) + k SAT(Phi) + k QPF(H, beta, delta) + Z + H_clock + stay(t) + add(t - 1) + taddd(t + 2)"
+        )
+    );
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let display_list_flat = display_list_text.replace('\n', "");
+    assert!(
+        display_list_flat.contains("k LH(H, E_yes, E_no) + k SAT(Phi) + k QPF(H, beta, delta)"),
+        "{display_list_text}"
+    );
+    assert!(
+        display_list_flat.contains("Z + H_clock + stay(t) + add(t - 1) + taddd(t + 2)"),
+        "{display_list_text}"
+    );
+    for hidden in [
+        r"\kLH", r"\kSAT", r"\kQPF", r"\zout", r"\Hh", r"\stay", r"\hspace", r"\tag",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_style_and_limit_controls_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Controls \(\displaystyle\sum\limits_{i=1}^{n} x_i + \textstyle\int\nolimits_{0}^{1} f(x)\,dx + \scriptstyle a + \scriptscriptstyle b\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

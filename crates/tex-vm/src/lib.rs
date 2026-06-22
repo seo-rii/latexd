@@ -23257,6 +23257,15 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     "nonumber" | "notag" => {
                         index = command_index;
                     }
+                    "hspace" | "vspace" | "tag" => {
+                        let argument_index = skip_ascii_whitespace(source, command_index);
+                        let Some((_, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        index = after_argument;
+                    }
                     "frac" | "dfrac" | "tfrac" => {
                         let numerator_index = skip_ascii_whitespace(source, command_index);
                         let Some((numerator, _, _, after_numerator)) =
@@ -23469,9 +23478,9 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!(&format!("{wrapper}({})", rows.join("; ")));
                         index = body_end + end_tag.len();
                     }
-                    "text" | "textrm" | "textnormal" | "rm" | "mathrm" | "mathbf" | "mathit"
-                    | "mathsf" | "mathtt" | "mathbb" | "mathcal" | "mathfrak" | "mathscr"
-                    | "operatorname" => {
+                    "text" | "textrm" | "textnormal" | "textsc" | "rm" | "mathrm" | "mathbf"
+                    | "mathit" | "mathsf" | "mathtt" | "mathbb" | "mathcal" | "mathfrak"
+                    | "mathscr" | "boldsymbol" | "operatorname" | "rgst" | "hs" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);
                         let Some((argument, _, _, after_argument)) =
                             read_braced_source_argument(source, argument_index)
@@ -23482,6 +23491,119 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                             .unwrap_or_else(|| normalize_latex_text(argument));
                         push_command_token!(&argument);
                         index = after_argument;
+                    }
+                    "reg" => {
+                        let argument_index = skip_ascii_whitespace(source, command_index);
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_text(argument));
+                        push_token!("_");
+                        push_command_token!(&argument);
+                        index = after_argument;
+                    }
+                    "proj" => {
+                        let argument_index = skip_ascii_whitespace(source, command_index);
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_math_source(argument));
+                        push_command_token!(&format!("|{argument}><{argument}|"));
+                        index = after_argument;
+                    }
+                    "norm" => {
+                        let argument_index = skip_ascii_whitespace(source, command_index);
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_math_source(argument));
+                        push_command_token!(&format!("||{argument}||"));
+                        index = after_argument;
+                    }
+                    "myO" => {
+                        let argument_index = skip_ascii_whitespace(source, command_index);
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_math_source(argument));
+                        push_command_token!(&format!("O^*({argument})"));
+                        index = after_argument;
+                    }
+                    "stay" | "add" | "addd" | "tstay" | "tadd" | "taddd" => {
+                        let argument_index = skip_ascii_whitespace(source, command_index);
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_math_source(argument));
+                        push_command_token!(&format!("{command}({argument})"));
+                        index = after_argument;
+                    }
+                    "expec" | "inner" => {
+                        let first_index = skip_ascii_whitespace(source, command_index);
+                        let Some((first, _, _, after_first)) =
+                            read_braced_source_argument(source, first_index)
+                        else {
+                            return None;
+                        };
+                        let second_index = skip_ascii_whitespace(source, after_first);
+                        let Some((second, _, _, after_second)) =
+                            read_braced_source_argument(source, second_index)
+                        else {
+                            return None;
+                        };
+                        let first = normalize_latex_math_text(first)
+                            .unwrap_or_else(|| normalize_latex_math_source(first));
+                        let second = normalize_latex_math_text(second)
+                            .unwrap_or_else(|| normalize_latex_math_source(second));
+                        if command == "expec" {
+                            push_command_token!(&format!("<{first}|{second}|{first}>"));
+                        } else {
+                            push_command_token!(&format!("<{first}|{second}>"));
+                        }
+                        index = after_second;
+                    }
+                    "bracket" => {
+                        let first_index = skip_ascii_whitespace(source, command_index);
+                        let Some((first, _, _, after_first)) =
+                            read_braced_source_argument(source, first_index)
+                        else {
+                            return None;
+                        };
+                        let second_index = skip_ascii_whitespace(source, after_first);
+                        let Some((second, _, _, after_second)) =
+                            read_braced_source_argument(source, second_index)
+                        else {
+                            return None;
+                        };
+                        let third_index = skip_ascii_whitespace(source, after_second);
+                        let Some((third, _, _, after_third)) =
+                            read_braced_source_argument(source, third_index)
+                        else {
+                            return None;
+                        };
+                        let first = normalize_latex_math_text(first)
+                            .unwrap_or_else(|| normalize_latex_math_source(first));
+                        let second = normalize_latex_math_text(second)
+                            .unwrap_or_else(|| normalize_latex_math_source(second));
+                        let third = normalize_latex_math_text(third)
+                            .unwrap_or_else(|| normalize_latex_math_source(third));
+                        push_command_token!(&format!("<{first}|{second}|{third}>"));
+                        index = after_third;
                     }
                     "hat" | "widehat" | "bar" | "overline" | "vec" | "tilde" | "widetilde"
                     | "dot" | "ddot" | "underline" | "overbrace" | "underbrace" => {
@@ -23908,6 +24030,90 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token!("infinity");
                         index = command_index;
                     }
+                    "EnergyYes" => {
+                        push_command_token!("E_yes");
+                        index = command_index;
+                    }
+                    "EnergyNo" => {
+                        push_command_token!("E_no");
+                        index = command_index;
+                    }
+                    "cerr" => {
+                        push_command_token!("epsilon_err");
+                        index = command_index;
+                    }
+                    "nclock" => {
+                        push_command_token!("n_cl");
+                        index = command_index;
+                    }
+                    "cmax" => {
+                        push_command_token!("c_max");
+                        index = command_index;
+                    }
+                    "Hh" => {
+                        push_command_token!("H");
+                        index = command_index;
+                    }
+                    "zout" | "tZ" => {
+                        push_command_token!("Z");
+                        index = command_index;
+                    }
+                    "nout" | "tN" => {
+                        push_command_token!("N");
+                        index = command_index;
+                    }
+                    "LH" => {
+                        push_command_token!("LH");
+                        index = command_index;
+                    }
+                    "kLH" => {
+                        push_command_token!("k LH");
+                        index = command_index;
+                    }
+                    "SAT" => {
+                        push_command_token!("SAT");
+                        index = command_index;
+                    }
+                    "kSAT" => {
+                        push_command_token!("k SAT");
+                        index = command_index;
+                    }
+                    "QPF" => {
+                        push_command_token!("QPF");
+                        index = command_index;
+                    }
+                    "kQPF" => {
+                        push_command_token!("k QPF");
+                        index = command_index;
+                    }
+                    "QMA" => {
+                        push_command_token!("QMA");
+                        index = command_index;
+                    }
+                    "NP" => {
+                        push_command_token!("NP");
+                        index = command_index;
+                    }
+                    "notgate" => {
+                        push_command_token!("not");
+                        index = command_index;
+                    }
+                    "cnot" => {
+                        push_command_token!("cnot");
+                        index = command_index;
+                    }
+                    "toffoli" => {
+                        push_command_token!("toffoli");
+                        index = command_index;
+                    }
+                    "addone" => {
+                        push_command_token!("addone");
+                        index = command_index;
+                    }
+                    "compare" => {
+                        push_command_token!("compare");
+                        index = command_index;
+                    }
                     "sum" | "prod" | "int" | "lim" | "bigcup" | "bigcap" | "bigoplus"
                     | "bigotimes" | "bigodot" | "bigsqcup" | "bigvee" | "bigwedge" => {
                         let mut script_index = skip_ascii_whitespace(source, command_index);
@@ -24005,7 +24211,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     }
                     "sin" | "cos" | "tan" | "cot" | "sec" | "csc" | "log" | "ln" | "exp"
                     | "min" | "max" | "arg" | "deg" | "det" | "dim" | "gcd" | "hom" | "ker"
-                    | "Pr" | "sup" | "inf" => {
+                    | "Pr" | "sup" | "inf" | "poly" | "negl" | "Supp" | "loglog" | "argmax" => {
                         push_command_token!(command);
                         index = command_index;
                     }
@@ -34206,6 +34412,58 @@ Fallback text.
         assert_eq!(
             math.normalized_text.as_deref(),
             Some("NC_array + |0> <-> |1> + |N><N| + sum N + partial L + omega_ell a_ell^dag a_ell")
+        );
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_quantum_notation_macros() {
+        let source = r"\begin{document}\[\boldsymbol{(\EnergyNo-\EnergyYes)/M=\Omega(1)} + \expec{\psi}{H} + \proj{x}\reg{out} + \norm{H} + \myO{\cdot} + \{\textsc{hadamard},\notgate,\cnot\}\]\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let display_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::DisplayMath(_)))
+            .expect("display math event");
+
+        let RenderEvent::DisplayMath(math) = &display_math.event else {
+            panic!("display math event");
+        };
+
+        assert_eq!(
+            math.normalized_text.as_deref(),
+            Some(
+                "(E_no - E_yes)/M = Omega(1) + <psi|H|psi> + |x><x|_out + ||H|| + O^*(*) + {hadamard, not, cnot}"
+            )
+        );
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_problem_atoms_and_clock_wrappers() {
+        let source = r"\begin{document}\[\kLH(H,\EnergyYes,\EnergyNo)+\kSAT(\Phi)+\kQPF(H,\beta,\delta)+\zout+\Hh_{\textrm{clock}}+\stay{t}+\add{t-1}+\taddd{t+2}\hspace{5mm}\tag{C1}\]\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let display_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::DisplayMath(_)))
+            .expect("display math event");
+
+        let RenderEvent::DisplayMath(math) = &display_math.event else {
+            panic!("display math event");
+        };
+
+        assert_eq!(
+            math.normalized_text.as_deref(),
+            Some(
+                "k LH(H, E_yes, E_no) + k SAT(Phi) + k QPF(H, beta, delta) + Z + H_clock + stay(t) + add(t - 1) + taddd(t + 2)"
+            )
         );
     }
 
