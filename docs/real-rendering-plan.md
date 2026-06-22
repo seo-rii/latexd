@@ -607,8 +607,10 @@ Tasks:
 - extend `arxiv_oracle` report with page count;
 - keep official/internal extracted text paths or persist selected text snippets;
 - add raster smoke fields: page dimensions, non-white bbox, diff artifact paths;
-- normalize text before unique overlap: Unicode Greek to names or names to
-  Unicode, common ligatures, soft hyphenation, citation-number noise;
+- report normalized unique overlap alongside raw overlap, currently folding
+  Unicode Greek symbols to names, common ligatures, and soft hyphens;
+- further normalize citation-number noise where it does not hide real text
+  regressions;
 - split text metrics into body text, front matter, captions, references where
   the IR can identify them;
 - add case-level budgets for known hard classes: text-heavy, figure-heavy,
@@ -1101,7 +1103,7 @@ Scope:
 
 - add page count and raster smoke to the oracle;
 - persist enough report artifacts to inspect failures;
-- add normalized text metrics.
+- add raw and normalized text metrics.
 
 Exit criteria:
 
@@ -1539,8 +1541,8 @@ Mitigation: render a useful subset first and keep raw math fallback visible.
 
 ## Recommended Immediate Next Tasks
 
-1. Extend `arxiv_oracle` with page count and persistent text/raster artifact
-   paths.
+1. Extend `arxiv_oracle` with broader normalized metric classification and
+   failure-cause buckets.
 2. Implement front matter capture and `\maketitle` output for `article`, `llncs`,
    `IEEEtran`, `revtex4-2`, and `wacv` semantic shims.
 3. Change citation rendering so raw citation keys never enter visible PDF text.

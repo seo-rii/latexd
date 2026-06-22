@@ -54,12 +54,20 @@ struct OracleCaseReport {
     source_root: Utf8PathBuf,
     oracle_token_count: usize,
     oracle_unique_token_count: usize,
+    oracle_normalized_token_count: usize,
+    oracle_normalized_unique_token_count: usize,
     internal_token_count: Option<usize>,
     internal_unique_token_count: Option<usize>,
     common_unique_token_count: Option<usize>,
     common_unique_token_ratio: Option<f64>,
+    internal_normalized_token_count: Option<usize>,
+    internal_normalized_unique_token_count: Option<usize>,
+    normalized_common_unique_token_count: Option<usize>,
+    normalized_common_unique_token_ratio: Option<f64>,
     missing_token_sample: Vec<String>,
     extra_token_sample: Vec<String>,
+    normalized_missing_token_sample: Vec<String>,
+    normalized_extra_token_sample: Vec<String>,
     internal_text: Option<Utf8PathBuf>,
     internal_pdf: Option<Utf8PathBuf>,
     internal_page_count: Option<usize>,
@@ -193,6 +201,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                 panic!("{} oracle raster smoke failed: {error}", case.arxiv_id)
             });
         let oracle_tokens = tokenize(&oracle_text);
+        let oracle_normalized_tokens = tokenize_normalized(&oracle_text);
         assert!(
             oracle_tokens.len() >= case.min_oracle_tokens,
             "{} official PDF text extraction produced only {} tokens",
@@ -200,6 +209,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             oracle_tokens.len()
         );
         let oracle_unique = unique_tokens(&oracle_tokens);
+        let oracle_normalized_unique = unique_tokens(&oracle_normalized_tokens);
         let tempdir = tempdir().expect("tempdir");
         let project_root =
             Utf8PathBuf::from_path_buf(tempdir.path().join("project")).expect("utf8 project root");
@@ -242,12 +252,20 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             source_root: source_root.clone(),
             oracle_token_count: oracle_tokens.len(),
             oracle_unique_token_count: oracle_unique.len(),
+            oracle_normalized_token_count: oracle_normalized_tokens.len(),
+            oracle_normalized_unique_token_count: oracle_normalized_unique.len(),
             internal_token_count: None,
             internal_unique_token_count: None,
             common_unique_token_count: None,
             common_unique_token_ratio: None,
+            internal_normalized_token_count: None,
+            internal_normalized_unique_token_count: None,
+            normalized_common_unique_token_count: None,
+            normalized_common_unique_token_ratio: None,
             missing_token_sample: Vec::new(),
             extra_token_sample: Vec::new(),
+            normalized_missing_token_sample: Vec::new(),
+            normalized_extra_token_sample: Vec::new(),
             internal_text: None,
             internal_pdf: None,
             internal_page_count: None,
@@ -316,20 +334,40 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                         panic!("{} internal raster smoke failed: {error}", case.arxiv_id)
                     });
                 let internal_tokens = tokenize(&internal_text);
+                let internal_normalized_tokens = tokenize_normalized(&internal_text);
                 let internal_unique = unique_tokens(&internal_tokens);
+                let internal_normalized_unique = unique_tokens(&internal_normalized_tokens);
                 let common = oracle_unique
                     .intersection(&internal_unique)
                     .cloned()
                     .collect::<BTreeSet<_>>();
                 let ratio = common.len() as f64 / oracle_unique.len().max(1) as f64;
+                let normalized_common = oracle_normalized_unique
+                    .intersection(&internal_normalized_unique)
+                    .cloned()
+                    .collect::<BTreeSet<_>>();
+                let normalized_ratio =
+                    normalized_common.len() as f64 / oracle_normalized_unique.len().max(1) as f64;
                 report.internal_token_count = Some(internal_tokens.len());
                 report.internal_unique_token_count = Some(internal_unique.len());
                 report.common_unique_token_count = Some(common.len());
                 report.common_unique_token_ratio = Some(ratio);
+                report.internal_normalized_token_count = Some(internal_normalized_tokens.len());
+                report.internal_normalized_unique_token_count =
+                    Some(internal_normalized_unique.len());
+                report.normalized_common_unique_token_count = Some(normalized_common.len());
+                report.normalized_common_unique_token_ratio = Some(normalized_ratio);
                 report.missing_token_sample =
                     ordered_difference_sample(&oracle_tokens, &common, 80);
                 report.extra_token_sample =
                     ordered_difference_sample(&internal_tokens, &oracle_unique, 80);
+                report.normalized_missing_token_sample =
+                    ordered_difference_sample(&oracle_normalized_tokens, &normalized_common, 80);
+                report.normalized_extra_token_sample = ordered_difference_sample(
+                    &internal_normalized_tokens,
+                    &oracle_normalized_unique,
+                    80,
+                );
                 report.internal_text = Some(internal_text_path);
                 report.internal_pdf = Some(internal_pdf_path);
                 report.internal_page_count = Some(internal_page_count);
@@ -654,6 +692,47 @@ fn tokenize(text: &str) -> Vec<String> {
         .collect()
 }
 
+fn tokenize_normalized(text: &str) -> Vec<String> {
+    let mut normalized = String::with_capacity(text.len());
+    for character in text.chars() {
+        match character {
+            '\u{00ad}' => {}
+            'ﬀ' => normalized.push_str("ff"),
+            'ﬁ' => normalized.push_str("fi"),
+            'ﬂ' => normalized.push_str("fl"),
+            'ﬃ' => normalized.push_str("ffi"),
+            'ﬄ' => normalized.push_str("ffl"),
+            'ﬅ' | 'ﬆ' => normalized.push_str("st"),
+            'α' | 'Α' => normalized.push_str(" alpha "),
+            'β' | 'Β' => normalized.push_str(" beta "),
+            'γ' | 'Γ' => normalized.push_str(" gamma "),
+            'δ' | 'Δ' => normalized.push_str(" delta "),
+            'ε' | 'Ε' => normalized.push_str(" epsilon "),
+            'ζ' | 'Ζ' => normalized.push_str(" zeta "),
+            'η' | 'Η' => normalized.push_str(" eta "),
+            'θ' | 'Θ' => normalized.push_str(" theta "),
+            'ι' | 'Ι' => normalized.push_str(" iota "),
+            'κ' | 'Κ' => normalized.push_str(" kappa "),
+            'λ' | 'Λ' => normalized.push_str(" lambda "),
+            'μ' | 'Μ' | 'µ' => normalized.push_str(" mu "),
+            'ν' | 'Ν' => normalized.push_str(" nu "),
+            'ξ' | 'Ξ' => normalized.push_str(" xi "),
+            'ο' | 'Ο' => normalized.push_str(" omicron "),
+            'π' | 'Π' => normalized.push_str(" pi "),
+            'ρ' | 'Ρ' => normalized.push_str(" rho "),
+            'σ' | 'ς' | 'Σ' => normalized.push_str(" sigma "),
+            'τ' | 'Τ' => normalized.push_str(" tau "),
+            'υ' | 'Υ' => normalized.push_str(" upsilon "),
+            'φ' | 'Φ' => normalized.push_str(" phi "),
+            'χ' | 'Χ' => normalized.push_str(" chi "),
+            'ψ' | 'Ψ' => normalized.push_str(" psi "),
+            'ω' | 'Ω' => normalized.push_str(" omega "),
+            _ => normalized.push(character),
+        }
+    }
+    tokenize(&normalized)
+}
+
 fn unique_tokens(tokens: &[String]) -> BTreeSet<String> {
     tokens.iter().cloned().collect()
 }
@@ -767,10 +846,25 @@ fn arxiv_oracle_raster_smoke_reports_non_white_bbox() {
 }
 
 #[test]
+fn arxiv_oracle_normalized_tokens_fold_greek_ligatures_and_soft_hyphens() {
+    let tokens = tokenize_normalized("α β ﬁeld co\u{00ad}author");
+
+    assert_eq!(tokens, vec!["alpha", "beta", "field", "coauthor"]);
+}
+
+#[test]
+fn arxiv_oracle_normalized_overlap_matches_symbol_and_name_forms() {
+    let oracle = unique_tokens(&tokenize_normalized("α ﬁeld co\u{00ad}author"));
+    let internal = unique_tokens(&tokenize_normalized("alpha field coauthor"));
+
+    assert_eq!(oracle.intersection(&internal).count(), 3);
+}
+
+#[test]
 fn arxiv_oracle_manifest_defaults_phase2_budgets() {
     let manifest = serde_json::from_str::<OracleManifest>(
         r#"{
-          "cases": [{
+            "cases": [{
             "arxiv_id": "2301.01234",
             "version": "v1",
             "title": "A Paper",
