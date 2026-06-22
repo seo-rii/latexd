@@ -2677,6 +2677,22 @@ impl<'i> Vm<'i> {
                                 {
                                     index = after_width;
                                 }
+                                if let Some(next_item) = source[index..].find("\\bibitem") {
+                                    let next_item_start = index + next_item;
+                                    let end_bibliography = source[index..]
+                                        .find("\\end{thebibliography}")
+                                        .map(|end| index + end);
+                                    if match end_bibliography {
+                                        Some(end) => next_item_start < end,
+                                        None => true,
+                                    } {
+                                        index = next_item_start;
+                                    }
+                                } else if let Some(end_bibliography) =
+                                    source[index..].find("\\end{thebibliography}")
+                                {
+                                    index += end_bibliography;
+                                }
                                 self.emit_render_event(
                                     RenderEvent::BeginBlock(BeginBlockEvent {
                                         block: BlockKind::Bibliography,
@@ -28467,6 +28483,53 @@ Fallback text.
         assert!(!item_text.contains("sec:intro"));
         assert!(!item_text.contains("cite"));
         assert!(!item_text.contains("ref"));
+    }
+
+    #[test]
+    fn render_event_capture_skips_bibliography_preamble_boilerplate() {
+        let source = r"\begin{document}\begin{thebibliography}{1}
+\providecommand{\url}[1]{#1}
+\csname url@rmstyle\endcsname
+\providecommand\BIBentrySTDinterwordspacing{\spaceskip=0pt\relax}
+\providecommand\BIBentryALTinterwordspacing{\spaceskip=\fontdimen2\font plus
+4\fontdimen3\font minus \fontdimen4\font\relax}
+\typeout{** WARNING: IEEEtran.bst setup}
+\bibitem{alpha} Alpha entry.
+\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let items = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(items, vec!["Alpha entry."]);
+        for hidden in [
+            "url@rmstyle",
+            "spaceskip",
+            "0pt",
+            "fontdimen",
+            "minus",
+            "WARNING",
+            "IEEEtran",
+            "bst",
+        ] {
+            assert!(
+                !outcome.render_events.iter().any(|event| matches!(
+                    &event.event,
+                    RenderEvent::Text(text) if text.text.contains(hidden)
+                )),
+                "{hidden} leaked into {:?}",
+                outcome.render_events
+            );
+        }
     }
 
     #[test]
