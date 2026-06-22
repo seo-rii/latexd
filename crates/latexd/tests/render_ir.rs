@@ -19891,6 +19891,44 @@ fn comment_environment_body_is_hidden_from_ir_and_display_list() {
 }
 
 #[test]
+fn commented_unsupported_environment_is_hidden_from_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        COMMENTED_UNSUPPORTED_ENVIRONMENT_SOURCE,
+        &SemanticAux::default(),
+    );
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("IEEEbiography")
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Before."));
+    assert!(extracted_text.contains("After."));
+    for hidden in ["Hidden", "width", "photo", "IEEEbiography"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Before."));
+    assert!(display_list_text.contains("After."));
+    for hidden in ["Hidden", "width", "photo", "IEEEbiography"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn custom_comment_environments_follow_include_exclude_policy() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -22636,6 +22674,8 @@ const BOXED_WRAPPER_SOURCE: &str = r"\begin{document}\begin{framed}Frame \cite{k
 const CSQUOTES_DISPLAY_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{displayquote}[Hidden Source]Quoted \cite{key} text.\end{displayquote}\begin{displayquotation}[Hidden Source][Hidden Punct]Long quote text.\end{displayquotation}\end{document}";
 
 const COMMENT_ENVIRONMENT_SOURCE: &str = r"\begin{document}Before.\begin{comment}Hidden \cite{key} text.\end{comment} After.\end{document}";
+
+const COMMENTED_UNSUPPORTED_ENVIRONMENT_SOURCE: &str = "\\begin{document}Before.\n% \\begin{IEEEbiography}[{\\includegraphics[width=1in]{photo/Tianyu-Liu}}]{Hidden Author} Hidden bio text. \\end{IEEEbiography}\nAfter.\\end{document}";
 
 const CUSTOM_COMMENT_ENVIRONMENT_SOURCE: &str = r"\excludecomment{draftnote}\includecomment{keptnote}\begin{document}Before.\begin{draftnote}Hidden \cite{key} text.\end{draftnote}\begin{keptnote}Kept \cite{shown} text.\end{keptnote} After.\end{document}";
 

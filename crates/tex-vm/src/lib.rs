@@ -1376,6 +1376,12 @@ impl<'i> Vm<'i> {
         let mut in_document = initial_in_document;
         scan_state.active_input_paths.push(source_path.to_owned());
         while index < bytes.len() {
+            if bytes[index] == b'%' && !is_escaped_percent(source, index) {
+                self.capture_text_events(source_path, source, text_start, index, in_document);
+                index = skip_latex_line_comment(source, index);
+                text_start = index;
+                continue;
+            }
             if bytes[index] != b'\\' {
                 if in_document && bytes[index] == b'$' {
                     let delimiter_len = if index + 1 < bytes.len() && bytes[index + 1] == b'$' {
@@ -20262,6 +20268,53 @@ fn skip_ascii_whitespace(source: &str, mut index: usize) -> usize {
     index
 }
 
+fn is_escaped_percent(source: &str, index: usize) -> bool {
+    if source.as_bytes().get(index).copied() != Some(b'%') {
+        return false;
+    }
+    let bytes = source.as_bytes();
+    let mut slash_count = 0usize;
+    let mut cursor = index;
+    while cursor > 0 && bytes[cursor - 1] == b'\\' {
+        slash_count += 1;
+        cursor -= 1;
+    }
+    slash_count % 2 == 1
+}
+
+fn skip_latex_line_comment(source: &str, index: usize) -> usize {
+    let bytes = source.as_bytes();
+    let mut cursor = index + 1;
+    while cursor < bytes.len() && !matches!(bytes[cursor], b'\n' | b'\r') {
+        cursor += 1;
+    }
+    if cursor < bytes.len() && bytes[cursor] == b'\r' {
+        cursor += 1;
+        if cursor < bytes.len() && bytes[cursor] == b'\n' {
+            cursor += 1;
+        }
+    } else if cursor < bytes.len() && bytes[cursor] == b'\n' {
+        cursor += 1;
+    }
+    cursor
+}
+
+fn is_commented_source_index(source: &str, index: usize) -> bool {
+    let bytes = source.as_bytes();
+    let mut line_start = index;
+    while line_start > 0 && !matches!(bytes[line_start - 1], b'\n' | b'\r') {
+        line_start -= 1;
+    }
+    let mut cursor = line_start;
+    while cursor < index {
+        if bytes[cursor] == b'%' && !is_escaped_percent(source, cursor) {
+            return true;
+        }
+        cursor += 1;
+    }
+    false
+}
+
 fn find_latex_environment_end(
     source: &str,
     body_start: usize,
@@ -20273,6 +20326,10 @@ fn find_latex_environment_end(
     while cursor < limit {
         let relative_command = source[cursor..limit].find('\\')?;
         let command_start = cursor + relative_command;
+        if is_commented_source_index(source, command_start) {
+            cursor = command_start + 1;
+            continue;
+        }
         let command_name_start = command_start + 1;
         if command_name_start >= limit {
             return None;
@@ -38008,6 +38065,44 @@ Fallback text.
             &event.event,
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("comment")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_skips_line_commented_commands_and_environments() {
+        let source = "\\begin{document}Before.% \\cite{hidden}\n% \\begin{IEEEbiography}{Hidden} Hidden bio. \\end{IEEEbiography}\nAfter \\cite{shown}.\\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("Before."));
+        assert!(visible_text.contains("After"));
+        assert!(!visible_text.contains("Hidden"));
+        assert!(!visible_text.contains("hidden"));
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineCitation(citation) if citation.keys == vec!["shown".to_string()]
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineCitation(citation) if citation.keys == vec!["hidden".to_string()]
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("IEEEbiography")
         )));
     }
 

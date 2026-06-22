@@ -313,6 +313,7 @@ pub struct EnvironmentBlock {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ListBlock {
+    #[serde(rename = "list_kind")]
     pub kind: ListKind,
     pub items: Vec<ListItemIr>,
     pub source: SourceProvenance,
@@ -536,8 +537,11 @@ pub struct LinkInline {
 
 #[cfg(test)]
 mod tests {
-    use super::{DisplayMathBlock, DocumentIr, HeadingBlock, InlineNode, IrBlock, ParagraphBlock};
-    use crate::SourceProvenance;
+    use super::{
+        DisplayMathBlock, DocumentIr, HeadingBlock, InlineNode, IrBlock, ListBlock, ListItemIr,
+        ParagraphBlock,
+    };
+    use crate::{ListKind, SourceProvenance};
 
     #[test]
     fn extracted_text_includes_heading_numbers() {
@@ -575,5 +579,29 @@ mod tests {
         ]);
 
         assert_eq!(document.extracted_text(), "alpha\nbeta");
+    }
+
+    #[test]
+    fn list_block_json_uses_distinct_list_kind_field() {
+        let source = SourceProvenance::file("main.tex", 0, 16);
+        let document = DocumentIr::new(vec![IrBlock::List(ListBlock {
+            kind: ListKind::Ordered,
+            items: vec![ListItemIr {
+                marker: "1.".to_string(),
+                content: vec![InlineNode::Text {
+                    text: "First".to_string(),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            }],
+            source,
+        })]);
+
+        let encoded = serde_json::to_string(&document).expect("serialize document IR");
+        let decoded: DocumentIr = serde_json::from_str(&encoded).expect("deserialize document IR");
+
+        assert!(encoded.contains("\"kind\":\"list\""));
+        assert!(encoded.contains("\"list_kind\":\"ordered\""));
+        assert_eq!(decoded, document);
     }
 }
