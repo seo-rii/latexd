@@ -19975,6 +19975,43 @@ fn commented_unsupported_environment_is_hidden_from_ir_and_display_list() {
 }
 
 #[test]
+fn inactive_conditional_table_is_hidden_from_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        INACTIVE_CONDITIONAL_TABLE_SOURCE,
+        &SemanticAux::default(),
+    );
+    assert!(!capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::Table(table) if table.environment == "tabular"
+        )
+    }));
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("Before."));
+    assert!(extracted_text.contains("After."));
+    for hidden in ["Feature", "Boolean", "kernel32", "rsrc"] {
+        assert!(!extracted_text.contains(hidden));
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("Before."));
+    assert!(display_list_text.contains("After."));
+    for hidden in ["Feature", "Boolean", "kernel32", "rsrc"] {
+        assert!(!display_list_text.contains(hidden));
+    }
+}
+
+#[test]
 fn custom_comment_environments_follow_include_exclude_policy() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -22732,6 +22769,17 @@ const CSQUOTES_DISPLAY_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{displ
 const COMMENT_ENVIRONMENT_SOURCE: &str = r"\begin{document}Before.\begin{comment}Hidden \cite{key} text.\end{comment} After.\end{document}";
 
 const COMMENTED_UNSUPPORTED_ENVIRONMENT_SOURCE: &str = "\\begin{document}Before.\n% \\begin{IEEEbiography}[{\\includegraphics[width=1in]{photo/Tianyu-Liu}}]{Hidden Author} Hidden bio text. \\end{IEEEbiography}\nAfter.\\end{document}";
+
+const INACTIVE_CONDITIONAL_TABLE_SOURCE: &str = r"\begin{document}Before.\if0
+\begin{table}
+\caption{Hidden feature table.}
+\begin{tabular}{ll}
+Feature & Boolean \\
+kernel32.dll & rsrc \\
+\end{tabular}
+\end{table}
+\fi
+After.\end{document}";
 
 const CUSTOM_COMMENT_ENVIRONMENT_SOURCE: &str = r"\excludecomment{draftnote}\includecomment{keptnote}\begin{document}Before.\begin{draftnote}Hidden \cite{key} text.\end{draftnote}\begin{keptnote}Kept \cite{shown} text.\end{keptnote} After.\end{document}";
 

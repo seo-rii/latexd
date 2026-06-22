@@ -1526,6 +1526,110 @@ impl<'i> Vm<'i> {
                 index += 1;
                 &source[start..index]
             };
+            let inactive_conditional_body_start = if command == "iffalse" {
+                Some(index)
+            } else if command == "if" {
+                let first_condition_token = skip_ascii_whitespace(source, index);
+                if bytes.get(first_condition_token).copied() == Some(b'0') {
+                    let second_condition_token =
+                        skip_ascii_whitespace(source, first_condition_token + 1);
+                    if bytes.get(second_condition_token).copied() != Some(b'0') {
+                        Some(first_condition_token + 1)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            if let Some(mut conditional_cursor) = inactive_conditional_body_start {
+                let mut conditional_depth = 1usize;
+                let mut after_inactive_conditional = None;
+                while conditional_cursor < bytes.len() {
+                    let Some(relative_command) = source[conditional_cursor..].find('\\') else {
+                        break;
+                    };
+                    let nested_command_start = conditional_cursor + relative_command;
+                    if is_commented_source_index(source, nested_command_start) {
+                        conditional_cursor = nested_command_start + 1;
+                        continue;
+                    }
+                    let nested_command_name_start = nested_command_start + 1;
+                    if nested_command_name_start >= bytes.len() {
+                        break;
+                    }
+                    let mut nested_command_name_end = nested_command_name_start;
+                    while nested_command_name_end < bytes.len()
+                        && (bytes[nested_command_name_end].is_ascii_alphabetic()
+                            || bytes[nested_command_name_end] == b'@')
+                    {
+                        nested_command_name_end += 1;
+                    }
+                    if nested_command_name_end == nested_command_name_start {
+                        conditional_cursor = nested_command_name_start + 1;
+                        continue;
+                    }
+                    let nested_command =
+                        &source[nested_command_name_start..nested_command_name_end];
+                    if nested_command == "fi" {
+                        conditional_depth = conditional_depth.saturating_sub(1);
+                        if conditional_depth == 0 {
+                            after_inactive_conditional = Some(nested_command_name_end);
+                            break;
+                        }
+                    } else if nested_command == "else" && conditional_depth == 1 {
+                        after_inactive_conditional = Some(nested_command_name_end);
+                        break;
+                    } else if matches!(
+                        nested_command,
+                        "if" | "iftrue"
+                            | "iffalse"
+                            | "ifeof"
+                            | "ifcsname"
+                            | "ifdefined"
+                            | "ifcat"
+                            | "ifcase"
+                            | "ifodd"
+                            | "ifx"
+                            | "ifnum"
+                            | "ifdim"
+                            | "ifin@"
+                            | "if@tempswa"
+                            | "if@filesw"
+                            | "IfFileExists"
+                            | "IfPackageLoadedTF"
+                            | "IfClassLoadedTF"
+                            | "IfPackageAtLeastTF"
+                            | "IfClassAtLeastTF"
+                            | "@ifpackageloaded"
+                            | "@ifclassloaded"
+                            | "@ifpackagelater"
+                            | "@ifclasslater"
+                            | "@ifpackagewith"
+                            | "@ifclasswith"
+                            | "@ifundefined"
+                            | "@ifdefinable"
+                            | "@ifnextchar"
+                            | "kernel@ifnextchar"
+                            | "@ifstar"
+                            | "kernel@ifstar"
+                            | "@ifempty"
+                            | "@ifnotempty"
+                            | "@ifmtarg"
+                            | "@ifnotmtarg"
+                    ) {
+                        conditional_depth += 1;
+                    }
+                    conditional_cursor = nested_command_name_end;
+                }
+                if let Some(after_inactive_conditional) = after_inactive_conditional {
+                    index = after_inactive_conditional;
+                    text_start = index;
+                    continue;
+                }
+            }
             match command {
                 "newcommand" | "renewcommand" | "providecommand" | "DeclareRobustCommand" => {
                     let mut signature_index = skip_ascii_whitespace(source, index);
@@ -38125,6 +38229,47 @@ Fallback text.
             &event.event,
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("IEEEbiography")
+        )));
+    }
+
+    #[test]
+    fn render_event_capture_skips_inactive_conditionals() {
+        let source = r"\begin{document}Before.\iffalse Hidden \cite{hidden} text.\else Else branch.\fi After.\if0\begin{tabular}{ll}Feature & Boolean \\\ kernel32.dll & rsrc \\\end{tabular}\fi Done \cite{shown}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                RenderEvent::Space(_) => Some(" "),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        assert!(visible_text.contains("Before."));
+        assert!(visible_text.contains("Else branch."));
+        assert!(visible_text.contains("After."));
+        assert!(visible_text.contains("Done"));
+        for hidden in ["Hidden", "Feature", "Boolean", "kernel32", "rsrc"] {
+            assert!(!visible_text.contains(hidden));
+        }
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineCitation(citation) if citation.keys == vec!["shown".to_string()]
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::InlineCitation(citation) if citation.keys == vec!["hidden".to_string()]
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::RawFallback(fallback)
+                if fallback.environment.as_deref() == Some("tabular")
         )));
     }
 
