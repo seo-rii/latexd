@@ -1,5 +1,5 @@
 main.tex::\input{refs-a.bbl}
-main.tex::See Section 1, Figure 1, Figure 2, and Observation Corollary A; compare Alpha (2025) and (see beta).
+main.tex::See Section 1, Figure 1, Figure 2, and Observation Corollary A; compare Alpha (2025) and (see ?).
 sections/frontmatter.tex::Opening Notes
 sections/intro.tex::Observation Lemma 1.1 (Split Workflow Result).
 sections/intro.tex::Observation Corollary 1.2 (Split Workflow Consequence).

@@ -36,5 +36,5 @@ See Section 1 (Long Introduction), Observation Lemma 1.1 (Split Workflow Result)
 section, Subsection, section; subsection, observation lemma
 page 1, Page 1, page 1, section 1 on page 1
 Observation lemma 1.1 on page 1
-compare Alpha (2025) and (see beta).
+compare Alpha (2025) and (see ?).
 [1] Alpha revised entry.

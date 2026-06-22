@@ -9,5 +9,5 @@ A Proof Notes .... 1
 Proofs and Details
 Observation Lemma A.1 (Appendix Result).
 See Figure 1, Observation Lemma A.1, and Appendix Result.
-See Section 1, Figure 1, and Observation Lemma A; compare Alpha (2025) and (see beta, pp.~1--2).
+See Section 1, Figure 1, and Observation Lemma A; compare Alpha (2025) and (see ?, pp.~1--2).
 [1] Alpha revised entry.

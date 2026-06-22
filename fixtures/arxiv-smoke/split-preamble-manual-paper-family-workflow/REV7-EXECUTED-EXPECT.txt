@@ -1,5 +1,5 @@
 main.tex::\input{refs-a.bbl}
-main.tex::See Section 1, Figure 1, and Observation Lemma A; compare Alpha (2025) and (see beta, pp.~1--2).
+main.tex::See Section 1, Figure 1, and Observation Lemma A; compare Alpha (2025) and (see ?, pp.~1--2).
 sections/frontmatter.tex::Opening Notes
 sections/intro.tex::Observation Lemma 1.1 (Split Workflow Result).
 sections/intro.tex::Figure 1: Workflow Figure

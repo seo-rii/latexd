@@ -1,5 +1,5 @@
 main.tex::\input{refs-a.bbl}
-main.tex::See Section 1, Alpha (2025), Exact Revised Title, 10.1000/revised, arXiv:2501.00001, and (see beta, pp.~1--2).
+main.tex::See Section 1, Alpha (2025), Exact Revised Title, 10.1000/revised, arXiv:2501.00001, and (see ?, pp.~1--2).
 sections/intro.tex::Observation Lemma 1.1 (Split Workflow Result).
 sections/intro.tex::See Split Workflow Result.
 refs-a.bbl::[1] Alpha and Beta. 2025. Exact Revised Title. 10.1000/revised. arXiv:2501.00001.

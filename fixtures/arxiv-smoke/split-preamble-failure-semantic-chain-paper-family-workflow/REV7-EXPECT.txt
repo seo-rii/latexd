@@ -12,7 +12,7 @@ Proofs and Details
 Observation Lemma A.1 (Appendix Result).
 See Figure 1, Observation Lemma A.1, and Appendix Result.
 Related Work
-See Alpha (2025); compare Alpha (2025) and (see beta).
-See Section 1, Figure 1, and Observation Lemma A; compare Alpha (2025) and (see beta).
+See Alpha (2025); compare Alpha (2025) and (see ?).
+See Section 1, Figure 1, and Observation Lemma A; compare Alpha (2025) and (see ?).
 Works Cited .... 1
 [1] Alpha revised entry.

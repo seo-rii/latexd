@@ -1,4 +1,4 @@
-main.tex::See Section 1, Figure 1, and Observation Lemma A; compare Alpha (2025) and (see beta).
+main.tex::See Section 1, Figure 1, and Observation Lemma A; compare Alpha (2025) and (see ?).
 sections/frontmatter.tex::Opening Notes
 sections/intro.tex::Observation Lemma 1.1 (Split Workflow Result).
 sections/intro.tex::Figure 1: Workflow Figure
@@ -8,4 +8,4 @@ sections/intro.tex::See Figure 1, Observation Lemma A.1, and Appendix Result.
 refs-a.bbl::Alpha revised entry.
 main.tex::\input{sections/related}
 sections/related.tex::Related Work
-sections/related.tex::See Alpha (2025); compare Alpha (2025) and (see beta).
+sections/related.tex::See Alpha (2025); compare Alpha (2025) and (see ?).

@@ -5,7 +5,7 @@ main.tex::See Section 1 (Long Introduction), Observation Lemma 1.1 (Split Workfl
 main.tex::section, Subsection, section; subsection, observation lemma
 main.tex::page 1, Page 1, page 1, section 1 on page 1
 main.tex::Observation lemma 1.1 on page 1
-main.tex::compare Alpha (2025) and (see beta).
+main.tex::compare Alpha (2025) and (see ?).
 sections/frontmatter.tex::Opening Notes
 sections/intro.tex::Observation Lemma 1.1 (Split Workflow Result).
 sections/intro.tex::Observation Corollary 1.2 (Split Workflow Consequence).

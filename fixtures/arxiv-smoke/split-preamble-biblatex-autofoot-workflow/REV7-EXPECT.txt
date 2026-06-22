@@ -3,5 +3,5 @@ Short Intro .... 1
 Long Introduction
 Observation Lemma 1.1 (Split Workflow Result).
 See Split Workflow Result.
-See Section 1, Split Workflow Result, (Alpha, 2025), (see Alpha, 2025, chap.~2; cf. beta), (beta), and (Alpha, 2025; cf. beta).
+See Section 1, Split Workflow Result, (Alpha, 2025), (see Alpha, 2025, chap.~2; cf. ?), (?), and (Alpha, 2025; cf. ?).
 [1] Alpha revised entry.
