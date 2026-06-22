@@ -331,7 +331,7 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\mathbbm#1{#1}
 \def\binom#1#2{#1 #2}
 \def\usetikzlibrary#1{}
-\def\xspace{}
+\def\xspace{ }
 \makeatletter
 \newcommand{\includegraphics}[2][]{[image]}
 \newcommand{\caption}[2][]{#2}
@@ -1605,6 +1605,36 @@ mod tests {
         assert!(result.output.contains("1843"));
         assert!(result.output.contains("Body"));
         assert!(result.output.find("A Paper") < result.output.find("Body"));
+    }
+
+    #[test]
+    fn mini_kernel_preserves_xspace_inside_visible_macros() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            "\\usepackage{xspace}\\newcommand{\\ours}{\\textsc{DeepCDCL}\\xspace}\\begin{document}\\ours framework. \\ours on benchmarks. \\ours in practice.\\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        assert!(result.output.contains("DeepCDCL framework"));
+        assert!(result.output.contains("DeepCDCL on benchmarks"));
+        assert!(result.output.contains("DeepCDCL in practice"));
+        for glued in ["DeepCDCLframework", "DeepCDCLon", "DeepCDCLin"] {
+            assert!(
+                !result.output.contains(glued),
+                "{glued} leaked into {:?}",
+                result.output
+            );
+        }
     }
 
     #[test]

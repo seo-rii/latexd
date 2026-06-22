@@ -515,6 +515,7 @@ enum Primitive {
     Meaning,
     Detokenize,
     StripPrefix,
+    TextWrapper,
     Uppercase,
     Lowercase,
     ExpandAfter,
@@ -14490,6 +14491,13 @@ impl<'i> Vm<'i> {
             Primitive::StripPrefix => {
                 self.discard_tokens_through_strip_prefix_delimiter(queue);
             }
+            Primitive::TextWrapper => {
+                if let Some(argument) = self.read_macro_argument(queue) {
+                    for token in argument.into_iter().rev() {
+                        self.push_token_front(queue, token);
+                    }
+                }
+            }
             Primitive::Uppercase => {
                 let tokens = self.read_balanced_group(queue).unwrap_or_default();
                 for token in self
@@ -20133,6 +20141,8 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "meaning" => Some(Primitive::Meaning),
         "detokenize" => Some(Primitive::Detokenize),
         "strip@prefix" => Some(Primitive::StripPrefix),
+        "emph" | "textbf" | "textit" | "texttt" | "textsc" | "textrm" | "textsf" | "textup"
+        | "textmd" | "textnormal" | "underline" | "mbox" | "hbox" => Some(Primitive::TextWrapper),
         "uppercase" => Some(Primitive::Uppercase),
         "lowercase" => Some(Primitive::Lowercase),
         "long" => Some(Primitive::Long),
@@ -20360,6 +20370,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::Meaning => "meaning",
         Primitive::Detokenize => "detokenize",
         Primitive::StripPrefix => "strip@prefix",
+        Primitive::TextWrapper => "text-wrapper",
         Primitive::Uppercase => "uppercase",
         Primitive::Lowercase => "lowercase",
         Primitive::Long => "long",
@@ -28392,6 +28403,39 @@ mod tests {
             outcome.output
         );
         for glued in ["FrameworkZongxin", "andPengfei", "andLijun"] {
+            assert!(
+                !outcome.output.contains(glued),
+                "{glued} leaked into {:?}",
+                outcome.output
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_output_preserves_xspace_inside_visible_macros() {
+        let source = r"\documentclass{article}
+\usepackage{xspace}
+\newcommand{\ours}{\textsc{DeepCDCL}\xspace}
+\begin{document}
+\ours framework. \ours on benchmarks. \ours in practice.
+\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(source);
+
+        assert!(
+            outcome.output.contains("DeepCDCL framework")
+                && outcome.output.contains("DeepCDCL on benchmarks")
+                && outcome.output.contains("DeepCDCL in practice"),
+            "xspace did not separate macro output in {:?}",
+            outcome.output
+        );
+        assert!(
+            !outcome.output.contains("\\textsc"),
+            "style command leaked into legacy output {:?}",
+            outcome.output
+        );
+        for glued in ["DeepCDCLframework", "DeepCDCLon", "DeepCDCLin"] {
             assert!(
                 !outcome.output.contains(glued),
                 "{glued} leaked into {:?}",
