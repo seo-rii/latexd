@@ -5940,7 +5940,7 @@ fn math_problem_atoms_and_clock_wrappers_use_normalized_text_in_ir_and_display_l
     assert_eq!(
         display_math.normalized_text.as_deref(),
         Some(
-            "k LH(H, E_yes, E_no) + k SAT(Phi) + k QPF(H, beta, delta) + Z + H_clock + stay(t) + add(t - 1) + taddd(t + 2)"
+            "k LH(H, E_yes, E_no) + k SAT(Phi) + k QPF(H, beta, delta) + Z + H_clock + S_t + A(t - 1) + ~B(t + 2)"
         )
     );
 
@@ -5959,7 +5959,7 @@ fn math_problem_atoms_and_clock_wrappers_use_normalized_text_in_ir_and_display_l
         "{display_list_text}"
     );
     assert!(
-        display_list_flat.contains("Z + H_clock + stay(t) + add(t - 1) + taddd(t + 2)"),
+        display_list_flat.contains("Z + H_clock + S_t + A(t - 1) + ~B(t + 2)"),
         "{display_list_text}"
     );
     for hidden in [
@@ -18447,6 +18447,51 @@ fn tabular_inline_math_delimiters_normalize_in_ir_and_display_list() {
         assert!(display_list_text.contains(visible), "{display_list_text:?}");
     }
     for hidden in ["$", r"\(", r"\)", r"\[", r"\]", "ldots", "cmax", "ket"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
+    }
+}
+
+#[test]
+fn tabular_clock_operator_wrappers_normalize_in_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{lll}$\stay{t}$ & $\add{t-1}+\addd{t}$ & $\tstay{0}+\tadd{t+1}+\taddd{T}$\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "S_t");
+    assert_eq!(table.rows[0].cells[1].text, "A(t - 1) + B_t");
+    assert_eq!(table.rows[0].cells[2].text, "S_0 + A(t + 1) + B_T");
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(
+        extracted_text.contains("S_t | A(t - 1) + B_t | S_0 + A(t + 1) + B_T"),
+        "{extracted_text}"
+    );
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    for visible in ["S_t", "A(t - 1) + B_t", "S_0"] {
+        assert!(display_list_text.contains(visible), "{display_list_text:?}");
+    }
+    for hidden in ["stay", "add", "addd", "tstay", "tadd", "taddd"] {
         assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
         assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
     }

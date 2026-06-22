@@ -23655,7 +23655,23 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         };
                         let argument = normalize_latex_math_text(argument)
                             .unwrap_or_else(|| normalize_latex_math_source(argument));
-                        push_command_token!(&format!("{command}({argument})"));
+                        let operator = match command {
+                            "stay" => "S",
+                            "add" => "A",
+                            "addd" => "B",
+                            "tstay" => "~S",
+                            "tadd" => "~A",
+                            "taddd" => "~B",
+                            _ => unreachable!("clock operator wrapper command"),
+                        };
+                        if argument
+                            .chars()
+                            .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+                        {
+                            push_command_token!(&format!("{operator}_{argument}"));
+                        } else {
+                            push_command_token!(&format!("{operator}({argument})"));
+                        }
                         index = after_argument;
                     }
                     "expec" | "inner" => {
@@ -34567,7 +34583,7 @@ Fallback text.
         assert_eq!(
             math.normalized_text.as_deref(),
             Some(
-                "k LH(H, E_yes, E_no) + k SAT(Phi) + k QPF(H, beta, delta) + Z + H_clock + stay(t) + add(t - 1) + taddd(t + 2)"
+                "k LH(H, E_yes, E_no) + k SAT(Phi) + k QPF(H, beta, delta) + Z + H_clock + S_t + A(t - 1) + ~B(t + 2)"
             )
         );
     }
@@ -39276,6 +39292,33 @@ Fallback text.
             "t_2 in 1, ..., c_max - 1 | t_1 != binom(a,d - 1) | |100> otimes |000>"
         );
         for hidden in ["$", r"\(", r"\)", r"\[", r"\]", "ldots", "cmax", "ket"] {
+            assert!(!visible_text.contains(hidden), "{visible_text:?}");
+        }
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_table_cell_clock_operator_wrappers() {
+        let source = r"\begin{document}\begin{tabular}{lll}$\stay{t}$ & $\add{t-1}+\addd{t}$ & $\tstay{0}+\tadd{t+1}+\taddd{T}$\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(visible_text, "S_t | A(t - 1) + B_t | S_0 + A(t + 1) + B_T");
+        for hidden in ["stay", "add", "addd", "tstay", "tadd", "taddd"] {
             assert!(!visible_text.contains(hidden), "{visible_text:?}");
         }
     }
