@@ -68,6 +68,7 @@ struct OracleCaseReport {
     extra_token_sample: Vec<String>,
     normalized_missing_token_sample: Vec<String>,
     normalized_extra_token_sample: Vec<String>,
+    metric_findings: Vec<OracleMetricFinding>,
     internal_text: Option<Utf8PathBuf>,
     internal_pdf: Option<Utf8PathBuf>,
     internal_page_count: Option<usize>,
@@ -112,6 +113,18 @@ enum RasterGrossStatus {
     BlankOraclePage,
     BlankInternalPage,
     MissingMajorTextBlocks,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum OracleMetricFinding {
+    BuildFailed,
+    InternalTokenCountBelowBudget,
+    RawOverlapBelowBudget,
+    NormalizedOverlapBelowBudget,
+    NormalizationSensitiveOverlap,
+    PageCountOutOfTolerance,
+    FirstPageRasterGrossFailure,
 }
 
 fn default_max_page_count_delta() -> usize {
@@ -266,6 +279,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             extra_token_sample: Vec::new(),
             normalized_missing_token_sample: Vec::new(),
             normalized_extra_token_sample: Vec::new(),
+            metric_findings: Vec::new(),
             internal_text: None,
             internal_pdf: None,
             internal_page_count: None,
@@ -385,6 +399,20 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                     case.min_first_page_ink_ratio,
                 ));
                 report.internal_first_page_raster_smoke = Some(internal_first_page_raster_smoke);
+                let raster_status = report
+                    .first_page_raster_gross
+                    .as_ref()
+                    .map(|raster_report| raster_report.status);
+                report.metric_findings = classify_oracle_metric_findings(
+                    case.min_internal_tokens,
+                    case.min_common_token_ratio,
+                    report.internal_token_count,
+                    report.common_unique_token_ratio,
+                    report.normalized_common_unique_token_ratio,
+                    report.page_count_within_tolerance,
+                    raster_status,
+                    false,
+                );
                 if strict {
                     assert!(
                         internal_tokens.len() >= case.min_internal_tokens,
@@ -427,6 +455,19 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                 if strict {
                     panic!("{} internal build failed: {error:?}", case.arxiv_id);
                 }
+                report.metric_findings = classify_oracle_metric_findings(
+                    case.min_internal_tokens,
+                    case.min_common_token_ratio,
+                    report.internal_token_count,
+                    report.common_unique_token_ratio,
+                    report.normalized_common_unique_token_ratio,
+                    report.page_count_within_tolerance,
+                    report
+                        .first_page_raster_gross
+                        .as_ref()
+                        .map(|raster_report| raster_report.status),
+                    true,
+                );
             }
         }
         reports.push(report);
@@ -665,6 +706,45 @@ fn compare_raster_smoke(
     }
 }
 
+fn classify_oracle_metric_findings(
+    min_internal_tokens: usize,
+    min_common_token_ratio: f64,
+    internal_token_count: Option<usize>,
+    common_unique_token_ratio: Option<f64>,
+    normalized_common_unique_token_ratio: Option<f64>,
+    page_count_within_tolerance: Option<bool>,
+    first_page_raster_gross_status: Option<RasterGrossStatus>,
+    build_failed: bool,
+) -> Vec<OracleMetricFinding> {
+    if build_failed {
+        return vec![OracleMetricFinding::BuildFailed];
+    }
+
+    let mut findings = Vec::new();
+    if internal_token_count.is_some_and(|count| count < min_internal_tokens) {
+        findings.push(OracleMetricFinding::InternalTokenCountBelowBudget);
+    }
+    let raw_overlap_below_budget =
+        common_unique_token_ratio.is_some_and(|ratio| ratio < min_common_token_ratio);
+    let normalized_overlap_below_budget =
+        normalized_common_unique_token_ratio.is_some_and(|ratio| ratio < min_common_token_ratio);
+    if raw_overlap_below_budget {
+        findings.push(OracleMetricFinding::RawOverlapBelowBudget);
+    }
+    if normalized_overlap_below_budget {
+        findings.push(OracleMetricFinding::NormalizedOverlapBelowBudget);
+    } else if raw_overlap_below_budget && normalized_common_unique_token_ratio.is_some() {
+        findings.push(OracleMetricFinding::NormalizationSensitiveOverlap);
+    }
+    if page_count_within_tolerance == Some(false) {
+        findings.push(OracleMetricFinding::PageCountOutOfTolerance);
+    }
+    if first_page_raster_gross_status.is_some_and(|status| status != RasterGrossStatus::Pass) {
+        findings.push(OracleMetricFinding::FirstPageRasterGrossFailure);
+    }
+    findings
+}
+
 fn copy_dir(source_root: &Utf8Path, target_root: &Utf8Path) {
     let mut stack = vec![(source_root.to_owned(), target_root.to_owned())];
     while let Some((source_dir, target_dir)) = stack.pop() {
@@ -858,6 +938,60 @@ fn arxiv_oracle_normalized_overlap_matches_symbol_and_name_forms() {
     let internal = unique_tokens(&tokenize_normalized("alpha field coauthor"));
 
     assert_eq!(oracle.intersection(&internal).count(), 3);
+}
+
+#[test]
+fn arxiv_oracle_metric_findings_classify_normalization_sensitive_overlap() {
+    let findings = classify_oracle_metric_findings(
+        10,
+        0.8,
+        Some(20),
+        Some(0.5),
+        Some(0.9),
+        Some(true),
+        Some(RasterGrossStatus::Pass),
+        false,
+    );
+
+    assert_eq!(
+        findings,
+        vec![
+            OracleMetricFinding::RawOverlapBelowBudget,
+            OracleMetricFinding::NormalizationSensitiveOverlap,
+        ]
+    );
+}
+
+#[test]
+fn arxiv_oracle_metric_findings_classify_persistent_text_page_and_raster_failures() {
+    let findings = classify_oracle_metric_findings(
+        10,
+        0.8,
+        Some(4),
+        Some(0.3),
+        Some(0.4),
+        Some(false),
+        Some(RasterGrossStatus::MissingMajorTextBlocks),
+        false,
+    );
+
+    assert_eq!(
+        findings,
+        vec![
+            OracleMetricFinding::InternalTokenCountBelowBudget,
+            OracleMetricFinding::RawOverlapBelowBudget,
+            OracleMetricFinding::NormalizedOverlapBelowBudget,
+            OracleMetricFinding::PageCountOutOfTolerance,
+            OracleMetricFinding::FirstPageRasterGrossFailure,
+        ]
+    );
+}
+
+#[test]
+fn arxiv_oracle_metric_findings_classify_build_failure() {
+    let findings = classify_oracle_metric_findings(10, 0.8, None, None, None, None, None, true);
+
+    assert_eq!(findings, vec![OracleMetricFinding::BuildFailed]);
 }
 
 #[test]

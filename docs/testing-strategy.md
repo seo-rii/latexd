@@ -28,7 +28,10 @@ The oracle compares build success, diagnostics, extracted text token counts, raw
 and normalized unique-token overlap, page count, and first-page raster gross
 status. Normalized overlap folds common Greek symbols, ligatures, and soft
 hyphens before token comparison so harmless PDF text extraction differences are
-visible separately from real missing text. Each CC0 case can configure
+visible separately from real missing text. The report also includes
+`metric_findings` buckets for build failure, low internal text count, low raw or
+normalized overlap, normalization-sensitive overlap, page-count drift, and
+first-page raster gross failures. Each CC0 case can configure
 `max_page_count_delta` and `min_first_page_ink_ratio`; the report records
 `page_count_within_tolerance` and `first_page_raster_gross` so Phase 2
 page-count and missing-major-text-block regressions are visible without manual

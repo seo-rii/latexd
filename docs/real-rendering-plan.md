@@ -611,6 +611,10 @@ Tasks:
   Unicode Greek symbols to names, common ligatures, and soft hyphens;
 - further normalize citation-number noise where it does not hide real text
   regressions;
+- classify low metric causes in `metric_findings`, including build failure,
+  low internal text count, low raw/normalized overlap,
+  normalization-sensitive overlap, page-count drift, and first-page raster
+  gross failure;
 - split text metrics into body text, front matter, captions, references where
   the IR can identify them;
 - add case-level budgets for known hard classes: text-heavy, figure-heavy,
@@ -1109,7 +1113,7 @@ Exit criteria:
 
 - every CC0 smoke case reports page count, raw ratio, normalized ratio, and
   raster gross status;
-- low ratio causes are classified.
+- low ratio and gross page/raster causes are classified.
 
 ### Phase 1: Semantic Text Recovery
 
@@ -1541,8 +1545,8 @@ Mitigation: render a useful subset first and keep raw math fallback visible.
 
 ## Recommended Immediate Next Tasks
 
-1. Extend `arxiv_oracle` with broader normalized metric classification and
-   failure-cause buckets.
+1. Extend `arxiv_oracle` with body/front-matter/caption/reference metric slices
+   where the IR can identify them.
 2. Implement front matter capture and `\maketitle` output for `article`, `llncs`,
    `IEEEtran`, `revtex4-2`, and `wacv` semantic shims.
 3. Change citation rendering so raw citation keys never enter visible PDF text.
