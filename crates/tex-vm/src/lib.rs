@@ -21621,6 +21621,111 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
     } else {
         source
     };
+    let bytes = source.as_bytes();
+    let escaped_marker = |index: usize| -> bool {
+        let mut slash_count = 0usize;
+        let mut cursor = index;
+        while cursor > 0 && bytes[cursor - 1] == b'\\' {
+            slash_count += 1;
+            cursor -= 1;
+        }
+        slash_count % 2 == 1
+    };
+    let math_visible_text = |math_source: &str| -> String {
+        let raw_source = normalize_latex_math_source(math_source);
+        normalize_latex_math_text(&raw_source).unwrap_or(raw_source)
+    };
+
+    // Table/caption fallback text is normalized through this path, so recover
+    // inline math before generic command stripping can erase math operators.
+    let mut math_rewritten: Option<String> = None;
+    let mut math_cursor = 0usize;
+    while math_cursor < source.len() {
+        if bytes[math_cursor] == b'$' && !escaped_marker(math_cursor) {
+            let delimiter_len = if source[math_cursor..].starts_with("$$") {
+                2
+            } else {
+                1
+            };
+            let content_start = math_cursor + delimiter_len;
+            let mut closing_cursor = content_start;
+            let mut closing_start = None;
+            while closing_cursor < source.len() {
+                if delimiter_len == 2
+                    && source[closing_cursor..].starts_with("$$")
+                    && !escaped_marker(closing_cursor)
+                {
+                    closing_start = Some(closing_cursor);
+                    break;
+                }
+                if delimiter_len == 1
+                    && source.as_bytes()[closing_cursor] == b'$'
+                    && !escaped_marker(closing_cursor)
+                {
+                    closing_start = Some(closing_cursor);
+                    break;
+                }
+                let ch = source[closing_cursor..]
+                    .chars()
+                    .next()
+                    .expect("math scan cursor should be inside source");
+                closing_cursor += ch.len_utf8();
+            }
+            if let Some(closing_start) = closing_start {
+                let output =
+                    math_rewritten.get_or_insert_with(|| source[..math_cursor].to_string());
+                output.push_str(&math_visible_text(&source[content_start..closing_start]));
+                math_cursor = closing_start + delimiter_len;
+                continue;
+            }
+        }
+
+        let command_math_delimiter =
+            if source[math_cursor..].starts_with(r"\(") && !escaped_marker(math_cursor) {
+                Some((r"\(", r"\)"))
+            } else if source[math_cursor..].starts_with(r"\[") && !escaped_marker(math_cursor) {
+                Some((r"\[", r"\]"))
+            } else {
+                None
+            };
+        if let Some((open_marker, close_marker)) = command_math_delimiter {
+            let content_start = math_cursor + open_marker.len();
+            let mut closing_cursor = content_start;
+            let mut closing_start = None;
+            while closing_cursor < source.len() {
+                if source[closing_cursor..].starts_with(close_marker)
+                    && !escaped_marker(closing_cursor)
+                {
+                    closing_start = Some(closing_cursor);
+                    break;
+                }
+                let ch = source[closing_cursor..]
+                    .chars()
+                    .next()
+                    .expect("math scan cursor should be inside source");
+                closing_cursor += ch.len_utf8();
+            }
+            if let Some(closing_start) = closing_start {
+                let output =
+                    math_rewritten.get_or_insert_with(|| source[..math_cursor].to_string());
+                output.push_str(&math_visible_text(&source[content_start..closing_start]));
+                math_cursor = closing_start + close_marker.len();
+                continue;
+            }
+        }
+
+        let ch = source[math_cursor..]
+            .chars()
+            .next()
+            .expect("math scan cursor should be inside source");
+        if let Some(output) = &mut math_rewritten {
+            output.push(ch);
+        }
+        math_cursor += ch.len_utf8();
+    }
+    if let Some(rewritten) = math_rewritten {
+        return normalize_latex_text_with_inline_placeholders(&rewritten);
+    }
     let mut text = String::new();
     let mut chunk_start = 0;
     let mut scan_index = 0;
@@ -29479,8 +29584,8 @@ Fallback text.
             .expect("tabular fallback visible text");
         let visible_text = visible.normalized_visible_text.as_deref().unwrap_or("");
 
-        assert!(visible_text.contains("$(T^,P^)$ | Value"));
-        for hidden in ["tabular", "[c]", "@{}l@{}"] {
+        assert!(visible_text.contains("(T^star, P^star) | Value"));
+        for hidden in ["$", "tabular", "[c]", "@{}l@{}"] {
             assert!(!visible_text.contains(hidden), "{visible_text:?}");
         }
     }
@@ -39141,6 +39246,36 @@ Fallback text.
             "1.2",
             "2cm",
         ] {
+            assert!(!visible_text.contains(hidden), "{visible_text:?}");
+        }
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_table_cell_inline_math_delimiters() {
+        let source = r"\begin{document}\begin{tabular}{lll}$t_2\in\{1,\ldots,\cmax-1\}$ & \(t_1\neq \binom{a}{d-1}\) & \[\ket{100}\otimes\ket{000}\]\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    fallback.normalized_visible_text.as_deref()
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+
+        assert_eq!(
+            visible_text,
+            "t_2 in 1, ..., c_max - 1 | t_1 != binom(a,d - 1) | |100> otimes |000>"
+        );
+        for hidden in ["$", r"\(", r"\)", r"\[", r"\]", "ldots", "cmax", "ket"] {
             assert!(!visible_text.contains(hidden), "{visible_text:?}");
         }
     }

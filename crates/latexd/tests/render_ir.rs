@@ -18377,12 +18377,12 @@ fn nested_tabular_cell_wrapper_does_not_leak_into_table_text() {
         })
         .expect("tabular table");
 
-    assert_eq!(table.rows[0].cells[0].text, "$(T^,P^)$");
+    assert_eq!(table.rows[0].cells[0].text, "(T^star, P^star)");
     assert_eq!(table.rows[0].cells[1].text, "Value");
 
     let extracted_text = capture.document_ir.extracted_text();
-    assert!(extracted_text.contains("$(T^,P^)$ | Value"));
-    for hidden in ["tabular", "[c]", "@{}l@{}"] {
+    assert!(extracted_text.contains("(T^star, P^star) | Value"));
+    for hidden in ["$", "tabular", "[c]", "@{}l@{}"] {
         assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
     }
 
@@ -18395,9 +18395,59 @@ fn nested_tabular_cell_wrapper_does_not_leak_into_table_text() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(display_list_text.contains("$(T^,P^)$"));
+    assert!(display_list_text.contains("(T^star, P^star)"));
     assert!(display_list_text.contains("Value"));
-    for hidden in ["tabular", "[c]", "@{}l@{}"] {
+    for hidden in ["$", "tabular", "[c]", "@{}l@{}"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
+    }
+}
+
+#[test]
+fn tabular_inline_math_delimiters_normalize_in_ir_and_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{lll}$t_2\in\{1,\ldots,\cmax-1\}$ & \(t_1\neq \binom{a}{d-1}\) & \[\ket{100}\otimes\ket{000}\]\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "t_2 in 1, ..., c_max - 1");
+    assert_eq!(table.rows[0].cells[1].text, "t_1 != binom(a,d - 1)");
+    assert_eq!(table.rows[0].cells[2].text, "|100> otimes |000>");
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(
+        extracted_text
+            .contains("t_2 in 1, ..., c_max - 1 | t_1 != binom(a,d - 1) | |100> otimes |000>"),
+        "{extracted_text}"
+    );
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    for visible in [
+        "t_2 in 1, ..., c_max - 1",
+        "t_1 != binom(a,d - 1)",
+        "|100> otimes |000>",
+    ] {
+        assert!(display_list_text.contains(visible), "{display_list_text:?}");
+    }
+    for hidden in ["$", r"\(", r"\)", r"\[", r"\]", "ldots", "cmax", "ket"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
         assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
     }
 }
