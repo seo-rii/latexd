@@ -24330,9 +24330,13 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token_then_space!(&operator);
                         index = script_index;
                     }
+                    "min" | "max" => {
+                        push_token_then_space!(command);
+                        index = command_index;
+                    }
                     "sin" | "cos" | "tan" | "cot" | "sec" | "csc" | "log" | "ln" | "exp"
-                    | "min" | "max" | "arg" | "deg" | "det" | "dim" | "gcd" | "hom" | "ker"
-                    | "Pr" | "sup" | "inf" | "poly" | "negl" | "Supp" | "loglog" | "argmax" => {
+                    | "arg" | "deg" | "det" | "dim" | "gcd" | "hom" | "ker" | "Pr" | "sup"
+                    | "inf" | "poly" | "negl" | "Supp" | "loglog" | "argmax" => {
                         push_command_token!(command);
                         index = command_index;
                     }
@@ -34305,6 +34309,30 @@ Fallback text.
             Some(
                 "a equiv b cong c simeq d propto e perp f parallel g << h >> i models J |- K -| L"
             )
+        );
+    }
+
+    #[test]
+    fn render_event_capture_keeps_math_function_delimiter_boundaries() {
+        let source = r"\begin{document}Locality \(\max\{d+1,1+d\}+\min\{a,b\}\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        let RenderEvent::InlineMath(math) = &inline_math.event else {
+            panic!("inline math event");
+        };
+
+        assert_eq!(
+            math.normalized_text.as_deref(),
+            Some("max {d + 1, 1 + d} + min {a, b}")
         );
     }
 

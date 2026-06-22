@@ -18498,6 +18498,46 @@ fn tabular_clock_operator_wrappers_normalize_in_ir_and_display_list() {
 }
 
 #[test]
+fn tabular_math_function_delimiters_keep_token_boundaries() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{ll}$H_{\mathrm{prop},t}$ & $\max\{d+1,1+d\}=d+1$\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "H_prop, t");
+    assert_eq!(table.rows[0].cells[1].text, "max d + 1, 1 + d = d + 1");
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("H_prop, t | max d + 1, 1 + d = d + 1"));
+    assert!(!extracted_text.contains("maxd"), "{extracted_text}");
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        display_list_text.contains("H_prop, t | max d + 1, 1 + d = d + 1"),
+        "{display_list_text:?}"
+    );
+    assert!(!display_list_text.contains("maxd"), "{display_list_text:?}");
+}
+
+#[test]
 fn longtable_capture_builds_table_ir() {
     let capture = capture_internal_render_ir(
         "main.tex",
