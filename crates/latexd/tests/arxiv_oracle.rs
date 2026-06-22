@@ -10,7 +10,8 @@ use tempfile::tempdir;
 use tex_render_model::{
     AbstractBlock, BibliographyBlock, BibliographyItemIr, DocumentIr, EnvironmentBlock,
     FallbackReason, GraphicBlock, HeadingBlock, InlineNode, IrBlock, ListBlock, ParagraphBlock,
-    RawFallbackIr, SourceProvenance, TableBlock, TableCell, TableRow, TitleBlock,
+    ProvenanceSpan, RawFallbackIr, SourceProvenance, SourceSpan, TableBlock, TableCell, TableRow,
+    TitleBlock,
 };
 use tex_world::ProjectWorld;
 use unicode_normalization::UnicodeNormalization;
@@ -106,8 +107,16 @@ struct OracleStructureSliceReport {
     normalized_common_unique_token_count: usize,
     normalized_common_unique_token_ratio: f64,
     normalized_oracle_unique_token_coverage_ratio: f64,
+    source_backed_extra_token_count: usize,
+    source_backed_extra_token_ratio: Option<f64>,
+    normalized_source_backed_extra_token_count: usize,
+    normalized_source_backed_extra_token_ratio: Option<f64>,
     extra_token_sample: Vec<String>,
     normalized_extra_token_sample: Vec<String>,
+    source_backed_extra_token_sample: Vec<String>,
+    normalized_source_backed_extra_token_sample: Vec<String>,
+    source_unbacked_extra_token_sample: Vec<String>,
+    normalized_source_unbacked_extra_token_sample: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
@@ -396,6 +405,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                         });
                     report.ir_structure_slices = build_structure_slice_reports(
                         &document_ir,
+                        &source_root,
                         &oracle_unique,
                         &oracle_normalized_unique,
                     );
@@ -603,14 +613,23 @@ fn read_document_ir(path: &Utf8Path) -> anyhow::Result<DocumentIr> {
         .map_err(|error| anyhow::anyhow!("failed to parse document IR {path}: {error}"))
 }
 
+#[derive(Debug, Clone, Default)]
+struct OracleStructureSliceText {
+    text: String,
+    sources: Vec<SourceProvenance>,
+}
+
 fn build_structure_slice_reports(
     document_ir: &DocumentIr,
+    source_root: &Utf8Path,
     oracle_unique: &BTreeSet<String>,
     oracle_normalized_unique: &BTreeSet<String>,
 ) -> Vec<OracleStructureSliceReport> {
+    let mut source_cache = BTreeMap::<Utf8PathBuf, Option<String>>::new();
     collect_structure_slice_texts(document_ir)
         .into_iter()
-        .filter_map(|(kind, text)| {
+        .filter_map(|(kind, slice)| {
+            let text = slice.text;
             let tokens = tokenize(&text);
             let normalized_tokens = tokenize_normalized(&text);
             if tokens.is_empty() && normalized_tokens.is_empty() {
@@ -625,6 +644,104 @@ fn build_structure_slice_reports(
                 .collect::<BTreeSet<_>>();
             let normalized_common = normalized_unique
                 .intersection(oracle_normalized_unique)
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            let extra = unique
+                .difference(oracle_unique)
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            let normalized_extra = normalized_unique
+                .difference(oracle_normalized_unique)
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            let mut source_text = String::new();
+            let mut append_source_span_text = |span: &SourceSpan| {
+                let path = if span.path.is_absolute() {
+                    span.path.clone()
+                } else {
+                    source_root.join(&span.path)
+                };
+                let contents = source_cache
+                    .entry(path.clone())
+                    .or_insert_with(|| fs::read_to_string(path.as_std_path()).ok());
+                let Some(contents) = contents.as_deref() else {
+                    return;
+                };
+                let Some(fragment) = contents.get(span.start_utf8 as usize..span.end_utf8 as usize)
+                else {
+                    return;
+                };
+                if !source_text.is_empty() {
+                    source_text.push('\n');
+                }
+                source_text.push_str(fragment);
+            };
+            for source in &slice.sources {
+                if let ProvenanceSpan::File(span) = &source.primary {
+                    append_source_span_text(span);
+                }
+                for related in &source.related {
+                    if let ProvenanceSpan::File(span) = &related.span {
+                        append_source_span_text(span);
+                    }
+                }
+                for frame in &source.expansion_stack {
+                    if let ProvenanceSpan::File(span) = &frame.call_span {
+                        append_source_span_text(span);
+                    }
+                    if let Some(ProvenanceSpan::File(span)) = &frame.definition_span {
+                        append_source_span_text(span);
+                    }
+                }
+            }
+            let source_unique = unique_tokens(&tokenize(&source_text));
+            let source_normalized_unique = unique_tokens(&tokenize_normalized(&source_text));
+            let mut source_compact_alnum = String::new();
+            let mut source_compact_digits = String::new();
+            for character in source_text.chars() {
+                if character.is_alphanumeric() {
+                    source_compact_alnum.extend(character.to_lowercase());
+                }
+                if character.is_ascii_digit() {
+                    source_compact_digits.push(character);
+                }
+            }
+            let token_has_source_evidence = |token: &str, source_unique: &BTreeSet<String>| {
+                source_unique.contains(token)
+                    || source_compact_alnum.contains(token)
+                    || (token.chars().all(|character| character.is_ascii_digit())
+                        && source_compact_digits.contains(token))
+            };
+            let source_backed_extra = extra
+                .iter()
+                .filter(|token| token_has_source_evidence(token, &source_unique))
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            let normalized_source_backed_extra = normalized_extra
+                .iter()
+                .filter(|token| token_has_source_evidence(token, &source_normalized_unique))
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            let ordered_sample_from = |tokens: &[String], members: &BTreeSet<String>| {
+                let mut seen = BTreeSet::new();
+                let mut sample = Vec::new();
+                for token in tokens {
+                    if !members.contains(token) || !seen.insert(token.clone()) {
+                        continue;
+                    }
+                    sample.push(token.clone());
+                    if sample.len() >= 40 {
+                        break;
+                    }
+                }
+                sample
+            };
+            let source_unbacked_extra = extra
+                .difference(&source_backed_extra)
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            let normalized_source_unbacked_extra = normalized_extra
+                .difference(&normalized_source_backed_extra)
                 .cloned()
                 .collect::<BTreeSet<_>>();
 
@@ -643,11 +760,35 @@ fn build_structure_slice_reports(
                     / normalized_unique.len().max(1) as f64,
                 normalized_oracle_unique_token_coverage_ratio: normalized_common.len() as f64
                     / oracle_normalized_unique.len().max(1) as f64,
+                source_backed_extra_token_count: source_backed_extra.len(),
+                source_backed_extra_token_ratio: (!extra.is_empty())
+                    .then_some(source_backed_extra.len() as f64 / extra.len() as f64),
+                normalized_source_backed_extra_token_count: normalized_source_backed_extra.len(),
+                normalized_source_backed_extra_token_ratio: (!normalized_extra.is_empty())
+                    .then_some(
+                        normalized_source_backed_extra.len() as f64 / normalized_extra.len() as f64,
+                    ),
                 extra_token_sample: ordered_difference_sample(&tokens, oracle_unique, 40),
                 normalized_extra_token_sample: ordered_difference_sample(
                     &normalized_tokens,
                     oracle_normalized_unique,
                     40,
+                ),
+                source_backed_extra_token_sample: ordered_sample_from(
+                    &tokens,
+                    &source_backed_extra,
+                ),
+                normalized_source_backed_extra_token_sample: ordered_sample_from(
+                    &normalized_tokens,
+                    &normalized_source_backed_extra,
+                ),
+                source_unbacked_extra_token_sample: ordered_sample_from(
+                    &tokens,
+                    &source_unbacked_extra,
+                ),
+                normalized_source_unbacked_extra_token_sample: ordered_sample_from(
+                    &normalized_tokens,
+                    &normalized_source_unbacked_extra,
                 ),
             })
         })
@@ -656,7 +797,7 @@ fn build_structure_slice_reports(
 
 fn collect_structure_slice_texts(
     document_ir: &DocumentIr,
-) -> BTreeMap<OracleStructureSliceKind, String> {
+) -> BTreeMap<OracleStructureSliceKind, OracleStructureSliceText> {
     let fallback_text = |fallback: &RawFallbackIr| {
         fallback
             .normalized_visible_text
@@ -733,35 +874,54 @@ fn collect_structure_slice_texts(
             .collect::<Vec<_>>()
             .join("\n")
     };
-    let mut slices = BTreeMap::<OracleStructureSliceKind, String>::new();
-    let mut append_slice = |kind: OracleStructureSliceKind, text: String| {
-        let text = text.trim();
-        if text.is_empty() {
-            return;
-        }
-        let entry = slices.entry(kind).or_default();
-        if !entry.is_empty() {
-            entry.push('\n');
-        }
-        entry.push_str(text);
-    };
+    let mut slices = BTreeMap::<OracleStructureSliceKind, OracleStructureSliceText>::new();
+    let mut append_slice =
+        |kind: OracleStructureSliceKind, text: String, sources: Vec<SourceProvenance>| {
+            let text = text.trim();
+            if text.is_empty() {
+                return;
+            }
+            let entry = slices.entry(kind).or_default();
+            if !entry.text.is_empty() {
+                entry.text.push('\n');
+            }
+            entry.text.push_str(text);
+            entry.sources.extend(sources);
+        };
 
     for block in &document_ir.blocks {
         match block {
             IrBlock::TitleBlock(block) => {
+                let mut sources = vec![block.source.clone()];
+                if let Some(source) = &block.title_source {
+                    sources.push(source.clone());
+                }
+                sources.extend(block.author_sources.iter().cloned());
+                if let Some(source) = &block.date_source {
+                    sources.push(source.clone());
+                }
+                sources.extend(block.keyword_sources.iter().cloned());
+                sources.extend(block.pacs_sources.iter().cloned());
                 append_slice(
                     OracleStructureSliceKind::FrontMatter,
                     title_block_text(block),
+                    sources,
                 );
             }
-            IrBlock::Abstract(AbstractBlock { content, .. }) => {
+            IrBlock::Abstract(AbstractBlock {
+                content, source, ..
+            }) => {
                 append_slice(
                     OracleStructureSliceKind::Abstract,
                     inline_nodes_text(content),
+                    vec![source.clone()],
                 );
             }
             IrBlock::Heading(HeadingBlock {
-                number, content, ..
+                number,
+                content,
+                source,
+                ..
             }) => {
                 let mut text = String::new();
                 if let Some(number) = number {
@@ -769,14 +929,26 @@ fn collect_structure_slice_texts(
                     text.push(' ');
                 }
                 text.push_str(&inline_nodes_text(content));
-                append_slice(OracleStructureSliceKind::Body, text);
+                append_slice(OracleStructureSliceKind::Body, text, vec![source.clone()]);
             }
-            IrBlock::Paragraph(ParagraphBlock { content, .. })
-            | IrBlock::Environment(EnvironmentBlock { content, .. }) => {
-                append_slice(OracleStructureSliceKind::Body, inline_nodes_text(content));
+            IrBlock::Paragraph(ParagraphBlock {
+                content, source, ..
+            })
+            | IrBlock::Environment(EnvironmentBlock {
+                content, source, ..
+            }) => {
+                append_slice(
+                    OracleStructureSliceKind::Body,
+                    inline_nodes_text(content),
+                    vec![source.clone()],
+                );
             }
             IrBlock::List(block) => {
-                append_slice(OracleStructureSliceKind::Body, list_text(block));
+                append_slice(
+                    OracleStructureSliceKind::Body,
+                    list_text(block),
+                    vec![block.source.clone()],
+                );
             }
             IrBlock::DisplayMath(block) => {
                 append_slice(
@@ -786,27 +958,57 @@ fn collect_structure_slice_texts(
                         .as_deref()
                         .unwrap_or(&block.raw_source)
                         .to_string(),
+                    vec![block.source.clone()],
                 );
             }
             IrBlock::Bibliography(block) => {
+                let mut sources = vec![block.source.clone()];
+                sources.extend(block.items.iter().map(|item| item.source.clone()));
                 append_slice(
                     OracleStructureSliceKind::References,
                     bibliography_text(block),
+                    sources,
                 );
             }
-            IrBlock::Graphic(GraphicBlock { caption, .. }) => {
+            IrBlock::Graphic(GraphicBlock {
+                caption,
+                caption_source,
+                source,
+                ..
+            }) => {
                 if let Some(caption) = caption {
-                    append_slice(OracleStructureSliceKind::Caption, caption.clone());
+                    append_slice(
+                        OracleStructureSliceKind::Caption,
+                        caption.clone(),
+                        vec![caption_source.clone().unwrap_or_else(|| source.clone())],
+                    );
                 }
             }
             IrBlock::Table(block) => {
                 if let Some(caption) = &block.caption {
-                    append_slice(OracleStructureSliceKind::Caption, caption.clone());
+                    append_slice(
+                        OracleStructureSliceKind::Caption,
+                        caption.clone(),
+                        vec![
+                            block
+                                .caption_source
+                                .clone()
+                                .unwrap_or_else(|| block.source.clone()),
+                        ],
+                    );
                 }
-                append_slice(OracleStructureSliceKind::Table, table_rows_text(block));
+                append_slice(
+                    OracleStructureSliceKind::Table,
+                    table_rows_text(block),
+                    vec![block.source.clone()],
+                );
             }
             IrBlock::RawFallback(block) => {
-                append_slice(OracleStructureSliceKind::Fallback, fallback_text(block));
+                append_slice(
+                    OracleStructureSliceKind::Fallback,
+                    fallback_text(block),
+                    vec![block.source.clone()],
+                );
             }
         }
     }
@@ -1352,6 +1554,8 @@ fn arxiv_oracle_reads_copied_document_ir_artifact() {
 fn arxiv_oracle_ir_structure_slice_reports_separate_document_regions() {
     let document_ir = sample_structure_slice_document_ir();
     let slice_texts = collect_structure_slice_texts(&document_ir);
+    let tempdir = tempdir().expect("tempdir");
+    let source_root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8");
     let oracle_unique = unique_tokens(&tokenize(
         "A Paper Ada Lovelace Short abstract Intro Body text Plot caption Table caption Cell Alpha Author Title",
     ));
@@ -1359,15 +1563,19 @@ fn arxiv_oracle_ir_structure_slice_reports_separate_document_regions() {
         "A Paper Ada Lovelace Short abstract Intro Body text Plot caption Table caption Cell Alpha Author Title",
     ));
 
-    let reports =
-        build_structure_slice_reports(&document_ir, &oracle_unique, &oracle_normalized_unique);
+    let reports = build_structure_slice_reports(
+        &document_ir,
+        &source_root,
+        &oracle_unique,
+        &oracle_normalized_unique,
+    );
     let reports_by_kind = reports
         .iter()
         .map(|report| (report.kind, report))
         .collect::<BTreeMap<_, _>>();
 
     assert_eq!(
-        slice_texts[&OracleStructureSliceKind::Caption],
+        slice_texts[&OracleStructureSliceKind::Caption].text,
         "Plot caption.\nTable caption."
     );
     assert_eq!(reports_by_kind.len(), 7);
@@ -1395,6 +1603,61 @@ fn arxiv_oracle_ir_structure_slice_reports_separate_document_regions() {
         reports_by_kind[&OracleStructureSliceKind::Fallback].extra_token_sample,
         vec!["fallback".to_string(), "noisy".to_string()]
     );
+}
+
+#[test]
+fn arxiv_oracle_ir_structure_slice_reports_source_backed_extra_tokens() {
+    let tempdir = tempdir().expect("tempdir");
+    let source_root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8");
+    let source_text = "\\begin{tabular}{c}$\\ket{100}\\ket{000}$\\end{tabular}";
+    fs::write(source_root.join("main.tex").as_std_path(), source_text).expect("write source");
+    let source = SourceProvenance::file("main.tex", 0, source_text.len() as u32);
+    let document_ir = DocumentIr::new(vec![IrBlock::Table(TableBlock {
+        environment: "tabular".to_string(),
+        width_spec: None,
+        columns: Vec::new(),
+        rows: vec![TableRow {
+            rule_above: false,
+            partial_rules_above: Vec::new(),
+            cells: vec![TableCell {
+                text: "$100000$".to_string(),
+                column_span: None,
+                row_span: None,
+                alignment: None,
+                rule_before_count: 0,
+                rule_after_count: 0,
+                cell_prefix: None,
+                cell_suffix: None,
+            }],
+            rule_below: false,
+            partial_rules_below: Vec::new(),
+        }],
+        caption: None,
+        caption_source: None,
+        source,
+    })]);
+    let oracle_unique = unique_tokens(&tokenize("clock state"));
+    let oracle_normalized_unique = unique_tokens(&tokenize_normalized("clock state"));
+
+    let reports = build_structure_slice_reports(
+        &document_ir,
+        &source_root,
+        &oracle_unique,
+        &oracle_normalized_unique,
+    );
+    let table = reports
+        .iter()
+        .find(|report| report.kind == OracleStructureSliceKind::Table)
+        .expect("table report");
+
+    assert_eq!(table.extra_token_sample, vec!["100000".to_string()]);
+    assert_eq!(table.source_backed_extra_token_count, 1);
+    assert_eq!(table.source_backed_extra_token_ratio, Some(1.0));
+    assert_eq!(
+        table.source_backed_extra_token_sample,
+        vec!["100000".to_string()]
+    );
+    assert!(table.source_unbacked_extra_token_sample.is_empty());
 }
 
 #[test]

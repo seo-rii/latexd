@@ -37,12 +37,16 @@ render-IR `document-ir.json` artifact into the report directory and emit
 `table`, `references`, and `fallback` text where the IR can identify those
 regions. Each slice records raw and normalized overlap against the official PDF
 text so missing front matter, captions, references, and fallback leakage can be
-triaged without manually diffing the full text artifact. Each CC0 case can configure
+triaged without manually diffing the full text artifact. Slice reports also
+record how many internal-only extra tokens are backed by the corresponding IR
+source spans. This distinguishes likely `pdftotext` extraction blind spots, such
+as dense table cells, from internal renderer hallucinations; it is diagnostic
+metadata, not a strict pass/fail gate. Each CC0 case can configure
 `max_page_count_delta` and `min_first_page_ink_ratio`; the report records
-`page_count_within_tolerance` and `first_page_raster_gross` so Phase 2
-page-count and missing-major-text-block regressions are visible without manual
-artifact inspection. Use `LATEXD_ARXIV_ORACLE_STRICT=1` to turn the configured
-thresholds into hard failures.
+`page_count_within_tolerance` and `first_page_raster_gross` so Phase 2 page-count
+and missing-major-text-block regressions are visible without manual artifact
+inspection. Use `LATEXD_ARXIV_ORACLE_STRICT=1` to turn the configured thresholds
+into hard failures.
 
 ## 테스트 전략
 
