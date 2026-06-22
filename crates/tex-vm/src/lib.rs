@@ -11387,6 +11387,45 @@ impl<'i> Vm<'i> {
                 cell_suffix,
             )
         };
+        let unwrap_nested_tabular_cell = |content: &str| {
+            let trimmed_content = content.trim();
+            if !trimmed_content.starts_with("\\begin") {
+                return content.to_string();
+            }
+            let Some((environment, _, _, after_environment)) =
+                read_braced_source_argument(trimmed_content, "\\begin".len())
+            else {
+                return content.to_string();
+            };
+            let environment = environment.trim();
+            if !matches!(environment, "tabular" | "tabular*" | "tabularx" | "array") {
+                return content.to_string();
+            }
+            let mut body_start = skip_ascii_whitespace(trimmed_content, after_environment);
+            if let Some((_, _, _, after_position)) =
+                read_bracket_source_argument(trimmed_content, body_start)
+            {
+                body_start = skip_ascii_whitespace(trimmed_content, after_position);
+            }
+            let Some((_, _, _, after_column_spec)) =
+                read_braced_source_argument(trimmed_content, body_start)
+            else {
+                return content.to_string();
+            };
+            body_start = after_column_spec;
+            let Some((body_end, after_tabular)) = find_latex_environment_end(
+                trimmed_content,
+                body_start,
+                trimmed_content.len(),
+                environment,
+            ) else {
+                return content.to_string();
+            };
+            if skip_ascii_whitespace(trimmed_content, after_tabular) != trimmed_content.len() {
+                return content.to_string();
+            }
+            trimmed_content[body_start..body_end].to_string()
+        };
         let parse_nested_multicolumn_cell = |content: &str| {
             let mut column_span = 1usize;
             let mut alignment = None;
@@ -11394,7 +11433,7 @@ impl<'i> Vm<'i> {
             let mut rule_after_count = 0u8;
             let mut cell_prefix: Option<String> = None;
             let mut cell_suffix: Option<String> = None;
-            let mut visible_content = content.to_string();
+            let mut visible_content = unwrap_nested_tabular_cell(content);
             let trimmed_content = content.trim_start();
             if trimmed_content.starts_with("\\multicolumn") {
                 let mut nested_index = "\\multicolumn".len();
@@ -11415,7 +11454,7 @@ impl<'i> Vm<'i> {
                         cell_prefix,
                         cell_suffix,
                     ) = parse_multicolumn_alignment(alignment_spec);
-                    visible_content = nested_content.to_string();
+                    visible_content = unwrap_nested_tabular_cell(nested_content);
                 }
             }
             (
@@ -12281,7 +12320,8 @@ impl<'i> Vm<'i> {
                                         if column_span > 1 {
                                             current_column_index += column_span - 1;
                                         }
-                                        rewritten.push_str(content);
+                                        let visible_content = unwrap_nested_tabular_cell(content);
+                                        rewritten.push_str(&visible_content);
                                         row_has_visible_content = true;
                                         table_index = after_content;
                                         parsed = true;
@@ -29009,6 +29049,34 @@ Fallback text.
         assert!(!visible_text.contains("multicolumn"));
         assert!(!visible_text.contains("{2}"));
         assert!(!visible_text.contains("{|c|}"));
+    }
+
+    #[test]
+    fn render_event_capture_strips_nested_tabular_wrappers_in_table_cells() {
+        let source = r"\begin{document}\begin{tabular}{ll}\multicolumn{1}{|l|}{\begin{tabular}[c]{@{}l@{}}$(\mathcal{T}^{\star},\mathcal{P}^{\star})$\end{tabular}} & Value\end{tabular}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let visible = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("tabular") =>
+                {
+                    Some(fallback)
+                }
+                _ => None,
+            })
+            .expect("tabular fallback visible text");
+        let visible_text = visible.normalized_visible_text.as_deref().unwrap_or("");
+
+        assert!(visible_text.contains("$(T^,P^)$ | Value"));
+        for hidden in ["tabular", "[c]", "@{}l@{}"] {
+            assert!(!visible_text.contains(hidden), "{visible_text:?}");
+        }
     }
 
     #[test]

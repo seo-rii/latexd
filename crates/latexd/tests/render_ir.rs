@@ -18170,6 +18170,48 @@ fn tabular_multicolumn_survives_ir_and_display_list() {
 }
 
 #[test]
+fn nested_tabular_cell_wrapper_does_not_leak_into_table_text() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{tabular}{ll}\multicolumn{1}{|l|}{\begin{tabular}[c]{@{}l@{}}$(\mathcal{T}^{\star},\mathcal{P}^{\star})$\end{tabular}} & Value\end{tabular}\end{document}",
+        &SemanticAux::default(),
+    );
+    let table = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Table(table) if table.environment == "tabular" => Some(table),
+            _ => None,
+        })
+        .expect("tabular table");
+
+    assert_eq!(table.rows[0].cells[0].text, "$(T^,P^)$");
+    assert_eq!(table.rows[0].cells[1].text, "Value");
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("$(T^,P^)$ | Value"));
+    for hidden in ["tabular", "[c]", "@{}l@{}"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text:?}");
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("$(T^,P^)$"));
+    assert!(display_list_text.contains("Value"));
+    for hidden in ["tabular", "[c]", "@{}l@{}"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text:?}");
+    }
+}
+
+#[test]
 fn longtable_capture_builds_table_ir() {
     let capture = capture_internal_render_ir(
         "main.tex",
