@@ -23597,6 +23597,80 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token!(&argument);
                         index = after_argument;
                     }
+                    "red" | "blue" | "green" | "cyan" | "magenta" | "yellow" | "black"
+                    | "white" | "gray" | "grey" | "orange" | "purple" | "brown" | "pink" => {
+                        let argument_index = skip_ascii_whitespace(source, command_index);
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_math_source(argument));
+                        push_command_token!(&argument);
+                        index = after_argument;
+                    }
+                    "textcolor" | "colorbox" => {
+                        let mut color_index = skip_ascii_whitespace(source, command_index);
+                        if let Some((_, _, _, after_option)) =
+                            read_bracket_source_argument(source, color_index)
+                        {
+                            color_index = skip_ascii_whitespace(source, after_option);
+                        }
+                        let Some((_, _, _, after_color)) =
+                            read_braced_source_argument(source, color_index)
+                        else {
+                            return None;
+                        };
+                        let body_index = skip_ascii_whitespace(source, after_color);
+                        let Some((body, _, _, after_body)) =
+                            read_braced_source_argument(source, body_index)
+                        else {
+                            return None;
+                        };
+                        let body = normalize_latex_math_text(body)
+                            .unwrap_or_else(|| normalize_latex_math_source(body));
+                        push_command_token!(&body);
+                        index = after_body;
+                    }
+                    "fcolorbox" => {
+                        let mut frame_index = skip_ascii_whitespace(source, command_index);
+                        if let Some((_, _, _, after_option)) =
+                            read_bracket_source_argument(source, frame_index)
+                        {
+                            frame_index = skip_ascii_whitespace(source, after_option);
+                        }
+                        let Some((_, _, _, after_frame)) =
+                            read_braced_source_argument(source, frame_index)
+                        else {
+                            return None;
+                        };
+                        let color_index = skip_ascii_whitespace(source, after_frame);
+                        let Some((_, _, _, after_color)) =
+                            read_braced_source_argument(source, color_index)
+                        else {
+                            return None;
+                        };
+                        let body_index = skip_ascii_whitespace(source, after_color);
+                        let Some((body, _, _, after_body)) =
+                            read_braced_source_argument(source, body_index)
+                        else {
+                            return None;
+                        };
+                        let body = normalize_latex_math_text(body)
+                            .unwrap_or_else(|| normalize_latex_math_source(body));
+                        push_command_token!(&body);
+                        index = after_body;
+                    }
+                    "color" => {
+                        let color_index = skip_ascii_whitespace(source, command_index);
+                        let Some((_, _, _, after_color)) =
+                            read_braced_source_argument(source, color_index)
+                        else {
+                            return None;
+                        };
+                        index = after_color;
+                    }
                     "reg" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);
                         let Some((argument, _, _, after_argument)) =
@@ -39296,7 +39370,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_normalizes_table_cell_inline_math_delimiters() {
-        let source = r"\begin{document}\begin{tabular}{lll}$t_2\in\{1,\ldots,\cmax-1\}$ & \(t_1\neq \binom{a}{d-1}\) & \[\ket{100}\otimes\ket{000}\]\end{tabular}\end{document}";
+        let source = r"\begin{document}\begin{tabular}{lllll}$t_2\in\{1,\ldots,\cmax-1\}$ & \(t_1\neq \binom{a}{d-1}\) & \[\ket{100}\otimes\ket{000}\] & $\red{\ket{100}}\otimes\blue{\ket{000}}$ & $\textcolor{red}{\ket{010}}\otimes{\color{blue}\ket{111}}$\end{tabular}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -39317,9 +39391,22 @@ Fallback text.
 
         assert_eq!(
             visible_text,
-            "t_2 in 1, ..., c_max - 1 | t_1 != binom(a,d - 1) | |100> otimes |000>"
+            "t_2 in 1, ..., c_max - 1 | t_1 != binom(a,d - 1) | |100> otimes |000> | |100> otimes |000> | |010> otimes |111>"
         );
-        for hidden in ["$", r"\(", r"\)", r"\[", r"\]", "ldots", "cmax", "ket"] {
+        for hidden in [
+            "$",
+            r"\(",
+            r"\)",
+            r"\[",
+            r"\]",
+            "ldots",
+            "cmax",
+            "ket",
+            "textcolor",
+            "color",
+            "red",
+            "blue",
+        ] {
             assert!(!visible_text.contains(hidden), "{visible_text:?}");
         }
     }
