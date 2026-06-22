@@ -2472,15 +2472,25 @@ fn rewrite_source(
                         || environment == "algorithm"
                         || environment == "algorithm*"
                     {
+                        let mut cursor = argument_end;
+                        if matches!(
+                            environment,
+                            "figure" | "figure*" | "table" | "table*" | "algorithm" | "algorithm*"
+                        ) {
+                            cursor = skip_whitespace(source, cursor);
+                            if let Some((option_end, _)) = read_bracket_argument(source, cursor) {
+                                cursor = option_end;
+                            }
+                        }
                         let output_start_utf8 = output.len() as u32;
                         rewrite_spans.push(MaterializedRewriteSpan {
                             start_utf8: command_start as u32,
-                            end_utf8: argument_end as u32,
+                            end_utf8: cursor as u32,
                             output_start_utf8,
                             output_end_utf8: output_start_utf8,
                             rendered: String::new(),
                         });
-                        index = argument_end;
+                        index = cursor;
                         continue;
                     }
                 }
@@ -13372,11 +13382,14 @@ mod tests {
     fn materialize_project_strips_float_and_equation_environment_wrappers() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
-        fs::write(
-            root.join("main.tex"),
-            "\\begin{figure}\\caption{Long Figure Title}\\label{fig:first}a\\end{figure}\\begin{equation}\\label{eq:first}b\\end{equation}",
-        )
-        .expect("write main");
+        let source = "\\begin{figure}[tbp]\\caption{Long Figure Title}\\label{fig:first}a\\end{figure}\\begin{equation}\\label{eq:first}b\\end{equation}\\begin{table*}[!htbp]c\\end{table*}\\begin{algorithm}[H]d\\end{algorithm}";
+        fs::write(root.join("main.tex"), source).expect("write main");
+        let figure_label_offset = source.find("\\label{fig:first}").expect("figure label") as u32;
+        let equation_label_offset =
+            source.find("\\label{eq:first}").expect("equation label") as u32;
+        let figure_caption_offset = source
+            .find("\\caption{Long Figure Title}")
+            .expect("figure caption") as u32;
 
         let materialized = materialize_project(
             &root,
@@ -13388,14 +13401,14 @@ mod tests {
                         number: "1".to_string(),
                         page: 1,
                         file: Utf8PathBuf::from("main.tex"),
-                        offset_utf8: 34,
+                        offset_utf8: figure_label_offset,
                     },
                     super::SemanticLabel {
                         key: "eq:first".to_string(),
                         number: "1".to_string(),
                         page: 1,
                         file: Utf8PathBuf::from("main.tex"),
-                        offset_utf8: 87,
+                        offset_utf8: equation_label_offset,
                     },
                 ],
                 float_captions: vec![super::FloatCaption {
@@ -13405,7 +13418,7 @@ mod tests {
                     body_title: "Long Figure Title".to_string(),
                     page: 1,
                     file: Utf8PathBuf::from("main.tex"),
-                    offset_utf8: 14,
+                    offset_utf8: figure_caption_offset,
                 }],
                 ..SemanticAux::default()
             },
@@ -13417,10 +13430,15 @@ mod tests {
             .expect("materialized main");
 
         assert!(main.contains("Figure 1: Long Figure Titleab"));
+        assert!(main.contains("cd"));
+        assert!(!main.contains("tbp"));
+        assert!(!main.contains("htbp"));
         assert!(!main.contains("\\begin{figure}"));
         assert!(!main.contains("\\end{figure}"));
         assert!(!main.contains("\\begin{equation}"));
         assert!(!main.contains("\\end{equation}"));
+        assert!(!main.contains("\\begin{table*}"));
+        assert!(!main.contains("\\begin{algorithm}"));
     }
 
     #[test]

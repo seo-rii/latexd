@@ -14,8 +14,6 @@ use tex_world::ProjectWorld;
 pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\par{ }
 \def\relax{}
-\def\begin#1{}
-\def\end#1{}
 \def\latexdtitle{}
 \def\latexdauthor{}
 \def\latexddate{}
@@ -1421,6 +1419,31 @@ mod tests {
                 "def \\packmark #0",
             ]
         );
+    }
+
+    #[test]
+    fn project_runner_hides_float_placement_options() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            r"\begin{document}\begin{algorithm}[tbp]Step text.\end{algorithm}\begin{figure*}[!htbp]Wide figure.\end{figure*}\begin{unknownenv}[visible]Custom text.\end{unknownenv}\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        assert!(!result.output.contains("tbp"));
+        assert!(!result.output.contains("htbp"));
+        assert!(result.output.contains("Step text."));
+        assert!(result.output.contains("Wide figure."));
+        assert!(result.output.contains("[visible]Custom text."));
     }
 
     #[test]

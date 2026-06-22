@@ -513,6 +513,8 @@ enum Primitive {
     Unexpanded,
     CsName,
     EndCsName,
+    BeginEnvironment,
+    EndEnvironment,
     BeginGroupCommand,
     EndGroupCommand,
     AfterGroup,
@@ -2831,6 +2833,16 @@ impl<'i> Vm<'i> {
                                     {
                                         index = after_options;
                                     }
+                                } else if matches!(
+                                    other,
+                                    "algorithm" | "algorithm*" | "algorithmic" | "algorithmic*"
+                                ) {
+                                    let argument_index = skip_ascii_whitespace(source, index);
+                                    if let Some((_, _, _, after_options)) =
+                                        read_bracket_source_argument(source, argument_index)
+                                    {
+                                        index = after_options;
+                                    }
                                 } else if matches!(other, "displayquote" | "displayquotation") {
                                     let mut argument_index = skip_ascii_whitespace(source, index);
                                     for _ in 0..2 {
@@ -3334,7 +3346,13 @@ impl<'i> Vm<'i> {
                                 );
                                 let end_marker = format!("\\end{{{environment}}}");
                                 if let Some(relative_end) = source[index..].find(&end_marker) {
-                                    let body_start = index;
+                                    let mut body_start = index;
+                                    let option_index = skip_ascii_whitespace(source, body_start);
+                                    if let Some((_, _, _, after_option)) =
+                                        read_bracket_source_argument(source, option_index)
+                                    {
+                                        body_start = after_option;
+                                    }
                                     let body_end = index + relative_end;
                                     let raw_end = body_end + end_marker.len();
                                     let mut body_index = body_start;
@@ -14480,6 +14498,46 @@ impl<'i> Vm<'i> {
                 }
             }
             Primitive::EndCsName => {}
+            Primitive::BeginEnvironment => {
+                let Some(environment) = self.read_argument_text(queue) else {
+                    return;
+                };
+                if matches!(
+                    environment.trim(),
+                    "algorithm"
+                        | "algorithm*"
+                        | "algorithmic"
+                        | "algorithmic*"
+                        | "figure"
+                        | "figure*"
+                        | "sidewaysfigure"
+                        | "sidewaysfigure*"
+                        | "wrapfigure"
+                        | "wrapfigure*"
+                        | "SCfigure"
+                        | "SCfigure*"
+                        | "floatingfigure"
+                        | "marginfigure"
+                        | "marginfigure*"
+                        | "measuredfigure"
+                        | "table"
+                        | "table*"
+                        | "sidewaystable"
+                        | "sidewaystable*"
+                        | "wraptable"
+                        | "wraptable*"
+                        | "SCtable"
+                        | "SCtable*"
+                        | "floatingtable"
+                        | "margintable"
+                        | "margintable*"
+                ) {
+                    let _ = self.read_optional_bracket_tokens(queue);
+                }
+            }
+            Primitive::EndEnvironment => {
+                let _ = self.read_argument_text(queue);
+            }
             Primitive::MakeAtLetter | Primitive::MakeAtOther => {}
             Primitive::IfTrue => {
                 self.skip_optional_spaces(queue);
@@ -20037,6 +20095,8 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "unexpanded" => Some(Primitive::Unexpanded),
         "csname" => Some(Primitive::CsName),
         "endcsname" => Some(Primitive::EndCsName),
+        "begin" => Some(Primitive::BeginEnvironment),
+        "end" => Some(Primitive::EndEnvironment),
         "begingroup" => Some(Primitive::BeginGroupCommand),
         "bgroup" => Some(Primitive::BeginGroupCommand),
         "endgroup" => Some(Primitive::EndGroupCommand),
@@ -20254,6 +20314,8 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::Unexpanded => "unexpanded",
         Primitive::CsName => "csname",
         Primitive::EndCsName => "endcsname",
+        Primitive::BeginEnvironment => "begin",
+        Primitive::EndEnvironment => "end",
         Primitive::BeginGroupCommand => "begingroup",
         Primitive::EndGroupCommand => "endgroup",
         Primitive::AfterGroup => "aftergroup",
@@ -28012,10 +28074,8 @@ mod tests {
     #[test]
     fn builtin_article_and_package_shims_cover_common_latex_commands() {
         let mut interner = ControlSequenceInterner::new();
-        let snapshot = compile_format_snapshot(
-            &mut interner,
-            r"\def\par{ }\def\begin#1{}\def\end#1{}\def\small{}\def\linewidth{0pt}",
-        );
+        let snapshot =
+            compile_format_snapshot(&mut interner, r"\def\par{ }\def\small{}\def\linewidth{0pt}");
         let mut vm = Vm::restore(&mut interner, &snapshot);
 
         let outcome = vm.run_plain(
@@ -28040,6 +28100,22 @@ mod tests {
                 .loaded_modules
                 .contains(&Utf8PathBuf::from("hyperref.sty"))
         );
+    }
+
+    #[test]
+    fn begin_environment_primitive_hides_float_placement_options_in_legacy_output() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+
+        let outcome = vm.run_plain(
+            r"\begin{algorithm}[tbp]Step text.\end{algorithm}\begin{figure*}[!htbp]Wide figure.\end{figure*}\begin{unknownenv}[visible]Custom text.\end{unknownenv}",
+        );
+
+        assert!(!outcome.output.contains("tbp"));
+        assert!(!outcome.output.contains("htbp"));
+        assert!(outcome.output.contains("Step text."));
+        assert!(outcome.output.contains("Wide figure."));
+        assert!(outcome.output.contains("[visible]Custom text."));
     }
 
     #[test]
@@ -32424,7 +32500,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_starred_float_graphics_without_fallback() {
-        let source = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure*}\includegraphics[width=6cm]{figures/wide.pdf}\caption{Wide figure.}\end{figure*}\end{document}";
+        let source = r"\def\includegraphics[#1]#2{[image]}\def\caption#1{#1}\begin{document}\begin{figure*}[!htbp]\includegraphics[width=6cm]{figures/wide.pdf}\caption{Wide figure.}\end{figure*}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -32449,6 +32525,10 @@ Fallback text.
             &event.event,
             RenderEvent::RawFallback(fallback)
                 if fallback.environment.as_deref() == Some("figure*")
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text.contains("htbp")
         )));
     }
 
@@ -40152,7 +40232,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_algorithm_environment_blocks_without_fallback() {
-        let source = r"\begin{document}\begin{algorithm}\caption{Procedure.}\label{alg:first}Step text.\end{algorithm}\begin{algorithm*}Wide step.\end{algorithm*}\end{document}";
+        let source = r"\begin{document}\begin{algorithm}[tbp]\caption{Procedure.}\label{alg:first}Step text.\end{algorithm}\begin{algorithm*}[!htbp]Wide step.\end{algorithm*}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -40206,6 +40286,10 @@ Fallback text.
                     fallback.environment.as_deref(),
                     Some("algorithm" | "algorithm*")
                 )
+        )));
+        assert!(!outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::Text(text) if text.text.contains("tbp") || text.text.contains("htbp")
         )));
     }
 
