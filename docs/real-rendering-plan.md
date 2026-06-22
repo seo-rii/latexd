@@ -616,7 +616,11 @@ Tasks:
   normalization-sensitive overlap, page-count drift, and first-page raster
   gross failure;
 - split text metrics into body text, front matter, captions, references where
-  the IR can identify them;
+  the IR can identify them. The oracle now copies successful internal
+  `document-ir.json` artifacts into the report directory and records
+  `ir_structure_slices` for front matter, abstract, body, captions, tables,
+  references, and fallback text with raw and normalized overlap against the
+  official PDF text;
 - add case-level budgets for known hard classes: text-heavy, figure-heavy,
   math-heavy, bibliography-heavy.
 
@@ -1545,8 +1549,9 @@ Mitigation: render a useful subset first and keep raw math fallback visible.
 
 ## Recommended Immediate Next Tasks
 
-1. Extend `arxiv_oracle` with body/front-matter/caption/reference metric slices
-   where the IR can identify them.
+1. Run the CC0 oracle with `ir_structure_slices` and use the lowest front
+   matter, caption, reference, and fallback slice ratios to pick the next
+   semantic recovery fixes.
 2. Implement front matter capture and `\maketitle` output for `article`, `llncs`,
    `IEEEtran`, `revtex4-2`, and `wacv` semantic shims.
 3. Change citation rendering so raw citation keys never enter visible PDF text.

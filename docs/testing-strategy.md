@@ -31,7 +31,13 @@ hyphens before token comparison so harmless PDF text extraction differences are
 visible separately from real missing text. The report also includes
 `metric_findings` buckets for build failure, low internal text count, low raw or
 normalized overlap, normalization-sensitive overlap, page-count drift, and
-first-page raster gross failures. Each CC0 case can configure
+first-page raster gross failures. Successful internal builds also copy the
+render-IR `document-ir.json` artifact into the report directory and emit
+`ir_structure_slices` for `front_matter`, `abstract`, `body`, `caption`,
+`table`, `references`, and `fallback` text where the IR can identify those
+regions. Each slice records raw and normalized overlap against the official PDF
+text so missing front matter, captions, references, and fallback leakage can be
+triaged without manually diffing the full text artifact. Each CC0 case can configure
 `max_page_count_delta` and `min_first_page_ink_ratio`; the report records
 `page_count_within_tolerance` and `first_page_raster_gross` so Phase 2
 page-count and missing-major-text-block regressions are visible without manual

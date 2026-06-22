@@ -1,8 +1,17 @@
-use std::{collections::BTreeSet, env, fs, process::Command};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    env, fs,
+    process::Command,
+};
 
 use camino::{Utf8Path, Utf8PathBuf};
 use latexd::compiler::{CompileRequest, CompilerDriver};
 use tempfile::tempdir;
+use tex_render_model::{
+    AbstractBlock, BibliographyBlock, BibliographyItemIr, DocumentIr, EnvironmentBlock,
+    FallbackReason, GraphicBlock, HeadingBlock, InlineNode, IrBlock, ListBlock, ParagraphBlock,
+    RawFallbackIr, SourceProvenance, TableBlock, TableCell, TableRow, TitleBlock,
+};
 use tex_world::ProjectWorld;
 
 #[derive(Debug, serde::Deserialize)]
@@ -64,6 +73,7 @@ struct OracleCaseReport {
     internal_normalized_unique_token_count: Option<usize>,
     normalized_common_unique_token_count: Option<usize>,
     normalized_common_unique_token_ratio: Option<f64>,
+    ir_structure_slices: Vec<OracleStructureSliceReport>,
     missing_token_sample: Vec<String>,
     extra_token_sample: Vec<String>,
     normalized_missing_token_sample: Vec<String>,
@@ -71,6 +81,7 @@ struct OracleCaseReport {
     metric_findings: Vec<OracleMetricFinding>,
     internal_text: Option<Utf8PathBuf>,
     internal_pdf: Option<Utf8PathBuf>,
+    internal_document_ir: Option<Utf8PathBuf>,
     internal_page_count: Option<usize>,
     page_count_delta: Option<i64>,
     page_count_within_tolerance: Option<bool>,
@@ -79,6 +90,35 @@ struct OracleCaseReport {
     first_page_raster_gross: Option<RasterGrossReport>,
     internal_build_failure: Option<String>,
     internal_diagnostics: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+struct OracleStructureSliceReport {
+    kind: OracleStructureSliceKind,
+    token_count: usize,
+    unique_token_count: usize,
+    common_unique_token_count: usize,
+    common_unique_token_ratio: f64,
+    oracle_unique_token_coverage_ratio: f64,
+    normalized_token_count: usize,
+    normalized_unique_token_count: usize,
+    normalized_common_unique_token_count: usize,
+    normalized_common_unique_token_ratio: f64,
+    normalized_oracle_unique_token_coverage_ratio: f64,
+    extra_token_sample: Vec<String>,
+    normalized_extra_token_sample: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+enum OracleStructureSliceKind {
+    FrontMatter,
+    Abstract,
+    Body,
+    Caption,
+    Table,
+    References,
+    Fallback,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -236,12 +276,13 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
         let world = ProjectWorld::load(project_root.clone()).expect("load corpus project");
         let build_root = project_root.join(".latexd/build");
         let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+        let rev = 1;
         let compile_result = driver
             .compile(CompileRequest {
                 root: project_root.clone(),
                 manifest: world.manifest.clone(),
                 toplevel: case.toplevel.clone(),
-                rev: 1,
+                rev,
                 build_root: build_root.clone(),
                 changed_files: vec![case.toplevel.clone()],
             })
@@ -275,6 +316,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             internal_normalized_unique_token_count: None,
             normalized_common_unique_token_count: None,
             normalized_common_unique_token_ratio: None,
+            ir_structure_slices: Vec::new(),
             missing_token_sample: Vec::new(),
             extra_token_sample: Vec::new(),
             normalized_missing_token_sample: Vec::new(),
@@ -282,6 +324,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             metric_findings: Vec::new(),
             internal_text: None,
             internal_pdf: None,
+            internal_document_ir: None,
             internal_page_count: None,
             page_count_delta: None,
             page_count_within_tolerance: None,
@@ -325,6 +368,38 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                 .unwrap_or_else(|error| {
                     panic!("{} copy internal PDF failed: {error}", case.arxiv_id)
                 });
+                let internal_document_ir_artifact = render_ir_document_path(&build_root, rev);
+                if internal_document_ir_artifact.exists() {
+                    let internal_document_ir_path = oracle_case_artifact_path(
+                        &report_dir,
+                        &case.arxiv_id,
+                        &case.version,
+                        "internal-document-ir.json",
+                    );
+                    fs::copy(
+                        internal_document_ir_artifact.as_std_path(),
+                        internal_document_ir_path.as_std_path(),
+                    )
+                    .unwrap_or_else(|error| {
+                        panic!(
+                            "{} copy internal document IR failed: {error}",
+                            case.arxiv_id
+                        )
+                    });
+                    let document_ir =
+                        read_document_ir(&internal_document_ir_path).unwrap_or_else(|error| {
+                            panic!(
+                                "{} read internal document IR failed: {error}",
+                                case.arxiv_id
+                            )
+                        });
+                    report.ir_structure_slices = build_structure_slice_reports(
+                        &document_ir,
+                        &oracle_unique,
+                        &oracle_normalized_unique,
+                    );
+                    report.internal_document_ir = Some(internal_document_ir_path);
+                }
                 let internal_page_count = extract_pdf_page_count(&pdfinfo, &outcome.pdf_path)
                     .unwrap_or_else(|error| {
                         panic!("{} internal pdfinfo failed: {error}", case.arxiv_id)
@@ -515,6 +590,227 @@ fn locate_case_files(
     } else {
         None
     }
+}
+
+fn render_ir_document_path(build_root: &Utf8Path, rev: u64) -> Utf8PathBuf {
+    build_root.join(format!("rev-{rev}/render-ir/document-ir.json"))
+}
+
+fn read_document_ir(path: &Utf8Path) -> anyhow::Result<DocumentIr> {
+    let bytes = fs::read(path.as_std_path())?;
+    serde_json::from_slice::<DocumentIr>(&bytes)
+        .map_err(|error| anyhow::anyhow!("failed to parse document IR {path}: {error}"))
+}
+
+fn build_structure_slice_reports(
+    document_ir: &DocumentIr,
+    oracle_unique: &BTreeSet<String>,
+    oracle_normalized_unique: &BTreeSet<String>,
+) -> Vec<OracleStructureSliceReport> {
+    collect_structure_slice_texts(document_ir)
+        .into_iter()
+        .filter_map(|(kind, text)| {
+            let tokens = tokenize(&text);
+            let normalized_tokens = tokenize_normalized(&text);
+            if tokens.is_empty() && normalized_tokens.is_empty() {
+                return None;
+            }
+
+            let unique = unique_tokens(&tokens);
+            let normalized_unique = unique_tokens(&normalized_tokens);
+            let common = unique
+                .intersection(oracle_unique)
+                .cloned()
+                .collect::<BTreeSet<_>>();
+            let normalized_common = normalized_unique
+                .intersection(oracle_normalized_unique)
+                .cloned()
+                .collect::<BTreeSet<_>>();
+
+            Some(OracleStructureSliceReport {
+                kind,
+                token_count: tokens.len(),
+                unique_token_count: unique.len(),
+                common_unique_token_count: common.len(),
+                common_unique_token_ratio: common.len() as f64 / unique.len().max(1) as f64,
+                oracle_unique_token_coverage_ratio: common.len() as f64
+                    / oracle_unique.len().max(1) as f64,
+                normalized_token_count: normalized_tokens.len(),
+                normalized_unique_token_count: normalized_unique.len(),
+                normalized_common_unique_token_count: normalized_common.len(),
+                normalized_common_unique_token_ratio: normalized_common.len() as f64
+                    / normalized_unique.len().max(1) as f64,
+                normalized_oracle_unique_token_coverage_ratio: normalized_common.len() as f64
+                    / oracle_normalized_unique.len().max(1) as f64,
+                extra_token_sample: ordered_difference_sample(&tokens, oracle_unique, 40),
+                normalized_extra_token_sample: ordered_difference_sample(
+                    &normalized_tokens,
+                    oracle_normalized_unique,
+                    40,
+                ),
+            })
+        })
+        .collect()
+}
+
+fn collect_structure_slice_texts(
+    document_ir: &DocumentIr,
+) -> BTreeMap<OracleStructureSliceKind, String> {
+    let fallback_text = |fallback: &RawFallbackIr| {
+        fallback
+            .normalized_visible_text
+            .as_deref()
+            .unwrap_or(&fallback.source_excerpt)
+            .to_string()
+    };
+    let inline_nodes_text = |nodes: &[InlineNode]| {
+        let mut text = String::new();
+        for node in nodes {
+            match node {
+                InlineNode::Text { text: value, .. } => text.push_str(value),
+                InlineNode::Space { .. } => text.push(' '),
+                InlineNode::LineBreak { .. } => text.push('\n'),
+                InlineNode::Citation(citation) => text.push_str(&citation.display_text),
+                InlineNode::Reference(reference) => text.push_str(&reference.display_text),
+                InlineNode::Link(link) => text.push_str(&link.display_text),
+                InlineNode::InlineMath {
+                    raw_source,
+                    normalized_text,
+                    ..
+                } => text.push_str(normalized_text.as_deref().unwrap_or(raw_source)),
+                InlineNode::RawFallback(fallback) => text.push_str(&fallback_text(fallback)),
+            }
+        }
+        text
+    };
+    let title_block_text = |block: &TitleBlock| {
+        let mut lines = Vec::new();
+        if let Some(title) = &block.title {
+            lines.push(title.clone());
+        }
+        lines.extend(block.authors.iter().cloned());
+        if let Some(date) = &block.date {
+            lines.push(date.clone());
+        }
+        lines.extend(block.keywords.iter().cloned());
+        lines.extend(block.pacs.iter().cloned());
+        lines.join("\n")
+    };
+    let bibliography_text = |block: &BibliographyBlock| {
+        block
+            .items
+            .iter()
+            .map(|item| item.content.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let list_text = |block: &ListBlock| {
+        block
+            .items
+            .iter()
+            .map(|item| {
+                let mut text = String::new();
+                text.push_str(&item.marker);
+                text.push(' ');
+                text.push_str(&inline_nodes_text(&item.content));
+                text
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let table_rows_text = |block: &TableBlock| {
+        block
+            .rows
+            .iter()
+            .map(|row| {
+                row.cells
+                    .iter()
+                    .map(|cell| cell.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let mut slices = BTreeMap::<OracleStructureSliceKind, String>::new();
+    let mut append_slice = |kind: OracleStructureSliceKind, text: String| {
+        let text = text.trim();
+        if text.is_empty() {
+            return;
+        }
+        let entry = slices.entry(kind).or_default();
+        if !entry.is_empty() {
+            entry.push('\n');
+        }
+        entry.push_str(text);
+    };
+
+    for block in &document_ir.blocks {
+        match block {
+            IrBlock::TitleBlock(block) => {
+                append_slice(
+                    OracleStructureSliceKind::FrontMatter,
+                    title_block_text(block),
+                );
+            }
+            IrBlock::Abstract(AbstractBlock { content, .. }) => {
+                append_slice(
+                    OracleStructureSliceKind::Abstract,
+                    inline_nodes_text(content),
+                );
+            }
+            IrBlock::Heading(HeadingBlock {
+                number, content, ..
+            }) => {
+                let mut text = String::new();
+                if let Some(number) = number {
+                    text.push_str(number);
+                    text.push(' ');
+                }
+                text.push_str(&inline_nodes_text(content));
+                append_slice(OracleStructureSliceKind::Body, text);
+            }
+            IrBlock::Paragraph(ParagraphBlock { content, .. })
+            | IrBlock::Environment(EnvironmentBlock { content, .. }) => {
+                append_slice(OracleStructureSliceKind::Body, inline_nodes_text(content));
+            }
+            IrBlock::List(block) => {
+                append_slice(OracleStructureSliceKind::Body, list_text(block));
+            }
+            IrBlock::DisplayMath(block) => {
+                append_slice(
+                    OracleStructureSliceKind::Body,
+                    block
+                        .normalized_text
+                        .as_deref()
+                        .unwrap_or(&block.raw_source)
+                        .to_string(),
+                );
+            }
+            IrBlock::Bibliography(block) => {
+                append_slice(
+                    OracleStructureSliceKind::References,
+                    bibliography_text(block),
+                );
+            }
+            IrBlock::Graphic(GraphicBlock { caption, .. }) => {
+                if let Some(caption) = caption {
+                    append_slice(OracleStructureSliceKind::Caption, caption.clone());
+                }
+            }
+            IrBlock::Table(block) => {
+                if let Some(caption) = &block.caption {
+                    append_slice(OracleStructureSliceKind::Caption, caption.clone());
+                }
+                append_slice(OracleStructureSliceKind::Table, table_rows_text(block));
+            }
+            IrBlock::RawFallback(block) => {
+                append_slice(OracleStructureSliceKind::Fallback, fallback_text(block));
+            }
+        }
+    }
+
+    slices
 }
 
 fn extract_pdf_text(pdftotext: &std::path::Path, pdf_path: &Utf8Path) -> anyhow::Result<String> {
@@ -861,6 +1157,115 @@ fn oracle_case_first_page_raster_prefix(
     oracle_case_artifact_path(report_dir, arxiv_id, version, &format!("{variant}-page-1"))
 }
 
+fn sample_structure_slice_document_ir() -> DocumentIr {
+    let source = SourceProvenance::file("main.tex", 0, 1);
+    DocumentIr::new(vec![
+        IrBlock::TitleBlock(TitleBlock {
+            title: Some("A Paper".to_string()),
+            title_source: None,
+            authors: vec!["Ada Lovelace".to_string()],
+            author_sources: Vec::new(),
+            date: None,
+            date_source: None,
+            keywords: Vec::new(),
+            keyword_sources: Vec::new(),
+            pacs: Vec::new(),
+            pacs_sources: Vec::new(),
+            source: source.clone(),
+        }),
+        IrBlock::Abstract(AbstractBlock {
+            content: vec![InlineNode::Text {
+                text: "Short abstract.".to_string(),
+                source: source.clone(),
+            }],
+            source: source.clone(),
+        }),
+        IrBlock::Heading(HeadingBlock {
+            level: 1,
+            number: Some("1".to_string()),
+            content: vec![InlineNode::Text {
+                text: "Intro".to_string(),
+                source: source.clone(),
+            }],
+            source: source.clone(),
+        }),
+        IrBlock::Paragraph(ParagraphBlock {
+            content: vec![InlineNode::Text {
+                text: "Body text.".to_string(),
+                source: source.clone(),
+            }],
+            source: source.clone(),
+        }),
+        IrBlock::Graphic(GraphicBlock {
+            path: "figure.png".to_string(),
+            options: None,
+            page_selection: None,
+            asset_format: None,
+            asset_hash: None,
+            asset_dimensions: None,
+            caption: Some("Plot caption.".to_string()),
+            caption_source: None,
+            source: source.clone(),
+        }),
+        IrBlock::Table(TableBlock {
+            environment: "tabular".to_string(),
+            width_spec: None,
+            columns: Vec::new(),
+            rows: vec![TableRow {
+                rule_above: false,
+                partial_rules_above: Vec::new(),
+                cells: vec![
+                    TableCell {
+                        text: "Cell".to_string(),
+                        column_span: None,
+                        row_span: None,
+                        alignment: None,
+                        rule_before_count: 0,
+                        rule_after_count: 0,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                    TableCell {
+                        text: "Alpha".to_string(),
+                        column_span: None,
+                        row_span: None,
+                        alignment: None,
+                        rule_before_count: 0,
+                        rule_after_count: 0,
+                        cell_prefix: None,
+                        cell_suffix: None,
+                    },
+                ],
+                rule_below: false,
+                partial_rules_below: Vec::new(),
+            }],
+            caption: Some("Table caption.".to_string()),
+            caption_source: None,
+            source: source.clone(),
+        }),
+        IrBlock::Bibliography(BibliographyBlock {
+            items: vec![BibliographyItemIr {
+                key: "key".to_string(),
+                label: Some("1".to_string()),
+                content: "Author. Title.".to_string(),
+                source: source.clone(),
+            }],
+            source: source.clone(),
+        }),
+        IrBlock::RawFallback(RawFallbackIr {
+            source_excerpt: "Fallback noisy".to_string(),
+            expanded_text: None,
+            normalized_visible_text: None,
+            environment: Some("unknownenv".to_string()),
+            reason: FallbackReason::UnsupportedEnvironment,
+            source_hash: None,
+            full_source_artifact: None,
+            truncated: false,
+            source,
+        }),
+    ])
+}
+
 #[test]
 fn arxiv_oracle_artifact_paths_are_report_local_and_safe() {
     let report_dir = Utf8PathBuf::from("/tmp/latexd-report");
@@ -900,6 +1305,87 @@ fn arxiv_oracle_first_page_raster_png_path_preserves_dotted_ids() {
     assert_eq!(
         rasterized_singlefile_png_path(&prefix),
         Utf8PathBuf::from("/tmp/latexd-report/2602.14379-v1-oracle-page-1.png")
+    );
+}
+
+#[test]
+fn arxiv_oracle_render_ir_document_path_uses_revision_artifact_layout() {
+    assert_eq!(
+        render_ir_document_path(&Utf8PathBuf::from("/tmp/build"), 7),
+        Utf8PathBuf::from("/tmp/build/rev-7/render-ir/document-ir.json")
+    );
+}
+
+#[test]
+fn arxiv_oracle_reads_copied_document_ir_artifact() {
+    let document_ir = sample_structure_slice_document_ir();
+    let tempdir = tempdir().expect("tempdir");
+    let build_root = Utf8PathBuf::from_path_buf(tempdir.path().join("build")).expect("utf8");
+    let document_ir_path = render_ir_document_path(&build_root, 3);
+    fs::create_dir_all(
+        document_ir_path
+            .parent()
+            .expect("document IR parent")
+            .as_std_path(),
+    )
+    .expect("create document IR artifact parent");
+    fs::write(
+        document_ir_path.as_std_path(),
+        serde_json::to_vec(&document_ir).expect("document IR json"),
+    )
+    .expect("write document IR artifact");
+
+    let read = read_document_ir(&document_ir_path).expect("read document IR artifact");
+
+    assert_eq!(read.extracted_text(), document_ir.extracted_text());
+}
+
+#[test]
+fn arxiv_oracle_ir_structure_slice_reports_separate_document_regions() {
+    let document_ir = sample_structure_slice_document_ir();
+    let slice_texts = collect_structure_slice_texts(&document_ir);
+    let oracle_unique = unique_tokens(&tokenize(
+        "A Paper Ada Lovelace Short abstract Intro Body text Plot caption Table caption Cell Alpha Author Title",
+    ));
+    let oracle_normalized_unique = unique_tokens(&tokenize_normalized(
+        "A Paper Ada Lovelace Short abstract Intro Body text Plot caption Table caption Cell Alpha Author Title",
+    ));
+
+    let reports =
+        build_structure_slice_reports(&document_ir, &oracle_unique, &oracle_normalized_unique);
+    let reports_by_kind = reports
+        .iter()
+        .map(|report| (report.kind, report))
+        .collect::<BTreeMap<_, _>>();
+
+    assert_eq!(
+        slice_texts[&OracleStructureSliceKind::Caption],
+        "Plot caption.\nTable caption."
+    );
+    assert_eq!(reports_by_kind.len(), 7);
+    assert_eq!(
+        reports_by_kind[&OracleStructureSliceKind::FrontMatter].common_unique_token_ratio,
+        1.0
+    );
+    assert_eq!(
+        reports_by_kind[&OracleStructureSliceKind::Caption].unique_token_count,
+        3
+    );
+    assert_eq!(
+        reports_by_kind[&OracleStructureSliceKind::Table].common_unique_token_ratio,
+        1.0
+    );
+    assert_eq!(
+        reports_by_kind[&OracleStructureSliceKind::References].common_unique_token_ratio,
+        1.0
+    );
+    assert_eq!(
+        reports_by_kind[&OracleStructureSliceKind::Fallback].common_unique_token_count,
+        0
+    );
+    assert_eq!(
+        reports_by_kind[&OracleStructureSliceKind::Fallback].extra_token_sample,
+        vec!["fallback".to_string(), "noisy".to_string()]
     );
 }
 
