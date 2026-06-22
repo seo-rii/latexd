@@ -21378,6 +21378,7 @@ fn read_siunitx_visible_text(
 fn normalize_latex_text(source: &str) -> String {
     let mut text = String::new();
     let mut in_command = false;
+    let mut pending_accent = None;
     let mut previous_space = false;
     for ch in source.chars() {
         if in_command {
@@ -21387,6 +21388,10 @@ fn normalize_latex_text(source: &str) -> String {
             in_command = false;
             match ch {
                 '!' => continue,
+                '\'' | '"' | '`' | '^' | '~' | '=' | '.' => {
+                    pending_accent = Some(ch);
+                    continue;
+                }
                 ',' | ';' | ':' | ' ' => {
                     if !text.is_empty() {
                         previous_space = true;
@@ -21412,6 +21417,10 @@ fn normalize_latex_text(source: &str) -> String {
                 }
             }
             ch => {
+                let ch = pending_accent
+                    .take()
+                    .and_then(|accent| compose_latex_accent(accent, ch))
+                    .unwrap_or(ch);
                 if previous_space {
                     text.push(' ');
                     previous_space = false;
@@ -21421,6 +21430,80 @@ fn normalize_latex_text(source: &str) -> String {
         }
     }
     text.trim().to_string()
+}
+
+fn compose_latex_accent(accent: char, ch: char) -> Option<char> {
+    match (accent, ch) {
+        ('\'', 'a') => Some('\u{00e1}'),
+        ('\'', 'e') => Some('\u{00e9}'),
+        ('\'', 'i') => Some('\u{00ed}'),
+        ('\'', 'o') => Some('\u{00f3}'),
+        ('\'', 'u') => Some('\u{00fa}'),
+        ('\'', 'y') => Some('\u{00fd}'),
+        ('\'', 'A') => Some('\u{00c1}'),
+        ('\'', 'E') => Some('\u{00c9}'),
+        ('\'', 'I') => Some('\u{00cd}'),
+        ('\'', 'O') => Some('\u{00d3}'),
+        ('\'', 'U') => Some('\u{00da}'),
+        ('\'', 'Y') => Some('\u{00dd}'),
+        ('`', 'a') => Some('\u{00e0}'),
+        ('`', 'e') => Some('\u{00e8}'),
+        ('`', 'i') => Some('\u{00ec}'),
+        ('`', 'o') => Some('\u{00f2}'),
+        ('`', 'u') => Some('\u{00f9}'),
+        ('`', 'A') => Some('\u{00c0}'),
+        ('`', 'E') => Some('\u{00c8}'),
+        ('`', 'I') => Some('\u{00cc}'),
+        ('`', 'O') => Some('\u{00d2}'),
+        ('`', 'U') => Some('\u{00d9}'),
+        ('"', 'a') => Some('\u{00e4}'),
+        ('"', 'e') => Some('\u{00eb}'),
+        ('"', 'i') => Some('\u{00ef}'),
+        ('"', 'o') => Some('\u{00f6}'),
+        ('"', 'u') => Some('\u{00fc}'),
+        ('"', 'y') => Some('\u{00ff}'),
+        ('"', 'A') => Some('\u{00c4}'),
+        ('"', 'E') => Some('\u{00cb}'),
+        ('"', 'I') => Some('\u{00cf}'),
+        ('"', 'O') => Some('\u{00d6}'),
+        ('"', 'U') => Some('\u{00dc}'),
+        ('^', 'a') => Some('\u{00e2}'),
+        ('^', 'e') => Some('\u{00ea}'),
+        ('^', 'i') => Some('\u{00ee}'),
+        ('^', 'o') => Some('\u{00f4}'),
+        ('^', 'u') => Some('\u{00fb}'),
+        ('^', 'A') => Some('\u{00c2}'),
+        ('^', 'E') => Some('\u{00ca}'),
+        ('^', 'I') => Some('\u{00ce}'),
+        ('^', 'O') => Some('\u{00d4}'),
+        ('^', 'U') => Some('\u{00db}'),
+        ('~', 'a') => Some('\u{00e3}'),
+        ('~', 'n') => Some('\u{00f1}'),
+        ('~', 'o') => Some('\u{00f5}'),
+        ('~', 'A') => Some('\u{00c3}'),
+        ('~', 'N') => Some('\u{00d1}'),
+        ('~', 'O') => Some('\u{00d5}'),
+        ('=', 'a') => Some('\u{0101}'),
+        ('=', 'e') => Some('\u{0113}'),
+        ('=', 'i') => Some('\u{012b}'),
+        ('=', 'o') => Some('\u{014d}'),
+        ('=', 'u') => Some('\u{016b}'),
+        ('=', 'A') => Some('\u{0100}'),
+        ('=', 'E') => Some('\u{0112}'),
+        ('=', 'I') => Some('\u{012a}'),
+        ('=', 'O') => Some('\u{014c}'),
+        ('=', 'U') => Some('\u{016a}'),
+        ('.', 'c') => Some('\u{010b}'),
+        ('.', 'e') => Some('\u{0117}'),
+        ('.', 'g') => Some('\u{0121}'),
+        ('.', 'z') => Some('\u{017c}'),
+        ('.', 'C') => Some('\u{010a}'),
+        ('.', 'E') => Some('\u{0116}'),
+        ('.', 'G') => Some('\u{0120}'),
+        ('.', 'I') => Some('\u{0130}'),
+        ('.', 'Z') => Some('\u{017b}'),
+        _ => None,
+    }
 }
 
 fn source_range_contains_graphic_command(source: &str, start: usize, end: usize) -> bool {
@@ -40443,6 +40526,50 @@ Fallback text.
             assert!(!author.contains("[2]"));
             assert!(!author.contains("affil"));
             assert!(!author.contains("thanks"));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_text_accent_control_symbols_in_metadata() {
+        let source = r#"\title{Accent Paper}\author{F. A. C\'ardenas-L\'opez}\affiliation{Forschungszentrum J\"ulich GmbH, Peter Gr\"unberg Institute, \=O\.Z Lab}\begin{document}\maketitle\end{document}"#;
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let authors = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::SetDocumentMetadata(metadata)
+                    if metadata.field == MetadataField::Author =>
+                {
+                    Some(metadata.value.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            authors,
+            vec![
+                "F. A. C\u{00e1}rdenas-L\u{00f3}pez",
+                "Forschungszentrum J\u{00fc}lich GmbH, Peter Gr\u{00fc}nberg Institute, \u{014c}\u{017b} Lab"
+            ]
+        );
+        for hidden in [
+            "C'ardenas",
+            "L'opez",
+            r#"J\"ulich"#,
+            r#"Gr\"unberg"#,
+            r#"\=O"#,
+            r#"\.Z"#,
+        ] {
+            assert!(
+                authors.iter().all(|author| !author.contains(hidden)),
+                "{hidden} leaked in {authors:?}"
+            );
         }
     }
 

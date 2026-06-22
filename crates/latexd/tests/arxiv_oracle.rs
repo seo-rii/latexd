@@ -13,6 +13,7 @@ use tex_render_model::{
     RawFallbackIr, SourceProvenance, TableBlock, TableCell, TableRow, TitleBlock,
 };
 use tex_world::ProjectWorld;
+use unicode_normalization::UnicodeNormalization;
 
 #[derive(Debug, serde::Deserialize)]
 struct OracleManifest {
@@ -1070,9 +1071,16 @@ fn tokenize(text: &str) -> Vec<String> {
 
 fn tokenize_normalized(text: &str) -> Vec<String> {
     let mut normalized = String::with_capacity(text.len());
-    for character in text.chars() {
+    for character in text.nfkd() {
         match character {
             '\u{00ad}' => {}
+            '\u{0300}'..='\u{036f}'
+            | '\u{1ab0}'..='\u{1aff}'
+            | '\u{1dc0}'..='\u{1dff}'
+            | '\u{20d0}'..='\u{20ff}'
+            | '\u{fe20}'..='\u{fe2f}' => {}
+            '\u{0131}' => normalized.push('i'),
+            '\u{0237}' => normalized.push('j'),
             'ﬀ' => normalized.push_str("ff"),
             'ﬁ' => normalized.push_str("fi"),
             'ﬂ' => normalized.push_str("fl"),
@@ -1412,18 +1420,40 @@ fn arxiv_oracle_raster_smoke_reports_non_white_bbox() {
 }
 
 #[test]
-fn arxiv_oracle_normalized_tokens_fold_greek_ligatures_and_soft_hyphens() {
-    let tokens = tokenize_normalized("α β ﬁeld co\u{00ad}author");
+fn arxiv_oracle_normalized_tokens_fold_greek_ligatures_soft_hyphens_and_accents() {
+    let tokens = tokenize_normalized(
+        "α β ﬁeld co\u{00ad}author François Franc\u{0327}ois CentraleSupélec CentraleSupe\u{0301}lec Saarbrücken Saarbru\u{0308}cken Fı\u{0301}sica Vı\u{0301}ctor",
+    );
 
-    assert_eq!(tokens, vec!["alpha", "beta", "field", "coauthor"]);
+    assert_eq!(
+        tokens,
+        vec![
+            "alpha",
+            "beta",
+            "field",
+            "coauthor",
+            "francois",
+            "francois",
+            "centralesupelec",
+            "centralesupelec",
+            "saarbrucken",
+            "saarbrucken",
+            "fisica",
+            "victor",
+        ]
+    );
 }
 
 #[test]
 fn arxiv_oracle_normalized_overlap_matches_symbol_and_name_forms() {
-    let oracle = unique_tokens(&tokenize_normalized("α ﬁeld co\u{00ad}author"));
-    let internal = unique_tokens(&tokenize_normalized("alpha field coauthor"));
+    let oracle = unique_tokens(&tokenize_normalized(
+        "α ﬁeld co\u{00ad}author Franc\u{0327}ois CentraleSupe\u{0301}lec Saarbru\u{0308}cken Fı\u{0301}sica Vı\u{0301}ctor",
+    ));
+    let internal = unique_tokens(&tokenize_normalized(
+        "alpha field coauthor François CentraleSupélec Saarbrücken Física Víctor",
+    ));
 
-    assert_eq!(oracle.intersection(&internal).count(), 3);
+    assert_eq!(oracle.intersection(&internal).count(), 8);
 }
 
 #[test]

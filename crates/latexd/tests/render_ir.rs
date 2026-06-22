@@ -789,6 +789,52 @@ fn authblk_frontmatter_survives_ir_and_display_list() {
 }
 
 #[test]
+fn tex_accent_frontmatter_survives_ir_and_display_list() {
+    let source = r#"\title{Accent Paper}\author{F. A. C\'ardenas-L\'opez}\affiliation{Forschungszentrum J\"ulich GmbH, Peter Gr\"unberg Institute}\begin{document}\maketitle\end{document}"#;
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let title = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::TitleBlock(title) => Some(title),
+            _ => None,
+        })
+        .expect("title block");
+
+    assert_eq!(
+        title.authors,
+        vec![
+            "F. A. C\u{00e1}rdenas-L\u{00f3}pez",
+            "Forschungszentrum J\u{00fc}lich GmbH, Peter Gr\u{00fc}nberg Institute",
+        ]
+    );
+
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    for visible in [
+        "C\u{00e1}rdenas-L\u{00f3}pez",
+        "J\u{00fc}lich GmbH",
+        "Gr\u{00fc}nberg Institute",
+    ] {
+        assert!(extracted_text.contains(visible), "{extracted_text}");
+        assert!(display_list_text.contains(visible), "{display_list_text}");
+    }
+    for hidden in ["C'ardenas", "L'opez", r#"J\"ulich"#, r#"Gr\"unberg"#] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn llncs_frontmatter_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
