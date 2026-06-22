@@ -5929,6 +5929,37 @@ fn rewrite_source(
                 index = cursor;
                 continue;
             }
+            "hspace" | "vspace" | "addvspace" | "hskip" | "vskip" | "kern" | "mkern"
+            | "smallskip" | "medskip" | "bigskip" | "noindent" | "indent" | "newpage"
+            | "clearpage" | "cleardoublepage" | "pagebreak" | "nopagebreak" | "linebreak"
+            | "nolinebreak" | "vfill" | "hfill" => {
+                let spacing_end = skip_layout_spacing_command(source, command_end);
+                let output_start_utf8 = output.len() as u32;
+                let should_keep_gap = output.chars().last().is_some_and(|ch| !ch.is_whitespace())
+                    && source[spacing_end..].chars().next().is_some_and(|ch| {
+                        !ch.is_whitespace()
+                            && ch != '\\'
+                            && ch != '.'
+                            && ch != ','
+                            && ch != ';'
+                            && ch != ':'
+                    });
+                let rendered = if should_keep_gap {
+                    output.push(' ');
+                    " ".to_string()
+                } else {
+                    String::new()
+                };
+                rewrite_spans.push(MaterializedRewriteSpan {
+                    start_utf8: command_start as u32,
+                    end_utf8: spacing_end as u32,
+                    output_start_utf8,
+                    output_end_utf8: output.len() as u32,
+                    rendered,
+                });
+                index = spacing_end;
+                continue;
+            }
             "printbibheading" => {
                 let (cursor, options) = if let Some((options_end, options)) =
                     read_bracket_argument(source, command_end)
@@ -6247,6 +6278,36 @@ fn clean_bibliography_text(source: &str) -> String {
                 }
                 if matches!(command_name.as_str(), "protect" | "relax" | "leavevmode") {
                     index = command_end;
+                    continue;
+                }
+                if matches!(
+                    command_name.as_str(),
+                    "hspace"
+                        | "vspace"
+                        | "addvspace"
+                        | "hskip"
+                        | "vskip"
+                        | "kern"
+                        | "mkern"
+                        | "smallskip"
+                        | "medskip"
+                        | "bigskip"
+                        | "noindent"
+                        | "indent"
+                        | "newpage"
+                        | "clearpage"
+                        | "cleardoublepage"
+                        | "pagebreak"
+                        | "nopagebreak"
+                        | "linebreak"
+                        | "nolinebreak"
+                        | "vfill"
+                        | "hfill"
+                ) {
+                    if text.chars().last().is_some_and(|ch| !ch.is_whitespace()) {
+                        text.push(' ');
+                    }
+                    index = skip_layout_spacing_command(&source, command_end);
                     continue;
                 }
                 if command_name == "ignorespaces" {
@@ -7488,6 +7549,110 @@ fn skip_whitespace(source: &str, mut index: usize) -> usize {
     index
 }
 
+fn skip_layout_spacing_command(source: &str, command_end: usize) -> usize {
+    let mut cursor = skip_optional_command_star(source, command_end);
+    cursor = skip_optional_bracket_arguments(source, cursor);
+    if let Some((argument_end, _)) = read_braced_argument(source, cursor) {
+        return argument_end;
+    }
+
+    cursor = skip_whitespace(source, cursor);
+    loop {
+        let before = cursor;
+        cursor = skip_whitespace(source, cursor);
+        if cursor >= source.len() {
+            return cursor;
+        }
+        if let Some((next_command_end, next_command_name)) = read_command_name(source, cursor) {
+            if next_command_name == "relax" {
+                return next_command_end;
+            }
+            if matches!(
+                next_command_name.as_str(),
+                "@plus"
+                    | "@minus"
+                    | "baselineskip"
+                    | "columnwidth"
+                    | "dimexpr"
+                    | "font"
+                    | "fontdimen"
+                    | "hsize"
+                    | "linewidth"
+                    | "paperheight"
+                    | "paperwidth"
+                    | "parindent"
+                    | "p@"
+                    | "textheight"
+                    | "textwidth"
+                    | "z@"
+            ) {
+                cursor = next_command_end;
+                continue;
+            }
+            return before;
+        }
+
+        let Some(ch) = source[cursor..].chars().next() else {
+            return cursor;
+        };
+        if ch == '+' || ch == '-' || ch == '.' || ch.is_ascii_digit() {
+            cursor += ch.len_utf8();
+            while let Some(next) = source[cursor..].chars().next() {
+                if next == '.' || next.is_ascii_digit() {
+                    cursor += next.len_utf8();
+                } else {
+                    break;
+                }
+            }
+            continue;
+        }
+        if ch.is_ascii_alphabetic() || ch == '@' {
+            let word_start = cursor;
+            cursor += ch.len_utf8();
+            while let Some(next) = source[cursor..].chars().next() {
+                if next.is_ascii_alphabetic() || next == '@' {
+                    cursor += next.len_utf8();
+                } else {
+                    break;
+                }
+            }
+            if matches!(
+                &source[word_start..cursor],
+                "plus"
+                    | "minus"
+                    | "fil"
+                    | "fill"
+                    | "filll"
+                    | "pt"
+                    | "pc"
+                    | "in"
+                    | "bp"
+                    | "cm"
+                    | "mm"
+                    | "dd"
+                    | "cc"
+                    | "sp"
+                    | "em"
+                    | "ex"
+                    | "mu"
+                    | "truept"
+                    | "truepc"
+                    | "truein"
+                    | "truebp"
+                    | "truecm"
+                    | "truemm"
+                    | "truedd"
+                    | "truecc"
+                    | "truesp"
+            ) {
+                continue;
+            }
+            return word_start;
+        }
+        return before;
+    }
+}
+
 fn contentsline_level(kind: &str) -> Option<u8> {
     match kind.trim() {
         "chapter" => Some(0),
@@ -7646,12 +7811,13 @@ fn decode_aux_text(encoded: &str) -> Result<String> {
 mod tests {
     use super::{
         PageSourceSlice, SemanticAux, SourceSpan, derive_semantic_aux, derive_semantic_aux_index,
-        load_semantic_aux, materialize_project, parse_concrete_semantic_aux,
-        render_concrete_semantic_aux, scan_project, serialize_concrete_semantic_aux_backdated,
+        load_semantic_aux, materialize_project, parse_bibliography_entries,
+        parse_concrete_semantic_aux, render_concrete_semantic_aux, scan_project,
+        serialize_concrete_semantic_aux_backdated,
         serialize_concrete_semantic_aux_backdated_with_previous, serialize_semantic_aux_backdated,
         serialize_semantic_aux_backdated_with_previous,
     };
-    use camino::Utf8PathBuf;
+    use camino::{Utf8Path, Utf8PathBuf};
     use std::fs;
     use tempfile::tempdir;
     use tex_render_model::{AuxView, CitationStyleHint};
@@ -8543,6 +8709,63 @@ mod tests {
         assert!(!main.contains("\\nocite"));
         assert!(main.contains("cite [1]."));
         assert!(main.contains("\\input{refs.bbl}"));
+    }
+
+    #[test]
+    fn materialize_project_strips_layout_spacing_commands() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(
+            root.join("main.tex"),
+            "Before\\vspace*{-10pt}After\\hspace{2mm}Gap.\\pagebreak[4]Next.\\smallskip Done.\\hskip 1em plus 0.5em minus 0.4em\\relax Tail.",
+        )
+        .expect("write main");
+
+        let materialized = materialize_project(
+            &root,
+            &Utf8PathBuf::from("main.tex"),
+            &SemanticAux::default(),
+        )
+        .expect("materialize");
+        let main = materialized
+            .files
+            .get(&Utf8PathBuf::from("main.tex"))
+            .expect("materialized main");
+
+        assert!(main.contains("Before After Gap. Next. Done. Tail."));
+        for hidden in [
+            "\\vspace",
+            "-10pt",
+            "\\hspace",
+            "2mm",
+            "\\pagebreak",
+            "[4]",
+            "\\smallskip",
+            "\\hskip",
+            "1em",
+            "minus",
+            "\\relax",
+        ] {
+            assert!(!main.contains(hidden), "{hidden} leaked into {main:?}");
+        }
+    }
+
+    #[test]
+    fn bibliography_cleaner_strips_glue_spacing_commands() {
+        let entries = parse_bibliography_entries(
+            Utf8Path::new("refs.bbl"),
+            "\\begin{thebibliography}{1}\\bibitem{alpha} Proc.\\hskip 1em plus 0.5em minus 0.4em\\relax PMLR.\\vspace{2pt}\\newblock Done.\\end{thebibliography}",
+        );
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].text, "Proc. PMLR. Done.");
+        for hidden in ["\\hskip", "1em", "minus", "\\vspace", "2pt", "\\relax"] {
+            assert!(
+                !entries[0].text.contains(hidden),
+                "{hidden} leaked into {:?}",
+                entries[0].text
+            );
+        }
     }
 
     #[test]

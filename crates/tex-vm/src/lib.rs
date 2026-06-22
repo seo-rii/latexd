@@ -20489,6 +20489,154 @@ fn skip_ascii_whitespace(source: &str, mut index: usize) -> usize {
     index
 }
 
+fn is_latex_layout_spacing_command(command: &str) -> bool {
+    matches!(
+        command,
+        "hspace"
+            | "vspace"
+            | "addvspace"
+            | "hskip"
+            | "vskip"
+            | "kern"
+            | "mkern"
+            | "smallskip"
+            | "medskip"
+            | "bigskip"
+            | "noindent"
+            | "indent"
+            | "newpage"
+            | "clearpage"
+            | "cleardoublepage"
+            | "pagebreak"
+            | "nopagebreak"
+            | "linebreak"
+            | "nolinebreak"
+            | "vfill"
+            | "hfill"
+    )
+}
+
+fn skip_latex_layout_spacing_command(source: &str, command_name_end: usize) -> usize {
+    let bytes = source.as_bytes();
+    let mut cursor = skip_ascii_whitespace(source, command_name_end);
+    if bytes.get(cursor).copied() == Some(b'*') {
+        cursor += 1;
+    }
+    loop {
+        cursor = skip_ascii_whitespace(source, cursor);
+        let Some((_, _, _, after_option)) = read_bracket_source_argument(source, cursor) else {
+            break;
+        };
+        cursor = after_option;
+    }
+    if let Some((_, _, _, after_argument)) = read_braced_source_argument(source, cursor) {
+        return after_argument;
+    }
+
+    cursor = skip_ascii_whitespace(source, cursor);
+    loop {
+        let before = cursor;
+        cursor = skip_ascii_whitespace(source, cursor);
+        if cursor >= bytes.len() {
+            return cursor;
+        }
+        if bytes[cursor] == b'\\' {
+            let mut command_end = cursor + 1;
+            if command_end >= bytes.len() {
+                return before;
+            }
+            if bytes[command_end].is_ascii_alphabetic() || bytes[command_end] == b'@' {
+                let command_start = command_end;
+                while command_end < bytes.len()
+                    && (bytes[command_end].is_ascii_alphabetic() || bytes[command_end] == b'@')
+                {
+                    command_end += 1;
+                }
+                let command = &source[command_start..command_end];
+                if command == "relax" {
+                    return command_end;
+                }
+                if matches!(
+                    command,
+                    "@plus"
+                        | "@minus"
+                        | "baselineskip"
+                        | "columnwidth"
+                        | "dimexpr"
+                        | "font"
+                        | "fontdimen"
+                        | "hsize"
+                        | "linewidth"
+                        | "paperheight"
+                        | "paperwidth"
+                        | "parindent"
+                        | "p@"
+                        | "textheight"
+                        | "textwidth"
+                        | "z@"
+                ) {
+                    cursor = command_end;
+                    continue;
+                }
+                return before;
+            }
+            return before;
+        }
+
+        let ch = bytes[cursor];
+        if ch == b'+' || ch == b'-' || ch == b'.' || ch.is_ascii_digit() {
+            cursor += 1;
+            while cursor < bytes.len() && (bytes[cursor] == b'.' || bytes[cursor].is_ascii_digit())
+            {
+                cursor += 1;
+            }
+            continue;
+        }
+        if ch.is_ascii_alphabetic() || ch == b'@' {
+            let word_start = cursor;
+            cursor += 1;
+            while cursor < bytes.len()
+                && (bytes[cursor].is_ascii_alphabetic() || bytes[cursor] == b'@')
+            {
+                cursor += 1;
+            }
+            if matches!(
+                &source[word_start..cursor],
+                "plus"
+                    | "minus"
+                    | "fil"
+                    | "fill"
+                    | "filll"
+                    | "pt"
+                    | "pc"
+                    | "in"
+                    | "bp"
+                    | "cm"
+                    | "mm"
+                    | "dd"
+                    | "cc"
+                    | "sp"
+                    | "em"
+                    | "ex"
+                    | "mu"
+                    | "truept"
+                    | "truepc"
+                    | "truein"
+                    | "truebp"
+                    | "truecm"
+                    | "truemm"
+                    | "truedd"
+                    | "truecc"
+                    | "truesp"
+            ) {
+                continue;
+            }
+            return word_start;
+        }
+        return before;
+    }
+}
+
 fn is_escaped_percent(source: &str, index: usize) -> bool {
     if source.as_bytes().get(index).copied() != Some(b'%') {
         return false;
@@ -22147,6 +22295,27 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
             scan_index = command_name_end;
             continue;
         }
+        if is_latex_layout_spacing_command(command) {
+            append_normalized_text(&mut text, &source[chunk_start..command_start]);
+            let command_after = skip_latex_layout_spacing_command(source, command_name_end);
+            if !text.is_empty()
+                && source[command_after..].chars().next().is_some_and(|ch| {
+                    !ch.is_whitespace()
+                        && ch != '\\'
+                        && ch != '.'
+                        && ch != ','
+                        && ch != ';'
+                        && ch != ':'
+                })
+                && !text.ends_with([' ', '(', '[', '{'])
+            {
+                text.push(' ');
+            }
+            found_structured_inline = true;
+            chunk_start = command_after;
+            scan_index = command_after;
+            continue;
+        }
         if command == "ignorespaces" {
             append_normalized_text(&mut text, &source[chunk_start..command_start]);
             found_structured_inline = true;
@@ -23291,6 +23460,12 @@ fn normalize_latex_math_source(source: &str) -> String {
             chunk_start = index;
             continue;
         }
+        if is_latex_layout_spacing_command(command) || command == "tag" {
+            text.push_str(&source[chunk_start..command_start]);
+            index = skip_latex_layout_spacing_command(source, command_index);
+            chunk_start = index;
+            continue;
+        }
         index = command_index;
     }
     text.push_str(&source[chunk_start..]);
@@ -23424,14 +23599,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     "nonumber" | "notag" => {
                         index = command_index;
                     }
-                    "hspace" | "vspace" | "tag" => {
-                        let argument_index = skip_ascii_whitespace(source, command_index);
-                        let Some((_, _, _, after_argument)) =
-                            read_braced_source_argument(source, argument_index)
-                        else {
-                            return None;
-                        };
-                        index = after_argument;
+                    command if is_latex_layout_spacing_command(command) || command == "tag" => {
+                        index = skip_latex_layout_spacing_command(source, command_index);
                     }
                     "frac" | "dfrac" | "tfrac" => {
                         let numerator_index = skip_ascii_whitespace(source, command_index);
@@ -28712,6 +28881,65 @@ Fallback text.
         for hidden in ["Tight!Join", "Soft,Gap", "Wide;Gap", "Colon:Gap", "space"] {
             assert!(!item_text.contains(hidden));
         }
+    }
+
+    #[test]
+    fn render_event_capture_strips_layout_glue_in_bibliography_items() {
+        let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Proc.\hskip 1em plus 0.5em minus 0.4em\relax PMLR.\vspace{2pt}\newblock Done.\end{thebibliography}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let item_text = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::BibliographyItem(item) => Some(item.text.as_str()),
+                _ => None,
+            })
+            .expect("bibliography item");
+
+        assert_eq!(item_text, "Proc. PMLR. Done.");
+        for hidden in ["hskip", "1em", "minus", "vspace", "2pt", "relax"] {
+            assert!(!item_text.contains(hidden));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_strips_layout_spacing_from_math_events() {
+        let source =
+            r"\begin{document}\[\begin{array}{l}a \vspace{2pt}\\ b\end{array}\]\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let math = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::DisplayMath(math) => Some(math),
+                _ => None,
+            })
+            .expect("display math");
+
+        assert!(!math.raw_source.contains("vspace"));
+        assert!(!math.raw_source.contains("2pt"));
+        assert!(
+            !math
+                .normalized_text
+                .as_deref()
+                .unwrap_or_default()
+                .contains("vspace")
+        );
+        assert!(
+            !math
+                .normalized_text
+                .as_deref()
+                .unwrap_or_default()
+                .contains("2pt")
+        );
     }
 
     #[test]
