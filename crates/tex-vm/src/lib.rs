@@ -67,6 +67,15 @@ const ARTICLE_CLASS_SHIM: &str = r"
 \def\figurename{Figure}
 \def\tablename{Table}
 \def\abstractname{Abstract}
+\def\@title{}
+\def\@author{}
+\def\@date{}
+\def\@frontmatterspace{ }
+\def\title#1{\gdef\@title{#1}}
+\def\author#1{\gdef\@author{#1}}
+\def\date#1{\gdef\@date{#1}}
+\def\and{ and }
+\def\maketitle{\@title\@frontmatterspace\@author\@frontmatterspace\@date}
 \def\@chapapp{Chapter}
 \def\@textbottom{}
 \def\@afterindentfalse{}
@@ -98,7 +107,7 @@ const LLNCS_CLASS_SHIM: &str = r"
 \providecommand{\authorrunning}[1]{}
 \providecommand{\keywords}[1]{#1}
 \def\inst#1{}
-\def\and{and}
+\def\and{ and }
 ";
 
 const IEEE_TRAN_CLASS_SHIM: &str = r"
@@ -28358,6 +28367,36 @@ mod tests {
                     outcome.output
                 );
             }
+        }
+    }
+
+    #[test]
+    fn legacy_output_separates_frontmatter_title_and_authors() {
+        let source = r"\documentclass{llncs}
+\title{DeepCDCL: An CDCL-based Neural Network Verification Framework}
+\author{Zongxin Liu\inst{1,2} \and Pengfei Yang\inst{1} \and Lijun Zhang\inst{1,2}}
+\begin{document}
+\maketitle
+\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(source);
+
+        assert!(
+            outcome
+                .output
+                .contains("Verification Framework Zongxin Liu")
+                && outcome.output.contains("and Pengfei Yang")
+                && outcome.output.contains("and Lijun Zhang"),
+            "front matter words were not separated in {:?}",
+            outcome.output
+        );
+        for glued in ["FrameworkZongxin", "andPengfei", "andLijun"] {
+            assert!(
+                !outcome.output.contains(glued),
+                "{glued} leaked into {:?}",
+                outcome.output
+            );
         }
     }
 
