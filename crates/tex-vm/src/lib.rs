@@ -2719,6 +2719,21 @@ impl<'i> Vm<'i> {
                                         index as u32,
                                     ),
                                 );
+                                let mut option_index = skip_ascii_whitespace(source, index);
+                                let mut consumed_options = false;
+                                for _ in 0..3 {
+                                    if let Some((_, _, _, after_option)) =
+                                        read_bracket_source_argument(source, option_index)
+                                    {
+                                        option_index = skip_ascii_whitespace(source, after_option);
+                                        consumed_options = true;
+                                    } else {
+                                        break;
+                                    }
+                                }
+                                if consumed_options {
+                                    index = option_index;
+                                }
                             }
                             other
                                 if in_document
@@ -37695,6 +37710,45 @@ Fallback text.
                     if citation.keys == vec!["key".to_string()]
             )
         }));
+    }
+
+    #[test]
+    fn render_event_capture_skips_list_environment_options() {
+        let source = r"\begin{document}\begin{enumerate}[label=(\roman*)]\item One\item Two\end{enumerate}\begin{itemize}[leftmargin=*]\item Bullet\end{itemize}\begin{description}[style=nextline]\item[Term] Meaning\end{description}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let captured_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(captured_text.contains("One"), "{captured_text}");
+        assert!(captured_text.contains("Bullet"), "{captured_text}");
+        assert!(captured_text.contains("Meaning"), "{captured_text}");
+        for hidden in ["[label", "roman", "leftmargin", "style", "nextline"] {
+            assert!(
+                !captured_text.contains(hidden),
+                "{hidden} leaked in {captured_text}"
+            );
+        }
+
+        let items = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::ListItem(item) => Some(item.marker.as_deref()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(items, vec![None, None, None, Some("Term")]);
     }
 
     #[test]

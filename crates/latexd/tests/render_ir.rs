@@ -19081,6 +19081,52 @@ fn list_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn list_environment_options_do_not_leak_into_ir_or_display_list() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        LIST_ENVIRONMENT_OPTIONS_SOURCE,
+        &SemanticAux::default(),
+    );
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains("1. One"), "{extracted_text}");
+    assert!(extracted_text.contains("2. Two"), "{extracted_text}");
+    assert!(extracted_text.contains("- Bullet"), "{extracted_text}");
+    assert!(extracted_text.contains("Term Meaning"), "{extracted_text}");
+    for hidden in ["[label", "roman", "leftmargin", "style", "nextline", "(*)]"] {
+        assert!(
+            !extracted_text.contains(hidden),
+            "{hidden} leaked in {extracted_text}"
+        );
+    }
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(display_list_text.contains("1. One"), "{display_list_text}");
+    assert!(display_list_text.contains("2. Two"), "{display_list_text}");
+    assert!(
+        display_list_text.contains("- Bullet"),
+        "{display_list_text}"
+    );
+    assert!(
+        display_list_text.contains("Term Meaning"),
+        "{display_list_text}"
+    );
+    for hidden in ["[label", "roman", "leftmargin", "style", "nextline", "(*)]"] {
+        assert!(
+            !display_list_text.contains(hidden),
+            "{hidden} leaked in {display_list_text}"
+        );
+    }
+}
+
+#[test]
 fn simple_environment_capture_survives_ir_and_display_list() {
     let capture = capture_internal_render_ir(
         "main.tex",
@@ -22769,6 +22815,8 @@ const TABLE_FLOAT_BODY_SOURCE: &str = r"\def\caption#1{#1}\begin{document}\begin
 const FLOATROW_TTABBOX_SOURCE: &str = r"\documentclass{article}\usepackage{floatrow}\begin{document}\begin{table}\ttabbox[\FBwidth]{\begin{tabular}{ll}A & B\end{tabular}}{\caption{Floatrow table.}}\end{table}\end{document}";
 
 const LIST_SOURCE: &str = r"\begin{document}\begin{itemize}\item First \cite{key}\item[Custom] Second\end{itemize}\begin{enumerate}\item One\item Two\end{enumerate}\begin{description}\item[Term] Meaning \cite{key}\item[Other] More\end{description}\end{document}";
+
+const LIST_ENVIRONMENT_OPTIONS_SOURCE: &str = r"\begin{document}\begin{enumerate}[label=(\roman*)]\item One\item Two\end{enumerate}\begin{itemize}[leftmargin=*]\item Bullet\end{itemize}\begin{description}[style=nextline]\item[Term] Meaning\end{description}\end{document}";
 
 const SIMPLE_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{quote}Quoted \cite{key}.\end{quote}\begin{center}Centered text.\end{center}\begin{theorem}Theorem text.\end{theorem}\begin{proof}Proof text.\end{proof}\end{document}";
 
