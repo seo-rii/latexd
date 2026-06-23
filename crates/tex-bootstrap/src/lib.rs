@@ -14,17 +14,25 @@ use tex_world::ProjectWorld;
 pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\par{ }
 \def\relax{}
+\def\'#1{#1}
+\def\`#1{#1}
+\def\"#1{#1}
+\def\^#1{#1}
+\def\~#1{#1}
+\def\=#1{#1}
+\def\.#1{#1}
 \def\latexdtitle{}
 \def\latexdauthor{}
 \def\latexddate{}
+\def\latexdinstitute{}
 \def\title#1{\gdef\latexdtitle{#1}}
 \newcommand{\author}[2][]{\gdef\latexdauthor{#2}}
 \def\date#1{\gdef\latexddate{#1}}
-\def\maketitle{\latexdtitle \latexdauthor \latexddate}
+\def\maketitle{\latexdtitle \latexdauthor \latexdinstitute \latexddate}
 \newcommand{\thanks}[1]{}
 \newcommand{\affil}[2][]{}
-\newcommand{\institute}[1]{}
-\newcommand{\email}[1]{}
+\newcommand{\institute}[1]{\gdef\latexdinstitute{#1}}
+\newcommand{\email}[1]{#1}
 \newcommand{\orcidID}[1]{}
 \newcommand{\titlerunning}[1]{}
 \newcommand{\authorrunning}[1]{}
@@ -1685,6 +1693,95 @@ mod tests {
         assert!(result.output.contains("1843"));
         assert!(result.output.contains("Body"));
         assert!(result.output.find("A Paper") < result.output.find("Body"));
+    }
+
+    #[test]
+    fn mini_kernel_maketitle_preserves_llncs_institute_front_matter() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            "\\documentclass{llncs}\\title{A Paper}\\author{Ada\\inst{1} \\and Bob\\inst{2}}\\institute{Lab One\\\\\\email{ada@example.test} \\and Lab Two}\\begin{document}\\maketitle Body\\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        for visible in [
+            "A Paper",
+            "Ada",
+            "Bob",
+            "Lab One",
+            "ada@example.test",
+            "Lab Two",
+            "Body",
+        ] {
+            assert!(
+                result.output.contains(visible),
+                "{visible} missing from {:?}",
+                result.output
+            );
+        }
+        assert!(result.output.find("Lab One") < result.output.find("Body"));
+        for hidden in ["inst", "institute", "email"] {
+            assert!(
+                !result.output.contains(hidden),
+                "{hidden} leaked into {:?}",
+                result.output
+            );
+        }
+    }
+
+    #[test]
+    fn mini_kernel_maketitle_preserves_authblk_affiliation_front_matter() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            "\\documentclass{article}\\usepackage{authblk}\\title{Quantum Paper}\\author[1]{Nai-Hui Chia\\thanks{nc67@rice.edu}}\\author[2]{Atsuya Hasegawa}\\affil[1]{\\textit{Department of Computer Science}}\\affil[2]{Graduate School of Mathematics}\\begin{document}\\maketitle Body\\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        for visible in [
+            "Quantum Paper",
+            "Nai-Hui Chia",
+            "Chia nc67@rice.edu",
+            "nc67@rice.edu Atsuya",
+            "nc67@rice.edu",
+            "Atsuya Hasegawa",
+            "Department of Computer Science",
+            "Computer Science Graduate",
+            "Graduate School of Mathematics",
+            "Body",
+        ] {
+            assert!(
+                result.output.contains(visible),
+                "{visible} missing from {:?}",
+                result.output
+            );
+        }
+        assert!(result.output.find("Department") < result.output.find("Body"));
+        for hidden in ["authblk", "affil", "thanks", "textit"] {
+            assert!(
+                !result.output.contains(hidden),
+                "{hidden} leaked into {:?}",
+                result.output
+            );
+        }
     }
 
     #[test]

@@ -33,6 +33,7 @@ fn builtin_latex_module_source(label: &str, path: &Utf8Path) -> Option<&'static 
         ("class", "llncs.cls") => Some(LLNCS_CLASS_SHIM),
         ("class", "IEEEtran.cls") => Some(IEEE_TRAN_CLASS_SHIM),
         ("class", "revtex4-2.cls") => Some(REVTEX_CLASS_SHIM),
+        ("package", "authblk.sty") => Some(AUTHBLK_PACKAGE_SHIM),
         ("package", "braket.sty") => Some(BRAKET_PACKAGE_SHIM),
         ("package", "wacv.sty") => Some(WACV_PACKAGE_SHIM),
         ("package", package) if BUILTIN_PACKAGE_SHIMS.contains(&package) => {
@@ -42,10 +43,17 @@ fn builtin_latex_module_source(label: &str, path: &Utf8Path) -> Option<&'static 
     }
 }
 
-const ARTICLE_CLASS_SHIM: &str = r"
+const ARTICLE_CLASS_SHIM: &str = r##"
 \ProvidesClass{article}[2026/01/01 latexd article shim]
 \def\articleclass{article}
 \makeatletter
+\def\'#1{#1}
+\def\`#1{#1}
+\def\"#1{#1}
+\def\^#1{#1}
+\def\~#1{#1}
+\def\=#1{#1}
+\def\.#1{#1}
 \def\part#1{#1}
 \def\thepart{}
 \def\chapter#1{#1}
@@ -84,14 +92,19 @@ const ARTICLE_CLASS_SHIM: &str = r"
 \def\@makechapterhead#1{#1}
 \def\@makeschapterhead#1{#1}
 \makeatother
-";
+"##;
 
 const REVTEX_CLASS_SHIM: &str = r"
 \ProvidesClass{revtex4-2}[2026/01/01 latexd revtex shim]
 \LoadClass{article}
-\def\email#1{}
-\def\affiliation#1{}
-\def\altaffiliation#1{}
+\makeatletter
+\def\@institute{}
+\renewcommand{\author}[2][]{#2\space}
+\def\email#1{#1\space}
+\def\affiliation#1{#1\space}
+\def\altaffiliation#1{#1\space}
+\def\maketitle{\@title\@frontmatterspace\@date}
+\makeatother
 \def\homepage#1{}
 \def\pacs#1{}
 \def\keywords#1{#1}
@@ -100,8 +113,12 @@ const REVTEX_CLASS_SHIM: &str = r"
 const LLNCS_CLASS_SHIM: &str = r"
 \ProvidesClass{llncs}[2026/01/01 latexd llncs shim]
 \LoadClass{article}
-\providecommand{\institute}[1]{}
-\providecommand{\email}[1]{}
+\makeatletter
+\def\@institute{}
+\def\institute#1{\gdef\@institute{#1}}
+\def\email#1{#1}
+\def\maketitle{\@title\@frontmatterspace\@author\@frontmatterspace\@institute\@frontmatterspace\@date}
+\makeatother
 \providecommand{\orcidID}[1]{}
 \providecommand{\titlerunning}[1]{}
 \providecommand{\authorrunning}[1]{}
@@ -138,6 +155,25 @@ const BRAKET_PACKAGE_SHIM: &str = r"
 \providecommand{\ket}[1]{|#1>}
 \providecommand{\bra}[1]{<#1|}
 \providecommand{\braket}[2]{<#1|#2>}
+";
+
+const AUTHBLK_PACKAGE_SHIM: &str = r"
+\ProvidesPackage{authblk}[2026/01/01 latexd authblk shim]
+\makeatletter
+\providecommand{\@title}{}
+\providecommand{\@author}{}
+\providecommand{\@date}{}
+\providecommand{\@frontmatterspace}{ }
+\providecommand{\latexdauthor}{}
+\providecommand{\latexdinstitute}{}
+\providecommand{\@institute}{}
+\def\thanks#1{\space#1}
+\providecommand{\author}[2][]{}
+\renewcommand{\author}[2][]{\xdef\latexdauthor{\latexdauthor\space#2}\xdef\@author{\@author\space#2}}
+\providecommand{\affil}[2][]{}
+\renewcommand{\affil}[2][]{\xdef\latexdinstitute{\latexdinstitute\space#2}\xdef\@institute{\@institute\space#2}}
+\def\maketitle{\@title\@frontmatterspace\@author\@frontmatterspace\@institute\@frontmatterspace\@date}
+\makeatother
 ";
 
 const COMMON_PACKAGE_SHIM: &str = r"
@@ -28415,6 +28451,131 @@ mod tests {
             assert!(
                 !outcome.output.contains(glued),
                 "{glued} leaked into {:?}",
+                outcome.output
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_output_preserves_llncs_institute_and_email_frontmatter() {
+        let source = r"\documentclass{llncs}
+\title{A Paper}
+\author{Ada\inst{1} \and Bob\inst{2}}
+\institute{Lab One\\\email{ada@example.test} \and Lab Two}
+\begin{document}
+\maketitle
+\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(source);
+
+        for visible in [
+            "A Paper",
+            "Ada",
+            "Bob",
+            "Lab One",
+            "ada@example.test",
+            "Lab Two",
+        ] {
+            assert!(
+                outcome.output.contains(visible),
+                "{visible} missing from {:?}",
+                outcome.output
+            );
+        }
+        for hidden in ["inst", "institute", "email"] {
+            assert!(
+                !outcome.output.contains(hidden),
+                "{hidden} leaked into {:?}",
+                outcome.output
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_output_preserves_authblk_authors_affiliations_and_thanks() {
+        let source = r"\documentclass{article}
+\usepackage{authblk}
+\title{Quantum Paper}
+\author[1]{Nai-Hui Chia\thanks{nc67@rice.edu}}
+\author[2]{Atsuya Hasegawa}
+\affil[1]{\textit{Department of Computer Science}}
+\affil[2]{Graduate School of Mathematics}
+\begin{document}
+\maketitle
+\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(source);
+
+        for visible in [
+            "Quantum Paper",
+            "Nai-Hui Chia",
+            "Chia nc67@rice.edu",
+            "nc67@rice.edu Atsuya",
+            "nc67@rice.edu",
+            "Atsuya Hasegawa",
+            "Department of Computer Science",
+            "Computer Science Graduate",
+            "Graduate School of Mathematics",
+        ] {
+            assert!(
+                outcome.output.contains(visible),
+                "{visible} missing from {:?}",
+                outcome.output
+            );
+        }
+        for hidden in ["authblk", "affil", "thanks", "textit"] {
+            assert!(
+                !outcome.output.contains(hidden),
+                "{hidden} leaked into {:?}",
+                outcome.output
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_output_preserves_revtex_authors_emails_and_affiliations() {
+        let source = r#"\documentclass{revtex4-2}
+\title{Qutrit Paper}
+\author{F. A. C\'ardenas-L\'opez}
+\email{f.cardenas@example.test}
+\affiliation{Forschungszentrum J\"ulich GmbH}
+\author{M. Sanz}
+\email{m.sanz@example.test}
+\affiliation{University of the Basque Country}
+\begin{document}
+\maketitle
+\end{document}"#;
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(source);
+
+        for visible in [
+            "Qutrit Paper",
+            "F. A. Cardenas-Lopez",
+            "f.cardenas@example.test",
+            "M. Sanz",
+            "m.sanz@example.test",
+            "Forschungszentrum Julich GmbH",
+            "University of the Basque Country",
+        ] {
+            assert!(
+                outcome.output.contains(visible),
+                "{visible} missing from {:?}",
+                outcome.output
+            );
+        }
+        for hidden in [
+            "affiliation",
+            "email",
+            "Lopezf.cardenas",
+            "example.testM. Sanz",
+            "GmbHM. Sanz",
+        ] {
+            assert!(
+                !outcome.output.contains(hidden),
+                "{hidden} leaked into {:?}",
                 outcome.output
             );
         }
