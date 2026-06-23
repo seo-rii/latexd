@@ -13988,8 +13988,20 @@ impl<'i> Vm<'i> {
         }
     }
 
+    fn push_legacy_math_word_boundary(&mut self) {
+        if !self.legacy_math_output_active {
+            return;
+        }
+        let Some(last) = self.output.chars().next_back() else {
+            return;
+        };
+        if !last.is_whitespace() && last != '$' {
+            self.output.push(' ');
+        }
+    }
+
     fn needs_legacy_math_atom_boundary_before(&self, ch: char) -> bool {
-        if !ch.is_ascii_uppercase() {
+        if !self.legacy_math_output_active || !ch.is_ascii_uppercase() {
             return false;
         }
         let mut previous = self.output.chars().rev();
@@ -13999,7 +14011,20 @@ impl<'i> Vm<'i> {
         if !(last.is_ascii_alphanumeric() || last == '\'') {
             return false;
         }
-        matches!(previous.next(), Some('_' | '^'))
+        for previous in previous {
+            if previous == '_' || previous == '^' {
+                return true;
+            }
+            if previous.is_whitespace()
+                || matches!(
+                    previous,
+                    '$' | '+' | '=' | ',' | ';' | ':' | '(' | ')' | '[' | ']' | '{' | '}'
+                )
+            {
+                return false;
+            }
+        }
+        false
     }
 
     fn execute_token(&mut self, token: Token, queue: &mut VecDeque<QueueItem>) {
@@ -14601,6 +14626,10 @@ impl<'i> Vm<'i> {
             }
             Primitive::TextWrapper => {
                 if let Some(argument) = self.read_macro_argument(queue) {
+                    self.push_legacy_math_word_boundary();
+                    if self.legacy_math_output_active {
+                        self.push_token_front(queue, Token::character(' ', CatCode::Space, 0, 0));
+                    }
                     for token in argument.into_iter().rev() {
                         self.push_token_front(queue, token);
                     }
@@ -14667,17 +14696,35 @@ impl<'i> Vm<'i> {
                 let Some(environment) = self.read_argument_text(queue) else {
                     return;
                 };
+                let environment = environment.trim();
                 if matches!(
-                    environment.trim(),
-                    "abstract" | "abstract*" | "onecolabstract"
+                    environment,
+                    "equation"
+                        | "equation*"
+                        | "displaymath"
+                        | "align"
+                        | "align*"
+                        | "flalign"
+                        | "flalign*"
+                        | "alignat"
+                        | "alignat*"
+                        | "gather"
+                        | "gather*"
+                        | "multline"
+                        | "multline*"
+                        | "eqnarray"
+                        | "eqnarray*"
                 ) {
+                    self.legacy_math_output_active = true;
+                }
+                if matches!(environment, "abstract" | "abstract*" | "onecolabstract") {
                     if !self.output.is_empty() && !self.output.ends_with('\n') {
                         self.output.push('\n');
                     }
                     self.output.push_str("Abstract ");
                 }
                 if matches!(
-                    environment.trim(),
+                    environment,
                     "algorithm"
                         | "algorithm*"
                         | "algorithmic"
@@ -14710,7 +14757,29 @@ impl<'i> Vm<'i> {
                 }
             }
             Primitive::EndEnvironment => {
-                let _ = self.read_argument_text(queue);
+                let Some(environment) = self.read_argument_text(queue) else {
+                    return;
+                };
+                if matches!(
+                    environment.trim(),
+                    "equation"
+                        | "equation*"
+                        | "displaymath"
+                        | "align"
+                        | "align*"
+                        | "flalign"
+                        | "flalign*"
+                        | "alignat"
+                        | "alignat*"
+                        | "gather"
+                        | "gather*"
+                        | "multline"
+                        | "multline*"
+                        | "eqnarray"
+                        | "eqnarray*"
+                ) {
+                    self.legacy_math_output_active = false;
+                }
             }
             Primitive::MakeAtLetter | Primitive::MakeAtOther => {}
             Primitive::IfTrue => {
@@ -23748,7 +23817,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
             if !token.is_empty() {
                 if pending_space
                     && !text.is_empty()
-                    && !token.starts_with(['.', ',', ';', ':', '!', '?', ')', ']', '/', '^', '_'])
+                    && !token
+                        .starts_with(['.', ',', ';', ':', '!', '?', ')', ']', '}', '/', '^', '_'])
                     && !text.ends_with([' ', '(', '[', '/', '^', '_'])
                 {
                     text.push(' ');
@@ -23796,7 +23866,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                 }
                 if pending_space
                     && !text.is_empty()
-                    && !token.starts_with(['.', ',', ';', ':', '!', '?', ')', ']', '/', '^', '_'])
+                    && !token
+                        .starts_with(['.', ',', ';', ':', '!', '?', ')', ']', '}', '/', '^', '_'])
                     && !text.ends_with([' ', '(', '[', '/', '^', '_'])
                 {
                     text.push(' ');
@@ -23813,7 +23884,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
             if !token.is_empty() {
                 if pending_space
                     && !text.is_empty()
-                    && !token.starts_with(['.', ',', ';', ':', '!', '?', ')', ']', '/', '^', '_'])
+                    && !token
+                        .starts_with(['.', ',', ';', ':', '!', '?', ')', ']', '}', '/', '^', '_'])
                     && !text.ends_with([' ', '(', '[', '/', '^', '_'])
                 {
                     text.push(' ');
@@ -24792,23 +24864,23 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         index = command_index;
                     }
                     "notgate" => {
-                        push_command_token!("not");
+                        push_command_token_then_space!("not");
                         index = command_index;
                     }
                     "cnot" => {
-                        push_command_token!("cnot");
+                        push_command_token_then_space!("cnot");
                         index = command_index;
                     }
                     "toffoli" => {
-                        push_command_token!("toffoli");
+                        push_command_token_then_space!("toffoli");
                         index = command_index;
                     }
                     "addone" => {
-                        push_command_token!("addone");
+                        push_command_token_then_space!("addone");
                         index = command_index;
                     }
                     "compare" => {
-                        push_command_token!("compare");
+                        push_command_token_then_space!("compare");
                         index = command_index;
                     }
                     "sum" | "prod" | "int" | "lim" | "bigcup" | "bigcap" | "bigoplus"
@@ -35523,6 +35595,37 @@ Fallback text.
                 "(E_no - E_yes)/M = Omega(1) + <psi|H|psi> + |x><x|_out + ||H|| + O^*(*) + {hadamard, not, cnot}"
             )
         );
+    }
+
+    #[test]
+    fn render_event_capture_spaces_quantum_words_in_display_math() {
+        let source = r"\begin{document}\begin{equation}U_\Phi:= \compare(W_m^\dagger C\addone W_m)+C^k\notgate\reg{C\cup T}\end{equation}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let display_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::DisplayMath(_)))
+            .expect("display math event");
+
+        let RenderEvent::DisplayMath(math) = &display_math.event else {
+            panic!("display math event");
+        };
+        let normalized = math.normalized_text.as_deref().expect("normalized math");
+
+        assert!(
+            normalized.contains("C addone W_m") && normalized.contains("C^k not"),
+            "quantum word boundaries missing from {normalized:?}"
+        );
+        for glued in ["CaddoneW", "C^knot"] {
+            assert!(
+                !normalized.contains(glued),
+                "{glued} leaked into {normalized:?}"
+            );
+        }
     }
 
     #[test]

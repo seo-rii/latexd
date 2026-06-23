@@ -49,13 +49,6 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\phantomsection{}
 \def\addcontentsline#1#2#3{}
 \def\addtocontents#1#2{}
-\def\textbf#1{#1}
-\def\emph#1{#1}
-\def\textit#1{#1}
-\def\texttt#1{#1}
-\def\textrm#1{#1}
-\def\textmd#1{#1}
-\def\textsc#1{#1}
 \def\textsuperscript#1{#1}
 \def\textsubscript#1{#1}
 \newcommand{\textcolor}[3][]{#3}
@@ -313,8 +306,8 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\|{|}
 \def\{{}
 \def\}{}
-\def\[{}
-\def\]{}
+\def\[{$}
+\def\]{$}
 \def\({}
 \def\){}
 \def\&{and}
@@ -1637,6 +1630,46 @@ mod tests {
             "X+Y",
             "daggersim",
         ] {
+            assert!(
+                !result.output.contains(hidden),
+                "{hidden} leaked into {:?}",
+                result.output
+            );
+        }
+    }
+
+    #[test]
+    fn mini_kernel_spaces_text_wrappers_in_legacy_math_output() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            r"\newcommand{\notgate}{\textsc{not}}\newcommand{\cnot}{\textsc{cnot}}\newcommand{\addone}{\textsc{addone}}\begin{document}$C^k\notgate+C^k\cnot+C\addone W_m+C^{r-q}\notgate+C^r\notgate$.\[C^k\cnot+C\addone W_m\]\begin{equation}C\addone W_m+C^k\notgate\end{equation}\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        for visible in [
+            "C^k not",
+            "C^k cnot",
+            "C addone W_m",
+            "C^r-q not",
+            "C^r not",
+        ] {
+            assert!(
+                result.output.contains(visible),
+                "{visible} missing from {:?}",
+                result.output
+            );
+        }
+        for hidden in ["C^knot", "C^kcnot", "Caddone", "addoneW", "qnot", "C^rnot"] {
             assert!(
                 !result.output.contains(hidden),
                 "{hidden} leaked into {:?}",

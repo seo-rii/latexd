@@ -2455,16 +2455,7 @@ fn rewrite_source(
                         index = cursor;
                         continue;
                     }
-                    if environment == "equation"
-                        || environment == "equation*"
-                        || environment == "align"
-                        || environment == "align*"
-                        || environment == "gather"
-                        || environment == "gather*"
-                        || environment == "multline"
-                        || environment == "multline*"
-                        || environment == "eqnarray"
-                        || environment == "eqnarray*"
+                    if is_display_math_environment(environment)
                         || environment == "figure"
                         || environment == "figure*"
                         || environment == "table"
@@ -2482,13 +2473,19 @@ fn rewrite_source(
                                 cursor = option_end;
                             }
                         }
+                        let rendered = if is_display_math_environment(environment) {
+                            "$"
+                        } else {
+                            ""
+                        };
                         let output_start_utf8 = output.len() as u32;
+                        output.push_str(rendered);
                         rewrite_spans.push(MaterializedRewriteSpan {
                             start_utf8: command_start as u32,
                             end_utf8: cursor as u32,
                             output_start_utf8,
-                            output_end_utf8: output_start_utf8,
-                            rendered: String::new(),
+                            output_end_utf8: output.len() as u32,
+                            rendered: rendered.to_string(),
                         });
                         index = cursor;
                         continue;
@@ -2578,16 +2575,7 @@ fn rewrite_source(
                     let environment = environment.trim();
                     if environment == "proof"
                         || environment == "proof*"
-                        || environment == "equation"
-                        || environment == "equation*"
-                        || environment == "align"
-                        || environment == "align*"
-                        || environment == "gather"
-                        || environment == "gather*"
-                        || environment == "multline"
-                        || environment == "multline*"
-                        || environment == "eqnarray"
-                        || environment == "eqnarray*"
+                        || is_display_math_environment(environment)
                         || environment == "figure"
                         || environment == "figure*"
                         || environment == "table"
@@ -2600,13 +2588,19 @@ fn rewrite_source(
                             .iter()
                             .any(|candidate| candidate == environment.trim_end_matches('*'))
                     {
+                        let rendered = if is_display_math_environment(environment) {
+                            "$"
+                        } else {
+                            ""
+                        };
                         let output_start_utf8 = output.len() as u32;
+                        output.push_str(rendered);
                         rewrite_spans.push(MaterializedRewriteSpan {
                             start_utf8: command_start as u32,
                             end_utf8: argument_end as u32,
                             output_start_utf8,
-                            output_end_utf8: output_start_utf8,
-                            rendered: String::new(),
+                            output_end_utf8: output.len() as u32,
+                            rendered: rendered.to_string(),
                         });
                         index = argument_end;
                         continue;
@@ -6018,6 +6012,27 @@ fn rewrite_source(
     (output, rewrite_spans)
 }
 
+fn is_display_math_environment(environment: &str) -> bool {
+    matches!(
+        environment,
+        "equation"
+            | "equation*"
+            | "displaymath"
+            | "align"
+            | "align*"
+            | "flalign"
+            | "flalign*"
+            | "alignat"
+            | "alignat*"
+            | "gather"
+            | "gather*"
+            | "multline"
+            | "multline*"
+            | "eqnarray"
+            | "eqnarray*"
+    )
+}
+
 fn render_table_of_contents(aux: &SemanticAux) -> String {
     if aux.toc.is_empty() {
         return String::new();
@@ -6854,20 +6869,10 @@ fn scan_source(source: &str) -> Vec<CommandEvent> {
                 if let Some((argument_end, environment)) = read_braced_argument(source, command_end)
                 {
                     let environment = environment.trim();
-                    if environment == "equation"
-                        || environment == "equation*"
-                        || environment == "align"
-                        || environment == "align*"
-                        || environment == "gather"
-                        || environment == "gather*"
-                        || environment == "multline"
-                        || environment == "multline*"
-                        || environment == "eqnarray"
-                        || environment == "eqnarray*"
-                    {
+                    if is_display_math_environment(environment) {
                         events.push(CommandEvent::Equation {
                             offset: command_start as u32,
-                            numbered: !environment.ends_with('*'),
+                            numbered: environment != "displaymath" && !environment.ends_with('*'),
                         });
                     } else if environment == "figure"
                         || environment == "figure*"
@@ -13687,8 +13692,7 @@ mod tests {
             .get(&Utf8PathBuf::from("main.tex"))
             .expect("materialized main");
 
-        assert!(main.contains("Figure 1: Long Figure Titleab"));
-        assert!(main.contains("cd"));
+        assert!(main.contains("Figure 1: Long Figure Titlea$b$cd"));
         assert!(!main.contains("tbp"));
         assert!(!main.contains("htbp"));
         assert!(!main.contains("\\begin{figure}"));
@@ -13697,6 +13701,32 @@ mod tests {
         assert!(!main.contains("\\end{equation}"));
         assert!(!main.contains("\\begin{table*}"));
         assert!(!main.contains("\\begin{algorithm}"));
+    }
+
+    #[test]
+    fn materialize_project_preserves_math_boundaries_for_display_environment_wrappers() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let source = "\\begin{equation}C\\addone W_m+C^k\\notgate\\end{equation}\\begin{displaymath}C^r\\notgate\\end{displaymath}\\begin{flalign*}C^k\\cnot\\end{flalign*}";
+        fs::write(root.join("main.tex"), source).expect("write main");
+
+        let materialized = materialize_project(
+            &root,
+            &Utf8PathBuf::from("main.tex"),
+            &SemanticAux::default(),
+        )
+        .expect("materialize");
+        let main = materialized
+            .files
+            .get(&Utf8PathBuf::from("main.tex"))
+            .expect("materialized main");
+
+        assert!(main.contains("$C\\addone W_m+C^k\\notgate$"));
+        assert!(main.contains("$C^r\\notgate$"));
+        assert!(main.contains("$C^k\\cnot$"));
+        assert!(!main.contains("\\begin{equation}"));
+        assert!(!main.contains("\\begin{displaymath}"));
+        assert!(!main.contains("\\begin{flalign*}"));
     }
 
     #[test]
