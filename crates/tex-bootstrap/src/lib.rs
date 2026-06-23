@@ -311,8 +311,6 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\){}
 \def\&{and}
 \def\_{_}
-\def\%{percent}
-\def\#{hash}
 \def\"#1{#1}
 \def\'#1{#1}
 \def\c#1{#1}
@@ -333,6 +331,8 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\usetikzlibrary#1{}
 \def\xspace{ }
 \makeatletter
+\def\%{\@percentchar}
+\def\#{\@hashchar}
 \newcommand{\includegraphics}[2][]{[image]}
 \newcommand{\caption}[2][]{#2}
 \def\item{}
@@ -1632,6 +1632,36 @@ mod tests {
             assert!(
                 !result.output.contains(glued),
                 "{glued} leaked into {:?}",
+                result.output
+            );
+        }
+    }
+
+    #[test]
+    fn mini_kernel_preserves_escaped_percent_symbol() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            "\\begin{document}Accuracy is 91.6\\% and robustness is 100\\%. Case \\#1 follows.\\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        assert!(result.output.contains("91.6%"), "{:?}", result.output);
+        assert!(result.output.contains("100%"), "{:?}", result.output);
+        assert!(result.output.contains("#1 follows"), "{:?}", result.output);
+        for leaked in ["91.6percent", "100percent", "percent and", "hash1"] {
+            assert!(
+                !result.output.contains(leaked),
+                "{leaked} leaked into {:?}",
                 result.output
             );
         }
