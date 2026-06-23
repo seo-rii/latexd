@@ -81,9 +81,13 @@ fn write_executable_script(path: &Utf8Path, body: &str) {
             .expect("write executable script body");
         file.sync_all().expect("sync executable script");
     }
-    fs::rename(temp_path.as_std_path(), path.as_std_path()).expect("install executable script");
-    fs::set_permissions(path.as_std_path(), fs::Permissions::from_mode(0o755))
+    fs::set_permissions(temp_path.as_std_path(), fs::Permissions::from_mode(0o755))
         .expect("chmod executable script");
+    fs::rename(temp_path.as_std_path(), path.as_std_path()).expect("install executable script");
+    if let Some(parent) = path.parent() {
+        let parent_dir = fs::File::open(parent.as_std_path()).expect("open executable script dir");
+        parent_dir.sync_all().expect("sync executable script dir");
+    }
 }
 
 fn copy_test_fixture_tree(source_root: &Utf8Path, target_root: &Utf8Path) {

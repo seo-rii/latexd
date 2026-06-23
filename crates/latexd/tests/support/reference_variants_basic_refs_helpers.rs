@@ -331,7 +331,7 @@ async fn run_reference_variants_command_forms(case: ReferenceVariantsCommandForm
         ),
         ReferenceVariantsCommandFormsCase::Wrappers => (
             "\\documentclass{article}\\begin{document}\\begin{figure}\\caption{Long Figure Title}\\label{fig:first}a\\end{figure}\\begin{equation}\\label{eq:first}b\\end{equation}\\end{document}",
-            "Figure 1: Long Figure Titleab",
+            "Figure 1: Long Figure Titlea$b$",
             &[
                 "\\begin{figure}",
                 "\\end{figure}",
