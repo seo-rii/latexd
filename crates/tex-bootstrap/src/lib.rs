@@ -246,35 +246,35 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\prec{<}
 \def\approx{ approx }
 \def\propto{ propto }
-\def\subseteq{subset}
-\def\subset{subset}
-\def\notin{not in}
-\def\in{in}
-\def\cap{cap}
-\def\otimes{x}
-\def\oplus{+}
-\def\bigotimes{x}
-\def\wedge{and}
-\def\vee{or}
-\def\cup{cup}
-\def\setminus{minus}
-\def\neg{not}
-\def\lnot{not}
-\def\not#1{#1}
-\def\cdot{*}
+\def\subseteq{ subset }
+\def\subset{ subset }
+\def\notin{ not in }
+\def\in{ in }
+\def\cap{ cap }
+\def\otimes{ x }
+\def\oplus{ + }
+\def\bigotimes{ x }
+\def\wedge{ and }
+\def\vee{ or }
+\def\cup{ cup }
+\def\setminus{ minus }
+\def\neg{ not }
+\def\lnot{ not }
+\def\not#1{ not #1}
+\def\cdot{ * }
 \def\cdots{...}
 \def\ldots{...}
 \def\dots{...}
-\def\times{x}
-\def\pm{+-}
+\def\times{ x }
+\def\pm{ +- }
 \def\circ{o}
 \def\bigcirc{o}
 \def\bigcircop{o}
 \def\ast{*}
 \def\star{*}
-\def\dag{dag}
-\def\dagger{dagger}
-\def\sim{sim}
+\def\dag{ dag }
+\def\dagger{ dagger }
+\def\sim{ sim }
 \def\triangleq{=}
 \def\nabla{nabla}
 \def\prime{prime}
@@ -284,7 +284,7 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\Longrightarrow{ to }
 \def\leftrightarrow{ to }
 \def\nleftrightarrow{ not to }
-\def\forall{for all}
+\def\forall{ for all }
 \def\equiv{=}
 \def\gets{ gets }
 \def\backslash{backslash}
@@ -1583,6 +1583,60 @@ mod tests {
             );
         }
         for hidden in ["ivarphi", "infinityH", "omega_ellomega", "N_kN_k"] {
+            assert!(
+                !result.output.contains(hidden),
+                "{hidden} leaked into {:?}",
+                result.output
+            );
+        }
+    }
+
+    #[test]
+    fn mini_kernel_spaces_set_and_logical_math_in_legacy_output() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            r"\begin{document}$n\in N, A\subset B, A\cup B, A\setminus B, \neg\ell_1\vee\ell_2, \not\ell_3, X\otimes Y, X\oplus Y, U^\dagger\sim I$.\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        for visible in [
+            "n in N",
+            "A subset B",
+            "A cup B",
+            "A minus B",
+            "not ell_1 or ell_2",
+            "not ell_3",
+            "X x Y",
+            "X + Y",
+            "U^ dagger sim I",
+        ] {
+            assert!(
+                result.output.contains(visible),
+                "{visible} missing from {:?}",
+                result.output
+            );
+        }
+        for hidden in [
+            "ninN",
+            "AsubsetB",
+            "AcupB",
+            "AminusB",
+            "notell",
+            "orell",
+            "XxY",
+            "X+Y",
+            "daggersim",
+        ] {
             assert!(
                 !result.output.contains(hidden),
                 "{hidden} leaked into {:?}",
