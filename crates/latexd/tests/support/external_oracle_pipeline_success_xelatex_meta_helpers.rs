@@ -81,8 +81,9 @@ printf 'INPUT %s\n' "$(pwd)/sections/intro.tex" >> "$fls"
 "#,
         );
         CompilerDriver::new(
-            Some(compiler_script.to_string()),
+            Some("/bin/bash".to_string()),
             vec![
+                compiler_script.to_string(),
                 "{out_pdf}".to_string(),
                 "{fls}".to_string(),
                 "{depfile}".to_string(),
