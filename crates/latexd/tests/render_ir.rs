@@ -21506,6 +21506,58 @@ fn algorithmic_environment_capture_survives_ir_and_display_list() {
 }
 
 #[test]
+fn algorithmic_nested_text_math_dollars_do_not_split_outer_math() {
+    let capture = capture_internal_render_ir(
+        "main.tex",
+        r"\begin{document}\begin{algorithmic}\State $\textit{Hamiltonian $\mathcal{H}=\sum_{k}q_k\varphi_k-\mathcal{L}$}$\State $\vec{\beta}[\ell]=0$ \textbf{and} $\vec{\beta}[\ell]=0$\State $q_{\ell}=-2e\sum\ketbra{N}{N}$\State \textit{compute the matrix elements}\end{algorithmic}\end{document}",
+        &SemanticAux::default(),
+    );
+
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(
+        extracted_text.contains("Hamiltonian H = sum_{k} q_k varphi_k - L"),
+        "{extracted_text}"
+    );
+    assert!(
+        extracted_text.contains("compute the matrix elements"),
+        "{extracted_text}"
+    );
+    assert!(
+        extracted_text.contains("vec(beta)[ell] = 0 and vec(beta)[ell] = 0"),
+        "{extracted_text}"
+    );
+    assert!(
+        extracted_text.contains("q_ell = - 2e sum |N><N|"),
+        "{extracted_text}"
+    );
+    for hidden in ["textit", "{H}", "Lcompute", "0andvec", "2esum"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+    }
+    assert!(
+        !extracted_text.to_lowercase().contains("hamiltoniancompute"),
+        "{extracted_text}"
+    );
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    assert!(
+        display_list_text.contains("Hamiltonian H = sum_{k} q_k varphi_k - L"),
+        "{display_list_text:?}"
+    );
+    assert!(
+        !display_list_text.contains("textit"),
+        "{display_list_text:?}"
+    );
+}
+
+#[test]
 fn subequations_wrapper_preserves_inner_display_math() {
     let capture = capture_internal_render_ir(
         "main.tex",

@@ -1432,33 +1432,16 @@ impl<'i> Vm<'i> {
                 continue;
             }
             if bytes[index] != b'\\' {
-                if in_document && bytes[index] == b'$' {
+                if in_document && bytes[index] == b'$' && !is_escaped_source_byte(source, index) {
                     let delimiter_len = if index + 1 < bytes.len() && bytes[index + 1] == b'$' {
                         2
                     } else {
                         1
                     };
                     let math_start = index + delimiter_len;
-                    let mut search_index = math_start;
-                    let mut math_end = None;
-                    while search_index < bytes.len() {
-                        if delimiter_len == 2 {
-                            if search_index + 1 < bytes.len()
-                                && bytes[search_index] == b'$'
-                                && bytes[search_index + 1] == b'$'
-                            {
-                                math_end = Some(search_index);
-                                break;
-                            }
-                        } else if bytes[search_index] == b'$'
-                            && (search_index == 0 || bytes[search_index - 1] != b'\\')
-                        {
-                            math_end = Some(search_index);
-                            break;
-                        }
-                        search_index += 1;
-                    }
-                    if let Some(math_end) = math_end {
+                    if let Some(math_end) =
+                        find_dollar_math_end(source, math_start, bytes.len(), delimiter_len)
+                    {
                         self.capture_text_events(
                             source_path,
                             source,
@@ -6271,6 +6254,28 @@ impl<'i> Vm<'i> {
                     if let Some((text, content_start, content_end, after)) =
                         read_braced_source_argument(source, index)
                     {
+                        let leading_segment = &source[text_start..command_start];
+                        if !detached_note
+                            && !leading_segment.is_empty()
+                            && leading_segment
+                                .chars()
+                                .all(|ch| ch.is_whitespace() || ch == '~')
+                        {
+                            self.emit_render_event(
+                                RenderEvent::Space(SpaceEvent {
+                                    kind: if leading_segment.contains('~') {
+                                        SpaceKind::Explicit
+                                    } else {
+                                        SpaceKind::Interword
+                                    },
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    text_start as u32,
+                                    command_start as u32,
+                                ),
+                            );
+                        }
                         if detached_note {
                             self.emit_render_event(
                                 RenderEvent::Space(SpaceEvent {
@@ -6287,7 +6292,9 @@ impl<'i> Vm<'i> {
                             let mut inner_index = content_start;
                             let mut inner_text_start = content_start;
                             while inner_index < content_end {
-                                if bytes[inner_index] == b'$' {
+                                if bytes[inner_index] == b'$'
+                                    && !is_escaped_source_byte(source, inner_index)
+                                {
                                     let delimiter_len = if inner_index + 1 < content_end
                                         && bytes[inner_index + 1] == b'$'
                                     {
@@ -6296,26 +6303,12 @@ impl<'i> Vm<'i> {
                                         1
                                     };
                                     let math_start = inner_index + delimiter_len;
-                                    let mut search_index = math_start;
-                                    let mut math_end = None;
-                                    while search_index < content_end {
-                                        if delimiter_len == 2 {
-                                            if search_index + 1 < content_end
-                                                && bytes[search_index] == b'$'
-                                                && bytes[search_index + 1] == b'$'
-                                            {
-                                                math_end = Some(search_index);
-                                                break;
-                                            }
-                                        } else if bytes[search_index] == b'$'
-                                            && bytes[search_index - 1] != b'\\'
-                                        {
-                                            math_end = Some(search_index);
-                                            break;
-                                        }
-                                        search_index += 1;
-                                    }
-                                    if let Some(math_end) = math_end {
+                                    if let Some(math_end) = find_dollar_math_end(
+                                        source,
+                                        math_start,
+                                        content_end,
+                                        delimiter_len,
+                                    ) {
                                         self.capture_text_events(
                                             source_path,
                                             source,
@@ -8715,6 +8708,27 @@ impl<'i> Vm<'i> {
                                 ),
                             );
                         }
+                        let mut after_space = after;
+                        while after_space < source.len()
+                            && source.as_bytes()[after_space].is_ascii_whitespace()
+                        {
+                            after_space += 1;
+                        }
+                        if after_space > after
+                            && after_space < source.len()
+                            && matches!(source.as_bytes()[after_space], b'\\' | b'$')
+                        {
+                            self.emit_render_event(
+                                RenderEvent::Space(SpaceEvent {
+                                    kind: SpaceKind::Interword,
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    after as u32,
+                                    after_space as u32,
+                                ),
+                            );
+                        }
                         index = after;
                     }
                 }
@@ -8798,6 +8812,23 @@ impl<'i> Vm<'i> {
                         ),
                     );
                     index = linebreak_end;
+                }
+                "State" | "Statex" | "For" | "ForAll" | "If" | "ElsIf" | "Else" | "While"
+                | "Repeat" | "Until" | "Loop" | "Function" | "Procedure" | "Require" | "Ensure"
+                | "Return" | "EndFor" | "EndIf" | "EndWhile" | "EndLoop" | "EndFunction"
+                | "EndProcedure"
+                    if in_document =>
+                {
+                    self.emit_render_event(
+                        RenderEvent::LineBreak(LineBreakEvent {
+                            reason: LineBreakReason::Explicit,
+                        }),
+                        SourceProvenance::file(
+                            source_path.to_owned(),
+                            command_start as u32,
+                            index as u32,
+                        ),
+                    );
                 }
                 "label" if in_document => {
                     index = skip_ascii_whitespace(source, index);
@@ -20751,10 +20782,7 @@ fn skip_latex_layout_spacing_command(source: &str, command_name_end: usize) -> u
     }
 }
 
-fn is_escaped_percent(source: &str, index: usize) -> bool {
-    if source.as_bytes().get(index).copied() != Some(b'%') {
-        return false;
-    }
+fn is_escaped_source_byte(source: &str, index: usize) -> bool {
     let bytes = source.as_bytes();
     let mut slash_count = 0usize;
     let mut cursor = index;
@@ -20763,6 +20791,65 @@ fn is_escaped_percent(source: &str, index: usize) -> bool {
         cursor -= 1;
     }
     slash_count % 2 == 1
+}
+
+fn find_dollar_math_end(
+    source: &str,
+    math_start: usize,
+    limit: usize,
+    delimiter_len: usize,
+) -> Option<usize> {
+    let bytes = source.as_bytes();
+    let mut cursor = math_start;
+    let mut brace_depth = 0usize;
+    while cursor < limit {
+        match bytes[cursor] {
+            b'\\' => {
+                cursor += 1;
+                if cursor >= limit {
+                    continue;
+                }
+                if bytes[cursor].is_ascii_alphabetic() || bytes[cursor] == b'@' {
+                    while cursor < limit
+                        && (bytes[cursor].is_ascii_alphabetic() || bytes[cursor] == b'@')
+                    {
+                        cursor += 1;
+                    }
+                } else {
+                    cursor += 1;
+                }
+            }
+            b'{' => {
+                brace_depth += 1;
+                cursor += 1;
+            }
+            b'}' => {
+                brace_depth = brace_depth.saturating_sub(1);
+                cursor += 1;
+            }
+            b'$' if brace_depth == 0 && !is_escaped_source_byte(source, cursor) => {
+                if delimiter_len == 2 {
+                    if cursor + 1 < limit && bytes[cursor + 1] == b'$' {
+                        return Some(cursor);
+                    }
+                    cursor += 1;
+                } else {
+                    return Some(cursor);
+                }
+            }
+            _ => {
+                cursor += 1;
+            }
+        }
+    }
+    None
+}
+
+fn is_escaped_percent(source: &str, index: usize) -> bool {
+    if source.as_bytes().get(index).copied() != Some(b'%') {
+        return false;
+    }
+    is_escaped_source_byte(source, index)
 }
 
 fn skip_latex_line_comment(source: &str, index: usize) -> usize {
@@ -23651,6 +23738,34 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
         }};
     }
 
+    macro_rules! push_command_token_then_space {
+        ($token:expr) => {{
+            let token = $token;
+            if !token.is_empty() {
+                if !pending_space
+                    && !text.is_empty()
+                    && text.ends_with(|ch: char| {
+                        ch.is_ascii_alphanumeric() || matches!(ch, ')' | ']' | '}' | '>')
+                    })
+                    && token.starts_with(|ch: char| {
+                        ch.is_ascii_alphanumeric() || ch == '<' || ch == '|'
+                    })
+                {
+                    pending_space = true;
+                }
+                if pending_space
+                    && !text.is_empty()
+                    && !token.starts_with(['.', ',', ';', ':', '!', '?', ')', ']', '/', '^', '_'])
+                    && !text.ends_with([' ', '(', '[', '/', '^', '_'])
+                {
+                    text.push(' ');
+                }
+                text.push_str(token);
+                pending_space = true;
+            }
+        }};
+    }
+
     macro_rules! push_token_then_space {
         ($token:expr) => {{
             let token = $token;
@@ -23928,9 +24043,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!(&format!("{wrapper}({})", rows.join("; ")));
                         index = body_end + end_tag.len();
                     }
-                    "text" | "textrm" | "textnormal" | "textsc" | "rm" | "mathrm" | "mathbf"
-                    | "mathit" | "mathsf" | "mathtt" | "mathbb" | "mathcal" | "mathfrak"
-                    | "mathscr" | "boldsymbol" | "operatorname" | "rgst" | "hs" => {
+                    "text" | "emph" | "textbf" | "textit" | "texttt" | "textrm" | "textnormal"
+                    | "textsc" | "textsf" | "textup" | "rm" | "mathrm" | "mathbf" | "mathit"
+                    | "mathsf" | "mathtt" | "mathbb" | "mathcal" | "mathfrak" | "mathscr"
+                    | "boldsymbol" | "operatorname" | "rgst" | "hs" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);
                         let Some((argument, _, _, after_argument)) =
                             read_braced_source_argument(source, argument_index)
@@ -24746,7 +24862,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                             operator.push_str(&upper);
                             operator.push('}');
                         }
-                        push_token_then_space!(&operator);
+                        push_command_token_then_space!(&operator);
                         index = script_index;
                     }
                     "min" | "max" => {
@@ -24824,6 +24940,26 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
             }
             b'{' | b'}' => {
                 index += 1;
+            }
+            b'$' if !is_escaped_source_byte(source, index) => {
+                let delimiter_len = if index + 1 < bytes.len() && bytes[index + 1] == b'$' {
+                    2
+                } else {
+                    1
+                };
+                let math_start = index + delimiter_len;
+                if let Some(math_end) =
+                    find_dollar_math_end(source, math_start, bytes.len(), delimiter_len)
+                {
+                    let nested = normalize_latex_math_text(&source[math_start..math_end])
+                        .unwrap_or_else(|| {
+                            normalize_latex_math_source(&source[math_start..math_end])
+                        });
+                    push_command_token!(&nested);
+                    index = math_end + delimiter_len;
+                } else {
+                    index += delimiter_len;
+                }
             }
             b'&' => {
                 push_space!();
