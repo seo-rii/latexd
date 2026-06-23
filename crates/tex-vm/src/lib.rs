@@ -788,6 +788,8 @@ pub struct VmSnapshot {
     pub read_stream_lines: BTreeMap<u32, Vec<String>>,
     #[serde(default)]
     pub read_stream_eof: BTreeMap<u32, bool>,
+    #[serde(default)]
+    pub legacy_math_output_active: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1053,6 +1055,7 @@ pub struct Vm<'i> {
     next_read_stream: u32,
     next_write_stream: u32,
     global_prefix: bool,
+    legacy_math_output_active: bool,
 }
 
 impl<'i> Vm<'i> {
@@ -1104,6 +1107,7 @@ impl<'i> Vm<'i> {
             next_read_stream: default_next_read_stream(),
             next_write_stream: default_next_write_stream(),
             global_prefix: false,
+            legacy_math_output_active: false,
         };
         vm.define(
             "@empty".to_string(),
@@ -13873,6 +13877,7 @@ impl<'i> Vm<'i> {
             counter_resets: self.counter_resets.clone(),
             read_stream_lines: self.read_stream_lines.clone(),
             read_stream_eof: self.read_stream_eof.clone(),
+            legacy_math_output_active: self.legacy_math_output_active,
         }
     }
 
@@ -13958,7 +13963,43 @@ impl<'i> Vm<'i> {
         vm.counter_resets = snapshot.counter_resets.clone();
         vm.read_stream_lines = snapshot.read_stream_lines.clone();
         vm.read_stream_eof = snapshot.read_stream_eof.clone();
+        vm.legacy_math_output_active = snapshot.legacy_math_output_active;
         vm
+    }
+
+    fn push_legacy_output_char(&mut self, ch: char) {
+        if self.legacy_math_output_active
+            && ch.is_whitespace()
+            && self.output.ends_with(char::is_whitespace)
+        {
+            return;
+        }
+        if self.needs_legacy_math_atom_boundary_before(ch) {
+            self.output.push(' ');
+        }
+        self.output.push(ch);
+    }
+
+    fn push_legacy_math_shift(&mut self, ch: char) {
+        let adjacent_math_shift = self.output.ends_with(ch);
+        self.output.push(ch);
+        if !adjacent_math_shift {
+            self.legacy_math_output_active = !self.legacy_math_output_active;
+        }
+    }
+
+    fn needs_legacy_math_atom_boundary_before(&self, ch: char) -> bool {
+        if !ch.is_ascii_uppercase() {
+            return false;
+        }
+        let mut previous = self.output.chars().rev();
+        let Some(last) = previous.next() else {
+            return false;
+        };
+        if !(last.is_ascii_alphanumeric() || last == '\'') {
+            return false;
+        }
+        matches!(previous.next(), Some('_' | '^'))
     }
 
     fn execute_token(&mut self, token: Token, queue: &mut VecDeque<QueueItem>) {
@@ -13979,10 +14020,10 @@ impl<'i> Vm<'i> {
                     }
                 }
                 CatCode::Space | CatCode::Letter | CatCode::Other | CatCode::Active => {
-                    self.output.push(ch);
+                    self.push_legacy_output_char(ch);
                 }
-                CatCode::MathShift
-                | CatCode::AlignmentTab
+                CatCode::MathShift => self.push_legacy_math_shift(ch),
+                CatCode::AlignmentTab
                 | CatCode::Parameter
                 | CatCode::Superscript
                 | CatCode::Subscript

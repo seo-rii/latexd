@@ -187,42 +187,42 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\rVert{||}
 \def\vert{|}
 \def\Vert{||}
-\def\alpha{alpha}
-\def\beta{beta}
-\def\gamma{gamma}
-\def\delta{delta}
-\def\epsilon{epsilon}
-\def\varepsilon{varepsilon}
-\def\zeta{zeta}
-\def\eta{eta}
-\def\theta{theta}
-\def\vartheta{vartheta}
-\def\iota{iota}
-\def\kappa{kappa}
-\def\lambda{lambda}
-\def\mu{mu}
-\def\nu{nu}
-\def\xi{xi}
-\def\pi{pi}
-\def\rho{rho}
-\def\sigma{sigma}
-\def\tau{tau}
-\def\upsilon{upsilon}
-\def\phi{phi}
-\def\varphi{varphi}
-\def\chi{chi}
-\def\psi{psi}
-\def\omega{omega}
-\def\Gamma{Gamma}
-\def\Delta{Delta}
-\def\Theta{Theta}
-\def\Lambda{Lambda}
-\def\Xi{Xi}
-\def\Pi{Pi}
-\def\Sigma{Sigma}
-\def\Phi{Phi}
-\def\Psi{Psi}
-\def\Omega{Omega}
+\def\alpha{ alpha}
+\def\beta{ beta}
+\def\gamma{ gamma}
+\def\delta{ delta}
+\def\epsilon{ epsilon}
+\def\varepsilon{ varepsilon}
+\def\zeta{ zeta}
+\def\eta{ eta}
+\def\theta{ theta}
+\def\vartheta{ vartheta}
+\def\iota{ iota}
+\def\kappa{ kappa}
+\def\lambda{ lambda}
+\def\mu{ mu}
+\def\nu{ nu}
+\def\xi{ xi}
+\def\pi{ pi}
+\def\rho{ rho}
+\def\sigma{ sigma}
+\def\tau{ tau}
+\def\upsilon{ upsilon}
+\def\phi{ phi}
+\def\varphi{ varphi}
+\def\chi{ chi}
+\def\psi{ psi}
+\def\omega{ omega}
+\def\Gamma{ Gamma}
+\def\Delta{ Delta}
+\def\Theta{ Theta}
+\def\Lambda{ Lambda}
+\def\Xi{ Xi}
+\def\Pi{ Pi}
+\def\Sigma{ Sigma}
+\def\Phi{ Phi}
+\def\Psi{ Psi}
+\def\Omega{ Omega}
 \def\ell{ell}
 \def\hbar{hbar}
 \def\sum{ sum }
@@ -1544,6 +1544,45 @@ mod tests {
             );
         }
         for hidden in ["getsvarphi", "q_ellproptoi", "ftog", "gtoh"] {
+            assert!(
+                !result.output.contains(hidden),
+                "{hidden} leaked into {:?}",
+                result.output
+            );
+        }
+    }
+
+    #[test]
+    fn mini_kernel_spaces_math_atoms_in_legacy_output() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            r"\begin{document}$\exp(i\varphi)=\sum_{N}^{\infty}H^k+\omega_\ell\omega_{\ell'}+N_kN_{k+1}$.\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        for visible in [
+            "i varphi",
+            "sum _N^ infinity H^k",
+            "omega_ell omega_ell",
+            "N_k N_k+1",
+        ] {
+            assert!(
+                result.output.contains(visible),
+                "{visible} missing from {:?}",
+                result.output
+            );
+        }
+        for hidden in ["ivarphi", "infinityH", "omega_ellomega", "N_kN_k"] {
             assert!(
                 !result.output.contains(hidden),
                 "{hidden} leaked into {:?}",
