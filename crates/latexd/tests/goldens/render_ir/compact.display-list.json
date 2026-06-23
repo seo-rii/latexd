@@ -1,6 +1,6 @@
 [
   {
-    "page_id": "b7c6539a57d21660e81dc924414927d367aec1ca457a361cde53427d0d2c6f06",
+    "page_id": "e1eb937e6409472cda3260a7d6724cf0a7a44c942b352781911ac2ef61a46524",
     "width_pt": 612.0,
     "height_pt": 792.0,
     "ops": [
@@ -148,8 +148,45 @@
       {
         "kind": "text_run",
         "origin": {
-          "x": 90.0,
+          "x": 72.0,
           "y": 128.0
+        },
+        "text": "Abstract",
+        "font": {
+          "family": "serif",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0,
+          "role": "body"
+        },
+        "size_pt": 11.0,
+        "approximate_advance_pt": 45.98,
+        "clusters": [
+          {
+            "text_start_utf8": 0,
+            "text_end_utf8": 8,
+            "glyph_start": 0,
+            "glyph_end": 8
+          }
+        ],
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 77,
+            "end_utf8": 93
+          },
+          "related": [],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      },
+      {
+        "kind": "text_run",
+        "origin": {
+          "x": 90.0,
+          "y": 142.0
         },
         "text": "Short",
         "font": {
@@ -186,7 +223,7 @@
         "kind": "text_run",
         "origin": {
           "x": 119.479996,
-          "y": 128.0
+          "y": 142.0
         },
         "text": " ",
         "font": {
@@ -223,7 +260,7 @@
         "kind": "text_run",
         "origin": {
           "x": 122.229996,
-          "y": 128.0
+          "y": 142.0
         },
         "text": "abstract.",
         "font": {
@@ -260,7 +297,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 149.0
+          "y": 163.0
         },
         "text": "Intro",
         "font": {
@@ -307,7 +344,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 170.0
+          "y": 184.0
         },
         "text": "Hello",
         "font": {
@@ -344,7 +381,7 @@
         "kind": "text_run",
         "origin": {
           "x": 96.64,
-          "y": 170.0
+          "y": 184.0
         },
         "text": " ",
         "font": {
@@ -381,7 +418,7 @@
         "kind": "text_run",
         "origin": {
           "x": 99.39,
-          "y": 170.0
+          "y": 184.0
         },
         "text": "[?]",
         "font": {
@@ -428,7 +465,7 @@
         "kind": "text_run",
         "origin": {
           "x": 113.25,
-          "y": 170.0
+          "y": 184.0
         },
         "text": ".",
         "font": {
@@ -465,7 +502,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 191.0
+          "y": 205.0
         },
         "text": "x^2",
         "font": {
@@ -512,7 +549,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 212.0
+          "y": 226.0
         },
         "text": "Author. Title.",
         "font": {
@@ -549,7 +586,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 233.0
+          "y": 247.0
         },
         "text": "Fallback text.",
         "font": {
@@ -603,6 +640,11 @@
         "path": "main.tex",
         "start_utf8": 42,
         "end_utf8": 50
+      },
+      {
+        "path": "main.tex",
+        "start_utf8": 77,
+        "end_utf8": 93
       },
       {
         "path": "main.tex",
@@ -660,6 +702,6 @@
         "end_utf8": 284
       }
     ],
-    "content_hash": "45702e1921507005923d96ae0fcab662ad3e484e857bb9de8975f33ed0ab2f4e"
+    "content_hash": "e5bd6a309e056f7e410598a5ff711ed22bbfa525b73d9870d25a7e9f380f2782"
   }
 ]

@@ -61,6 +61,25 @@
         "text": "May 1843"
       },
       {
+        "approximate_advance_pt": 45.97999954223633,
+        "clusters": "<present>",
+        "font": {
+          "family": "serif",
+          "role": "body",
+          "series": "regular",
+          "shape": "upright",
+          "size_pt": 11.0
+        },
+        "kind": "text_run",
+        "origin": {
+          "x": 72.0,
+          "y": 128.0
+        },
+        "size_pt": 11.0,
+        "source": "<present>",
+        "text": "Abstract"
+      },
+      {
         "approximate_advance_pt": 29.479999542236328,
         "clusters": "<present>",
         "font": {
@@ -73,7 +92,7 @@
         "kind": "text_run",
         "origin": {
           "x": 90.0,
-          "y": 128.0
+          "y": 142.0
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -92,7 +111,7 @@
         "kind": "text_run",
         "origin": {
           "x": 119.47999572753906,
-          "y": 128.0
+          "y": 142.0
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -111,7 +130,7 @@
         "kind": "text_run",
         "origin": {
           "x": 122.22999572753906,
-          "y": 128.0
+          "y": 142.0
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -130,7 +149,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 149.0
+          "y": 163.0
         },
         "size_pt": 15.0,
         "source": "<present>",
@@ -149,7 +168,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 170.0
+          "y": 184.0
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -168,7 +187,7 @@
         "kind": "text_run",
         "origin": {
           "x": 96.63999938964844,
-          "y": 170.0
+          "y": 184.0
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -187,7 +206,7 @@
         "kind": "text_run",
         "origin": {
           "x": 99.38999938964844,
-          "y": 170.0
+          "y": 184.0
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -206,7 +225,7 @@
         "kind": "text_run",
         "origin": {
           "x": 113.25,
-          "y": 170.0
+          "y": 184.0
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -225,7 +244,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 191.0
+          "y": 205.0
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -244,7 +263,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 212.0
+          "y": 226.0
         },
         "size_pt": 11.0,
         "source": "<present>",
@@ -263,7 +282,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 233.0
+          "y": 247.0
         },
         "size_pt": 11.0,
         "source": "<present>",
