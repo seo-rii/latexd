@@ -244,8 +244,8 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\npreceq{not <=}
 \def\preceq{<=}
 \def\prec{<}
-\def\approx{approx}
-\def\propto{propto}
+\def\approx{ approx }
+\def\propto{ propto }
 \def\subseteq{subset}
 \def\subset{subset}
 \def\notin{not in}
@@ -278,15 +278,15 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\triangleq{=}
 \def\nabla{nabla}
 \def\prime{prime}
-\def\to{to}
-\def\rightarrow{to}
-\def\Rightarrow{to}
-\def\Longrightarrow{to}
-\def\leftrightarrow{to}
-\def\nleftrightarrow{not to}
+\def\to{ to }
+\def\rightarrow{ to }
+\def\Rightarrow{ to }
+\def\Longrightarrow{ to }
+\def\leftrightarrow{ to }
+\def\nleftrightarrow{ not to }
 \def\forall{for all}
 \def\equiv{=}
-\def\gets{gets}
+\def\gets{ gets }
 \def\backslash{backslash}
 \def\arg{ arg }
 \def\min{ min }
@@ -1510,6 +1510,40 @@ mod tests {
             result.output
         );
         for hidden in ["2esum", "sintheta", "logn"] {
+            assert!(
+                !result.output.contains(hidden),
+                "{hidden} leaked into {:?}",
+                result.output
+            );
+        }
+    }
+
+    #[test]
+    fn mini_kernel_spaces_math_relations_in_legacy_output() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            r"\begin{document}$L\gets\varphi_k+\dot{\varphi}_k$ and $q_\ell\propto i(a_\ell^\dag-a_\ell)$ and $f\to g\leftrightarrow h$.\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        for visible in ["L gets varphi", "q_ell propto i", "f to g to h"] {
+            assert!(
+                result.output.contains(visible),
+                "{visible} missing from {:?}",
+                result.output
+            );
+        }
+        for hidden in ["getsvarphi", "q_ellproptoi", "ftog", "gtoh"] {
             assert!(
                 !result.output.contains(hidden),
                 "{hidden} leaked into {:?}",
