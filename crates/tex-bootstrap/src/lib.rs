@@ -225,17 +225,17 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\Omega{Omega}
 \def\ell{ell}
 \def\hbar{hbar}
-\def\sum{sum}
-\def\prod{prod}
-\def\int{int}
-\def\partial{partial}
-\def\infty{infty}
-\def\log{log}
-\def\exp{exp}
-\def\cos{cos}
-\def\sin{sin}
-\def\dim{dim}
-\def\Pr{Pr}
+\def\sum{ sum }
+\def\prod{ prod }
+\def\int{ int }
+\def\partial{ partial }
+\def\infty{ infinity }
+\def\log{ log }
+\def\exp{ exp }
+\def\cos{ cos }
+\def\sin{ sin }
+\def\dim{ dim }
+\def\Pr{ Pr }
 \def\le{<=}
 \def\leq{<=}
 \def\ge{>=}
@@ -288,12 +288,12 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\equiv{=}
 \def\gets{gets}
 \def\backslash{backslash}
-\def\arg{arg}
-\def\min{min}
-\def\max{max}
-\def\ln{ln}
-\def\mod{mod}
-\def\bmod{mod}
+\def\arg{ arg }
+\def\min{ min }
+\def\max{ max }
+\def\ln{ ln }
+\def\mod{ mod }
+\def\bmod{ mod }
 \def\mid{|}
 \def\colon{:}
 \def\perp{perp}
@@ -1479,6 +1479,43 @@ mod tests {
         assert!(result.output.contains("Step text."));
         assert!(result.output.contains("Wide figure."));
         assert!(result.output.contains("[visible]Custom text."));
+    }
+
+    #[test]
+    fn mini_kernel_spaces_math_operators_in_legacy_output() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            r"\newcommand{\ketbra}[2]{|#1><#2|}\begin{document}$q_{\ell}=-2e\sum\ketbra{N}{N}$ and $\sin\theta+\log n$.\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        assert!(
+            result.output.contains("2e sum"),
+            "large operator did not keep a readable boundary in {:?}",
+            result.output
+        );
+        assert!(
+            result.output.contains("sin theta") && result.output.contains("log n"),
+            "named math functions did not keep readable boundaries in {:?}",
+            result.output
+        );
+        for hidden in ["2esum", "sintheta", "logn"] {
+            assert!(
+                !result.output.contains(hidden),
+                "{hidden} leaked into {:?}",
+                result.output
+            );
+        }
     }
 
     #[test]
