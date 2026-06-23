@@ -413,6 +413,7 @@ pub enum ProjectLayoutProfile {
     ArticleSingleColumn,
     ArticleTwoColumn,
     Llncs,
+    LlncsGraphicHeavy,
     IeeeTran,
     Revtex,
 }
@@ -1184,6 +1185,11 @@ fn layout_options_for_profile(profile: &ProjectLayoutProfile) -> LayoutOptions {
             lines_per_page: 40,
             ..LayoutOptions::default()
         },
+        ProjectLayoutProfile::LlncsGraphicHeavy => LayoutOptions {
+            chars_per_line: 64,
+            lines_per_page: 30,
+            ..LayoutOptions::default()
+        },
         ProjectLayoutProfile::IeeeTran => LayoutOptions {
             chars_per_line: 96,
             lines_per_page: 60,
@@ -1274,6 +1280,27 @@ fn layout_profile_from_project_source(
     ) && project_file_exists(world, mounted_files, "article.cls")
     {
         return ProjectLayoutProfile::Default;
+    }
+    if profile == ProjectLayoutProfile::Llncs {
+        let mut graphic_count = 0usize;
+        for line in source.lines() {
+            let mut visible = String::new();
+            let mut escaped = false;
+            for character in line.chars() {
+                if character == '%' && !escaped {
+                    break;
+                }
+                visible.push(character);
+                escaped = character == '\\' && !escaped;
+                if character != '\\' {
+                    escaped = false;
+                }
+            }
+            graphic_count += visible.matches(r"\includegraphics").count();
+        }
+        if graphic_count >= 5 {
+            return ProjectLayoutProfile::LlncsGraphicHeavy;
+        }
     }
     profile
 }
@@ -1580,6 +1607,59 @@ mod tests {
             build.layout.options.chars_per_line,
             LayoutOptions::default().chars_per_line
         );
+    }
+
+    #[test]
+    fn project_pdf_build_uses_graphic_heavy_llncs_layout_profile() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            concat!(
+                "\\documentclass[runningheads]{llncs}\\begin{document}",
+                "\\includegraphics{a}\\includegraphics{b}\\includegraphics{c}",
+                "\\includegraphics{d}\\includegraphics{e}",
+                "% \\includegraphics{commented}\n",
+                "Body\\end{document}"
+            ),
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let build = build_project_pdf(&world).expect("project pdf");
+
+        assert_eq!(
+            build.run.layout_profile,
+            ProjectLayoutProfile::LlncsGraphicHeavy
+        );
+        assert_eq!(build.layout.options.lines_per_page, 30);
+    }
+
+    #[test]
+    fn project_pdf_build_keeps_sparse_llncs_layout_profile() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            "\\documentclass[runningheads]{llncs}\\begin{document}\\includegraphics{a}\\includegraphics{b} Body\\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let build = build_project_pdf(&world).expect("project pdf");
+
+        assert_eq!(build.run.layout_profile, ProjectLayoutProfile::Llncs);
+        assert_eq!(build.layout.options.lines_per_page, 40);
     }
 
     #[test]
