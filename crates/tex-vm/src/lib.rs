@@ -14561,6 +14561,15 @@ impl<'i> Vm<'i> {
                 };
                 if matches!(
                     environment.trim(),
+                    "abstract" | "abstract*" | "onecolabstract"
+                ) {
+                    if !self.output.is_empty() && !self.output.ends_with('\n') {
+                        self.output.push('\n');
+                    }
+                    self.output.push_str("Abstract ");
+                }
+                if matches!(
+                    environment.trim(),
                     "algorithm"
                         | "algorithm*"
                         | "algorithmic"
@@ -28482,6 +28491,8 @@ Fallback text.
         let captured_outcome = capture.run_plain(source);
 
         assert_eq!(captured_outcome.output, baseline_outcome.output);
+        assert!(baseline_outcome.output.contains("Abstract"));
+        assert!(baseline_outcome.output.contains("\nAbstract"));
         assert!(captured_outcome.render_events.iter().any(|event| matches!(
             &event.event,
             RenderEvent::SetDocumentMetadata(metadata)

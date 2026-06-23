@@ -473,6 +473,24 @@ pub fn build_page_display_lists(
             }
             IrBlock::Abstract(block) => {
                 logical_items.push(LogicalItem::Text(LogicalTextRun {
+                    segments: vec![LogicalTextSegment {
+                        text: "Abstract".to_string(),
+                        source: block.source.clone(),
+                        link_target: None,
+                        table_rule: false,
+                        table_rule_trim_start_pt: None,
+                        table_rule_trim_end_pt: None,
+                        table_vertical_rule_offsets: Vec::new(),
+                    }],
+                    source: block.source.clone(),
+                    font: body_font.clone(),
+                    size_pt: options.body_font_size_pt,
+                    gap_after_pt: 0.0,
+                    first_line_indent_pt: 0.0,
+                    continuation_indent_pt: 0.0,
+                    preserve_leading_whitespace: false,
+                }));
+                logical_items.push(LogicalItem::Text(LogicalTextRun {
                     segments: inline_segments(&block.content),
                     source: block.source.clone(),
                     font: body_font.clone(),
@@ -6514,7 +6532,7 @@ mod tests {
     fn indents_abstract_first_and_continuation_lines() {
         let source = SourceProvenance::file("main.tex", 0, 16);
         let options = PageDisplayListOptions {
-            max_chars_per_line: 6,
+            max_chars_per_line: 8,
             ..PageDisplayListOptions::default()
         };
         let display_lists = build_page_display_lists(
@@ -6528,14 +6546,22 @@ mod tests {
             options.clone(),
         );
 
+        let heading = display_lists[0].ops.iter().find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "Abstract" => Some(run),
+            _ => None,
+        });
         let first_line = display_lists[0].ops.iter().find_map(|op| match op {
-            DrawOp::TextRun(run) if run.text == "abcdef" => Some(run),
+            DrawOp::TextRun(run) if run.text == "abcdefgh" => Some(run),
             _ => None,
         });
         let continuation = display_lists[0].ops.iter().find_map(|op| match op {
-            DrawOp::TextRun(run) if run.text == "ghi" => Some(run),
+            DrawOp::TextRun(run) if run.text == "i" => Some(run),
             _ => None,
         });
+        assert_eq!(
+            heading.map(|run| run.origin.x),
+            Some(options.margin_left_pt)
+        );
         assert_eq!(
             first_line.map(|run| run.origin.x),
             Some(options.margin_left_pt + options.abstract_indent_pt)
