@@ -4076,12 +4076,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut stroke_dasharray: Option<SimpleSvgCascadeEntry<Option<SimpleSvgDashArray>>> = None;
         let mut stroke_dashoffset: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_dashoffset_clear: Option<SimpleSvgCascadeValue<()>> = None;
-        let mut stroke_linecap: Option<SimpleSvgCascadeValue<SimpleSvgStrokeLineCap>> = None;
-        let mut stroke_linecap_clear: Option<SimpleSvgCascadeValue<()>> = None;
-        let mut stroke_linejoin: Option<SimpleSvgCascadeValue<SimpleSvgStrokeLineJoin>> = None;
-        let mut stroke_linejoin_clear: Option<SimpleSvgCascadeValue<()>> = None;
-        let mut stroke_miterlimit: Option<SimpleSvgCascadeValue<f32>> = None;
-        let mut stroke_miterlimit_clear: Option<SimpleSvgCascadeValue<()>> = None;
+        let mut stroke_linecap: Option<SimpleSvgCascadeEntry<SimpleSvgStrokeLineCap>> = None;
+        let mut stroke_linejoin: Option<SimpleSvgCascadeEntry<SimpleSvgStrokeLineJoin>> = None;
+        let mut stroke_miterlimit: Option<SimpleSvgCascadeEntry<f32>> = None;
         let mut paint_order: Option<SimpleSvgCascadeValue<SimpleSvgPaintOrder>> = None;
         let mut paint_order_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut color: Option<SimpleSvgCascadeValue<SimpleSvgResolvedColor>> = None;
@@ -4325,90 +4322,60 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }
                 }
                 if rule.stroke_linecap_inherit_or_unset {
-                    let current = stroke_linecap
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            stroke_linecap_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = stroke_linecap.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        stroke_linecap = None;
-                        stroke_linecap_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        stroke_linecap = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if let Some(value) = rule.presentation.stroke_linecap {
-                    let current = stroke_linecap
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            stroke_linecap_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = stroke_linecap.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        stroke_linecap_clear = None;
-                        stroke_linecap = Some(SimpleSvgCascadeValue {
-                            value,
+                        stroke_linecap = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if rule.stroke_linejoin_inherit_or_unset {
-                    let current = stroke_linejoin
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            stroke_linejoin_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = stroke_linejoin.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        stroke_linejoin = None;
-                        stroke_linejoin_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        stroke_linejoin = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if let Some(value) = rule.presentation.stroke_linejoin {
-                    let current = stroke_linejoin
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            stroke_linejoin_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = stroke_linejoin.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        stroke_linejoin_clear = None;
-                        stroke_linejoin = Some(SimpleSvgCascadeValue {
-                            value,
+                        stroke_linejoin = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if rule.stroke_miterlimit_inherit_or_unset {
-                    let current = stroke_miterlimit
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            stroke_miterlimit_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = stroke_miterlimit.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        stroke_miterlimit = None;
-                        stroke_miterlimit_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        stroke_miterlimit = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if let Some(value) = rule.presentation.stroke_miterlimit {
-                    let current = stroke_miterlimit
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            stroke_miterlimit_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = stroke_miterlimit.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        stroke_miterlimit_clear = None;
-                        stroke_miterlimit = Some(SimpleSvgCascadeValue {
-                            value,
+                        stroke_miterlimit = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
@@ -5200,9 +5167,27 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     _ => None,
                 },
                 stroke_dashoffset: stroke_dashoffset.map(|value| value.value),
-                stroke_linecap: stroke_linecap.map(|value| value.value),
-                stroke_linejoin: stroke_linejoin.map(|value| value.value),
-                stroke_miterlimit: stroke_miterlimit.map(|value| value.value),
+                stroke_linecap: match stroke_linecap {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
+                stroke_linejoin: match stroke_linejoin {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
+                stroke_miterlimit: match stroke_miterlimit {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
                 paint_order: paint_order.map(|value| value.value),
                 color: color.map(|value| value.value),
                 display: display.map(|value| value.value),
@@ -5263,9 +5248,18 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 Some(SimpleSvgCascadeAction::Clear)
             ),
             stroke_dashoffset_clear: stroke_dashoffset_clear.is_some(),
-            stroke_linecap_clear: stroke_linecap_clear.is_some(),
-            stroke_linejoin_clear: stroke_linejoin_clear.is_some(),
-            stroke_miterlimit_clear: stroke_miterlimit_clear.is_some(),
+            stroke_linecap_clear: matches!(
+                stroke_linecap.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
+            stroke_linejoin_clear: matches!(
+                stroke_linejoin.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
+            stroke_miterlimit_clear: matches!(
+                stroke_miterlimit.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
             paint_order_clear: paint_order_clear.is_some(),
             color_clear: color_clear.is_some(),
             display_clear: display_clear.is_some(),
