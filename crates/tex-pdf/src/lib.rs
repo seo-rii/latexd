@@ -3608,12 +3608,6 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         clip_path_inherit: bool,
     }
     #[derive(Debug, Clone, Copy)]
-    struct SimpleSvgCascadeValue<T> {
-        value: T,
-        specificity: u16,
-        order: usize,
-    }
-    #[derive(Debug, Clone, Copy)]
     enum SimpleSvgCascadeAction<T> {
         Value(T),
         Clear,
@@ -4078,12 +4072,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut color: Option<SimpleSvgCascadeEntry<SimpleSvgResolvedColor>> = None;
         let mut display: Option<SimpleSvgCascadeEntry<bool>> = None;
         let mut visibility: Option<SimpleSvgCascadeEntry<bool>> = None;
-        let mut opacity: Option<SimpleSvgCascadeValue<f32>> = None;
-        let mut opacity_clear: Option<SimpleSvgCascadeValue<()>> = None;
-        let mut fill_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
-        let mut fill_opacity_clear: Option<SimpleSvgCascadeValue<()>> = None;
-        let mut stroke_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
-        let mut stroke_opacity_clear: Option<SimpleSvgCascadeValue<()>> = None;
+        let mut opacity: Option<SimpleSvgCascadeEntry<f32>> = None;
+        let mut fill_opacity: Option<SimpleSvgCascadeEntry<f32>> = None;
+        let mut stroke_opacity: Option<SimpleSvgCascadeEntry<f32>> = None;
         let mut text_anchor: Option<SimpleSvgCascadeEntry<SimpleSvgTextAnchor>> = None;
         let mut font_size: Option<SimpleSvgCascadeEntry<SimpleSvgFontSize>> = None;
         let mut font_family: Option<SimpleSvgCascadeEntry<SimpleSvgFontFamily>> = None;
@@ -4409,41 +4400,30 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }
                 }
                 if rule.opacity_inherit {
-                    let current = opacity
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| opacity_clear.map(|value| (value.specificity, value.order)));
+                    let current = opacity.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        opacity = None;
-                        opacity_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        opacity = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if let Some(value) = rule.presentation.opacity.filter(|_| !rule.opacity_inherit) {
-                    let current = opacity
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| opacity_clear.map(|value| (value.specificity, value.order)));
+                    let current = opacity.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        opacity_clear = None;
-                        opacity = Some(SimpleSvgCascadeValue {
-                            value,
+                        opacity = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if rule.fill_opacity_inherit_or_unset {
-                    let current = fill_opacity
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            fill_opacity_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = fill_opacity.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        fill_opacity = None;
-                        fill_opacity_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        fill_opacity = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
@@ -4454,30 +4434,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     .fill_opacity
                     .filter(|_| !rule.fill_opacity_inherit_or_unset)
                 {
-                    let current = fill_opacity
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            fill_opacity_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = fill_opacity.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        fill_opacity_clear = None;
-                        fill_opacity = Some(SimpleSvgCascadeValue {
-                            value,
+                        fill_opacity = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if rule.stroke_opacity_inherit_or_unset {
-                    let current = stroke_opacity
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            stroke_opacity_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = stroke_opacity.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        stroke_opacity = None;
-                        stroke_opacity_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        stroke_opacity = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
@@ -4488,15 +4458,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     .stroke_opacity
                     .filter(|_| !rule.stroke_opacity_inherit_or_unset)
                 {
-                    let current = stroke_opacity
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            stroke_opacity_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = stroke_opacity.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        stroke_opacity_clear = None;
-                        stroke_opacity = Some(SimpleSvgCascadeValue {
-                            value,
+                        stroke_opacity = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
@@ -5037,9 +5002,27 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }) => Some(value),
                     _ => None,
                 },
-                opacity: opacity.map(|value| value.value),
-                fill_opacity: fill_opacity.map(|value| value.value),
-                stroke_opacity: stroke_opacity.map(|value| value.value),
+                opacity: match opacity {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
+                fill_opacity: match fill_opacity {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
+                stroke_opacity: match stroke_opacity {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
                 text_anchor: match text_anchor {
                     Some(SimpleSvgCascadeEntry {
                         action: SimpleSvgCascadeAction::Value(value),
@@ -5219,9 +5202,18 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 visibility.map(|value| value.action),
                 Some(SimpleSvgCascadeAction::Clear)
             ),
-            opacity_clear: opacity_clear.is_some(),
-            fill_opacity_clear: fill_opacity_clear.is_some(),
-            stroke_opacity_clear: stroke_opacity_clear.is_some(),
+            opacity_clear: matches!(
+                opacity.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
+            fill_opacity_clear: matches!(
+                fill_opacity.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
+            stroke_opacity_clear: matches!(
+                stroke_opacity.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
             text_anchor_clear: matches!(
                 text_anchor.map(|value| value.action),
                 Some(SimpleSvgCascadeAction::Clear)
