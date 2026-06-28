@@ -21390,6 +21390,93 @@ mod tests {
     }
 
     #[test]
+    fn converted_pdf_asset_callbacks_receive_crop_metadata() {
+        let source = SourceProvenance::file("main.tex", 0, 10);
+        let expected_crop = ImageCrop {
+            trim: Some(ImageTrim {
+                left_pt: 1.0,
+                bottom_pt: 2.0,
+                right_pt: 3.0,
+                top_pt: 4.0,
+            }),
+            viewport: Some(ImageViewport {
+                llx_pt: 10.0,
+                lly_pt: 20.0,
+                urx_pt: 110.0,
+                ury_pt: 70.0,
+            }),
+            clip: true,
+        };
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/vector.pdf".to_string(),
+                asset_format: Some(GraphicAssetFormat::Pdf),
+                page_selection: None,
+                asset_hash: Some("blake3:vector-pdf".to_string()),
+                natural_width_pt: Some(200.0),
+                natural_height_pt: Some(100.0),
+                crop: Some(expected_crop),
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source,
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+
+        let mut pdf_seen_crop = None;
+        let pdf = render_display_list_pdf_with_converted_assets(
+            &[page.clone()],
+            |asset_ref| (asset_ref == "figures/vector.pdf").then(|| b"%PDF-1.4".to_vec()),
+            |image, bytes| {
+                pdf_seen_crop = image.crop;
+                (image.asset_ref == "figures/vector.pdf" && bytes.starts_with(b"%PDF")).then(|| {
+                    ConvertedImageAsset {
+                        bytes: tiny_png_bytes(),
+                        format: GraphicAssetFormat::Png,
+                    }
+                })
+            },
+        );
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        let mut svg_seen_crop = None;
+        let svg = render_display_list_svg_with_converted_assets(
+            &page,
+            |asset_ref| (asset_ref == "figures/vector.pdf").then(|| b"%PDF-1.4".to_vec()),
+            |image, bytes| {
+                svg_seen_crop = image.crop;
+                (image.asset_ref == "figures/vector.pdf" && bytes.starts_with(b"%PDF")).then(|| {
+                    ConvertedImageAsset {
+                        bytes: tiny_png_bytes(),
+                        format: GraphicAssetFormat::Png,
+                    }
+                })
+            },
+        );
+
+        assert_eq!(pdf_seen_crop, Some(expected_crop));
+        assert_eq!(svg_seen_crop, Some(expected_crop));
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(svg.contains("data-image-crop-clip=\"true\""));
+        assert!(svg.contains("data-image-crop-trim=\"1,2,3,4\""));
+        assert!(svg.contains("data-image-crop-viewport=\"10,20,110,70\""));
+        assert!(svg.contains("data-image-crop-rendered=\"true\""));
+        assert!(svg.contains("data-image-converted-format=\"png\""));
+        assert!(!svg.contains("[unsupported image: figures/vector.pdf]"));
+    }
+
+    #[test]
     fn renders_converted_pdf_crop_with_original_natural_size() {
         let source = SourceProvenance::file("main.tex", 0, 10);
         let page = PageDisplayList {
