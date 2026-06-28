@@ -3613,6 +3613,17 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         specificity: u16,
         order: usize,
     }
+    #[derive(Debug, Clone, Copy)]
+    enum SimpleSvgCascadeAction<T> {
+        Value(T),
+        Clear,
+    }
+    #[derive(Debug, Clone, Copy)]
+    struct SimpleSvgCascadeEntry<T> {
+        action: SimpleSvgCascadeAction<T>,
+        specificity: u16,
+        order: usize,
+    }
     #[derive(Debug, Clone, Copy, Default)]
     struct SimpleSvgStyleCascade {
         presentation: SimpleSvgPresentation,
@@ -4062,8 +4073,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut stroke_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut stroke_width: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_width_clear: Option<SimpleSvgCascadeValue<()>> = None;
-        let mut stroke_dasharray: Option<SimpleSvgCascadeValue<Option<SimpleSvgDashArray>>> = None;
-        let mut stroke_dasharray_clear: Option<SimpleSvgCascadeValue<()>> = None;
+        let mut stroke_dasharray: Option<SimpleSvgCascadeEntry<Option<SimpleSvgDashArray>>> = None;
         let mut stroke_dashoffset: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_dashoffset_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut stroke_linecap: Option<SimpleSvgCascadeValue<SimpleSvgStrokeLineCap>> = None;
@@ -4086,20 +4096,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut fill_opacity_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut stroke_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_opacity_clear: Option<SimpleSvgCascadeValue<()>> = None;
-        let mut text_anchor: Option<SimpleSvgCascadeValue<SimpleSvgTextAnchor>> = None;
-        let mut text_anchor_clear: Option<SimpleSvgCascadeValue<()>> = None;
+        let mut text_anchor: Option<SimpleSvgCascadeEntry<SimpleSvgTextAnchor>> = None;
         let mut font_size: Option<SimpleSvgCascadeValue<SimpleSvgFontSize>> = None;
         let mut font_size_clear: Option<SimpleSvgCascadeValue<()>> = None;
-        let mut font_family: Option<SimpleSvgCascadeValue<SimpleSvgFontFamily>> = None;
-        let mut font_family_clear: Option<SimpleSvgCascadeValue<()>> = None;
+        let mut font_family: Option<SimpleSvgCascadeEntry<SimpleSvgFontFamily>> = None;
         let mut font_series: Option<SimpleSvgCascadeValue<FontSeries>> = None;
         let mut font_series_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut font_shape: Option<SimpleSvgCascadeValue<FontShape>> = None;
         let mut font_shape_clear: Option<SimpleSvgCascadeValue<()>> = None;
-        let mut letter_spacing: Option<SimpleSvgCascadeValue<f32>> = None;
-        let mut letter_spacing_clear: Option<SimpleSvgCascadeValue<()>> = None;
-        let mut word_spacing: Option<SimpleSvgCascadeValue<f32>> = None;
-        let mut word_spacing_clear: Option<SimpleSvgCascadeValue<()>> = None;
+        let mut letter_spacing: Option<SimpleSvgCascadeEntry<f32>> = None;
+        let mut word_spacing: Option<SimpleSvgCascadeEntry<f32>> = None;
         let mut text_decoration: Option<SimpleSvgCascadeValue<SimpleSvgTextDecoration>> = None;
         let mut text_decoration_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut text_decoration_color: Option<SimpleSvgCascadeValue<Option<SimpleSvgColor>>> = None;
@@ -4269,30 +4275,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }
                 }
                 if rule.stroke_dasharray_inherit_or_unset {
-                    let current = stroke_dasharray
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            stroke_dasharray_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = stroke_dasharray.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        stroke_dasharray = None;
-                        stroke_dasharray_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        stroke_dasharray = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if let Some(value) = rule.presentation.stroke_dasharray {
-                    let current = stroke_dasharray
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            stroke_dasharray_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = stroke_dasharray.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        stroke_dasharray_clear = None;
-                        stroke_dasharray = Some(SimpleSvgCascadeValue {
-                            value,
+                        stroke_dasharray = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
@@ -4629,15 +4625,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }
                 }
                 if rule.text_anchor_inherit_or_unset {
-                    let current = text_anchor
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            text_anchor_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = text_anchor.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        text_anchor = None;
-                        text_anchor_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        text_anchor = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
@@ -4648,15 +4639,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     .text_anchor
                     .filter(|_| !rule.text_anchor_inherit_or_unset)
                 {
-                    let current = text_anchor
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            text_anchor_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = text_anchor.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        text_anchor_clear = None;
-                        text_anchor = Some(SimpleSvgCascadeValue {
-                            value,
+                        text_anchor = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
@@ -4693,15 +4679,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }
                 }
                 if rule.font_family_inherit_or_unset {
-                    let current = font_family
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            font_family_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = font_family.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        font_family = None;
-                        font_family_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        font_family = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
@@ -4712,15 +4693,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     .font_family
                     .filter(|_| !rule.font_family_inherit_or_unset)
                 {
-                    let current = font_family
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            font_family_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = font_family.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        font_family_clear = None;
-                        font_family = Some(SimpleSvgCascadeValue {
-                            value,
+                        font_family = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
@@ -4791,15 +4767,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }
                 }
                 if rule.letter_spacing_inherit_or_unset {
-                    let current = letter_spacing
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            letter_spacing_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = letter_spacing.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        letter_spacing = None;
-                        letter_spacing_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        letter_spacing = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
@@ -4810,30 +4781,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     .letter_spacing
                     .filter(|_| !rule.letter_spacing_inherit_or_unset)
                 {
-                    let current = letter_spacing
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            letter_spacing_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = letter_spacing.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        letter_spacing_clear = None;
-                        letter_spacing = Some(SimpleSvgCascadeValue {
-                            value,
+                        letter_spacing = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if rule.word_spacing_inherit_or_unset {
-                    let current = word_spacing
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            word_spacing_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = word_spacing.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        word_spacing = None;
-                        word_spacing_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        word_spacing = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
@@ -4844,15 +4805,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     .word_spacing
                     .filter(|_| !rule.word_spacing_inherit_or_unset)
                 {
-                    let current = word_spacing
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            word_spacing_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = word_spacing.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        word_spacing_clear = None;
-                        word_spacing = Some(SimpleSvgCascadeValue {
-                            value,
+                        word_spacing = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
@@ -5236,7 +5192,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 fill_rule: fill_rule.map(|value| value.value),
                 stroke: stroke.map(|value| value.value),
                 stroke_width: stroke_width.map(|value| value.value),
-                stroke_dasharray: stroke_dasharray.map(|value| value.value),
+                stroke_dasharray: match stroke_dasharray {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
                 stroke_dashoffset: stroke_dashoffset.map(|value| value.value),
                 stroke_linecap: stroke_linecap.map(|value| value.value),
                 stroke_linejoin: stroke_linejoin.map(|value| value.value),
@@ -5248,13 +5210,37 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 opacity: opacity.map(|value| value.value),
                 fill_opacity: fill_opacity.map(|value| value.value),
                 stroke_opacity: stroke_opacity.map(|value| value.value),
-                text_anchor: text_anchor.map(|value| value.value),
+                text_anchor: match text_anchor {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
                 font_size: font_size.map(|value| value.value),
-                font_family: font_family.map(|value| value.value),
+                font_family: match font_family {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
                 font_series: font_series.map(|value| value.value),
                 font_shape: font_shape.map(|value| value.value),
-                letter_spacing: letter_spacing.map(|value| value.value),
-                word_spacing: word_spacing.map(|value| value.value),
+                letter_spacing: match letter_spacing {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
+                word_spacing: match word_spacing {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
                 text_decoration: text_decoration.map(|value| value.value),
                 text_decoration_color: text_decoration_color.map(|value| value.value),
                 text_decoration_thickness: text_decoration_thickness.map(|value| value.value),
@@ -5272,7 +5258,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             fill_rule_clear: fill_rule_clear.is_some(),
             stroke_clear: stroke_clear.is_some(),
             stroke_width_clear: stroke_width_clear.is_some(),
-            stroke_dasharray_clear: stroke_dasharray_clear.is_some(),
+            stroke_dasharray_clear: matches!(
+                stroke_dasharray.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
             stroke_dashoffset_clear: stroke_dashoffset_clear.is_some(),
             stroke_linecap_clear: stroke_linecap_clear.is_some(),
             stroke_linejoin_clear: stroke_linejoin_clear.is_some(),
@@ -5284,15 +5273,27 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             opacity_clear: opacity_clear.is_some(),
             fill_opacity_clear: fill_opacity_clear.is_some(),
             stroke_opacity_clear: stroke_opacity_clear.is_some(),
-            text_anchor_clear: text_anchor_clear.is_some(),
-            letter_spacing_clear: letter_spacing_clear.is_some(),
-            word_spacing_clear: word_spacing_clear.is_some(),
+            text_anchor_clear: matches!(
+                text_anchor.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
+            letter_spacing_clear: matches!(
+                letter_spacing.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
+            word_spacing_clear: matches!(
+                word_spacing.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
             text_decoration_clear: text_decoration_clear.is_some(),
             text_decoration_color_clear: text_decoration_color_clear.is_some(),
             text_decoration_thickness_clear: text_decoration_thickness_clear.is_some(),
             text_decoration_style_clear: text_decoration_style_clear.is_some(),
             font_size_clear: font_size_clear.is_some(),
-            font_family_clear: font_family_clear.is_some(),
+            font_family_clear: matches!(
+                font_family.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
             font_series_clear: font_series_clear.is_some(),
             font_shape_clear: font_shape_clear.is_some(),
             text_baseline_clear: text_baseline_clear.is_some(),
