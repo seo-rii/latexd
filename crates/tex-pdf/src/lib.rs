@@ -4075,8 +4075,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut stroke_linejoin: Option<SimpleSvgCascadeEntry<SimpleSvgStrokeLineJoin>> = None;
         let mut stroke_miterlimit: Option<SimpleSvgCascadeEntry<f32>> = None;
         let mut paint_order: Option<SimpleSvgCascadeEntry<SimpleSvgPaintOrder>> = None;
-        let mut color: Option<SimpleSvgCascadeValue<SimpleSvgResolvedColor>> = None;
-        let mut color_clear: Option<SimpleSvgCascadeValue<()>> = None;
+        let mut color: Option<SimpleSvgCascadeEntry<SimpleSvgResolvedColor>> = None;
         let mut display: Option<SimpleSvgCascadeEntry<bool>> = None;
         let mut visibility: Option<SimpleSvgCascadeEntry<bool>> = None;
         let mut opacity: Option<SimpleSvgCascadeValue<f32>> = None;
@@ -4346,26 +4345,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }
                 }
                 if rule.color_inherit_or_unset {
-                    let current = color
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| color_clear.map(|value| (value.specificity, value.order)));
+                    let current = color.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        color = None;
-                        color_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        color = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if let Some(value) = rule.presentation.color {
-                    let current = color
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| color_clear.map(|value| (value.specificity, value.order)));
+                    let current = color.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        color_clear = None;
-                        color = Some(SimpleSvgCascadeValue {
-                            value,
+                        color = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
@@ -5023,7 +5016,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }) => Some(value),
                     _ => None,
                 },
-                color: color.map(|value| value.value),
+                color: match color {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
                 display: match display {
                     Some(SimpleSvgCascadeEntry {
                         action: SimpleSvgCascadeAction::Value(value),
@@ -5208,7 +5207,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 paint_order.map(|value| value.action),
                 Some(SimpleSvgCascadeAction::Clear)
             ),
-            color_clear: color_clear.is_some(),
+            color_clear: matches!(
+                color.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
             display_clear: matches!(
                 display.map(|value| value.action),
                 Some(SimpleSvgCascadeAction::Clear)
