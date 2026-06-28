@@ -4065,12 +4065,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     })
                     .unwrap_or(true)
             };
-        let mut fill: Option<SimpleSvgCascadeValue<Option<SimpleSvgColor>>> = None;
-        let mut fill_clear: Option<SimpleSvgCascadeValue<()>> = None;
-        let mut fill_rule: Option<SimpleSvgCascadeValue<SimpleSvgFillRule>> = None;
-        let mut fill_rule_clear: Option<SimpleSvgCascadeValue<()>> = None;
-        let mut stroke: Option<SimpleSvgCascadeValue<Option<SimpleSvgColor>>> = None;
-        let mut stroke_clear: Option<SimpleSvgCascadeValue<()>> = None;
+        let mut fill: Option<SimpleSvgCascadeEntry<Option<SimpleSvgColor>>> = None;
+        let mut fill_rule: Option<SimpleSvgCascadeEntry<SimpleSvgFillRule>> = None;
+        let mut stroke: Option<SimpleSvgCascadeEntry<Option<SimpleSvgColor>>> = None;
         let mut stroke_width: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_width_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut stroke_dasharray: Option<SimpleSvgCascadeEntry<Option<SimpleSvgDashArray>>> = None;
@@ -4150,78 +4147,60 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             };
             if matches {
                 if rule.fill_inherit_or_unset {
-                    let current = fill
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| fill_clear.map(|value| (value.specificity, value.order)));
+                    let current = fill.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        fill = None;
-                        fill_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        fill = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if let Some(value) = rule.presentation.fill {
-                    let current = fill
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| fill_clear.map(|value| (value.specificity, value.order)));
+                    let current = fill.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        fill_clear = None;
-                        fill = Some(SimpleSvgCascadeValue {
-                            value,
+                        fill = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if rule.fill_rule_inherit_or_unset {
-                    let current = fill_rule
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| fill_rule_clear.map(|value| (value.specificity, value.order)));
+                    let current = fill_rule.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        fill_rule = None;
-                        fill_rule_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        fill_rule = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if let Some(value) = rule.presentation.fill_rule {
-                    let current = fill_rule
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| fill_rule_clear.map(|value| (value.specificity, value.order)));
+                    let current = fill_rule.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        fill_rule_clear = None;
-                        fill_rule = Some(SimpleSvgCascadeValue {
-                            value,
+                        fill_rule = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if rule.stroke_inherit_or_unset {
-                    let current = stroke
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| stroke_clear.map(|value| (value.specificity, value.order)));
+                    let current = stroke.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        stroke = None;
-                        stroke_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        stroke = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if let Some(value) = rule.presentation.stroke {
-                    let current = stroke
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| stroke_clear.map(|value| (value.specificity, value.order)));
+                    let current = stroke.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        stroke_clear = None;
-                        stroke = Some(SimpleSvgCascadeValue {
-                            value,
+                        stroke = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
@@ -5021,9 +5000,27 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         SimpleSvgStyleCascade {
             presentation: SimpleSvgPresentation {
-                fill: fill.map(|value| value.value),
-                fill_rule: fill_rule.map(|value| value.value),
-                stroke: stroke.map(|value| value.value),
+                fill: match fill {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
+                fill_rule: match fill_rule {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
+                stroke: match stroke {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
                 stroke_width: stroke_width.map(|value| value.value),
                 stroke_dasharray: match stroke_dasharray {
                     Some(SimpleSvgCascadeEntry {
@@ -5188,9 +5185,18 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     _ => None,
                 },
             },
-            fill_clear: fill_clear.is_some(),
-            fill_rule_clear: fill_rule_clear.is_some(),
-            stroke_clear: stroke_clear.is_some(),
+            fill_clear: matches!(
+                fill.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
+            fill_rule_clear: matches!(
+                fill_rule.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
+            stroke_clear: matches!(
+                stroke.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
             stroke_width_clear: stroke_width_clear.is_some(),
             stroke_dasharray_clear: matches!(
                 stroke_dasharray.map(|value| value.action),
