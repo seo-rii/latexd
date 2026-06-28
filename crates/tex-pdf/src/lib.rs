@@ -4068,11 +4068,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut fill: Option<SimpleSvgCascadeEntry<Option<SimpleSvgColor>>> = None;
         let mut fill_rule: Option<SimpleSvgCascadeEntry<SimpleSvgFillRule>> = None;
         let mut stroke: Option<SimpleSvgCascadeEntry<Option<SimpleSvgColor>>> = None;
-        let mut stroke_width: Option<SimpleSvgCascadeValue<f32>> = None;
-        let mut stroke_width_clear: Option<SimpleSvgCascadeValue<()>> = None;
+        let mut stroke_width: Option<SimpleSvgCascadeEntry<f32>> = None;
         let mut stroke_dasharray: Option<SimpleSvgCascadeEntry<Option<SimpleSvgDashArray>>> = None;
-        let mut stroke_dashoffset: Option<SimpleSvgCascadeValue<f32>> = None;
-        let mut stroke_dashoffset_clear: Option<SimpleSvgCascadeValue<()>> = None;
+        let mut stroke_dashoffset: Option<SimpleSvgCascadeEntry<f32>> = None;
         let mut stroke_linecap: Option<SimpleSvgCascadeEntry<SimpleSvgStrokeLineCap>> = None;
         let mut stroke_linejoin: Option<SimpleSvgCascadeEntry<SimpleSvgStrokeLineJoin>> = None;
         let mut stroke_miterlimit: Option<SimpleSvgCascadeEntry<f32>> = None;
@@ -4207,30 +4205,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }
                 }
                 if rule.stroke_width_inherit_or_unset {
-                    let current = stroke_width
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            stroke_width_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = stroke_width.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        stroke_width = None;
-                        stroke_width_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        stroke_width = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if let Some(value) = rule.presentation.stroke_width {
-                    let current = stroke_width
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            stroke_width_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = stroke_width.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        stroke_width_clear = None;
-                        stroke_width = Some(SimpleSvgCascadeValue {
-                            value,
+                        stroke_width = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
@@ -4257,30 +4245,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }
                 }
                 if rule.stroke_dashoffset_inherit_or_unset {
-                    let current = stroke_dashoffset
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            stroke_dashoffset_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = stroke_dashoffset.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        stroke_dashoffset = None;
-                        stroke_dashoffset_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        stroke_dashoffset = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if let Some(value) = rule.presentation.stroke_dashoffset {
-                    let current = stroke_dashoffset
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            stroke_dashoffset_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = stroke_dashoffset.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        stroke_dashoffset_clear = None;
-                        stroke_dashoffset = Some(SimpleSvgCascadeValue {
-                            value,
+                        stroke_dashoffset = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
@@ -5021,7 +4999,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }) => Some(value),
                     _ => None,
                 },
-                stroke_width: stroke_width.map(|value| value.value),
+                stroke_width: match stroke_width {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
                 stroke_dasharray: match stroke_dasharray {
                     Some(SimpleSvgCascadeEntry {
                         action: SimpleSvgCascadeAction::Value(value),
@@ -5029,7 +5013,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }) => Some(value),
                     _ => None,
                 },
-                stroke_dashoffset: stroke_dashoffset.map(|value| value.value),
+                stroke_dashoffset: match stroke_dashoffset {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
                 stroke_linecap: match stroke_linecap {
                     Some(SimpleSvgCascadeEntry {
                         action: SimpleSvgCascadeAction::Value(value),
@@ -5197,12 +5187,18 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 stroke.map(|value| value.action),
                 Some(SimpleSvgCascadeAction::Clear)
             ),
-            stroke_width_clear: stroke_width_clear.is_some(),
+            stroke_width_clear: matches!(
+                stroke_width.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
             stroke_dasharray_clear: matches!(
                 stroke_dasharray.map(|value| value.action),
                 Some(SimpleSvgCascadeAction::Clear)
             ),
-            stroke_dashoffset_clear: stroke_dashoffset_clear.is_some(),
+            stroke_dashoffset_clear: matches!(
+                stroke_dashoffset.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
             stroke_linecap_clear: matches!(
                 stroke_linecap.map(|value| value.action),
                 Some(SimpleSvgCascadeAction::Clear)
