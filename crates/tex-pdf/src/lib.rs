@@ -10695,9 +10695,10 @@ mod tests {
     use tex_layout::{LayoutOptions, layout_text};
     use tex_render_model::{
         Destination, DrawOp, ExpansionFrame, FontFamilyRequest, FontRequest, FontRole, FontSeries,
-        FontShape, GraphicAssetFormat, ImageCrop, ImageRotation, ImageScale, ImageTrim,
-        ImageViewport, LinkAnnotation, PageDisplayList, Point, PositionedImage, PositionedTextRun,
-        ProvenanceSpan, Rect, SourceProvenance, SourceSpan, SourceSpanRole, TextCluster,
+        FontShape, GraphicAssetFormat, GraphicPageSelection, ImageCrop, ImageRotation, ImageScale,
+        ImageTrim, ImageViewport, LinkAnnotation, PageDisplayList, Point, PositionedImage,
+        PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan, SourceSpanRole,
+        TextCluster,
     };
 
     use super::{
@@ -21309,6 +21310,82 @@ mod tests {
         assert!(svg.contains("data-image-converted-format=\"png\""));
         assert!(svg.contains("data-image-embedded=\"true\""));
         assert!(svg.contains("href=\"data:image/png,%89PNG"));
+        assert!(!svg.contains("[unsupported image: figures/vector.pdf]"));
+    }
+
+    #[test]
+    fn converted_pdf_asset_callbacks_receive_page_selection_metadata() {
+        let source = SourceProvenance::file("main.tex", 0, 10);
+        let expected_selection = GraphicPageSelection {
+            page: Some(3),
+            pagebox: Some("trimbox".to_string()),
+        };
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/vector.pdf".to_string(),
+                asset_format: Some(GraphicAssetFormat::Pdf),
+                page_selection: Some(expected_selection.clone()),
+                asset_hash: Some("blake3:vector-pdf".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source,
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+
+        let mut pdf_seen_selection = None;
+        let pdf = render_display_list_pdf_with_converted_assets(
+            &[page.clone()],
+            |asset_ref| (asset_ref == "figures/vector.pdf").then(|| b"%PDF-1.4".to_vec()),
+            |image, bytes| {
+                pdf_seen_selection = image.page_selection.clone();
+                (image.asset_ref == "figures/vector.pdf" && bytes.starts_with(b"%PDF")).then(|| {
+                    ConvertedImageAsset {
+                        bytes: tiny_png_bytes(),
+                        format: GraphicAssetFormat::Png,
+                    }
+                })
+            },
+        );
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        let mut svg_seen_selection = None;
+        let svg = render_display_list_svg_with_converted_assets(
+            &page,
+            |asset_ref| (asset_ref == "figures/vector.pdf").then(|| b"%PDF-1.4".to_vec()),
+            |image, bytes| {
+                svg_seen_selection = image.page_selection.clone();
+                (image.asset_ref == "figures/vector.pdf" && bytes.starts_with(b"%PDF")).then(|| {
+                    ConvertedImageAsset {
+                        bytes: tiny_png_bytes(),
+                        format: GraphicAssetFormat::Png,
+                    }
+                })
+            },
+        );
+
+        assert_eq!(pdf_seen_selection.as_ref(), Some(&expected_selection));
+        assert_eq!(svg_seen_selection.as_ref(), Some(&expected_selection));
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(!pdf_text.contains("[unsupported image: figures/vector.pdf]"));
+        assert!(svg.contains("data-image-page=\"3\""));
+        assert!(svg.contains("data-image-pagebox=\"trimbox\""));
+        assert!(svg.contains("data-image-converted-format=\"png\""));
+        assert!(svg.contains("data-image-embedded=\"true\""));
         assert!(!svg.contains("[unsupported image: figures/vector.pdf]"));
     }
 
