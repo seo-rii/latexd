@@ -4105,10 +4105,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut text_decoration_thickness: Option<SimpleSvgCascadeEntry<f32>> = None;
         let mut text_decoration_style: Option<SimpleSvgCascadeEntry<SimpleSvgTextDecorationStyle>> =
             None;
-        let mut text_baseline: Option<SimpleSvgCascadeValue<SimpleSvgTextBaseline>> = None;
-        let mut text_baseline_clear: Option<SimpleSvgCascadeValue<()>> = None;
-        let mut baseline_shift: Option<SimpleSvgCascadeValue<SimpleSvgBaselineShift>> = None;
-        let mut baseline_shift_clear: Option<SimpleSvgCascadeValue<()>> = None;
+        let mut text_baseline: Option<SimpleSvgCascadeEntry<SimpleSvgTextBaseline>> = None;
+        let mut baseline_shift: Option<SimpleSvgCascadeEntry<SimpleSvgBaselineShift>> = None;
         let mut vector_effect_non_scaling_stroke: Option<SimpleSvgCascadeValue<bool>> = None;
         let mut vector_effect_non_scaling_stroke_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut marker_start: Option<SimpleSvgCascadeValue<Option<u64>>> = None;
@@ -4855,15 +4853,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }
                 }
                 if rule.text_baseline_inherit_or_unset {
-                    let current = text_baseline
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            text_baseline_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = text_baseline.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        text_baseline = None;
-                        text_baseline_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        text_baseline = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
@@ -4874,30 +4867,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     .text_baseline
                     .filter(|_| !rule.text_baseline_inherit_or_unset)
                 {
-                    let current = text_baseline
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            text_baseline_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = text_baseline.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        text_baseline_clear = None;
-                        text_baseline = Some(SimpleSvgCascadeValue {
-                            value,
+                        text_baseline = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if rule.baseline_shift_inherit_or_unset {
-                    let current = baseline_shift
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            baseline_shift_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = baseline_shift.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        baseline_shift = None;
-                        baseline_shift_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        baseline_shift = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
@@ -4908,15 +4891,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     .baseline_shift
                     .filter(|_| !rule.baseline_shift_inherit_or_unset)
                 {
-                    let current = baseline_shift
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            baseline_shift_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = baseline_shift.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        baseline_shift_clear = None;
-                        baseline_shift = Some(SimpleSvgCascadeValue {
-                            value,
+                        baseline_shift = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
@@ -5203,8 +5181,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }) => Some(value),
                     _ => None,
                 },
-                text_baseline: text_baseline.map(|value| value.value),
-                baseline_shift: baseline_shift.map(|value| value.value),
+                text_baseline: match text_baseline {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
+                baseline_shift: match baseline_shift {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
                 vector_effect_non_scaling_stroke: vector_effect_non_scaling_stroke
                     .map(|value| value.value),
                 marker_start: marker_start.map(|value| value.value),
@@ -5284,8 +5274,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 font_shape.map(|value| value.action),
                 Some(SimpleSvgCascadeAction::Clear)
             ),
-            text_baseline_clear: text_baseline_clear.is_some(),
-            baseline_shift_clear: baseline_shift_clear.is_some(),
+            text_baseline_clear: matches!(
+                text_baseline.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
+            baseline_shift_clear: matches!(
+                baseline_shift.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
             vector_effect_non_scaling_stroke_clear: vector_effect_non_scaling_stroke_clear
                 .is_some(),
             marker_start_clear: marker_start_clear.is_some(),
