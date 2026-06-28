@@ -4094,13 +4094,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let mut stroke_opacity: Option<SimpleSvgCascadeValue<f32>> = None;
         let mut stroke_opacity_clear: Option<SimpleSvgCascadeValue<()>> = None;
         let mut text_anchor: Option<SimpleSvgCascadeEntry<SimpleSvgTextAnchor>> = None;
-        let mut font_size: Option<SimpleSvgCascadeValue<SimpleSvgFontSize>> = None;
-        let mut font_size_clear: Option<SimpleSvgCascadeValue<()>> = None;
+        let mut font_size: Option<SimpleSvgCascadeEntry<SimpleSvgFontSize>> = None;
         let mut font_family: Option<SimpleSvgCascadeEntry<SimpleSvgFontFamily>> = None;
-        let mut font_series: Option<SimpleSvgCascadeValue<FontSeries>> = None;
-        let mut font_series_clear: Option<SimpleSvgCascadeValue<()>> = None;
-        let mut font_shape: Option<SimpleSvgCascadeValue<FontShape>> = None;
-        let mut font_shape_clear: Option<SimpleSvgCascadeValue<()>> = None;
+        let mut font_series: Option<SimpleSvgCascadeEntry<FontSeries>> = None;
+        let mut font_shape: Option<SimpleSvgCascadeEntry<FontShape>> = None;
         let mut letter_spacing: Option<SimpleSvgCascadeEntry<f32>> = None;
         let mut word_spacing: Option<SimpleSvgCascadeEntry<f32>> = None;
         let mut text_decoration: Option<SimpleSvgCascadeValue<SimpleSvgTextDecoration>> = None;
@@ -4616,13 +4613,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }
                 }
                 if rule.font_size_inherit_or_unset {
-                    let current = font_size
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| font_size_clear.map(|value| (value.specificity, value.order)));
+                    let current = font_size.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        font_size = None;
-                        font_size_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        font_size = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
@@ -4633,13 +4627,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     .font_size
                     .filter(|_| !rule.font_size_inherit_or_unset)
                 {
-                    let current = font_size
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| font_size_clear.map(|value| (value.specificity, value.order)));
+                    let current = font_size.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        font_size_clear = None;
-                        font_size = Some(SimpleSvgCascadeValue {
-                            value,
+                        font_size = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
@@ -4670,15 +4661,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }
                 }
                 if rule.font_series_inherit_or_unset {
-                    let current = font_series
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            font_series_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = font_series.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        font_series = None;
-                        font_series_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        font_series = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
@@ -4689,28 +4675,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     .font_series
                     .filter(|_| !rule.font_series_inherit_or_unset)
                 {
-                    let current = font_series
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| {
-                            font_series_clear.map(|value| (value.specificity, value.order))
-                        });
+                    let current = font_series.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        font_series_clear = None;
-                        font_series = Some(SimpleSvgCascadeValue {
-                            value,
+                        font_series = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
                     }
                 }
                 if rule.font_shape_inherit_or_unset {
-                    let current = font_shape
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| font_shape_clear.map(|value| (value.specificity, value.order)));
+                    let current = font_shape.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        font_shape = None;
-                        font_shape_clear = Some(SimpleSvgCascadeValue {
-                            value: (),
+                        font_shape = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Clear,
                             specificity: rule.specificity,
                             order,
                         });
@@ -4721,13 +4699,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     .font_shape
                     .filter(|_| !rule.font_shape_inherit_or_unset)
                 {
-                    let current = font_shape
-                        .map(|value| (value.specificity, value.order))
-                        .or_else(|| font_shape_clear.map(|value| (value.specificity, value.order)));
+                    let current = font_shape.map(|value| (value.specificity, value.order));
                     if should_replace_cascade_value(current, rule.specificity, order) {
-                        font_shape_clear = None;
-                        font_shape = Some(SimpleSvgCascadeValue {
-                            value,
+                        font_shape = Some(SimpleSvgCascadeEntry {
+                            action: SimpleSvgCascadeAction::Value(value),
                             specificity: rule.specificity,
                             order,
                         });
@@ -5202,7 +5177,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }) => Some(value),
                     _ => None,
                 },
-                font_size: font_size.map(|value| value.value),
+                font_size: match font_size {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
                 font_family: match font_family {
                     Some(SimpleSvgCascadeEntry {
                         action: SimpleSvgCascadeAction::Value(value),
@@ -5210,8 +5191,20 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     }) => Some(value),
                     _ => None,
                 },
-                font_series: font_series.map(|value| value.value),
-                font_shape: font_shape.map(|value| value.value),
+                font_series: match font_series {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
+                font_shape: match font_shape {
+                    Some(SimpleSvgCascadeEntry {
+                        action: SimpleSvgCascadeAction::Value(value),
+                        ..
+                    }) => Some(value),
+                    _ => None,
+                },
                 letter_spacing: match letter_spacing {
                     Some(SimpleSvgCascadeEntry {
                         action: SimpleSvgCascadeAction::Value(value),
@@ -5283,13 +5276,22 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             text_decoration_color_clear: text_decoration_color_clear.is_some(),
             text_decoration_thickness_clear: text_decoration_thickness_clear.is_some(),
             text_decoration_style_clear: text_decoration_style_clear.is_some(),
-            font_size_clear: font_size_clear.is_some(),
+            font_size_clear: matches!(
+                font_size.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
             font_family_clear: matches!(
                 font_family.map(|value| value.action),
                 Some(SimpleSvgCascadeAction::Clear)
             ),
-            font_series_clear: font_series_clear.is_some(),
-            font_shape_clear: font_shape_clear.is_some(),
+            font_series_clear: matches!(
+                font_series.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
+            font_shape_clear: matches!(
+                font_shape.map(|value| value.action),
+                Some(SimpleSvgCascadeAction::Clear)
+            ),
             text_baseline_clear: text_baseline_clear.is_some(),
             baseline_shift_clear: baseline_shift_clear.is_some(),
             vector_effect_non_scaling_stroke_clear: vector_effect_non_scaling_stroke_clear
