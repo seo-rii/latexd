@@ -2651,6 +2651,83 @@ fn project_root_render_ir_capture_embeds_svg_assets_in_debug_artifacts() {
 }
 
 #[test]
+fn project_root_svg_vector_text_is_extractable_from_debug_pdf() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
+    fs::create_dir_all(root.join("figures").as_std_path()).expect("create figures dir");
+    fs::write(
+        root.join("main.tex").as_std_path(),
+        r"\begin{document}\includegraphics{figures/text.svg}\end{document}",
+    )
+    .expect("write source");
+    fs::write(
+        root.join("figures/text.svg").as_std_path(),
+        br#"<svg width="2in" height="1in" viewBox="0 0 200 100"><text x="10" y="40" font-size="12">VectorText</text></svg>"#,
+    )
+    .expect("write svg");
+
+    let capture =
+        capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
+            .expect("capture project render ir");
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/text.svg" => Some(image),
+            _ => None,
+        })
+        .expect("svg image op");
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+
+    assert_eq!(image.asset_format, Some(GraphicAssetFormat::Svg));
+    assert!(image.diagnostic.is_none(), "{:?}", image.diagnostic);
+    assert!(pdf_text.contains("(VectorText) Tj"), "{pdf_text}");
+    assert!(!pdf_text.contains("[unsupported image: figures/text.svg]"));
+    assert!(!pdf_text.contains("/Subtype /Image"));
+
+    let output_dir = root.join("render-artifacts");
+    let paths = capture
+        .write_debug_artifacts(&output_dir)
+        .expect("write debug artifacts");
+    let artifact_pdf = fs::read(&paths.display_list_pdf).expect("read display-list pdf");
+    let artifact_pdf_text = String::from_utf8_lossy(&artifact_pdf);
+    assert!(
+        artifact_pdf_text.contains("(VectorText) Tj"),
+        "{artifact_pdf_text}"
+    );
+
+    let display_list_svg =
+        fs::read_to_string(&paths.display_list_svgs[0]).expect("read display-list svg");
+    assert!(display_list_svg.contains("data-image-asset-ref=\"figures/text.svg\""));
+    assert!(display_list_svg.contains("data-image-asset-format=\"svg\""));
+    assert!(display_list_svg.contains("data-image-embedded=\"true\""));
+    assert!(display_list_svg.contains("href=\"data:image/svg+xml;charset=utf-8,%3Csvg"));
+    assert!(!display_list_svg.contains("[image: figures/text.svg]"));
+
+    let Ok(pdftotext) = which::which("pdftotext") else {
+        return;
+    };
+    let output = Command::new(pdftotext)
+        .args(["-layout", "-enc", "UTF-8"])
+        .arg(&paths.display_list_pdf.as_std_path())
+        .arg("-")
+        .output()
+        .expect("run pdftotext");
+
+    assert!(
+        output.status.success(),
+        "pdftotext failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let extracted_text = String::from_utf8_lossy(&output.stdout);
+    assert!(extracted_text.contains("VectorText"), "{extracted_text}");
+    assert!(
+        !extracted_text.contains("figures/text.svg"),
+        "{extracted_text}"
+    );
+}
+
+#[test]
 fn project_root_render_ir_capture_uses_png_natural_dimensions() {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
