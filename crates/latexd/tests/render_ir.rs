@@ -2699,6 +2699,9 @@ fn project_root_render_ir_capture_embeds_svg_assets_in_debug_artifacts() {
     assert!(display_list_svg.contains("data-image-asset-ref=\"figures/vector.svg\""));
     assert!(display_list_svg.contains("data-image-asset-format=\"svg\""));
     assert!(display_list_svg.contains("data-image-embedded=\"true\""));
+    assert!(display_list_svg.contains("data-source-kind=\"file\""));
+    assert!(display_list_svg.contains("data-source-path=\"main.tex\""));
+    assert!(display_list_svg.contains("data-source-related-roles=\""));
     assert!(display_list_svg.contains("<image "));
     assert!(display_list_svg.contains("href=\"data:image/svg+xml;charset=utf-8,%3Csvg"));
     assert!(!display_list_svg.contains("[image: figures/vector.svg]"));
@@ -4070,6 +4073,9 @@ fn project_root_pdf_page_option_affects_converted_debug_asset() {
     assert!(display_list_svg.contains("data-image-page=\"2\""));
     assert!(display_list_svg.contains("data-image-converted-format=\"png\""));
     assert!(display_list_svg.contains("data-image-embedded=\"true\""));
+    assert!(display_list_svg.contains("data-source-kind=\"file\""));
+    assert!(display_list_svg.contains("data-source-path=\"main.tex\""));
+    assert!(display_list_svg.contains("data-source-related-roles=\""));
     assert!(!display_list_svg.contains("[unsupported image: figures/multipage.pdf]"));
 }
 
