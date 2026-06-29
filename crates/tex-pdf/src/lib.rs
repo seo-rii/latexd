@@ -21590,6 +21590,57 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_inherit_fill_rule_as_parent_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/fill-rule-inherit.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:fill-rule-inherit".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/fill-rule-inherit.svg").then(|| {
+                br##"<svg width="20" height="10" fill-rule="evenodd">
+  <style type="text/css">
+    .solid { fill: #ff0000; stroke: none; fill-rule: nonzero; }
+  </style>
+  <path class="solid" style="fill-rule: inherit" d="M 0 0 H 10 V 10 H 0 Z M 2 2 H 8 V 8 H 2 Z"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains(
+            "1 0 0 rg 10 280 m 110 280 l 110 180 l 10 180 l h 30 260 m 90 260 l 90 200 l 30 200 l h f*"
+        ));
+        assert!(!pdf_text.contains(
+            "1 0 0 rg 10 280 m 110 280 l 110 180 l 10 180 l h 30 260 m 90 260 l 90 200 l 30 200 l h f "
+        ));
+        assert!(!pdf_text.contains("[unsupported image: figures/fill-rule-inherit.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_unset_fill_rule_as_inherited_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
@@ -21638,6 +21689,58 @@ mod tests {
             "1 0 0 rg 10 280 m 110 280 l 110 180 l 10 180 l h 30 260 m 90 260 l 90 200 l 30 200 l h f "
         ));
         assert!(!pdf_text.contains("[unsupported image: figures/fill-rule-rule-unset.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_inherit_fill_rule_as_parent_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/fill-rule-rule-inherit.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:fill-rule-rule-inherit".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/fill-rule-rule-inherit.svg").then(|| {
+                br##"<svg width="20" height="10" fill-rule="evenodd">
+  <style type="text/css">
+    .solid { fill: #ff0000; stroke: none; fill-rule: nonzero; }
+    path.solid { fill-rule: inherit; }
+  </style>
+  <path class="solid" d="M 0 0 H 10 V 10 H 0 Z M 2 2 H 8 V 8 H 2 Z"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains(
+            "1 0 0 rg 10 280 m 110 280 l 110 180 l 10 180 l h 30 260 m 90 260 l 90 200 l 30 200 l h f*"
+        ));
+        assert!(!pdf_text.contains(
+            "1 0 0 rg 10 280 m 110 280 l 110 180 l 10 180 l h 30 260 m 90 260 l 90 200 l 30 200 l h f "
+        ));
+        assert!(!pdf_text.contains("[unsupported image: figures/fill-rule-rule-inherit.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
