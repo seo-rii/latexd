@@ -19095,6 +19095,58 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_style_rule_initial_display_as_visible_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/display-rule-initial.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:display-rule-initial".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/display-rule-initial.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .hidden-by-css { display: none; }
+    .visible-by-reset { display: initial; }
+  </style>
+  <rect class="hidden-by-css" x="1" y="1" width="2" height="2" fill="#ff0000"/>
+  <rect class="hidden-by-css visible-by-reset" x="4" y="1" width="2" height="2" fill="#0000ff"/>
+  <text x="1" y="8" fill="#000000"><tspan class="hidden-by-css">hidden</tspan><tspan class="hidden-by-css visible-by-reset">Shown</tspan></text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(!pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 rg 50 250 20 20 re f"));
+        assert!(!pdf_text.contains("(hidden)"));
+        assert!(pdf_text.contains("(Shown) Tj"));
+        assert!(!pdf_text.contains("[unsupported image: figures/display-rule-initial.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_unset_display_as_visible_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
