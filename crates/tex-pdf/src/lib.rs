@@ -11913,6 +11913,57 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_inherit_font_as_parent_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/font-inherit-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:font-inherit-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/font-inherit-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    tspan.hot { font-family: "Courier New", monospace; font-weight: normal; font-style: normal; font-size: 2; }
+  </style>
+  <text x="2" y="6" fill="#000000" font-family="Arial" font-weight="bold" font-style="italic" font-size="4">
+    <tspan class="hot" style="font-family: inherit; font-weight: inherit; font-style: inherit; font-size: inherit">FONT</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(
+            pdf_text.contains("0 0 0 rg BT /F8 28.800001 Tf 1 0 0 1 86.4 670.8 Tm (FONT) Tj ET")
+        );
+        assert!(!pdf_text.contains("/F9 14.400001 Tf"));
+        assert!(!pdf_text.contains("[unsupported image: figures/font-inherit-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_unset_font_as_inherited_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
@@ -11961,6 +12012,58 @@ mod tests {
         );
         assert!(!pdf_text.contains("/F9 14.400001 Tf"));
         assert!(!pdf_text.contains("[unsupported image: figures/font-rule-unset-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_inherit_font_as_parent_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/font-rule-inherit-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:font-rule-inherit-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/font-rule-inherit-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    tspan.hot { font-family: "Courier New", monospace; font-weight: normal; font-style: normal; font-size: 2; }
+    tspan.hot.reset { font-family: inherit; font-weight: inherit; font-style: inherit; font-size: inherit; }
+  </style>
+  <text x="2" y="6" fill="#000000" font-family="Arial" font-weight="bold" font-style="italic" font-size="4">
+    <tspan class="hot reset">FONT</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(
+            pdf_text.contains("0 0 0 rg BT /F8 28.800001 Tf 1 0 0 1 86.4 670.8 Tm (FONT) Tj ET")
+        );
+        assert!(!pdf_text.contains("/F9 14.400001 Tf"));
+        assert!(!pdf_text.contains("[unsupported image: figures/font-rule-inherit-style.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
