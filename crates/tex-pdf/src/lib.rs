@@ -16045,6 +16045,112 @@ mod tests {
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
+    fn simple_svg_marker_reference_page(asset_ref: &str, asset_hash: &str) -> PageDisplayList {
+        PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: asset_ref.to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some(asset_hash.to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        }
+    }
+
+    #[test]
+    fn treats_simple_svg_inline_inherit_marker_parts_as_parent_presentation() {
+        let page = simple_svg_marker_reference_page(
+            "figures/marker-parts-inline-inherit.svg",
+            "blake3:marker-parts-inline-inherit",
+        );
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/marker-parts-inline-inherit.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .marked { marker-start: url(#tick); marker-mid: url(#tick); marker-end: url(#tick); }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+    <marker id="tick" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 4" fill="none" stroke="#00ff00" stroke-width="1"/>
+    </marker>
+  </defs>
+  <g marker-start="url(#arrow)" marker-mid="url(#arrow)" marker-end="url(#arrow)">
+    <polyline class="marked" points="2,5 10,5 18,5" fill="none" stroke="#0000ff" stroke-width="0.5" style="marker-start: inherit; marker-mid: inherit; marker-end: inherit"/>
+  </g>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 110 230 l 190 230 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 10 240 m 30 230 l 10 220 l h f"));
+        assert!(pdf_text.contains("1 0 0 rg 90 240 m 110 230 l 90 220 l h f"));
+        assert!(pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
+        assert!(!pdf_text.contains("0 1 0 RG"));
+        assert!(!pdf_text.contains("[unsupported image: figures/marker-parts-inline-inherit.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_unset_marker_parts_as_inherited_presentation() {
+        let page = simple_svg_marker_reference_page(
+            "figures/marker-parts-rule-unset.svg",
+            "blake3:marker-parts-rule-unset",
+        );
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/marker-parts-rule-unset.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .marked { marker-start: url(#tick); marker-mid: url(#tick); marker-end: url(#tick); }
+    polyline.marked { marker-start: unset; marker-mid: unset; marker-end: unset; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+    <marker id="tick" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 4" fill="none" stroke="#00ff00" stroke-width="1"/>
+    </marker>
+  </defs>
+  <g marker-start="url(#arrow)" marker-mid="url(#arrow)" marker-end="url(#arrow)">
+    <polyline class="marked" points="2,5 10,5 18,5" fill="none" stroke="#0000ff" stroke-width="0.5"/>
+  </g>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 110 230 l 190 230 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 10 240 m 30 230 l 10 220 l h f"));
+        assert!(pdf_text.contains("1 0 0 rg 90 240 m 110 230 l 90 220 l h f"));
+        assert!(pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
+        assert!(!pdf_text.contains("0 1 0 RG"));
+        assert!(!pdf_text.contains("[unsupported image: figures/marker-parts-rule-unset.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
     #[test]
     fn renders_simple_svg_poly_path_marker_shorthand_as_pdf_vector_content() {
         let page = PageDisplayList {
