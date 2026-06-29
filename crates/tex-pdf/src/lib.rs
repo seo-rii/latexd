@@ -14393,6 +14393,54 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_inherit_paint_order_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/paint-order-inherit.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:paint-order-inherit".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/paint-order-inherit.svg").then(|| {
+                br##"<svg width="20" height="10" paint-order="stroke fill">
+  <style type="text/css">
+    .normal { paint-order: normal; fill: #ff0000; stroke: #0000ff; stroke-width: 1; }
+  </style>
+  <rect class="normal" x="2" y="2" width="4" height="4" style="paint-order: inherit"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        let rect_stroke_index = pdf_text.find("0 0 1 RG").unwrap();
+        let rect_fill_index = pdf_text.find("1 0 0 rg").unwrap();
+        assert!(rect_stroke_index < rect_fill_index);
+        assert!(!pdf_text.contains("[unsupported image: figures/paint-order-inherit.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_unset_paint_order_as_inherited_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
@@ -14438,6 +14486,55 @@ mod tests {
         let rect_fill_index = pdf_text.find("1 0 0 rg").unwrap();
         assert!(rect_stroke_index < rect_fill_index);
         assert!(!pdf_text.contains("[unsupported image: figures/paint-order-rule-unset.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_inherit_paint_order_as_inherited_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/paint-order-rule-inherit.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:paint-order-rule-inherit".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/paint-order-rule-inherit.svg").then(|| {
+                br##"<svg width="20" height="10" paint-order="stroke fill">
+  <style type="text/css">
+    rect.normal { paint-order: normal; fill: #ff0000; stroke: #0000ff; stroke-width: 1; }
+    rect.reset { paint-order: inherit; }
+  </style>
+  <rect class="normal reset" x="2" y="2" width="4" height="4"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        let rect_stroke_index = pdf_text.find("0 0 1 RG").unwrap();
+        let rect_fill_index = pdf_text.find("1 0 0 rg").unwrap();
+        assert!(rect_stroke_index < rect_fill_index);
+        assert!(!pdf_text.contains("[unsupported image: figures/paint-order-rule-inherit.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
