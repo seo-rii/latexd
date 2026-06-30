@@ -21762,6 +21762,55 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_style_rule_initial_paint_opacity_as_initial_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/opacity-rule-initial.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:opacity-rule-initial".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/opacity-rule-initial.svg").then(|| {
+                br##"<svg width="20" height="10" fill-opacity="0.75" stroke-opacity="0.5">
+  <style type="text/css">
+    .dim { opacity: 0.25; fill-opacity: 0.25; stroke-opacity: 0.25; }
+    rect.reset { opacity: initial; fill-opacity: initial; stroke-opacity: initial; }
+  </style>
+  <rect class="dim reset" x="1" y="1" width="2" height="2" fill="#ff0000" stroke="#0000ff" stroke-width="1"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 RG 10 w 20 250 20 20 re S"));
+        assert!(!pdf_text.contains("/ExtGState <<"));
+        assert!(!pdf_text.contains("[unsupported image: figures/opacity-rule-initial.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_clear_paint_opacity_as_attr_override() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
