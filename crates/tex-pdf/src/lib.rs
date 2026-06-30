@@ -23004,6 +23004,57 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_later_unset_paint_opacity_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/opacity-inline-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:opacity-inline-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/opacity-inline-order.svg").then(|| {
+                br##"<svg width="20" height="10" opacity="0.5" fill-opacity="0.75" stroke-opacity="0.5">
+  <style type="text/css">
+    .dim { opacity: 0.25; fill-opacity: 0.25; stroke-opacity: 0.25; }
+  </style>
+  <rect class="dim" x="1" y="1" width="2" height="2" fill="#ff0000" stroke="#0000ff" stroke-width="1" style="opacity: 0.25; opacity: unset; fill-opacity: 0.25; fill-opacity: unset; stroke-opacity: 0.25; stroke-opacity: unset"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/GS375 << /Type /ExtGState /ca 0.375 /CA 0.375 >>"));
+        assert!(pdf_text.contains("/GS250 << /Type /ExtGState /ca 0.25 /CA 0.25 >>"));
+        assert!(pdf_text.contains("q /GS375 gs 1 0 0 rg 20 250 20 20 re f Q"));
+        assert!(pdf_text.contains("q /GS250 gs 0 0 1 RG 10 w 20 250 20 20 re S Q"));
+        assert!(!pdf_text.contains("/GS31 << /Type /ExtGState /ca 0.031 /CA 0.031 >>"));
+        assert!(!pdf_text.contains("/GS63 << /Type /ExtGState /ca 0.063 /CA 0.063 >>"));
+        assert!(!pdf_text.contains("[unsupported image: figures/opacity-inline-order.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_inline_inherit_fill_and_stroke_opacity_as_inherited_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
