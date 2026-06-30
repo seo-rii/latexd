@@ -24449,6 +24449,54 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_initial_stroke_width_as_initial_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/stroke-width-initial.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:stroke-width-initial".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/stroke-width-initial.svg").then(|| {
+                br##"<svg width="20" height="10" stroke-width="2">
+  <style type="text/css">
+    .wide { stroke: #ff0000; stroke-width: 3; fill: none; }
+  </style>
+  <line class="wide" x1="0" y1="1" x2="5" y2="1" style="stroke-width: initial"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 RG 10 w 10 270 m 60 270 l S"));
+        assert!(!pdf_text.contains("1 0 0 RG 20 w 10 270 m 60 270 l S"));
+        assert!(!pdf_text.contains("1 0 0 RG 30 w 10 270 m 60 270 l S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/stroke-width-initial.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_unset_stroke_width_as_inherited_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
