@@ -15657,6 +15657,62 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_style_rule_clear_dominant_baseline_as_attr_override() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/dominant-baseline-rule-clear-attr.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:dominant-baseline-rule-clear-attr".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/dominant-baseline-rule-clear-attr.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    tspan { dominant-baseline: inherit; baseline-shift: inherit; fill: #000000; }
+    tspan.reset { dominant-baseline: unset; baseline-shift: unset; }
+  </style>
+  <text x="10" y="6" font-size="2" fill="#000000" dominant-baseline="middle" baseline-shift="0.5">
+    <tspan x="10" y="6" dominant-baseline="baseline" baseline-shift="-1">B</tspan>
+    <tspan class="reset" x="10" y="7" dominant-baseline="baseline" baseline-shift="-1">C</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 667.2 Tm (B) Tj ET"));
+        assert!(pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 660 Tm (C) Tj ET"));
+        assert!(!pdf_text.contains("1 0 0 1 144 663.6 Tm (B) Tj"));
+        assert!(!pdf_text.contains("1 0 0 1 144 656.4 Tm (C) Tj"));
+        assert!(
+            !pdf_text
+                .contains("[unsupported image: figures/dominant-baseline-rule-clear-attr.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_clear_text_baseline_as_attr_override() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
