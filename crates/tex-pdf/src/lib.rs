@@ -17369,6 +17369,46 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_later_marker_shorthand_declaration_as_winning_declaration() {
+        let page = simple_svg_marker_reference_page(
+            "figures/marker-shorthand-inline-order.svg",
+            "blake3:marker-shorthand-inline-order",
+        );
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/marker-shorthand-inline-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+    <marker id="tick" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 4" fill="none" stroke="#00ff00" stroke-width="1"/>
+    </marker>
+  </defs>
+  <g marker="url(#arrow)">
+    <polyline points="2,3 10,3 18,3" fill="none" stroke="#0000ff" stroke-width="0.5" style="marker: url(#tick); marker: unset"/>
+    <polyline points="2,7 10,7 18,7" fill="none" stroke="#0000ff" stroke-width="0.5" style="marker: unset; marker: url(#tick)"/>
+  </g>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 250 m 110 250 l 190 250 l S"));
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 210 m 110 210 l 190 210 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 10 260 m 30 250 l 10 240 l h f"));
+        assert!(pdf_text.contains("1 0 0 rg 90 260 m 110 250 l 90 240 l h f"));
+        assert!(pdf_text.contains("1 0 0 rg 170 260 m 190 250 l 170 240 l h f"));
+        assert!(!pdf_text.contains("1 0 0 rg 10 220 m 30 210 l 10 200 l h f"));
+        assert!(pdf_text.contains("0 1 0 RG"));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/marker-shorthand-inline-order.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_unset_marker_shorthand_as_inherited_presentation() {
         let page = simple_svg_marker_reference_page(
             "figures/marker-shorthand-rule-unset.svg",
