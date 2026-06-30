@@ -20943,6 +20943,61 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_later_unset_display_and_visibility_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/display-visibility-inline-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:display-visibility-inline-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/display-visibility-inline-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .display-hidden { display: none; fill: #ff0000; }
+    .visibility-hidden { visibility: hidden; fill: #0000ff; }
+  </style>
+  <rect class="display-hidden" x="1" y="1" width="2" height="2" style="display: none; display: unset"/>
+  <rect class="visibility-hidden" x="4" y="1" width="2" height="2" style="visibility: hidden; visibility: unset"/>
+  <rect x="7" y="1" width="2" height="2" fill="#00ff00" style="display: none"/>
+  <rect x="10" y="1" width="2" height="2" fill="#00ffff" style="visibility: hidden"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 rg 50 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 1 0 rg 80 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 1 1 rg 110 250 20 20 re f"));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/display-visibility-inline-order.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_initial_display_as_visible_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
