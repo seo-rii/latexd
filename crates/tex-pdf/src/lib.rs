@@ -22579,6 +22579,60 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_style_rule_initial_stroke_line_styles_as_initial_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/stroke-line-style-rule-initial.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:stroke-line-style-rule-initial".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/stroke-line-style-rule-initial.svg").then(|| {
+                br##"<svg width="20" height="10" stroke-linecap="round" stroke-linejoin="bevel" stroke-miterlimit="7">
+  <style type="text/css">
+    .styled { stroke: #ff0000; stroke-width: 1; fill: none; stroke-linecap: square; stroke-linejoin: round; stroke-miterlimit: 2; }
+    line.styled { stroke-linecap: initial; stroke-linejoin: initial; stroke-miterlimit: initial; }
+  </style>
+  <line class="styled" x1="0" y1="1" x2="5" y2="1"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q 4 M 1 0 0 RG 10 w 10 270 m 60 270 l S Q"));
+        assert!(!pdf_text.contains("1 J"));
+        assert!(!pdf_text.contains("1 j"));
+        assert!(!pdf_text.contains("2 j"));
+        assert!(!pdf_text.contains("7 M"));
+        assert!(!pdf_text.contains("2 M"));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/stroke-line-style-rule-initial.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_clear_stroke_line_styles_as_attr_override() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
