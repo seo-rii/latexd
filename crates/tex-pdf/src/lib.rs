@@ -15928,6 +15928,59 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_style_rule_initial_marker_reference_as_no_marker() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/marker-rule-initial.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:marker-rule-initial".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/marker-rule-initial.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .marked { marker-end: url(#arrow); }
+    line.marked { marker-end: initial; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+  </defs>
+  <line class="marked" x1="2" y1="5" x2="18" y2="5" stroke="#0000ff" stroke-width="0.5"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 190 230 l S"));
+        assert!(!pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/marker-rule-initial.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_inherit_marker_reference_as_parent_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
