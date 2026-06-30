@@ -15686,6 +15686,58 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_later_text_baseline_declaration_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-baseline-inline-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-baseline-inline-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-baseline-inline-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    tspan.flat { alignment-baseline: baseline; baseline-shift: -1; fill: #000000; }
+  </style>
+  <text x="10" y="6" font-size="2" fill="#000000" dominant-baseline="middle" baseline-shift="0.5">
+    <tspan class="flat" x="10" y="6" style="alignment-baseline: baseline; alignment-baseline: unset; baseline-shift: -1; baseline-shift: unset">U</tspan>
+    <tspan class="flat" x="10" y="7" style="alignment-baseline: unset; alignment-baseline: baseline; baseline-shift: unset; baseline-shift: -1">B</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 667.2 Tm (U) Tj ET"));
+        assert!(pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 656.4 Tm (B) Tj ET"));
+        assert!(!pdf_text.contains("1 0 0 1 144 663.6 Tm (U) Tj"));
+        assert!(!pdf_text.contains("1 0 0 1 144 660 Tm (B) Tj"));
+        assert!(!pdf_text.contains("[unsupported image: figures/text-baseline-inline-order.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_unset_text_baseline_as_inherited_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
