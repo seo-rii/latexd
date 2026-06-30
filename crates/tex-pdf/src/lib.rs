@@ -14713,6 +14713,55 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_style_rule_initial_paint_order_as_normal_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/paint-order-rule-initial.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:paint-order-rule-initial".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/paint-order-rule-initial.svg").then(|| {
+                br##"<svg width="20" height="10" paint-order="stroke fill">
+  <style type="text/css">
+    rect.normal { paint-order: stroke fill; fill: #ff0000; stroke: #0000ff; stroke-width: 1; }
+    rect.reset { paint-order: initial; }
+  </style>
+  <rect class="normal reset" x="2" y="2" width="4" height="4"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        let rect_fill_index = pdf_text.find("1 0 0 rg").unwrap();
+        let rect_stroke_index = pdf_text.find("0 0 1 RG").unwrap();
+        assert!(rect_fill_index < rect_stroke_index);
+        assert!(!pdf_text.contains("[unsupported image: figures/paint-order-rule-initial.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_clear_paint_order_as_attr_override() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
