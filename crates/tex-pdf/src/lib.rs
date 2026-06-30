@@ -13690,6 +13690,62 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_unset_text_decoration_as_initial_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-decoration-inline-unset.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-decoration-inline-unset".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-decoration-inline-unset.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .decorated { text-decoration: underline; text-decoration-color: #0000ff; text-decoration-thickness: 0.5; text-decoration-style: dashed; fill: #ff0000; color: #00ff00; font-size: 2; }
+  </style>
+  <text class="decorated" x="2" y="6">
+    <tspan style="text-decoration-color: unset; text-decoration-thickness: unset; text-decoration-style: unset">UC</tspan>
+    <tspan x="2" y="8" style="text-decoration: unset">NO</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("(UC) Tj ET"));
+        assert!(pdf_text.contains("(NO) Tj ET"));
+        assert!(pdf_text.contains("0 1 0 RG 0.72 w"));
+        assert_eq!(pdf_text.matches(" l S Q").count(), 1);
+        assert!(!pdf_text.contains("0 0 1 RG 3.6000001 w"));
+        assert!(!pdf_text.contains("[7.2000003 7.2000003]"));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/text-decoration-inline-unset.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_initial_text_decoration_as_initial_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
