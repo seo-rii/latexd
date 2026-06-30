@@ -24813,6 +24813,55 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_later_unset_stroke_metrics_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/stroke-metrics-inline-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:stroke-metrics-inline-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/stroke-metrics-inline-order.svg").then(|| {
+                br##"<svg width="20" height="10" stroke-width="1" stroke-dasharray="2 1" stroke-dashoffset="0.5">
+  <style type="text/css">
+    .wide { stroke: #ff0000; stroke-width: 3; fill: none; stroke-dashoffset: 0.25; }
+  </style>
+  <line class="wide" x1="0" y1="1" x2="5" y2="1" style="stroke-width: 4; stroke-width: unset; stroke-dashoffset: 0.75; stroke-dashoffset: unset"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q [20 10] 5 d 4 M 1 0 0 RG 10 w 10 270 m 60 270 l S Q"));
+        assert!(!pdf_text.contains("[20 10] 7.5 d"));
+        assert!(!pdf_text.contains("[20 10] 2.5 d"));
+        assert!(!pdf_text.contains("1 0 0 RG 40 w 10 270 m 60 270 l S"));
+        assert!(!pdf_text.contains("[unsupported image: figures/stroke-metrics-inline-order.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_inline_inherit_stroke_width_as_inherited_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
