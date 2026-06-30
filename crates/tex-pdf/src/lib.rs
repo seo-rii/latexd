@@ -17685,6 +17685,41 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_later_marker_parts_declaration_as_winning_declaration() {
+        let page = simple_svg_marker_reference_page(
+            "figures/marker-parts-inline-order.svg",
+            "blake3:marker-parts-inline-order",
+        );
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/marker-parts-inline-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <marker id="arrow" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 2 L 0 4 Z" fill="#ff0000"/>
+    </marker>
+    <marker id="tick" viewBox="0 0 4 4" refX="4" refY="2" markerWidth="4" markerHeight="4" orient="auto">
+      <path d="M 0 0 L 4 4" fill="none" stroke="#00ff00" stroke-width="1"/>
+    </marker>
+  </defs>
+  <g marker-start="url(#arrow)" marker-mid="url(#arrow)" marker-end="url(#arrow)">
+    <polyline points="2,5 10,5 18,5" fill="none" stroke="#0000ff" stroke-width="0.5" style="marker-start: url(#tick); marker-start: unset; marker-mid: unset; marker-mid: url(#tick); marker-end: url(#tick); marker-end: unset"/>
+  </g>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 RG 5 w 30 230 m 110 230 l 190 230 l S"));
+        assert!(pdf_text.contains("1 0 0 rg 10 240 m 30 230 l 10 220 l h f"));
+        assert!(!pdf_text.contains("1 0 0 rg 90 240 m 110 230 l 90 220 l h f"));
+        assert!(pdf_text.contains("1 0 0 rg 170 240 m 190 230 l 170 220 l h f"));
+        assert!(pdf_text.contains("0 1 0 RG"));
+        assert!(!pdf_text.contains("[unsupported image: figures/marker-parts-inline-order.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_initial_marker_parts_as_no_marker() {
         let page = simple_svg_marker_reference_page(
             "figures/marker-parts-rule-initial.svg",
