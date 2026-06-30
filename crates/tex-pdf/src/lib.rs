@@ -22555,6 +22555,64 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_later_paint_declaration_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/paint-inline-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:paint-inline-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/paint-inline-order.svg").then(|| {
+                br##"<svg width="20" height="10" fill="#00ff00" stroke="#0000ff" stroke-width="1" color="#00ffff">
+  <style type="text/css">
+    .painted { fill: #ff0000; stroke: #ff0000; color: #ff0000; }
+  </style>
+  <rect class="painted" x="1" y="1" width="2" height="2" style="fill: #0000ff; fill: unset; stroke: none"/>
+  <rect class="painted" x="4" y="1" width="2" height="2" style="fill: unset; fill: #0000ff; stroke: none"/>
+  <line class="painted" x1="0" y1="2" x2="5" y2="2" fill="none" style="stroke: #00ffff; stroke: unset"/>
+  <line class="painted" x1="0" y1="4" x2="5" y2="4" fill="none" style="stroke: unset; stroke: #00ffff"/>
+  <rect class="painted" x="7" y="1" width="2" height="2" style="fill: currentColor; color: #ff00ff; color: unset; stroke: none"/>
+  <rect class="painted" x="10" y="1" width="2" height="2" style="fill: currentColor; color: unset; color: #ff00ff; stroke: none"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 rg 50 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 RG 10 w 10 260 m 60 260 l S"));
+        assert!(pdf_text.contains("0 1 1 RG 10 w 10 240 m 60 240 l S"));
+        assert!(pdf_text.contains("0 1 1 rg 80 250 20 20 re f"));
+        assert!(pdf_text.contains("1 0 1 rg 110 250 20 20 re f"));
+        assert!(!pdf_text.contains("1 0 0 rg"));
+        assert!(!pdf_text.contains("1 0 0 RG"));
+        assert!(!pdf_text.contains("[unsupported image: figures/paint-inline-order.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_unset_paint_as_inherited_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
