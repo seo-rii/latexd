@@ -15347,6 +15347,58 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_style_rule_initial_dominant_baseline_as_initial_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/dominant-baseline-rule-initial.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:dominant-baseline-rule-initial".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/dominant-baseline-rule-initial.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    tspan.flat { dominant-baseline: middle; baseline-shift: -1; fill: #000000; }
+    tspan.reset { dominant-baseline: initial; baseline-shift: initial; }
+  </style>
+  <text x="10" y="6" font-size="2" fill="#000000" dominant-baseline="middle" baseline-shift="0.5">
+    <tspan class="flat reset" x="10" y="6">B</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 670.8 Tm (B) Tj ET"));
+        assert!(!pdf_text.contains("1 0 0 1 144 667.2 Tm (B) Tj"));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/dominant-baseline-rule-initial.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_clear_text_baseline_as_attr_override() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
