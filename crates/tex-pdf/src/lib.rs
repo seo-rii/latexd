@@ -20493,6 +20493,54 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_initial_visibility_as_visible_presentation() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/visibility-initial-cascade.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:visibility-initial-cascade".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/visibility-initial-cascade.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .hidden-by-css { visibility: hidden; }
+  </style>
+  <rect class="hidden-by-css" x="1" y="1" width="2" height="2" fill="#ff0000"/>
+  <rect class="hidden-by-css" x="4" y="1" width="2" height="2" fill="#0000ff" style="visibility: initial"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(!pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 rg 50 250 20 20 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/visibility-initial-cascade.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_unset_visibility_as_inherited_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
