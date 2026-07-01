@@ -15142,6 +15142,66 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_style_rule_later_unset_text_decoration_parts_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-decoration-parts-rule-unset-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-decoration-parts-rule-unset-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-decoration-parts-rule-unset-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .decorated { text-decoration: underline; fill: #ff0000; color: #00ff00; font-size: 2; }
+    tspan.reset { text-decoration-color: #0000ff; text-decoration-color: unset; text-decoration-thickness: 0.5; text-decoration-thickness: unset; text-decoration-style: dashed; text-decoration-style: unset; }
+    tspan.local { text-decoration-color: unset; text-decoration-color: #0000ff; text-decoration-thickness: unset; text-decoration-thickness: 0.5; text-decoration-style: unset; text-decoration-style: dashed; }
+  </style>
+  <text class="decorated" x="2" y="6">
+    <tspan class="reset">RS</tspan>
+    <tspan class="local" x="2" y="8">LS</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("(RS) Tj ET"));
+        assert!(pdf_text.contains("(LS) Tj ET"));
+        assert!(pdf_text.contains("0 1 0 RG 0.72 w"));
+        assert!(pdf_text.contains("0 0 1 RG 3.6000001 w"));
+        assert!(pdf_text.contains("[7.2000003 7.2000003]"));
+        assert_eq!(pdf_text.matches(" l S Q").count(), 2);
+        assert!(
+            !pdf_text.contains(
+                "[unsupported image: figures/text-decoration-parts-rule-unset-order.svg]"
+            )
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_clear_text_decoration_parts_as_attr_override() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
