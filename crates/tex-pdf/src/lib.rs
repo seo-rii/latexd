@@ -25438,6 +25438,59 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_later_initial_paint_opacity_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/paint-opacity-inline-initial-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:paint-opacity-inline-initial-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/paint-opacity-inline-initial-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <rect x="1" y="1" width="2" height="2" fill="#ff0000" stroke="#0000ff" stroke-width="1" style="opacity: 0.5; opacity: initial; fill-opacity: 0.5; fill-opacity: initial; stroke-opacity: 0.5; stroke-opacity: initial"/>
+  <rect x="4" y="1" width="2" height="2" fill="#00ff00" stroke="#ff00ff" stroke-width="1" style="opacity: initial; opacity: 0.5; fill-opacity: initial; fill-opacity: 0.5; stroke-opacity: initial; stroke-opacity: 0.5"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 RG 10 w 20 250 20 20 re S"));
+        assert!(pdf_text.contains("/GS250 << /Type /ExtGState /ca 0.25 /CA 0.25 >>"));
+        assert!(pdf_text.contains("q /GS250 gs 0 1 0 rg 50 250 20 20 re f Q"));
+        assert!(pdf_text.contains("q /GS250 gs 1 0 1 RG 10 w 50 250 20 20 re S Q"));
+        assert!(!pdf_text.contains("q /GS250 gs 1 0 0 rg 20 250 20 20 re f Q"));
+        assert!(!pdf_text.contains("q /GS250 gs 0 0 1 RG 10 w 20 250 20 20 re S Q"));
+        assert!(
+            !pdf_text
+                .contains("[unsupported image: figures/paint-opacity-inline-initial-order.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_later_unset_paint_opacity_as_winning_declaration() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
@@ -25486,6 +25539,62 @@ mod tests {
         assert!(!pdf_text.contains("/GS31 << /Type /ExtGState /ca 0.031 /CA 0.031 >>"));
         assert!(!pdf_text.contains("/GS63 << /Type /ExtGState /ca 0.063 /CA 0.063 >>"));
         assert!(!pdf_text.contains("[unsupported image: figures/opacity-rule-order.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_later_initial_paint_opacity_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/paint-opacity-rule-initial-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:paint-opacity-rule-initial-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/paint-opacity-rule-initial-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    rect.reset { opacity: 0.5; opacity: initial; fill-opacity: 0.5; fill-opacity: initial; stroke-opacity: 0.5; stroke-opacity: initial; }
+    rect.local { opacity: initial; opacity: 0.5; fill-opacity: initial; fill-opacity: 0.5; stroke-opacity: initial; stroke-opacity: 0.5; }
+  </style>
+  <rect class="reset" x="1" y="1" width="2" height="2" fill="#ff0000" stroke="#0000ff" stroke-width="1"/>
+  <rect class="local" x="4" y="1" width="2" height="2" fill="#00ff00" stroke="#ff00ff" stroke-width="1"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 RG 10 w 20 250 20 20 re S"));
+        assert!(pdf_text.contains("/GS250 << /Type /ExtGState /ca 0.25 /CA 0.25 >>"));
+        assert!(pdf_text.contains("q /GS250 gs 0 1 0 rg 50 250 20 20 re f Q"));
+        assert!(pdf_text.contains("q /GS250 gs 1 0 1 RG 10 w 50 250 20 20 re S Q"));
+        assert!(!pdf_text.contains("q /GS250 gs 1 0 0 rg 20 250 20 20 re f Q"));
+        assert!(!pdf_text.contains("q /GS250 gs 0 0 1 RG 10 w 20 250 20 20 re S Q"));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/paint-opacity-rule-initial-order.svg]")
+        );
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
