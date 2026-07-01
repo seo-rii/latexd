@@ -28366,6 +28366,63 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_later_initial_fill_rule_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/fill-rule-inline-initial-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:fill-rule-inline-initial-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/fill-rule-inline-initial-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <path fill="#ff0000" stroke="none" style="fill-rule: evenodd; fill-rule: initial" d="M 0 0 H 10 V 10 H 0 Z M 2 2 H 8 V 8 H 2 Z"/>
+  <path fill="#0000ff" stroke="none" style="fill-rule: initial; fill-rule: evenodd" d="M 12 0 H 20 V 8 H 12 Z M 14 2 H 18 V 6 H 14 Z"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains(
+            "1 0 0 rg 10 280 m 110 280 l 110 180 l 10 180 l h 30 260 m 90 260 l 90 200 l 30 200 l h f "
+        ));
+        assert!(pdf_text.contains(
+            "0 0 1 rg 130 280 m 210 280 l 210 200 l 130 200 l h 150 260 m 190 260 l 190 220 l 150 220 l h f*"
+        ));
+        assert!(!pdf_text.contains(
+            "1 0 0 rg 10 280 m 110 280 l 110 180 l 10 180 l h 30 260 m 90 260 l 90 200 l 30 200 l h f*"
+        ));
+        assert!(!pdf_text.contains(
+            "0 0 1 rg 130 280 m 210 280 l 210 200 l 130 200 l h 150 260 m 190 260 l 190 220 l 150 220 l h f "
+        ));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/fill-rule-inline-initial-order.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_later_unset_fill_rule_as_winning_declaration() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
@@ -28421,6 +28478,67 @@ mod tests {
             "0 0 1 rg 130 280 m 210 280 l 210 200 l 130 200 l h 150 260 m 190 260 l 190 220 l 150 220 l h f*"
         ));
         assert!(!pdf_text.contains("[unsupported image: figures/fill-rule-rule-order.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_later_initial_fill_rule_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/fill-rule-rule-initial-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:fill-rule-rule-initial-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/fill-rule-rule-initial-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .reset { fill: #ff0000; stroke: none; fill-rule: evenodd; fill-rule: initial; }
+    .local { fill: #0000ff; stroke: none; fill-rule: initial; fill-rule: evenodd; }
+  </style>
+  <path class="reset" d="M 0 0 H 10 V 10 H 0 Z M 2 2 H 8 V 8 H 2 Z"/>
+  <path class="local" d="M 12 0 H 20 V 8 H 12 Z M 14 2 H 18 V 6 H 14 Z"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains(
+            "1 0 0 rg 10 280 m 110 280 l 110 180 l 10 180 l h 30 260 m 90 260 l 90 200 l 30 200 l h f "
+        ));
+        assert!(pdf_text.contains(
+            "0 0 1 rg 130 280 m 210 280 l 210 200 l 130 200 l h 150 260 m 190 260 l 190 220 l 150 220 l h f*"
+        ));
+        assert!(!pdf_text.contains(
+            "1 0 0 rg 10 280 m 110 280 l 110 180 l 10 180 l h 30 260 m 90 260 l 90 200 l 30 200 l h f*"
+        ));
+        assert!(!pdf_text.contains(
+            "0 0 1 rg 130 280 m 210 280 l 210 200 l 130 200 l h 150 260 m 190 260 l 190 220 l 150 220 l h f "
+        ));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/fill-rule-rule-initial-order.svg]")
+        );
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
