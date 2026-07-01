@@ -25368,6 +25368,9 @@ mod tests {
         let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
             (asset_ref == "figures/gradient-href-paint-server.svg").then(|| {
                 br##"<svg width="20" height="10">
+  <style type="text/css">
+    linearGradient.cssAliasColor { color: #ff00ff; }
+  </style>
   <defs>
     <linearGradient id="fillBase">
       <stop offset="0%" stop-color="#00ff00"/>
@@ -25381,10 +25384,12 @@ mod tests {
       <stop offset="0%" stop-color="currentColor"/>
     </linearGradient>
     <linearGradient id="currentColorAlias" href="#currentColorBase" color="#0000ff"/>
+    <linearGradient id="currentColorCssAlias" class="cssAliasColor" href="#currentColorBase"/>
   </defs>
   <rect x="1" y="1" width="2" height="2" fill="url(#fillAlias)"/>
   <line x1="0" y1="2" x2="5" y2="2" stroke="url(#strokeAlias)" stroke-width="2" fill="none"/>
   <rect x="7" y="1" width="2" height="2" fill="url(#currentColorAlias)"/>
+  <rect x="10" y="1" width="2" height="2" fill="url(#currentColorCssAlias)"/>
 </svg>"##
                     .to_vec()
             })
@@ -25394,8 +25399,10 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 rg 20 250 20 20 re f"));
         assert!(pdf_text.contains("1 0 0 RG 20 w 10 260 m 60 260 l S"));
         assert!(pdf_text.contains("0 0 1 rg 80 250 20 20 re f"));
+        assert!(pdf_text.contains("1 0 1 rg 110 250 20 20 re f"));
         assert!(!pdf_text.contains("0 0 0 rg 20 250 20 20 re f"));
         assert!(!pdf_text.contains("0 0 0 rg 80 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 0 0 rg 110 250 20 20 re f"));
         assert!(!pdf_text.contains("[unsupported image: figures/gradient-href-paint-server.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
