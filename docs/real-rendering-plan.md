@@ -213,7 +213,8 @@ overriding class rules, and
     paint/color values with inline/style-rule `unset` overriding class paint rules
     and style-rule `inherit` / `unset` overriding presentation-attribute paint/color,
     transparent paint as no-paint, simple gradient paint-server first-stop solid
-    approximations with `href` inheritance, and paint-server `url(...)`
+    approximations with `href` inheritance, inline/style-rule
+    `stop-color` / `stop-opacity` cascade, and paint-server `url(...)`
     fallback colors,
     simple `fill-rule` mapped to PDF nonzero/even-odd fill
 operators with `initial` reset handling, inline/style-rule `unset`
@@ -726,7 +727,8 @@ Implemented first slice:
   paint/color values with inline/style-rule `unset` overriding class paint rules
   and style-rule `inherit` / `unset` overriding presentation-attribute paint/color,
   transparent paint as no-paint, simple gradient paint-server first-stop solid
-  approximations with `href` inheritance, and paint-server `url(...)` fallback
+  approximations with `href` inheritance, inline/style-rule
+  `stop-color` / `stop-opacity` cascade, and paint-server `url(...)` fallback
   colors,
   simple `fill-rule` mapped to PDF
   nonzero/even-odd fill operators with `initial` reset handling,
@@ -1263,7 +1265,8 @@ Status:
   paint/color values with inline/style-rule `unset` overriding class paint rules
   and style-rule `inherit` / `unset` overriding presentation-attribute paint/color,
   transparent paint as no-paint, simple gradient paint-server first-stop solid
-  approximations with `href` inheritance, and paint-server `url(...)` fallback
+  approximations with `href` inheritance, inline/style-rule
+  `stop-color` / `stop-opacity` cascade, and paint-server `url(...)` fallback
   colors,
   simple `fill-rule` mapped to PDF
   nonzero/even-odd fill operators with `initial` reset handling,
