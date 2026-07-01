@@ -20698,6 +20698,62 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_style_rule_later_clip_path_declaration_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/clip-path-rule-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:clip-path-rule-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/clip-path-rule-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    rect.cropped { clip-path: url(#crop); }
+    rect.open { clip-path: url(#crop); clip-path: unset; }
+    rect.clipped { clip-path: unset; clip-path: url(#crop); }
+  </style>
+  <defs>
+    <clipPath id="crop"><rect x="5" y="0" width="4" height="10"/></clipPath>
+  </defs>
+  <rect class="cropped" x="0" y="0" width="20" height="2" fill="#ff0000"/>
+  <rect class="open" x="0" y="4" width="20" height="2" fill="#0000ff"/>
+  <rect class="clipped" x="0" y="8" width="20" height="2" fill="#00ff00"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q 60 180 40 100 re W n 1 0 0 rg 10 260 200 20 re f Q"));
+        assert!(pdf_text.contains("0 0 1 rg 10 220 200 20 re f"));
+        assert!(!pdf_text.contains("q 60 180 40 100 re W n 0 0 1 rg"));
+        assert!(pdf_text.contains("q 60 180 40 100 re W n 0 1 0 rg 10 180 200 20 re f Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/clip-path-rule-order.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_inherit_clip_path_reference_as_parent_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
