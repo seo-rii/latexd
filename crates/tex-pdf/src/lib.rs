@@ -17144,6 +17144,58 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_later_initial_text_baseline_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-baseline-inline-initial-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-baseline-inline-initial-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-baseline-inline-initial-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="10" y="6" font-size="2" fill="#000000" dominant-baseline="middle" baseline-shift="0.5">
+    <tspan x="10" y="6" style="alignment-baseline: baseline; alignment-baseline: initial; baseline-shift: -1; baseline-shift: initial">I</tspan>
+    <tspan x="10" y="7" style="alignment-baseline: initial; alignment-baseline: baseline; baseline-shift: initial; baseline-shift: -1">B</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 670.8 Tm (I) Tj ET"));
+        assert!(pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 656.4 Tm (B) Tj ET"));
+        assert!(!pdf_text.contains("1 0 0 1 144 663.6 Tm (I) Tj"));
+        assert!(!pdf_text.contains("1 0 0 1 144 660 Tm (B) Tj"));
+        assert!(
+            !pdf_text
+                .contains("[unsupported image: figures/text-baseline-inline-initial-order.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_unset_text_baseline_as_inherited_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
@@ -17343,6 +17395,61 @@ mod tests {
         assert!(!pdf_text.contains("1 0 0 1 144 663.6 Tm (U) Tj"));
         assert!(!pdf_text.contains("1 0 0 1 144 660 Tm (B) Tj"));
         assert!(!pdf_text.contains("[unsupported image: figures/text-baseline-rule-order.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_later_initial_text_baseline_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-baseline-rule-initial-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-baseline-rule-initial-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-baseline-rule-initial-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    tspan.initial { alignment-baseline: baseline; alignment-baseline: initial; baseline-shift: -1; baseline-shift: initial; fill: #000000; }
+    tspan.baseline { alignment-baseline: initial; alignment-baseline: baseline; baseline-shift: initial; baseline-shift: -1; fill: #000000; }
+  </style>
+  <text x="10" y="6" font-size="2" fill="#000000" dominant-baseline="middle" baseline-shift="0.5">
+    <tspan class="initial" x="10" y="6">I</tspan>
+    <tspan class="baseline" x="10" y="7">B</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 670.8 Tm (I) Tj ET"));
+        assert!(pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 144 656.4 Tm (B) Tj ET"));
+        assert!(!pdf_text.contains("1 0 0 1 144 663.6 Tm (I) Tj"));
+        assert!(!pdf_text.contains("1 0 0 1 144 660 Tm (B) Tj"));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/text-baseline-rule-initial-order.svg]")
+        );
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
