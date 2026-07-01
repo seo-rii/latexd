@@ -14590,6 +14590,60 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_style_rule_later_inherit_text_decoration_thickness_as_winning_declaration()
+    {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-decoration-thickness-rule-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-decoration-thickness-rule-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-decoration-thickness-rule-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    tspan.thick { text-decoration-thickness: 0.5; text-decoration-thickness: inherit; }
+  </style>
+  <text x="2" y="6" font-size="2" fill="#ff0000" text-decoration="underline" text-decoration-thickness="0.25">
+    <tspan class="thick">RT</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("(RT) Tj ET"));
+        assert!(pdf_text.contains("1 0 0 RG 1.8000001 w"));
+        assert!(!pdf_text.contains("1 0 0 RG 3.6000001 w"));
+        assert!(
+            !pdf_text
+                .contains("[unsupported image: figures/text-decoration-thickness-rule-order.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_inline_inherit_text_decoration_style_as_inherited_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
