@@ -14173,6 +14173,58 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_style_rule_later_inherit_text_decoration_line_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-decoration-line-rule-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-decoration-line-rule-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-decoration-line-rule-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    tspan.line { text-decoration-line: line-through; text-decoration-line: inherit; text-decoration-color: #0000ff; text-decoration-thickness: 0.5; text-decoration-style: dashed; }
+  </style>
+  <text x="2" y="6" font-size="2" fill="#ff0000" text-decoration="underline">
+    <tspan class="line">RL</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("(RL) Tj ET"));
+        assert!(pdf_text.contains("q [7.2000003 7.2000003] 0 d q 0 0 1 RG 3.6000001 w 86.4 669.07196 m 100.8 669.07196 l S Q Q"));
+        assert!(!pdf_text.contains("86.4 675.12 m 100.8 675.12 l S"));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/text-decoration-line-rule-order.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_clear_text_decoration_as_attr_override() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
