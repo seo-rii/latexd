@@ -2561,6 +2561,176 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             href: Option<String>,
             color: Option<SimpleSvgResolvedColor>,
         }
+        let stop_style_rule_values = |stop_tag: &str| -> (Option<String>, Option<String>) {
+            let class_attr = attr_value(stop_tag, "class");
+            let id_attr = attr_value(stop_tag, "id");
+            let selector_matches_stop = |selector: &str| -> Option<u16> {
+                let selector = selector.trim();
+                if selector.contains('+') || selector.contains('~') {
+                    return None;
+                }
+                let selector = selector
+                    .split(|ch: char| ch.is_whitespace() || ch == '>')
+                    .filter(|part| !part.is_empty())
+                    .last()
+                    .unwrap_or(selector)
+                    .trim();
+                if selector == "*" {
+                    return Some(0);
+                }
+                if selector.contains('.') {
+                    let (element_name, class_selector) =
+                        if let Some(class_selector) = selector.strip_prefix('.') {
+                            (None, class_selector)
+                        } else {
+                            let dot_index = selector.find('.')?;
+                            (
+                                Some(selector[..dot_index].trim()),
+                                &selector[dot_index + 1..],
+                            )
+                        };
+                    if element_name
+                        .map(|element_name| !element_name.eq_ignore_ascii_case("stop"))
+                        .unwrap_or(false)
+                    {
+                        return None;
+                    }
+                    let class_name = class_selector
+                        .chars()
+                        .take_while(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_'))
+                        .collect::<String>();
+                    if class_name.is_empty() {
+                        return None;
+                    }
+                    let matches = class_attr
+                        .as_ref()
+                        .map(|class_attr| {
+                            class_attr
+                                .split_whitespace()
+                                .any(|tag_class_name| tag_class_name == class_name)
+                        })
+                        .unwrap_or(false);
+                    return matches.then_some(10 + u16::from(element_name.is_some()));
+                }
+                if selector.contains('#') {
+                    let (element_name, id_selector) =
+                        if let Some(id_selector) = selector.strip_prefix('#') {
+                            (None, id_selector)
+                        } else {
+                            let hash_index = selector.find('#')?;
+                            (
+                                Some(selector[..hash_index].trim()),
+                                &selector[hash_index + 1..],
+                            )
+                        };
+                    if element_name
+                        .map(|element_name| !element_name.eq_ignore_ascii_case("stop"))
+                        .unwrap_or(false)
+                    {
+                        return None;
+                    }
+                    let id = id_selector
+                        .chars()
+                        .take_while(|ch| {
+                            ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':')
+                        })
+                        .collect::<String>();
+                    if id.is_empty() {
+                        return None;
+                    }
+                    return (id_attr.as_deref() == Some(id.as_str()))
+                        .then_some(100 + u16::from(element_name.is_some()));
+                }
+                selector.eq_ignore_ascii_case("stop").then_some(1)
+            };
+            let should_replace = |current: Option<(u16, usize)>, specificity: u16, order: usize| {
+                current
+                    .map(|(current_specificity, current_order)| {
+                        specificity > current_specificity
+                            || (specificity == current_specificity && order >= current_order)
+                    })
+                    .unwrap_or(true)
+            };
+            let mut stop_color: Option<(String, u16, usize)> = None;
+            let mut stop_opacity: Option<(String, u16, usize)> = None;
+            let mut style_rule_order = 0usize;
+            let mut style_block_offset = 0usize;
+            while let Some(style_start_relative) = svg_content[style_block_offset..].find("<style")
+            {
+                let style_start = style_block_offset + style_start_relative;
+                let style_tag_tail = &svg_content[style_start..];
+                if !is_start_tag_named(style_tag_tail, "style") {
+                    style_block_offset = style_start + "<style".len();
+                    continue;
+                }
+                let Some(style_tag_end) = style_tag_tail.find('>') else {
+                    break;
+                };
+                let content_start = style_start + style_tag_end + 1;
+                let Some(content_end_relative) = svg_content[content_start..].find("</style>")
+                else {
+                    break;
+                };
+                let css = svg_content[content_start..content_start + content_end_relative].trim();
+                let css = css
+                    .strip_prefix("<![CDATA[")
+                    .and_then(|css| css.strip_suffix("]]>"))
+                    .unwrap_or(css);
+                let mut css_without_comments = String::new();
+                let mut css_comment_offset = 0usize;
+                while let Some(comment_start_relative) = css[css_comment_offset..].find("/*") {
+                    let comment_start = css_comment_offset + comment_start_relative;
+                    css_without_comments.push_str(&css[css_comment_offset..comment_start]);
+                    let comment_body_start = comment_start + 2;
+                    let Some(comment_end_relative) = css[comment_body_start..].find("*/") else {
+                        css_comment_offset = css.len();
+                        break;
+                    };
+                    css_comment_offset = comment_body_start + comment_end_relative + 2;
+                }
+                css_without_comments.push_str(&css[css_comment_offset..]);
+                let css = css_without_comments.as_str();
+                let mut css_offset = 0usize;
+                while let Some(selector_end_relative) = css[css_offset..].find('{') {
+                    let selector_end = css_offset + selector_end_relative;
+                    let body_start = selector_end + 1;
+                    let Some(body_end_relative) = css[body_start..].find('}') else {
+                        break;
+                    };
+                    let body_end = body_start + body_end_relative;
+                    let declarations = &css[body_start..body_end];
+                    let declaration_stop_color = declaration_value(declarations, "stop-color");
+                    let declaration_stop_opacity = declaration_value(declarations, "stop-opacity");
+                    for selector in css[css_offset..selector_end].split(',') {
+                        if let Some(specificity) = selector_matches_stop(selector) {
+                            if let Some(value) = declaration_stop_color.clone() {
+                                let current = stop_color
+                                    .as_ref()
+                                    .map(|(_, specificity, order)| (*specificity, *order));
+                                if should_replace(current, specificity, style_rule_order) {
+                                    stop_color = Some((value, specificity, style_rule_order));
+                                }
+                            }
+                            if let Some(value) = declaration_stop_opacity.clone() {
+                                let current = stop_opacity
+                                    .as_ref()
+                                    .map(|(_, specificity, order)| (*specificity, *order));
+                                if should_replace(current, specificity, style_rule_order) {
+                                    stop_opacity = Some((value, specificity, style_rule_order));
+                                }
+                            }
+                        }
+                        style_rule_order += 1;
+                    }
+                    css_offset = body_end + 1;
+                }
+                style_block_offset = content_start + content_end_relative + "</style>".len();
+            }
+            (
+                stop_color.map(|(value, _, _)| value),
+                stop_opacity.map(|(value, _, _)| value),
+            )
+        };
         let paint_server_href = |tag: &str| {
             attr_value(tag, "href")
                 .or_else(|| attr_value(tag, "xlink:href"))
@@ -2622,13 +2792,17 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         break;
                     };
                     let stop_tag = &stop_tail[..stop_tag_end];
-                    let mut color = attr_value(stop_tag, "stop-color")
-                        .or_else(|| style_value(stop_tag, "stop-color"))
+                    let (style_rule_stop_color, style_rule_stop_opacity) =
+                        stop_style_rule_values(stop_tag);
+                    let mut color = style_value(stop_tag, "stop-color")
+                        .or(style_rule_stop_color)
+                        .or_else(|| attr_value(stop_tag, "stop-color"))
                         .as_deref()
                         .and_then(parse_color)
                         .unwrap_or_else(|| SimpleSvgResolvedColor::opaque((0.0, 0.0, 0.0)));
-                    if let Some(opacity) = attr_value(stop_tag, "stop-opacity")
-                        .or_else(|| style_value(stop_tag, "stop-opacity"))
+                    if let Some(opacity) = style_value(stop_tag, "stop-opacity")
+                        .or(style_rule_stop_opacity)
+                        .or_else(|| attr_value(stop_tag, "stop-opacity"))
                     {
                         let opacity = opacity.trim();
                         let parsed_opacity = if let Some(percent) = opacity.strip_suffix('%') {
@@ -25249,6 +25423,76 @@ mod tests {
         assert!(pdf_text.contains("q /GS250 gs 0 0 1 rg 110 250 20 20 re f Q"));
         assert!(!pdf_text.contains("q /GS250 gs 1 0 0 rg 80 250 20 20 re f Q"));
         assert!(!pdf_text.contains("[unsupported image: figures/gradient-stop-unset-order.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_gradient_stop_style_rule_declarations_as_winning_declarations() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/gradient-stop-rule-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:gradient-stop-rule-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/gradient-stop-rule-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    stop.colorReset { stop-color: #00ff00; stop-color: unset; }
+    stop.colorLocal { stop-color: unset; stop-color: #00ff00; }
+    stop.opacityReset { stop-color: #ff0000; stop-opacity: 0.25; stop-opacity: unset; }
+    stop.opacityLocal { stop-color: #0000ff; stop-opacity: unset; stop-opacity: 0.25; }
+  </style>
+  <defs>
+    <linearGradient id="resetColor">
+      <stop class="colorReset" offset="0%"/>
+    </linearGradient>
+    <linearGradient id="localColor">
+      <stop class="colorLocal" offset="0%"/>
+    </linearGradient>
+    <linearGradient id="resetOpacity">
+      <stop class="opacityReset" offset="0%"/>
+    </linearGradient>
+    <linearGradient id="localOpacity">
+      <stop class="opacityLocal" offset="0%"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="2" height="2" fill="url(#resetColor)"/>
+  <rect x="4" y="1" width="2" height="2" fill="url(#localColor)"/>
+  <rect x="7" y="1" width="2" height="2" fill="url(#resetOpacity)"/>
+  <rect x="10" y="1" width="2" height="2" fill="url(#localOpacity)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 1 0 rg 50 250 20 20 re f"));
+        assert!(pdf_text.contains("1 0 0 rg 80 250 20 20 re f"));
+        assert!(pdf_text.contains("q /GS250 gs 0 0 1 rg 110 250 20 20 re f Q"));
+        assert!(!pdf_text.contains("q /GS250 gs 1 0 0 rg 80 250 20 20 re f Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/gradient-stop-rule-order.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
