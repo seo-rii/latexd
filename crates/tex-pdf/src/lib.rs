@@ -16255,6 +16255,57 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_later_initial_paint_order_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/paint-order-inline-initial-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:paint-order-inline-initial-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/paint-order-inline-initial-order.svg").then(|| {
+                br##"<svg width="20" height="10" paint-order="stroke fill">
+  <rect x="2" y="2" width="4" height="4" fill="#ff0000" stroke="#0000ff" stroke-width="1" style="paint-order: stroke fill; paint-order: initial"/>
+  <rect x="10" y="2" width="4" height="4" fill="#00ff00" stroke="#ff00ff" stroke-width="1" style="paint-order: initial; paint-order: stroke fill"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        let reset_fill_index = pdf_text.find("1 0 0 rg").unwrap();
+        let reset_stroke_index = pdf_text.find("0 0 1 RG").unwrap();
+        let local_stroke_index = pdf_text.find("1 0 1 RG").unwrap();
+        let local_fill_index = pdf_text.find("0 1 0 rg").unwrap();
+        assert!(reset_fill_index < reset_stroke_index);
+        assert!(local_stroke_index < local_fill_index);
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/paint-order-inline-initial-order.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_inline_inherit_paint_order_as_inherited_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
@@ -16400,6 +16451,61 @@ mod tests {
         assert!(inherited_stroke_index < inherited_fill_index);
         assert!(local_fill_index < local_stroke_index);
         assert!(!pdf_text.contains("[unsupported image: figures/paint-order-rule-order.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_later_initial_paint_order_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/paint-order-rule-initial-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:paint-order-rule-initial-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/paint-order-rule-initial-order.svg").then(|| {
+                br##"<svg width="20" height="10" paint-order="stroke fill">
+  <style type="text/css">
+    rect.reset { paint-order: stroke fill; paint-order: initial; fill: #ff0000; stroke: #0000ff; stroke-width: 1; }
+    rect.local { paint-order: initial; paint-order: stroke fill; fill: #00ff00; stroke: #ff00ff; stroke-width: 1; }
+  </style>
+  <rect class="reset" x="2" y="2" width="4" height="4"/>
+  <rect class="local" x="10" y="2" width="4" height="4"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        let reset_fill_index = pdf_text.find("1 0 0 rg").unwrap();
+        let reset_stroke_index = pdf_text.find("0 0 1 RG").unwrap();
+        let local_stroke_index = pdf_text.find("1 0 1 RG").unwrap();
+        let local_fill_index = pdf_text.find("0 1 0 rg").unwrap();
+        assert!(reset_fill_index < reset_stroke_index);
+        assert!(local_stroke_index < local_fill_index);
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/paint-order-rule-initial-order.svg]")
+        );
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
