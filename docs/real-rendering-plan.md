@@ -214,8 +214,8 @@ overriding class rules, and
     and style-rule `inherit` / `unset` overriding presentation-attribute paint/color,
     transparent paint as no-paint, simple gradient paint-server first-stop solid
     approximations with `href` inheritance, inline/style-rule
-    `stop-color` / `stop-opacity` cascade, `currentColor` stop colors, and
-    paint-server `url(...)` fallback colors,
+    `stop-color` / `stop-opacity` cascade, `currentColor` stop colors with
+    paint-server `color` CSS rules, and paint-server `url(...)` fallback colors,
     simple `fill-rule` mapped to PDF nonzero/even-odd fill
 operators with `initial` reset handling, inline/style-rule `unset`
 overriding class fill rules, and style-rule `inherit` / `unset` overriding
@@ -728,8 +728,8 @@ Implemented first slice:
   and style-rule `inherit` / `unset` overriding presentation-attribute paint/color,
   transparent paint as no-paint, simple gradient paint-server first-stop solid
   approximations with `href` inheritance, inline/style-rule
-  `stop-color` / `stop-opacity` cascade, `currentColor` stop colors, and
-  paint-server `url(...)` fallback colors,
+  `stop-color` / `stop-opacity` cascade, `currentColor` stop colors with
+  paint-server `color` CSS rules, and paint-server `url(...)` fallback colors,
   simple `fill-rule` mapped to PDF
   nonzero/even-odd fill operators with `initial` reset handling,
   inline/style-rule `unset` overriding class fill rules, and style-rule
@@ -1266,8 +1266,8 @@ Status:
   and style-rule `inherit` / `unset` overriding presentation-attribute paint/color,
   transparent paint as no-paint, simple gradient paint-server first-stop solid
   approximations with `href` inheritance, inline/style-rule
-  `stop-color` / `stop-opacity` cascade, `currentColor` stop colors, and
-  paint-server `url(...)` fallback colors,
+  `stop-color` / `stop-opacity` cascade, `currentColor` stop colors with
+  paint-server `color` CSS rules, and paint-server `url(...)` fallback colors,
   simple `fill-rule` mapped to PDF
   nonzero/even-odd fill operators with `initial` reset handling,
   inline/style-rule `unset` overriding class fill rules, and style-rule
