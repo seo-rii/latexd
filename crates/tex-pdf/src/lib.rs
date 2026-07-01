@@ -22984,6 +22984,63 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_later_initial_display_and_visibility_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/display-visibility-inline-initial-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:display-visibility-inline-initial-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/display-visibility-inline-initial-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .display-visible { display: none; fill: #ff0000; }
+    .visibility-visible { visibility: hidden; fill: #0000ff; }
+  </style>
+  <rect class="display-visible" x="1" y="1" width="2" height="2" style="display: none; display: initial"/>
+  <rect class="visibility-visible" x="4" y="1" width="2" height="2" style="visibility: hidden; visibility: initial"/>
+  <rect x="7" y="1" width="2" height="2" fill="#00ff00" style="display: initial; display: none"/>
+  <rect x="10" y="1" width="2" height="2" fill="#00ffff" style="visibility: initial; visibility: hidden"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 rg 50 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 1 0 rg 80 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 1 1 rg 110 250 20 20 re f"));
+        assert!(
+            !pdf_text.contains(
+                "[unsupported image: figures/display-visibility-inline-initial-order.svg]"
+            )
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_later_unset_display_and_visibility_as_winning_declaration() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
@@ -23036,6 +23093,64 @@ mod tests {
         assert!(!pdf_text.contains("0 1 1 rg 110 250 20 20 re f"));
         assert!(
             !pdf_text.contains("[unsupported image: figures/display-visibility-rule-order.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_later_initial_display_and_visibility_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/display-visibility-rule-initial-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:display-visibility-rule-initial-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/display-visibility-rule-initial-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    rect.display-visible { display: none; display: initial; fill: #ff0000; }
+    rect.visibility-visible { visibility: hidden; visibility: initial; fill: #0000ff; }
+    rect.display-hidden { display: initial; display: none; fill: #00ff00; }
+    rect.visibility-hidden { visibility: initial; visibility: hidden; fill: #00ffff; }
+  </style>
+  <rect class="display-visible" x="1" y="1" width="2" height="2"/>
+  <rect class="visibility-visible" x="4" y="1" width="2" height="2"/>
+  <rect class="display-hidden" x="7" y="1" width="2" height="2"/>
+  <rect class="visibility-hidden" x="10" y="1" width="2" height="2"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 rg 50 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 1 0 rg 80 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 1 1 rg 110 250 20 20 re f"));
+        assert!(
+            !pdf_text
+                .contains("[unsupported image: figures/display-visibility-rule-initial-order.svg]")
         );
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
