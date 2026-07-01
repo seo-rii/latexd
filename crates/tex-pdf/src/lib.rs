@@ -2787,6 +2787,27 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 }
                 inherited
             };
+        let current_color_depends_on_inherited =
+            |inline_value: Option<&str>,
+             style_rule_value: Option<&str>,
+             presentation_value: Option<&str>| {
+                let dependency = |value: &str| {
+                    let value = value.trim();
+                    if value.eq_ignore_ascii_case("inherit") || value.eq_ignore_ascii_case("unset")
+                    {
+                        return Some(true);
+                    }
+                    if value.eq_ignore_ascii_case("initial") {
+                        return Some(false);
+                    }
+                    parse_color(value).map(|_| false)
+                };
+                inline_value
+                    .and_then(dependency)
+                    .or_else(|| style_rule_value.and_then(dependency))
+                    .or_else(|| presentation_value.and_then(dependency))
+                    .unwrap_or(true)
+            };
         let root_current_color = resolve_current_color(
             style_value(svg_tag, "color"),
             style_rule_root_color,
@@ -2854,10 +2875,17 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     let stop_tag = &stop_tail[..stop_tag_end];
                     let (style_rule_stop_color, style_rule_stop_opacity, style_rule_color) =
                         style_rule_values(stop_tag, "stop");
+                    let stop_inline_color = style_value(stop_tag, "color");
+                    let stop_presentation_color = attr_value(stop_tag, "color");
+                    let stop_current_color_depends_on_gradient = current_color_depends_on_inherited(
+                        stop_inline_color.as_deref(),
+                        style_rule_color.as_deref(),
+                        stop_presentation_color.as_deref(),
+                    );
                     let stop_current_color = resolve_current_color(
-                        style_value(stop_tag, "color"),
+                        stop_inline_color,
                         style_rule_color,
-                        attr_value(stop_tag, "color"),
+                        stop_presentation_color,
                         gradient_current_color,
                     );
                     let stop_color_value = style_value(stop_tag, "stop-color")
@@ -2905,7 +2933,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                             color.alpha *= stop_opacity_multiplier;
                         }
                     }
-                    if uses_current_color_stop {
+                    if uses_current_color_stop && stop_current_color_depends_on_gradient {
                         server_current_color_stop_opacity = Some(stop_opacity_multiplier);
                     }
                     server_color = Some(color);
@@ -25385,11 +25413,16 @@ mod tests {
     </linearGradient>
     <linearGradient id="currentColorAlias" href="#currentColorBase" color="#0000ff"/>
     <linearGradient id="currentColorCssAlias" class="cssAliasColor" href="#currentColorBase"/>
+    <linearGradient id="stopColorBase">
+      <stop offset="0%" color="#ff0000" stop-color="currentColor"/>
+    </linearGradient>
+    <linearGradient id="stopColorAlias" href="#stopColorBase" color="#0000ff"/>
   </defs>
   <rect x="1" y="1" width="2" height="2" fill="url(#fillAlias)"/>
   <line x1="0" y1="2" x2="5" y2="2" stroke="url(#strokeAlias)" stroke-width="2" fill="none"/>
   <rect x="7" y="1" width="2" height="2" fill="url(#currentColorAlias)"/>
   <rect x="10" y="1" width="2" height="2" fill="url(#currentColorCssAlias)"/>
+  <rect x="13" y="1" width="2" height="2" fill="url(#stopColorAlias)"/>
 </svg>"##
                     .to_vec()
             })
@@ -25400,9 +25433,11 @@ mod tests {
         assert!(pdf_text.contains("1 0 0 RG 20 w 10 260 m 60 260 l S"));
         assert!(pdf_text.contains("0 0 1 rg 80 250 20 20 re f"));
         assert!(pdf_text.contains("1 0 1 rg 110 250 20 20 re f"));
+        assert!(pdf_text.contains("1 0 0 rg 140 250 20 20 re f"));
         assert!(!pdf_text.contains("0 0 0 rg 20 250 20 20 re f"));
         assert!(!pdf_text.contains("0 0 0 rg 80 250 20 20 re f"));
         assert!(!pdf_text.contains("0 0 0 rg 110 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 0 1 rg 140 250 20 20 re f"));
         assert!(!pdf_text.contains("[unsupported image: figures/gradient-href-paint-server.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
