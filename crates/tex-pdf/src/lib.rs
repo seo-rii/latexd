@@ -25417,12 +25417,17 @@ mod tests {
       <stop offset="0%" color="#ff0000" stop-color="currentColor"/>
     </linearGradient>
     <linearGradient id="stopColorAlias" href="#stopColorBase" color="#0000ff"/>
+    <linearGradient id="initialColorBase">
+      <stop offset="0%" style="color: initial; stop-color: currentColor"/>
+    </linearGradient>
+    <linearGradient id="initialColorAlias" href="#initialColorBase" color="#0000ff"/>
   </defs>
   <rect x="1" y="1" width="2" height="2" fill="url(#fillAlias)"/>
   <line x1="0" y1="2" x2="5" y2="2" stroke="url(#strokeAlias)" stroke-width="2" fill="none"/>
   <rect x="7" y="1" width="2" height="2" fill="url(#currentColorAlias)"/>
   <rect x="10" y="1" width="2" height="2" fill="url(#currentColorCssAlias)"/>
   <rect x="13" y="1" width="2" height="2" fill="url(#stopColorAlias)"/>
+  <rect x="16" y="1" width="2" height="2" fill="url(#initialColorAlias)"/>
 </svg>"##
                     .to_vec()
             })
@@ -25434,10 +25439,12 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 rg 80 250 20 20 re f"));
         assert!(pdf_text.contains("1 0 1 rg 110 250 20 20 re f"));
         assert!(pdf_text.contains("1 0 0 rg 140 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 0 rg 170 250 20 20 re f"));
         assert!(!pdf_text.contains("0 0 0 rg 20 250 20 20 re f"));
         assert!(!pdf_text.contains("0 0 0 rg 80 250 20 20 re f"));
         assert!(!pdf_text.contains("0 0 0 rg 110 250 20 20 re f"));
         assert!(!pdf_text.contains("0 0 1 rg 140 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 0 1 rg 170 250 20 20 re f"));
         assert!(!pdf_text.contains("[unsupported image: figures/gradient-href-paint-server.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
