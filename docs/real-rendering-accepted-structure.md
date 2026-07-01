@@ -1583,7 +1583,7 @@ approximate.
 - The simple SVG vector subset now includes gradient paint-server first-stop
   solid approximations with `href` inheritance plus inline/style-rule
   `stop-color` / `stop-opacity` cascade, including `currentColor` stop colors,
-  paint-server `color` CSS rules, declaration order, specificity,
+  root/paint-server `color` CSS rules, declaration order, specificity,
   presentation-attribute override, and inline-style priority coverage.
 - External PDF/EPS/SVG asset handling is still a placeholder path. Ghostscript
   or Poppler-backed conversion/embedding policy remains out of scope for this

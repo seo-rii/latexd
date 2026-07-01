@@ -2756,6 +2756,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 })
                 .filter(|href| !href.is_empty())
         };
+        let (_, _, style_rule_root_color) = style_rule_values(svg_tag, "svg");
         let mut servers = Vec::new();
         for gradient_name in ["linearGradient", "radialGradient"] {
             let open_tag = format!("<{gradient_name}");
@@ -2844,7 +2845,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         };
                     let root_current_color = resolve_current_color(
                         style_value(svg_tag, "color"),
-                        None,
+                        style_rule_root_color.clone(),
                         attr_value(svg_tag, "color"),
                         initial_current_color,
                     );
@@ -25738,6 +25739,58 @@ mod tests {
         assert!(!pdf_text.contains("0 1 0 rg 20 220 20 20 re f"));
         assert!(!pdf_text.contains("0 1 0 rg 50 220 20 20 re f"));
         assert!(!pdf_text.contains("[unsupported image: figures/gradient-stop-current-color.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_gradient_stop_current_color_as_root_css_color() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/root-current-color-rule.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:root-current-color-rule".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/root-current-color-rule.svg").then(|| {
+                br##"<svg width="20" height="10" class="rootColor" color="#00ff00">
+  <style type="text/css">
+    svg.rootColor { color: #ffff00; }
+  </style>
+  <defs>
+    <linearGradient id="rootColor">
+      <stop offset="0%" stop-color="currentColor"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="2" height="2" fill="url(#rootColor)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 1 0 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 1 0 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/root-current-color-rule.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
