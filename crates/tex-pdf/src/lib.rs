@@ -2561,7 +2561,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             href: Option<String>,
             color: Option<SimpleSvgResolvedColor>,
         }
-        let stop_style_rule_values = |stop_tag: &str| -> (Option<String>, Option<String>) {
+        type StopStyleRuleValues = (Option<String>, Option<String>, Option<String>);
+        let stop_style_rule_values = |stop_tag: &str| -> StopStyleRuleValues {
             let class_attr = attr_value(stop_tag, "class");
             let id_attr = attr_value(stop_tag, "id");
             let selector_matches_stop = |selector: &str| -> Option<u16> {
@@ -2653,6 +2654,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             };
             let mut stop_color: Option<(String, u16, usize)> = None;
             let mut stop_opacity: Option<(String, u16, usize)> = None;
+            let mut color: Option<(String, u16, usize)> = None;
             let mut style_rule_order = 0usize;
             let mut style_block_offset = 0usize;
             while let Some(style_start_relative) = svg_content[style_block_offset..].find("<style")
@@ -2701,6 +2703,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     let declarations = &css[body_start..body_end];
                     let declaration_stop_color = declaration_value(declarations, "stop-color");
                     let declaration_stop_opacity = declaration_value(declarations, "stop-opacity");
+                    let declaration_color = declaration_value(declarations, "color");
                     for selector in css[css_offset..selector_end].split(',') {
                         if let Some(specificity) = selector_matches_stop(selector) {
                             if let Some(value) = declaration_stop_color.clone() {
@@ -2719,6 +2722,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                     stop_opacity = Some((value, specificity, style_rule_order));
                                 }
                             }
+                            if let Some(value) = declaration_color.clone() {
+                                let current = color
+                                    .as_ref()
+                                    .map(|(_, specificity, order)| (*specificity, *order));
+                                if should_replace(current, specificity, style_rule_order) {
+                                    color = Some((value, specificity, style_rule_order));
+                                }
+                            }
                         }
                         style_rule_order += 1;
                     }
@@ -2729,6 +2740,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             (
                 stop_color.map(|(value, _, _)| value),
                 stop_opacity.map(|(value, _, _)| value),
+                color.map(|(value, _, _)| value),
             )
         };
         let paint_server_href = |tag: &str| {
@@ -2792,14 +2804,77 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                         break;
                     };
                     let stop_tag = &stop_tail[..stop_tag_end];
-                    let (style_rule_stop_color, style_rule_stop_opacity) =
+                    let (style_rule_stop_color, style_rule_stop_opacity, style_rule_color) =
                         stop_style_rule_values(stop_tag);
-                    let mut color = style_value(stop_tag, "stop-color")
+                    let initial_current_color = SimpleSvgResolvedColor::opaque((0.0, 0.0, 0.0));
+                    let resolve_current_color =
+                        |inline_value: Option<String>,
+                         style_rule_value: Option<String>,
+                         presentation_value: Option<String>,
+                         inherited: SimpleSvgResolvedColor| {
+                            let resolve_value = |value: &str| {
+                                let value = value.trim();
+                                if value.eq_ignore_ascii_case("inherit")
+                                    || value.eq_ignore_ascii_case("unset")
+                                {
+                                    return Some(inherited);
+                                }
+                                if value.eq_ignore_ascii_case("initial") {
+                                    return Some(initial_current_color);
+                                }
+                                parse_color(value)
+                            };
+                            if let Some(color) = inline_value.as_deref().and_then(resolve_value) {
+                                return color;
+                            }
+                            if let Some(color) = style_rule_value.as_deref().and_then(resolve_value)
+                            {
+                                return color;
+                            }
+                            if let Some(color) =
+                                presentation_value.as_deref().and_then(resolve_value)
+                            {
+                                return color;
+                            }
+                            inherited
+                        };
+                    let root_current_color = resolve_current_color(
+                        style_value(svg_tag, "color"),
+                        None,
+                        attr_value(svg_tag, "color"),
+                        initial_current_color,
+                    );
+                    let gradient_current_color = resolve_current_color(
+                        style_value(gradient_tag, "color"),
+                        None,
+                        attr_value(gradient_tag, "color"),
+                        root_current_color,
+                    );
+                    let stop_current_color = resolve_current_color(
+                        style_value(stop_tag, "color"),
+                        style_rule_color,
+                        attr_value(stop_tag, "color"),
+                        gradient_current_color,
+                    );
+                    let stop_color_value = style_value(stop_tag, "stop-color")
                         .or(style_rule_stop_color)
-                        .or_else(|| attr_value(stop_tag, "stop-color"))
-                        .as_deref()
-                        .and_then(parse_color)
-                        .unwrap_or_else(|| SimpleSvgResolvedColor::opaque((0.0, 0.0, 0.0)));
+                        .or_else(|| attr_value(stop_tag, "stop-color"));
+                    let mut color = if let Some(stop_color_value) = stop_color_value {
+                        let stop_color_value = stop_color_value.trim();
+                        if stop_color_value.eq_ignore_ascii_case("currentColor") {
+                            stop_current_color
+                        } else if stop_color_value.eq_ignore_ascii_case("transparent") {
+                            SimpleSvgResolvedColor {
+                                rgb: (0.0, 0.0, 0.0),
+                                alpha: 0.0,
+                            }
+                        } else {
+                            parse_color(stop_color_value)
+                                .unwrap_or_else(|| SimpleSvgResolvedColor::opaque((0.0, 0.0, 0.0)))
+                        }
+                    } else {
+                        SimpleSvgResolvedColor::opaque((0.0, 0.0, 0.0))
+                    };
                     if let Some(opacity) = style_value(stop_tag, "stop-opacity")
                         .or(style_rule_stop_opacity)
                         .or_else(|| attr_value(stop_tag, "stop-opacity"))
@@ -25562,6 +25637,89 @@ mod tests {
         assert!(!pdf_text.contains("0 1 0 rg 50 250 20 20 re f"));
         assert!(!pdf_text.contains("q /GS250 gs 0 0 1 rg 80 250 20 20 re f Q"));
         assert!(!pdf_text.contains("[unsupported image: figures/gradient-stop-rule-priority.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_gradient_stop_current_color_as_cascaded_color() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/gradient-stop-current-color.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:gradient-stop-current-color".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/gradient-stop-current-color.svg").then(|| {
+                br##"<svg width="20" height="10" color="#00ff00">
+  <style type="text/css">
+    stop.ruleColor { color: #ff0000; stop-color: currentColor; }
+    stop.ruleInherit { color: inherit; stop-color: currentColor; }
+  </style>
+  <defs>
+    <linearGradient id="rootColor">
+      <stop offset="0%" stop-color="currentColor"/>
+    </linearGradient>
+    <linearGradient id="gradientColor" color="#0000ff">
+      <stop offset="0%" stop-color="currentColor"/>
+    </linearGradient>
+    <linearGradient id="ruleColor">
+      <stop class="ruleColor" offset="0%"/>
+    </linearGradient>
+    <linearGradient id="inlineColor">
+      <stop class="ruleColor" offset="0%" style="color: #0000ff; stop-color: currentColor"/>
+    </linearGradient>
+    <linearGradient id="inlineInheritColor" color="#0000ff">
+      <stop class="ruleColor" offset="0%" color="#ff0000" style="color: inherit; stop-color: currentColor"/>
+    </linearGradient>
+    <linearGradient id="ruleInheritColor" color="#0000ff">
+      <stop class="ruleInherit" offset="0%" color="#ff0000"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="2" height="2" fill="url(#rootColor)"/>
+  <rect x="4" y="1" width="2" height="2" fill="url(#gradientColor)"/>
+  <rect x="7" y="1" width="2" height="2" fill="url(#ruleColor)"/>
+  <rect x="10" y="1" width="2" height="2" fill="url(#inlineColor)"/>
+  <rect x="13" y="1" width="2" height="2" fill="url(#inlineInheritColor)"/>
+  <rect x="16" y="1" width="2" height="2" fill="url(#ruleInheritColor)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 rg 50 250 20 20 re f"));
+        assert!(pdf_text.contains("1 0 0 rg 80 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 rg 110 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 rg 140 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 rg 170 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 0 0 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 0 0 rg 50 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 0 0 rg 80 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 0 0 rg 110 250 20 20 re f"));
+        assert!(!pdf_text.contains("1 0 0 rg 140 250 20 20 re f"));
+        assert!(!pdf_text.contains("1 0 0 rg 170 250 20 20 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/gradient-stop-current-color.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
