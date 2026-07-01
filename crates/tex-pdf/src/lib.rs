@@ -25497,6 +25497,75 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_gradient_stop_style_rule_priority_as_css_cascade() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/gradient-stop-rule-priority.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:gradient-stop-rule-priority".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/gradient-stop-rule-priority.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    stop { stop-color: #ff0000; }
+    stop.accent { stop-color: #00ff00; }
+    stop { stop-color: #ff0000; }
+    stop.dim { stop-color: #0000ff; stop-opacity: 0.25; }
+    stop#strong { stop-opacity: 0.75; }
+  </style>
+  <defs>
+    <linearGradient id="cssBeatsAttr">
+      <stop class="accent" offset="0%" stop-color="#0000ff"/>
+    </linearGradient>
+    <linearGradient id="inlineBeatsCss">
+      <stop class="accent" offset="0%" style="stop-color: #0000ff"/>
+    </linearGradient>
+    <linearGradient id="idBeatsClass">
+      <stop id="strong" class="dim" offset="0%"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="2" height="2" fill="url(#cssBeatsAttr)"/>
+  <rect x="4" y="1" width="2" height="2" fill="url(#inlineBeatsCss)"/>
+  <rect x="7" y="1" width="2" height="2" fill="url(#idBeatsClass)"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 rg 20 250 20 20 re f"));
+        assert!(pdf_text.contains("0 0 1 rg 50 250 20 20 re f"));
+        assert!(pdf_text.contains("q /GS750 gs 0 0 1 rg 80 250 20 20 re f Q"));
+        assert!(!pdf_text.contains("1 0 0 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 0 1 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 1 0 rg 50 250 20 20 re f"));
+        assert!(!pdf_text.contains("q /GS250 gs 0 0 1 rg 80 250 20 20 re f Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/gradient-stop-rule-priority.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_inherit_paint_as_parent_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
