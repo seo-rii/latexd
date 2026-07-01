@@ -14199,6 +14199,60 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_later_initial_text_decoration_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-decoration-inline-initial-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-decoration-inline-initial-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-decoration-inline-initial-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="2" y="6" font-size="2" fill="#ff0000" text-decoration="underline" text-decoration-color="#00ff00" text-decoration-thickness="0.25" text-decoration-style="solid">
+    <tspan style="text-decoration: line-through #0000ff 0.5 dashed; text-decoration: initial">RI</tspan>
+    <tspan x="2" y="8" style="text-decoration: initial; text-decoration: line-through #0000ff 0.5 dashed">LI</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("(RI) Tj ET"));
+        assert!(pdf_text.contains("(LI) Tj ET"));
+        assert!(pdf_text.contains("0 0 1 RG 3.6000001 w"));
+        assert!(pdf_text.contains("[7.2000003 7.2000003]"));
+        assert_eq!(pdf_text.matches(" l S Q").count(), 1);
+        assert!(!pdf_text.contains("0 1 0 RG 1.8000001 w"));
+        assert!(
+            !pdf_text
+                .contains("[unsupported image: figures/text-decoration-inline-initial-order.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_inline_later_inherit_text_decoration_line_as_winning_declaration() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
@@ -14403,6 +14457,65 @@ mod tests {
         assert!(!pdf_text.contains("0 0 1 RG"));
         assert!(!pdf_text.contains("[7.2000003 7.2000003]"));
         assert!(!pdf_text.contains("[unsupported image: figures/text-decoration-rule-order.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_later_initial_text_decoration_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-decoration-rule-initial-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-decoration-rule-initial-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-decoration-rule-initial-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .decorated { text-decoration: underline; text-decoration-color: #00ff00; text-decoration-thickness: 0.25; text-decoration-style: solid; fill: #ff0000; font-size: 2; }
+    tspan.reset { text-decoration: line-through #0000ff 0.5 dashed; text-decoration: initial; }
+    tspan.local { text-decoration: initial; text-decoration: line-through #0000ff 0.5 dashed; }
+  </style>
+  <text class="decorated" x="2" y="6">
+    <tspan class="reset">RI</tspan>
+    <tspan class="local" x="2" y="8">LI</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("(RI) Tj ET"));
+        assert!(pdf_text.contains("(LI) Tj ET"));
+        assert!(pdf_text.contains("0 0 1 RG 3.6000001 w"));
+        assert!(pdf_text.contains("[7.2000003 7.2000003]"));
+        assert_eq!(pdf_text.matches(" l S Q").count(), 1);
+        assert!(!pdf_text.contains("0 1 0 RG 1.8000001 w"));
+        assert!(
+            !pdf_text
+                .contains("[unsupported image: figures/text-decoration-rule-initial-order.svg]")
+        );
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
@@ -15196,6 +15309,59 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_inline_later_initial_text_decoration_parts_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-decoration-parts-inline-initial-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-decoration-parts-inline-initial-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-decoration-parts-inline-initial-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <text x="2" y="6" font-size="2" fill="#ff0000" color="#00ff00" text-decoration="underline">
+    <tspan style="text-decoration-color: #0000ff; text-decoration-color: initial; text-decoration-thickness: 0.5; text-decoration-thickness: initial; text-decoration-style: dashed; text-decoration-style: initial">RI</tspan>
+    <tspan x="2" y="8" style="text-decoration-color: initial; text-decoration-color: #0000ff; text-decoration-thickness: initial; text-decoration-thickness: 0.5; text-decoration-style: initial; text-decoration-style: dashed">LI</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("(RI) Tj ET"));
+        assert!(pdf_text.contains("(LI) Tj ET"));
+        assert!(pdf_text.contains("0 1 0 RG 0.72 w"));
+        assert!(pdf_text.contains("0 0 1 RG 3.6000001 w"));
+        assert!(pdf_text.contains("[7.2000003 7.2000003]"));
+        assert_eq!(pdf_text.matches(" l S Q").count(), 2);
+        assert!(!pdf_text.contains(
+            "[unsupported image: figures/text-decoration-parts-inline-initial-order.svg]"
+        ));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_inline_later_unset_text_decoration_parts_as_winning_declaration() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
@@ -15305,6 +15471,66 @@ mod tests {
         assert!(
             !pdf_text.contains(
                 "[unsupported image: figures/text-decoration-parts-rule-unset-order.svg]"
+            )
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn treats_simple_svg_style_rule_later_initial_text_decoration_parts_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-decoration-parts-rule-initial-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-decoration-parts-rule-initial-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-decoration-parts-rule-initial-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .decorated { text-decoration: underline; fill: #ff0000; color: #00ff00; font-size: 2; }
+    tspan.reset { text-decoration-color: #0000ff; text-decoration-color: initial; text-decoration-thickness: 0.5; text-decoration-thickness: initial; text-decoration-style: dashed; text-decoration-style: initial; }
+    tspan.local { text-decoration-color: initial; text-decoration-color: #0000ff; text-decoration-thickness: initial; text-decoration-thickness: 0.5; text-decoration-style: initial; text-decoration-style: dashed; }
+  </style>
+  <text class="decorated" x="2" y="6">
+    <tspan class="reset">RI</tspan>
+    <tspan class="local" x="2" y="8">LI</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("(RI) Tj ET"));
+        assert!(pdf_text.contains("(LI) Tj ET"));
+        assert!(pdf_text.contains("0 1 0 RG 0.72 w"));
+        assert!(pdf_text.contains("0 0 1 RG 3.6000001 w"));
+        assert!(pdf_text.contains("[7.2000003 7.2000003]"));
+        assert_eq!(pdf_text.matches(" l S Q").count(), 2);
+        assert!(
+            !pdf_text.contains(
+                "[unsupported image: figures/text-decoration-parts-rule-initial-order.svg]"
             )
         );
         assert!(!pdf_text.contains("/Subtype /Image"));
