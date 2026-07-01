@@ -213,7 +213,7 @@ overriding class rules, and
     paint/color values with inline/style-rule `unset` overriding class paint rules
     and style-rule `inherit` / `unset` overriding presentation-attribute paint/color,
     transparent paint as no-paint, simple gradient paint-server first-stop solid
-    approximations with `href` inheritance, inline/style-rule
+    approximations with `href` inheritance, including alias `currentColor` stops, inline/style-rule
     `stop-color` / `stop-opacity` cascade, `currentColor` stop colors with
     root/paint-server `color` CSS rules, and paint-server `url(...)` fallback colors,
     simple `fill-rule` mapped to PDF nonzero/even-odd fill
@@ -727,7 +727,7 @@ Implemented first slice:
   paint/color values with inline/style-rule `unset` overriding class paint rules
   and style-rule `inherit` / `unset` overriding presentation-attribute paint/color,
   transparent paint as no-paint, simple gradient paint-server first-stop solid
-  approximations with `href` inheritance, inline/style-rule
+  approximations with `href` inheritance, including alias `currentColor` stops, inline/style-rule
   `stop-color` / `stop-opacity` cascade, `currentColor` stop colors with
   root/paint-server `color` CSS rules, and paint-server `url(...)` fallback colors,
   simple `fill-rule` mapped to PDF
@@ -1265,7 +1265,7 @@ Status:
   paint/color values with inline/style-rule `unset` overriding class paint rules
   and style-rule `inherit` / `unset` overriding presentation-attribute paint/color,
   transparent paint as no-paint, simple gradient paint-server first-stop solid
-  approximations with `href` inheritance, inline/style-rule
+  approximations with `href` inheritance, including alias `currentColor` stops, inline/style-rule
   `stop-color` / `stop-opacity` cascade, `currentColor` stop colors with
   root/paint-server `color` CSS rules, and paint-server `url(...)` fallback colors,
   simple `fill-rule` mapped to PDF

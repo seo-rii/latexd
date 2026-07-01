@@ -2560,6 +2560,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             id: String,
             href: Option<String>,
             color: Option<SimpleSvgResolvedColor>,
+            current_color: SimpleSvgResolvedColor,
+            current_color_stop_opacity: Option<f32>,
         }
         type StyleRuleValues = (Option<String>, Option<String>, Option<String>);
         let style_rule_values = |target_tag: &str, target_element_name: &str| -> StyleRuleValues {
@@ -2757,6 +2759,40 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .filter(|href| !href.is_empty())
         };
         let (_, _, style_rule_root_color) = style_rule_values(svg_tag, "svg");
+        let initial_current_color = SimpleSvgResolvedColor::opaque((0.0, 0.0, 0.0));
+        let resolve_current_color =
+            |inline_value: Option<String>,
+             style_rule_value: Option<String>,
+             presentation_value: Option<String>,
+             inherited: SimpleSvgResolvedColor| {
+                let resolve_value = |value: &str| {
+                    let value = value.trim();
+                    if value.eq_ignore_ascii_case("inherit") || value.eq_ignore_ascii_case("unset")
+                    {
+                        return Some(inherited);
+                    }
+                    if value.eq_ignore_ascii_case("initial") {
+                        return Some(initial_current_color);
+                    }
+                    parse_color(value)
+                };
+                if let Some(color) = inline_value.as_deref().and_then(resolve_value) {
+                    return color;
+                }
+                if let Some(color) = style_rule_value.as_deref().and_then(resolve_value) {
+                    return color;
+                }
+                if let Some(color) = presentation_value.as_deref().and_then(resolve_value) {
+                    return color;
+                }
+                inherited
+            };
+        let root_current_color = resolve_current_color(
+            style_value(svg_tag, "color"),
+            style_rule_root_color,
+            attr_value(svg_tag, "color"),
+            initial_current_color,
+        );
         let mut servers = Vec::new();
         for gradient_name in ["linearGradient", "radialGradient"] {
             let open_tag = format!("<{gradient_name}");
@@ -2785,6 +2821,12 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 let href = paint_server_href(gradient_tag);
                 let (_, _, style_rule_gradient_color) =
                     style_rule_values(gradient_tag, gradient_name);
+                let gradient_current_color = resolve_current_color(
+                    style_value(gradient_tag, "color"),
+                    style_rule_gradient_color,
+                    attr_value(gradient_tag, "color"),
+                    root_current_color,
+                );
                 let body_start = gradient_start + gradient_tag_end + 1;
                 let (gradient_body, next_index) = if gradient_tag.trim_end().ends_with('/') {
                     ("", body_start)
@@ -2797,6 +2839,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     (&svg_content[body_start..], svg_content.len())
                 };
                 let mut server_color = None;
+                let mut server_current_color_stop_opacity = None;
                 let mut stop_search_index = 0usize;
                 while let Some(stop_relative) = gradient_body[stop_search_index..].find("<stop") {
                     let stop_start = stop_search_index + stop_relative;
@@ -2811,50 +2854,6 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     let stop_tag = &stop_tail[..stop_tag_end];
                     let (style_rule_stop_color, style_rule_stop_opacity, style_rule_color) =
                         style_rule_values(stop_tag, "stop");
-                    let initial_current_color = SimpleSvgResolvedColor::opaque((0.0, 0.0, 0.0));
-                    let resolve_current_color =
-                        |inline_value: Option<String>,
-                         style_rule_value: Option<String>,
-                         presentation_value: Option<String>,
-                         inherited: SimpleSvgResolvedColor| {
-                            let resolve_value = |value: &str| {
-                                let value = value.trim();
-                                if value.eq_ignore_ascii_case("inherit")
-                                    || value.eq_ignore_ascii_case("unset")
-                                {
-                                    return Some(inherited);
-                                }
-                                if value.eq_ignore_ascii_case("initial") {
-                                    return Some(initial_current_color);
-                                }
-                                parse_color(value)
-                            };
-                            if let Some(color) = inline_value.as_deref().and_then(resolve_value) {
-                                return color;
-                            }
-                            if let Some(color) = style_rule_value.as_deref().and_then(resolve_value)
-                            {
-                                return color;
-                            }
-                            if let Some(color) =
-                                presentation_value.as_deref().and_then(resolve_value)
-                            {
-                                return color;
-                            }
-                            inherited
-                        };
-                    let root_current_color = resolve_current_color(
-                        style_value(svg_tag, "color"),
-                        style_rule_root_color.clone(),
-                        attr_value(svg_tag, "color"),
-                        initial_current_color,
-                    );
-                    let gradient_current_color = resolve_current_color(
-                        style_value(gradient_tag, "color"),
-                        style_rule_gradient_color.clone(),
-                        attr_value(gradient_tag, "color"),
-                        root_current_color,
-                    );
                     let stop_current_color = resolve_current_color(
                         style_value(stop_tag, "color"),
                         style_rule_color,
@@ -2864,9 +2863,11 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     let stop_color_value = style_value(stop_tag, "stop-color")
                         .or(style_rule_stop_color)
                         .or_else(|| attr_value(stop_tag, "stop-color"));
+                    let mut uses_current_color_stop = false;
                     let mut color = if let Some(stop_color_value) = stop_color_value {
                         let stop_color_value = stop_color_value.trim();
                         if stop_color_value.eq_ignore_ascii_case("currentColor") {
+                            uses_current_color_stop = true;
                             stop_current_color
                         } else if stop_color_value.eq_ignore_ascii_case("transparent") {
                             SimpleSvgResolvedColor {
@@ -2880,6 +2881,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     } else {
                         SimpleSvgResolvedColor::opaque((0.0, 0.0, 0.0))
                     };
+                    let mut stop_opacity_multiplier = 1.0;
                     if let Some(opacity) = style_value(stop_tag, "stop-opacity")
                         .or(style_rule_stop_opacity)
                         .or_else(|| attr_value(stop_tag, "stop-opacity"))
@@ -2899,8 +2901,12 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                                 .filter(|value| value.is_finite())
                         };
                         if let Some(parsed_opacity) = parsed_opacity {
-                            color.alpha *= parsed_opacity.clamp(0.0, 1.0);
+                            stop_opacity_multiplier = parsed_opacity.clamp(0.0, 1.0);
+                            color.alpha *= stop_opacity_multiplier;
                         }
+                    }
+                    if uses_current_color_stop {
+                        server_current_color_stop_opacity = Some(stop_opacity_multiplier);
                     }
                     server_color = Some(color);
                     break;
@@ -2909,6 +2915,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     id: id.to_string(),
                     href,
                     color: server_color,
+                    current_color: gradient_current_color,
+                    current_color_stop_opacity: server_current_color_stop_opacity,
                 });
                 search_index = next_index;
             }
@@ -2931,6 +2939,13 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 else {
                     break;
                 };
+                if let Some(opacity) = referenced.current_color_stop_opacity {
+                    color = Some(SimpleSvgResolvedColor {
+                        rgb: server.current_color.rgb,
+                        alpha: server.current_color.alpha * opacity,
+                    });
+                    break;
+                }
                 color = referenced.color;
                 href = referenced.href.as_deref();
             }
@@ -25362,9 +25377,14 @@ mod tests {
       <stop offset="0%" stop-color="#ff0000"/>
     </radialGradient>
     <linearGradient id="strokeAlias" xlink:href="#strokeBase"/>
+    <linearGradient id="currentColorBase">
+      <stop offset="0%" stop-color="currentColor"/>
+    </linearGradient>
+    <linearGradient id="currentColorAlias" href="#currentColorBase" color="#0000ff"/>
   </defs>
   <rect x="1" y="1" width="2" height="2" fill="url(#fillAlias)"/>
   <line x1="0" y1="2" x2="5" y2="2" stroke="url(#strokeAlias)" stroke-width="2" fill="none"/>
+  <rect x="7" y="1" width="2" height="2" fill="url(#currentColorAlias)"/>
 </svg>"##
                     .to_vec()
             })
@@ -25373,7 +25393,9 @@ mod tests {
 
         assert!(pdf_text.contains("0 1 0 rg 20 250 20 20 re f"));
         assert!(pdf_text.contains("1 0 0 RG 20 w 10 260 m 60 260 l S"));
+        assert!(pdf_text.contains("0 0 1 rg 80 250 20 20 re f"));
         assert!(!pdf_text.contains("0 0 0 rg 20 250 20 20 re f"));
+        assert!(!pdf_text.contains("0 0 0 rg 80 250 20 20 re f"));
         assert!(!pdf_text.contains("[unsupported image: figures/gradient-href-paint-server.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
