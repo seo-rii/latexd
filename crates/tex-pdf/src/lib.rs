@@ -12570,6 +12570,75 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_style_rule_later_unset_text_anchor_and_spacing_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/text-anchor-spacing-rule-order.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-anchor-spacing-rule-order".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-anchor-spacing-rule-order.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    tspan.anchor-inherited { text-anchor: end; text-anchor: unset; fill: #000000; }
+    tspan.anchor-local { text-anchor: unset; text-anchor: end; fill: #000000; }
+    tspan.spacing-inherited { letter-spacing: 0.25; letter-spacing: unset; word-spacing: 0.25; word-spacing: unset; fill: #000000; }
+    tspan.spacing-local { letter-spacing: unset; letter-spacing: 0.25; word-spacing: unset; word-spacing: 0.25; fill: #000000; }
+  </style>
+  <text x="10" y="4" fill="#000000" font-size="2" text-anchor="middle">
+    <tspan class="anchor-inherited">aa</tspan>
+  </text>
+  <text x="10" y="6" fill="#000000" font-size="2" text-anchor="middle">
+    <tspan class="anchor-local">bb</tspan>
+  </text>
+  <text x="2" y="8" fill="#000000" font-size="2" letter-spacing="1" word-spacing="1">
+    <tspan class="spacing-inherited">A B</tspan>
+  </text>
+  <text x="10" y="8" fill="#000000" font-size="2" letter-spacing="1" word-spacing="1">
+    <tspan class="spacing-local">C D</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(
+            pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 136.8 685.2 Tm (aa) Tj ET")
+        );
+        assert!(
+            pdf_text.contains("0 0 0 rg BT /F1 14.400001 Tf 1 0 0 1 129.6 670.8 Tm (bb) Tj ET")
+        );
+        assert!(pdf_text.contains("7.2000003 Tc 7.2000003 Tw"));
+        assert!(pdf_text.contains("1.8000001 Tc 1.8000001 Tw"));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/text-anchor-spacing-rule-order.svg]")
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_style_rule_inherit_text_anchor_and_spacing_as_parent_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
