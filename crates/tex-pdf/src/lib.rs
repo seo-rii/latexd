@@ -12016,6 +12016,65 @@ mod tests {
     }
 
     #[test]
+    fn treats_simple_svg_style_rule_later_unset_font_as_winning_declaration() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/font-rule-order-style.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:font-rule-order-style".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/font-rule-order-style.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <style type="text/css">
+    .inherited { font-family: serif; font-family: unset; font-weight: normal; font-weight: unset; font-style: normal; font-style: unset; font-size: 1; font-size: unset; }
+    .local { font-family: unset; font-family: serif; font-weight: unset; font-weight: normal; font-style: unset; font-style: normal; font-size: unset; font-size: 1; }
+  </style>
+  <text x="2" y="6" fill="#000000" font-family="Arial" font-weight="bold" font-style="italic" font-size="4">
+    <tspan class="inherited">INH</tspan>
+  </text>
+  <text x="2" y="8" fill="#000000" font-family="Arial" font-weight="bold" font-style="italic" font-size="4">
+    <tspan class="local">LOC</tspan>
+  </text>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(
+            pdf_text.contains("0 0 0 rg BT /F8 28.800001 Tf 1 0 0 1 86.4 670.8 Tm (INH) Tj ET")
+        );
+        assert!(
+            pdf_text.contains("0 0 0 rg BT /F1 7.2000003 Tf 1 0 0 1 86.4 656.4 Tm (LOC) Tj ET")
+        );
+        assert_eq!(pdf_text.matches("/F8 28.800001 Tf").count(), 1);
+        assert_eq!(pdf_text.matches("/F1 7.2000003 Tf").count(), 1);
+        assert!(!pdf_text.contains("[unsupported image: figures/font-rule-order-style.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn treats_simple_svg_inline_initial_font_as_initial_presentation() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
