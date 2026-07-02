@@ -11651,13 +11651,19 @@ pub fn render_display_list_svg_with_converted_assets(
                                     };
                                     let tag_end = tag_start + tag_end_relative + 1;
                                     let tag = &svg_text[tag_start..tag_end];
-                                    let href_attr = ["href=\"", "xlink:href=\""]
-                                        .iter()
-                                        .filter_map(|needle| {
-                                            tag.find(needle).map(|start| (start, needle.len()))
-                                        })
-                                        .min_by_key(|(start, _)| *start);
-                                    let Some((href_attr_start, href_value_offset)) = href_attr
+                                    let href_attr = [
+                                        ("href=\"", '"'),
+                                        ("href='", '\''),
+                                        ("xlink:href=\"", '"'),
+                                        ("xlink:href='", '\''),
+                                    ]
+                                    .iter()
+                                    .filter_map(|(needle, quote)| {
+                                        tag.find(needle).map(|start| (start, needle.len(), *quote))
+                                    })
+                                    .min_by_key(|(start, _, _)| *start);
+                                    let Some((href_attr_start, href_value_offset, quote)) =
+                                        href_attr
                                     else {
                                         rewritten_svg.push_str(&svg_text[cursor..tag_end]);
                                         cursor = tag_end;
@@ -11666,7 +11672,7 @@ pub fn render_display_list_svg_with_converted_assets(
                                     let href_value_start =
                                         tag_start + href_attr_start + href_value_offset;
                                     let Some(href_value_end_relative) =
-                                        svg_text[href_value_start..tag_end].find('"')
+                                        svg_text[href_value_start..tag_end].find(quote)
                                     else {
                                         rewritten_svg.push_str(&svg_text[cursor..tag_end]);
                                         cursor = tag_end;
@@ -24868,7 +24874,7 @@ mod tests {
             match asset_ref {
                 "figures/vector.svg" => Some(
                     br##"<svg width="20" height="10">
-  <image x="5" y="2" width="8" height="4" preserveAspectRatio="none" href="nested/pixel.png"/>
+  <image x="5" y="2" width="8" height="4" preserveAspectRatio="none" href='nested/pixel.png'/>
 </svg>"##
                         .to_vec(),
                 ),
