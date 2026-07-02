@@ -11646,7 +11646,22 @@ pub fn render_display_list_svg_with_converted_assets(
                                         cursor = tag_start + advance;
                                         continue;
                                     }
-                                    let Some(tag_end_relative) = tag_tail.find('>') else {
+                                    let mut active_quote = None;
+                                    let mut tag_end_relative = None;
+                                    for (index, ch) in tag_tail.char_indices() {
+                                        match active_quote {
+                                            Some(quote) if ch == quote => active_quote = None,
+                                            None if ch == '"' || ch == '\'' => {
+                                                active_quote = Some(ch)
+                                            }
+                                            None if ch == '>' => {
+                                                tag_end_relative = Some(index);
+                                                break;
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                    let Some(tag_end_relative) = tag_end_relative else {
                                         break;
                                     };
                                     let tag_end = tag_start + tag_end_relative + 1;
@@ -25635,6 +25650,50 @@ mod tests {
         });
 
         assert!(svg.contains("metadata%20href%3D%27metadata.png%27"));
+        assert!(svg.contains("data%3A%2C"));
+        assert!(!svg.contains("missing/pixel.png"));
+        assert!(!svg.contains("missing%2Fpixel.png"));
+        assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
+    }
+
+    #[test]
+    fn rewrites_simple_svg_image_hrefs_after_quoted_greater_than_for_svg_debug_output() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            (asset_ref == "figures/vector.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <image x="1" y="1" width="4" height="4" title="a > b" href="missing/pixel.png"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+
+        assert!(svg.contains("title%3D%22a%20%3E%20b%22"));
         assert!(svg.contains("data%3A%2C"));
         assert!(!svg.contains("missing/pixel.png"));
         assert!(!svg.contains("missing%2Fpixel.png"));
