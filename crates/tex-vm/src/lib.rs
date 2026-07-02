@@ -24186,13 +24186,38 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!(&format!("{wrapper}({})", rows.join("; ")));
                         index = body_end + end_tag.len();
                     }
-                    "text" | "emph" | "textbf" | "textit" | "texttt" | "textrm" | "textnormal"
-                    | "textsc" | "textsf" | "textup" | "rm" | "mathrm" | "mathbf" | "mathit"
-                    | "mathsf" | "mathtt" | "mathbb" | "mathcal" | "mathfrak" | "mathscr"
-                    | "mathds" | "mathbbm" | "mathpzc" | "boldsymbol" | "bm" | "pmb"
-                    | "operatorname" | "rgst" | "hs" => {
+                    "text"
+                    | "emph"
+                    | "textbf"
+                    | "textit"
+                    | "texttt"
+                    | "textrm"
+                    | "textnormal"
+                    | "textsc"
+                    | "textsf"
+                    | "textup"
+                    | "rm"
+                    | "mathrm"
+                    | "mathbf"
+                    | "mathit"
+                    | "mathsf"
+                    | "mathtt"
+                    | "mathbb"
+                    | "mathcal"
+                    | "mathfrak"
+                    | "mathscr"
+                    | "mathds"
+                    | "mathbbm"
+                    | "mathpzc"
+                    | "boldsymbol"
+                    | "bm"
+                    | "pmb"
+                    | "operatorname"
+                    | "operatornamewithlimits"
+                    | "rgst"
+                    | "hs" => {
                         let mut argument_index = skip_ascii_whitespace(source, command_index);
-                        if command == "operatorname"
+                        if matches!(command, "operatorname" | "operatornamewithlimits")
                             && argument_index < bytes.len()
                             && bytes[argument_index] == b'*'
                         {
