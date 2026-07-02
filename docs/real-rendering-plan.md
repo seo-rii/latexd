@@ -196,7 +196,8 @@ turning encoded slashes into separators, normalizes project-root-relative dot
 components (`.` / `..`), strips query/fragment suffixes for resolver lookup, and
 refuses fragment-only, absolute, raw or percent-decoded external-scheme/drive-like
 first components, raw backslash or ASCII-control hrefs, and root-escaping
-references.
+references. Percent-encoded `?` / `#` characters inside path components remain
+filename characters rather than query/fragment delimiters.
 Debug SVG output preserves existing `data:` and
 fragment-only image refs, but sanitizes unresolved non-`data:` / non-fragment
 image refs to inert `data:,` values rather than leaving browser-loadable URLs in
@@ -1225,6 +1226,8 @@ Status:
   backslash or ASCII-control href rejection plus raw or percent-decoded
   scheme/drive-like first-component rejection after XML entity decoding and
   before resolver lookup in both PDF vector and debug SVG artifact paths,
+  percent-encoded query/fragment characters preserved as filename characters
+  while raw query/fragment suffixes are stripped for lookup,
   raw and percent-encoded root-escaping paths rejected before nested resolver
   lookup,
   percent-encoded slash, backslash, and ASCII control bytes preserved instead
