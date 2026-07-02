@@ -25011,6 +25011,63 @@ mod tests {
     }
 
     #[test]
+    fn renders_simple_svg_defs_symbol_contained_embedded_png_image_alias_as_pdf_xobject() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 400.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 300.0,
+                    height: 150.0,
+                },
+                asset_ref: "figures/defs-symbol-contained-image-alias.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:defs-symbol-contained-image-alias".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let base64_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/defs-symbol-contained-image-alias.svg").then(|| {
+                format!(
+                    r##"<svg width="30" height="15">
+  <defs>
+    <image id="stamp" x="1" y="1" width="4" height="2" href="data:image/png;base64,{base64_png}"/>
+    <symbol id="stamp-symbol" viewBox="0 0 10 5" preserveAspectRatio="none" opacity="0.5">
+      <use href="#stamp"/>
+    </symbol>
+  </defs>
+  <use href="#stamp-symbol" x="5" y="2" width="20" height="10" opacity="0.8"/>
+</svg>"##
+                )
+                .into_bytes()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(pdf_text.contains("/XObject << /Im1"));
+        assert!(pdf_text.contains("/GS400 << /Type /ExtGState /ca 0.4 /CA 0.4 >>"));
+        assert!(pdf_text.contains("q /GS400 gs q 40.000004 0 0 40.000004 100 200 cm /Im1 Do Q Q"));
+        assert!(
+            !pdf_text
+                .contains("[unsupported image: figures/defs-symbol-contained-image-alias.svg]")
+        );
+    }
+
+    #[test]
     fn preserves_simple_svg_embedded_image_aspect_ratio() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
