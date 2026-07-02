@@ -1155,6 +1155,60 @@ fn bold_math_wrappers_normalize_inner_math_through_display_list() {
 }
 
 #[test]
+fn arrow_math_accents_normalize_inner_math_through_display_list() {
+    let source = r"\begin{document}Arrows $\overrightarrow{AB}+\overleftarrow{CD}+\overleftrightarrow{\alpha\beta}$ now.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    assert_eq!(
+        math_event.raw_source,
+        r"\overrightarrow{AB}+\overleftarrow{CD}+\overleftrightarrow{\alpha\beta}"
+    );
+    assert_eq!(
+        math_event.normalized_text.as_deref(),
+        Some("overrightarrow(AB) + overleftarrow(CD) + overleftrightarrow(alpha beta)")
+    );
+    assert!(extracted_text.contains(
+        "Arrows overrightarrow(AB) + overleftarrow(CD) + overleftrightarrow(alpha beta) now."
+    ));
+    for visible in [
+        "Arrows",
+        "overrightarrow(AB) + overleftarrow(CD) + overleftrightarrow(alpha beta)",
+        "now.",
+    ] {
+        assert!(display_list_text.contains(visible), "{display_list_text}");
+    }
+    for hidden in [
+        r"\overrightarrow",
+        r"\overleftarrow",
+        r"\overleftrightarrow",
+        r"\alpha",
+        r"\beta",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn title_inline_keys_are_redacted_in_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", TITLE_INLINE_KEY_SOURCE, &SemanticAux::default());

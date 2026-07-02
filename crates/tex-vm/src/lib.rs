@@ -24435,8 +24435,27 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token!(&format!("<{first}|{second}|{third}>"));
                         index = after_third;
                     }
-                    "hat" | "widehat" | "bar" | "overline" | "vec" | "tilde" | "widetilde"
-                    | "dot" | "ddot" | "underline" | "overbrace" | "underbrace" => {
+                    "hat"
+                    | "widehat"
+                    | "bar"
+                    | "overline"
+                    | "vec"
+                    | "tilde"
+                    | "widetilde"
+                    | "dot"
+                    | "ddot"
+                    | "underline"
+                    | "overbrace"
+                    | "underbrace"
+                    | "overrightarrow"
+                    | "overleftarrow"
+                    | "overleftrightarrow"
+                    | "underrightarrow"
+                    | "underleftarrow"
+                    | "underleftrightarrow"
+                    | "overparen"
+                    | "underparen"
+                    | "wideparen" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);
                         let (argument, after_argument) =
                             if let Some((argument, _, _, after_argument)) =
