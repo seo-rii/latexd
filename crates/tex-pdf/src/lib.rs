@@ -9512,6 +9512,8 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         tag: String,
         start: usize,
         image: DecodedPdfImage,
+        alias_transform: Option<SimpleSvgTransform>,
+        alias_presentation: Option<SimpleSvgPresentation>,
     }
     let mut image_definitions = Vec::new();
     let mut search_index = 0usize;
@@ -9547,8 +9549,91 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             tag: image_tag.to_string(),
             start: image_start,
             image: decoded_image,
+            alias_transform: None,
+            alias_presentation: None,
         });
         search_index = image_start + image_end + 1;
+    }
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<use") {
+        let use_start = search_index + relative;
+        let use_tail = &svg_content[use_start..];
+        if !is_start_tag_named(use_tail, "use") {
+            search_index = use_start + "<use".len();
+            continue;
+        }
+        let Some(use_end) = use_tail.find('>') else {
+            break;
+        };
+        if !in_defs(use_start) {
+            search_index = use_start + use_end + 1;
+            continue;
+        }
+        let use_tag = &use_tail[..use_end];
+        let Some(alias_id) = attr_value(use_tag, "id").filter(|id| !id.trim().is_empty()) else {
+            search_index = use_start + use_end + 1;
+            continue;
+        };
+        let Some(reference_id) = attr_value(use_tag, "href")
+            .or_else(|| attr_value(use_tag, "xlink:href"))
+            .and_then(|href| href.trim().strip_prefix('#').map(str::to_string))
+            .filter(|id| !id.is_empty())
+        else {
+            search_index = use_start + use_end + 1;
+            continue;
+        };
+        let Some((use_transform, use_presentation)) = parse_element_state(use_tag, use_start)
+        else {
+            search_index = use_start + use_end + 1;
+            continue;
+        };
+        let x = attr_value(use_tag, "x")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let y = attr_value(use_tag, "y")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let translated_use_transform = compose_transform(
+            SimpleSvgTransform {
+                e: x,
+                f: y,
+                ..identity_transform
+            },
+            use_transform,
+            use_transform.stroke_scale,
+        );
+        let referenced_definitions = image_definitions
+            .iter()
+            .filter(|definition| definition.id == reference_id)
+            .cloned()
+            .collect::<Vec<_>>();
+        for definition in referenced_definitions {
+            let alias_transform = definition
+                .alias_transform
+                .map(|base_transform| {
+                    compose_transform(
+                        base_transform,
+                        translated_use_transform,
+                        translated_use_transform.stroke_scale,
+                    )
+                })
+                .unwrap_or(translated_use_transform);
+            let alias_presentation = definition
+                .alias_presentation
+                .map(|base_presentation| inherit_presentation(base_presentation, use_presentation))
+                .unwrap_or(use_presentation);
+            image_definitions.push(SimpleSvgImageDefinition {
+                id: alias_id.clone(),
+                tag: definition.tag.clone(),
+                start: definition.start,
+                image: definition.image.clone(),
+                alias_transform: Some(alias_transform),
+                alias_presentation: Some(alias_presentation),
+            });
+        }
+        search_index = use_start + use_end + 1;
     }
     let mut embedded_images = Vec::new();
     let push_embedded_image = |embedded_images: &mut Vec<SimpleSvgEmbeddedImage>,
@@ -9709,6 +9794,19 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             else {
                 continue;
             };
+            let mut definition_transform = definition_transform;
+            let mut definition_presentation = definition_presentation;
+            if let Some(alias_transform) = definition.alias_transform {
+                definition_transform = compose_transform(
+                    definition_transform,
+                    alias_transform,
+                    alias_transform.stroke_scale,
+                );
+            }
+            if let Some(alias_presentation) = definition.alias_presentation {
+                definition_presentation =
+                    inherit_presentation(definition_presentation, alias_presentation);
+            }
             let transform = compose_transform(
                 definition_transform,
                 translated_use_transform,
@@ -24363,6 +24461,58 @@ mod tests {
         assert!(pdf_text.contains("/GS400 << /Type /ExtGState /ca 0.4 /CA 0.4 >>"));
         assert!(pdf_text.contains("q /GS400 gs q 40 0 0 40 90 210 cm /Im1 Do Q Q"));
         assert!(!pdf_text.contains("[unsupported image: figures/defs-image-use.svg]"));
+    }
+
+    #[test]
+    fn renders_simple_svg_defs_embedded_png_image_use_alias_as_pdf_xobject() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/defs-image-use-alias.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:defs-image-use-alias".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let base64_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/defs-image-use-alias.svg").then(|| {
+                format!(
+                    r##"<svg width="20" height="10">
+  <defs>
+    <image id="stamp" x="5" y="2" width="8" height="4" href="data:image/png;base64,{base64_png}"/>
+    <use id="alias" href="#stamp" x="1" y="1"/>
+  </defs>
+  <use href="#alias" x="2" y="1" opacity="0.4"/>
+</svg>"##
+                )
+                .into_bytes()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(pdf_text.contains("/XObject << /Im1"));
+        assert!(pdf_text.contains("/GS400 << /Type /ExtGState /ca 0.4 /CA 0.4 >>"));
+        assert!(pdf_text.contains("q /GS400 gs q 40 0 0 40 110 200 cm /Im1 Do Q Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/defs-image-use-alias.svg]"));
     }
 
     #[test]
