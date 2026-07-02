@@ -1586,6 +1586,10 @@ approximate.
   symbol-contained text-use aliases from `<defs>` through external `<use>`
   references, including symbol text aliases with symbol `viewBox` fitting,
   while preserving the `<use>` position and presentation metadata.
+- The simple SVG image subset can now reuse direct `id`-addressed
+  `<defs><image>` `data:image/png` / `data:image/jpeg` definitions through
+  external `<use>`, preserving the `<use>` position and opacity before emitting
+  the image as a PDF XObject.
 - The simple SVG vector subset now includes gradient paint-server first-stop
   solid approximations with `href` inheritance, including alias `currentColor`
   stops without overriding stop-local color, plus inline/style-rule

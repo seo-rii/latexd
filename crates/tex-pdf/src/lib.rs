@@ -9506,7 +9506,110 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         }
         search_index = use_start + use_end + 1;
     }
+    #[derive(Debug, Clone)]
+    struct SimpleSvgImageDefinition {
+        id: String,
+        tag: String,
+        start: usize,
+        image: DecodedPdfImage,
+    }
+    let mut image_definitions = Vec::new();
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<image") {
+        let image_start = search_index + relative;
+        let image_tail = &svg_content[image_start..];
+        if !is_start_tag_named(image_tail, "image") {
+            search_index = image_start + "<image".len();
+            continue;
+        }
+        let Some(image_end) = image_tail.find('>') else {
+            break;
+        };
+        if !in_defs(image_start) {
+            search_index = image_start + image_end + 1;
+            continue;
+        }
+        let image_tag = &image_tail[..image_end];
+        let Some(id) = attr_value(image_tag, "id").filter(|id| !id.trim().is_empty()) else {
+            search_index = image_start + image_end + 1;
+            continue;
+        };
+        let Some(decoded_image) = attr_value(image_tag, "href")
+            .or_else(|| attr_value(image_tag, "xlink:href"))
+            .as_deref()
+            .and_then(decode_data_image_uri)
+        else {
+            search_index = image_start + image_end + 1;
+            continue;
+        };
+        image_definitions.push(SimpleSvgImageDefinition {
+            id,
+            tag: image_tag.to_string(),
+            start: image_start,
+            image: decoded_image,
+        });
+        search_index = image_start + image_end + 1;
+    }
     let mut embedded_images = Vec::new();
+    let push_embedded_image = |embedded_images: &mut Vec<SimpleSvgEmbeddedImage>,
+                               image_tag: &str,
+                               transform: SimpleSvgTransform,
+                               presentation: SimpleSvgPresentation,
+                               decoded_image: DecodedPdfImage| {
+        let x = attr_value(image_tag, "x")
+            .as_deref()
+            .and_then(parse_x_length)
+            .unwrap_or(0.0);
+        let y = attr_value(image_tag, "y")
+            .as_deref()
+            .and_then(parse_y_length)
+            .unwrap_or(0.0);
+        let Some(width) = attr_value(image_tag, "width")
+            .as_deref()
+            .and_then(parse_x_length)
+        else {
+            return;
+        };
+        let Some(height) = attr_value(image_tag, "height")
+            .as_deref()
+            .and_then(parse_y_length)
+        else {
+            return;
+        };
+        if width <= 0.0 || height <= 0.0 || !transform.axis_aligned {
+            return;
+        }
+        let Some(corner_a) = apply_transform(transform, x, y) else {
+            return;
+        };
+        let Some(corner_b) = apply_transform(transform, x + width, y + height) else {
+            return;
+        };
+        let x = corner_a.0.min(corner_b.0);
+        let y = corner_a.1.min(corner_b.1);
+        let width = (corner_b.0 - corner_a.0).abs();
+        let height = (corner_b.1 - corner_a.1).abs();
+        if width <= 0.0 || height <= 0.0 {
+            return;
+        }
+        let opacity = presentation.opacity.unwrap_or(1.0).clamp(0.0, 1.0);
+        if opacity <= 0.0 {
+            return;
+        }
+        embedded_images.push(SimpleSvgEmbeddedImage {
+            x_ratio: (x - view_box.0) / view_box.2,
+            y_ratio: (y - view_box.1) / view_box.3,
+            width_ratio: width / view_box.2,
+            height_ratio: height / view_box.3,
+            image: decoded_image,
+            preserve_aspect_ratio: attr_value(image_tag, "preserveAspectRatio")
+                .as_deref()
+                .and_then(|raw| parse_preserve_aspect_ratio(raw))
+                .unwrap_or(default_preserve_aspect_ratio),
+            opacity,
+            clip_rect: clip_rect_for(presentation, transform),
+        });
+    };
     let mut search_index = 0usize;
     while let Some(relative) = svg_content[search_index..].find("<image") {
         let image_start = search_index + relative;
@@ -9531,73 +9634,96 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             search_index = image_start + image_end + 1;
             continue;
         };
-        let x = attr_value(image_tag, "x")
-            .as_deref()
-            .and_then(parse_x_length)
-            .unwrap_or(0.0);
-        let y = attr_value(image_tag, "y")
-            .as_deref()
-            .and_then(parse_y_length)
-            .unwrap_or(0.0);
-        let Some(width) = attr_value(image_tag, "width")
-            .as_deref()
-            .and_then(parse_x_length)
-        else {
-            search_index = image_start + image_end + 1;
-            continue;
-        };
-        let Some(height) = attr_value(image_tag, "height")
-            .as_deref()
-            .and_then(parse_y_length)
-        else {
-            search_index = image_start + image_end + 1;
-            continue;
-        };
-        if width <= 0.0 || height <= 0.0 {
-            search_index = image_start + image_end + 1;
-            continue;
-        }
         let Some((transform, presentation)) = parse_element_state(image_tag, image_start) else {
             search_index = image_start + image_end + 1;
             continue;
         };
-        if !transform.axis_aligned {
-            search_index = image_start + image_end + 1;
-            continue;
-        }
-        let Some(corner_a) = apply_transform(transform, x, y) else {
-            search_index = image_start + image_end + 1;
-            continue;
-        };
-        let Some(corner_b) = apply_transform(transform, x + width, y + height) else {
-            search_index = image_start + image_end + 1;
-            continue;
-        };
-        let x = corner_a.0.min(corner_b.0);
-        let y = corner_a.1.min(corner_b.1);
-        let width = (corner_b.0 - corner_a.0).abs();
-        let height = (corner_b.1 - corner_a.1).abs();
-        if width > 0.0 && height > 0.0 {
-            let opacity = presentation.opacity.unwrap_or(1.0).clamp(0.0, 1.0);
-            if opacity <= 0.0 {
-                search_index = image_start + image_end + 1;
-                continue;
-            }
-            embedded_images.push(SimpleSvgEmbeddedImage {
-                x_ratio: (x - view_box.0) / view_box.2,
-                y_ratio: (y - view_box.1) / view_box.3,
-                width_ratio: width / view_box.2,
-                height_ratio: height / view_box.3,
-                image: decoded_image,
-                preserve_aspect_ratio: attr_value(image_tag, "preserveAspectRatio")
-                    .as_deref()
-                    .and_then(|raw| parse_preserve_aspect_ratio(raw))
-                    .unwrap_or(default_preserve_aspect_ratio),
-                opacity,
-                clip_rect: clip_rect_for(presentation, transform),
-            });
-        }
+        push_embedded_image(
+            &mut embedded_images,
+            image_tag,
+            transform,
+            presentation,
+            decoded_image,
+        );
         search_index = image_start + image_end + 1;
+    }
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<use") {
+        let use_start = search_index + relative;
+        let use_tail = &svg_content[use_start..];
+        if !is_start_tag_named(use_tail, "use") {
+            search_index = use_start + "<use".len();
+            continue;
+        }
+        let Some(use_end) = use_tail.find('>') else {
+            break;
+        };
+        if in_defs(use_start) {
+            search_index = use_start + use_end + 1;
+            continue;
+        }
+        let use_tag = &use_tail[..use_end];
+        let Some(reference_id) = attr_value(use_tag, "href")
+            .or_else(|| attr_value(use_tag, "xlink:href"))
+            .and_then(|href| href.trim().strip_prefix('#').map(str::to_string))
+            .filter(|id| !id.is_empty())
+        else {
+            search_index = use_start + use_end + 1;
+            continue;
+        };
+        if !image_definitions
+            .iter()
+            .any(|definition| definition.id == reference_id)
+        {
+            search_index = use_start + use_end + 1;
+            continue;
+        }
+        let Some((use_transform, use_presentation)) = parse_element_state(use_tag, use_start)
+        else {
+            search_index = use_start + use_end + 1;
+            continue;
+        };
+        let x = attr_value(use_tag, "x")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let y = attr_value(use_tag, "y")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let translated_use_transform = compose_transform(
+            SimpleSvgTransform {
+                e: x,
+                f: y,
+                ..identity_transform
+            },
+            use_transform,
+            use_transform.stroke_scale,
+        );
+        for definition in image_definitions
+            .iter()
+            .filter(|definition| definition.id == reference_id)
+        {
+            let Some((definition_transform, definition_presentation)) =
+                parse_element_state(&definition.tag, definition.start)
+            else {
+                continue;
+            };
+            let transform = compose_transform(
+                definition_transform,
+                translated_use_transform,
+                translated_use_transform.stroke_scale,
+            );
+            let presentation = inherit_presentation(definition_presentation, use_presentation);
+            push_embedded_image(
+                &mut embedded_images,
+                &definition.tag,
+                transform,
+                presentation,
+                definition.image.clone(),
+            );
+        }
+        search_index = use_start + use_end + 1;
     }
     let decode_xml_text = |raw: &str| {
         let mut decoded = String::new();
@@ -24186,6 +24312,57 @@ mod tests {
         assert!(pdf_text.contains("q /GS400 gs q 20 0 0 20 150 240 cm /Im2 Do Q Q"));
         assert!(pdf_text.contains("0 1 0 RG 5 w 10 180 200 100 re S"));
         assert!(!pdf_text.contains("[unsupported image: figures/embedded-image.svg]"));
+    }
+
+    #[test]
+    fn renders_simple_svg_defs_embedded_png_image_use_as_pdf_xobject() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/defs-image-use.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:defs-image-use".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let base64_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/defs-image-use.svg").then(|| {
+                format!(
+                    r##"<svg width="20" height="10">
+  <defs>
+    <image id="stamp" x="5" y="2" width="8" height="4" href="data:image/png;base64,{base64_png}"/>
+  </defs>
+  <use href="#stamp" x="1" y="1" opacity="0.4"/>
+</svg>"##
+                )
+                .into_bytes()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(pdf_text.contains("/XObject << /Im1"));
+        assert!(pdf_text.contains("/GS400 << /Type /ExtGState /ca 0.4 /CA 0.4 >>"));
+        assert!(pdf_text.contains("q /GS400 gs q 40 0 0 40 90 210 cm /Im1 Do Q Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/defs-image-use.svg]"));
     }
 
     #[test]
