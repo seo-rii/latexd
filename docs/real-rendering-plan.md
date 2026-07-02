@@ -1244,8 +1244,8 @@ Status:
   `viewBox` to `<use>` viewport fitting, simple `<defs>` `<use>` aliases,
   simple `<defs>` group children composed from `<use>` aliases, and simple
   symbol children composed from `<use>` aliases, simple literal `<text>`
-  definitions, simple `tspan` children, text-use aliases, and group-contained
-  text reused through `<use>`, plus simple `<defs>` symbol
+  definitions, simple `tspan` children, text-use aliases, group-contained
+  text, and symbol-contained text reused through `<use>`, plus simple `<defs>` symbol
   aliases with symbol `viewBox` fitting,
   through whitespace-tolerant `href` / `xlink:href` `<use>`
   references, basic
