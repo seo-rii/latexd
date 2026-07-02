@@ -25225,6 +25225,60 @@ mod tests {
     }
 
     #[test]
+    fn preserves_simple_svg_defs_embedded_image_use_aspect_ratio() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 400.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 300.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/defs-embedded-image-aspect.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:defs-embedded-image-aspect".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let wide_png = "iVBORw0KGgoAAAANSUhEUgAAAAIAAAABCAIAAAB7QOjdAAAADUlEQVR4nGP4zwAE/wEHAAH/4iOeWQAAAABJRU5ErkJggg==";
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/defs-embedded-image-aspect.svg").then(|| {
+                format!(
+                    r##"<svg width="30" height="10">
+  <defs>
+    <image id="meet" x="0" y="0" width="10" height="10" href="data:image/png;base64,{wide_png}"/>
+    <image id="stretch" x="10" y="0" width="10" height="10" preserveAspectRatio="none" href="data:image/png;base64,{wide_png}"/>
+    <image id="slice" x="20" y="0" width="10" height="10" preserveAspectRatio="xMaxYMax slice" href="data:image/png;base64,{wide_png}"/>
+  </defs>
+  <use href="#meet"/>
+  <use href="#stretch"/>
+  <use href="#slice"/>
+</svg>"##
+                )
+                .into_bytes()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("q 100 0 0 50 10 205 cm /Im1 Do Q"));
+        assert!(pdf_text.contains("q 100 0 0 100 110 180 cm /Im2 Do Q"));
+        assert!(pdf_text.contains("210 180 100 100 re W n"));
+        assert!(pdf_text.contains("q 200 0 0 100 110 180 cm /Im3 Do Q"));
+    }
+
+    #[test]
     fn renders_simple_svg_group_presentation_as_pdf_vector_content() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
