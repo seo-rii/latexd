@@ -24859,6 +24859,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("parallel");
                         index = command_index;
                     }
+                    "nparallel" => {
+                        push_operator!("not parallel");
+                        index = command_index;
+                    }
                     "ll" => {
                         push_operator!("<<");
                         index = command_index;
@@ -24923,6 +24927,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("notin");
                         index = command_index;
                     }
+                    "nmid" => {
+                        push_operator!("not |");
+                        index = command_index;
+                    }
                     "ni" => {
                         push_operator!("contains");
                         index = command_index;
@@ -24931,16 +24939,40 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("subset");
                         index = command_index;
                     }
+                    "nsubset" => {
+                        push_operator!("not subset");
+                        index = command_index;
+                    }
                     "subseteq" => {
                         push_operator!("subseteq");
+                        index = command_index;
+                    }
+                    "nsubseteq" => {
+                        push_operator!("not subseteq");
+                        index = command_index;
+                    }
+                    "subsetneq" | "subsetneqq" => {
+                        push_operator!("subsetneq");
                         index = command_index;
                     }
                     "supset" => {
                         push_operator!("supset");
                         index = command_index;
                     }
+                    "nsupset" => {
+                        push_operator!("not supset");
+                        index = command_index;
+                    }
                     "supseteq" => {
                         push_operator!("supseteq");
+                        index = command_index;
+                    }
+                    "nsupseteq" => {
+                        push_operator!("not supseteq");
+                        index = command_index;
+                    }
+                    "supsetneq" | "supsetneqq" => {
+                        push_operator!("supsetneq");
                         index = command_index;
                     }
                     "cup" => {
