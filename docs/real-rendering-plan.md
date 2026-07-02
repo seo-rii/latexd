@@ -1225,7 +1225,8 @@ Status:
   scheme/drive-like first-component rejection after XML entity decoding and
   before resolver lookup in both PDF vector and debug SVG artifact paths,
   percent-encoded slash, backslash, and ASCII control bytes preserved instead
-  of becoming path characters, and unresolved non-`data:`/non-fragment
+  of becoming path characters, including literal resolver-key coverage for PDF
+  vector and debug SVG output, and unresolved non-`data:`/non-fragment
   references sanitized to inert `data:,` values instead of remaining
   browser-loadable URLs;
 - project-root display-list PDF debug artifacts render simple resolver-backed
