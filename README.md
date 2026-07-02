@@ -125,10 +125,11 @@ LATEXD_ARXIV_CC0_CORPUS=/tmp/latexd-arxiv-cc0 \
 ```
 
 Use `LATEXD_ARXIV_ORACLE_STRICT=1` when you want the test to fail on oracle
-threshold regressions. The oracle writes page-count and first-page raster
-dimension/non-white-bbox/pixel-count fields, `cc0-smoke-report.json`, and
-per-case `*-oracle.txt`, `*-internal.txt`, `*-internal.pdf`,
-`*-oracle-page-1.png`, `*-internal-page-1.png`, and
+threshold regressions. The oracle writes page-count, first-page raster
+dimension/non-white-bbox/pixel-count fields, first-page raster diff pixel
+metrics, `cc0-smoke-report.json`, and per-case `*-oracle.txt`,
+`*-internal.txt`, `*-internal.pdf`, `*-oracle-page-1.png`,
+`*-internal-page-1.png`, and
 `*-first-page-raster-diff.png` artifacts under
 `$LATEXD_ARXIV_CC0_CORPUS/reports` by default; override this with
 `LATEXD_ARXIV_ORACLE_REPORT_DIR`.

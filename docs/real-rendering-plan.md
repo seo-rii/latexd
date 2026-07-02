@@ -637,7 +637,8 @@ Tasks:
 - add raster smoke fields: page dimensions, non-white bbox, non-white pixel
   count, diff artifact paths, and separate gross statuses for bbox-area vs
   pixel-count failures. The oracle now writes first-page raster diff PNG
-  artifacts for successful internal builds and records their report-local paths;
+  artifacts for successful internal builds and records their report-local paths
+  plus differing-pixel counts/ratios;
 - report normalized unique overlap alongside raw overlap, currently folding
   Unicode Greek symbols to names, common ligatures, and soft hyphens;
 - further normalize citation-number noise where it does not hide real text
@@ -1149,13 +1150,14 @@ Scope:
 
 - add page count and raster smoke to the oracle;
 - persist enough report artifacts to inspect failures, including first-page
-  raster diff PNGs;
+  raster diff PNGs and differing-pixel metrics;
 - add raw and normalized text metrics.
 
 Exit criteria:
 
 - every CC0 smoke case reports page count, raw ratio, normalized ratio, and
-  raster gross status, with a diff artifact path for successful internal builds;
+  raster gross status, with a diff artifact path and differing-pixel metrics for
+  successful internal builds;
 - low ratio and gross page/raster causes are classified.
 
 ### Phase 1: Semantic Text Recovery

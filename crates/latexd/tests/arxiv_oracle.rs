@@ -91,6 +91,7 @@ struct OracleCaseReport {
     internal_first_page_raster_smoke: Option<RasterSmokeReport>,
     first_page_raster_gross: Option<RasterGrossReport>,
     first_page_raster_diff: Option<Utf8PathBuf>,
+    first_page_raster_diff_metrics: Option<RasterDiffReport>,
     internal_build_failure: Option<String>,
     internal_diagnostics: Vec<String>,
 }
@@ -158,6 +159,14 @@ struct RasterGrossReport {
     oracle_ink_pixel_count: Option<u64>,
     internal_ink_pixel_count: Option<u64>,
     internal_to_oracle_ink_pixel_ratio: Option<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+struct RasterDiffReport {
+    width_px: u32,
+    height_px: u32,
+    differing_pixel_count: u64,
+    differing_pixel_ratio: f64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -348,6 +357,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             internal_first_page_raster_smoke: None,
             first_page_raster_gross: None,
             first_page_raster_diff: None,
+            first_page_raster_diff_metrics: None,
             internal_build_failure: None,
             internal_diagnostics: Vec::new(),
         };
@@ -446,7 +456,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                     &case.version,
                     "first-page-raster-diff.png",
                 );
-                write_raster_diff_image(
+                let first_page_raster_diff_metrics = write_raster_diff_image(
                     &report.oracle_first_page_raster,
                     &internal_first_page_raster,
                     &first_page_raster_diff,
@@ -510,6 +520,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                 ));
                 report.internal_first_page_raster_smoke = Some(internal_first_page_raster_smoke);
                 report.first_page_raster_diff = Some(first_page_raster_diff);
+                report.first_page_raster_diff_metrics = Some(first_page_raster_diff_metrics);
                 let raster_status = report
                     .first_page_raster_gross
                     .as_ref()
@@ -1130,7 +1141,7 @@ fn write_raster_diff_image(
     oracle_path: &Utf8Path,
     internal_path: &Utf8Path,
     output_path: &Utf8Path,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<RasterDiffReport> {
     let oracle_bytes = fs::read(oracle_path.as_std_path())?;
     let oracle_image = image::load_from_memory_with_format(&oracle_bytes, image::ImageFormat::Png)
         .map_err(|error| anyhow::anyhow!("failed to decode oracle PNG {}: {error}", oracle_path))?
@@ -1147,6 +1158,7 @@ fn write_raster_diff_image(
     let width = oracle_width.max(internal_width);
     let height = oracle_height.max(internal_height);
     let mut diff_rgba = Vec::with_capacity(width as usize * height as usize * 4);
+    let mut differing_pixel_count = 0_u64;
 
     for y in 0..height {
         for x in 0..width {
@@ -1154,7 +1166,7 @@ fn write_raster_diff_image(
                 (x < oracle_width && y < oracle_height).then(|| oracle_image.get_pixel(x, y).0);
             let internal_pixel = (x < internal_width && y < internal_height)
                 .then(|| internal_image.get_pixel(x, y).0);
-            let diff_pixel = match (oracle_pixel, internal_pixel) {
+            let (diff_pixel, differs) = match (oracle_pixel, internal_pixel) {
                 (Some(oracle), Some(internal)) => {
                     let channel_diff = oracle
                         .iter()
@@ -1163,21 +1175,27 @@ fn write_raster_diff_image(
                         .max()
                         .unwrap_or(0);
                     if channel_diff == 0 {
-                        [255, 255, 255, 255]
+                        ([255, 255, 255, 255], false)
                     } else {
                         let intensity = channel_diff.max(32);
-                        [
-                            255,
-                            255_u8.saturating_sub(intensity),
-                            255_u8.saturating_sub(intensity),
-                            255,
-                        ]
+                        (
+                            [
+                                255,
+                                255_u8.saturating_sub(intensity),
+                                255_u8.saturating_sub(intensity),
+                                255,
+                            ],
+                            true,
+                        )
                     }
                 }
-                (Some(_), None) => [255, 0, 255, 255],
-                (None, Some(_)) => [0, 0, 255, 255],
-                (None, None) => [255, 255, 255, 255],
+                (Some(_), None) => ([255, 0, 255, 255], true),
+                (None, Some(_)) => ([0, 0, 255, 255], true),
+                (None, None) => ([255, 255, 255, 255], false),
             };
+            if differs {
+                differing_pixel_count += 1;
+            }
             diff_rgba.extend_from_slice(&diff_pixel);
         }
     }
@@ -1185,7 +1203,13 @@ fn write_raster_diff_image(
     let diff_image = image::RgbaImage::from_raw(width, height, diff_rgba)
         .expect("diff buffer should match image dimensions");
     diff_image.save_with_format(output_path.as_std_path(), image::ImageFormat::Png)?;
-    Ok(())
+    let total_pixel_count = (width as u64 * height as u64).max(1);
+    Ok(RasterDiffReport {
+        width_px: width,
+        height_px: height,
+        differing_pixel_count,
+        differing_pixel_ratio: differing_pixel_count as f64 / total_pixel_count as f64,
+    })
 }
 
 fn raster_smoke_from_rgba(
@@ -1691,6 +1715,12 @@ fn arxiv_oracle_report_serializes_first_page_raster_diff_path() {
         first_page_raster_diff: Some(Utf8PathBuf::from(
             "/tmp/2301.01234-v1-first-page-raster-diff.png",
         )),
+        first_page_raster_diff_metrics: Some(RasterDiffReport {
+            width_px: 100,
+            height_px: 100,
+            differing_pixel_count: 10,
+            differing_pixel_ratio: 0.001,
+        }),
         internal_build_failure: None,
         internal_diagnostics: Vec::new(),
     };
@@ -1700,6 +1730,11 @@ fn arxiv_oracle_report_serializes_first_page_raster_diff_path() {
     assert_eq!(
         value["first_page_raster_diff"],
         "/tmp/2301.01234-v1-first-page-raster-diff.png"
+    );
+    assert_eq!(value["first_page_raster_diff_metrics"]["width_px"], 100);
+    assert_eq!(
+        value["first_page_raster_diff_metrics"]["differing_pixel_count"],
+        10
     );
 }
 
@@ -1745,7 +1780,8 @@ fn arxiv_oracle_writes_first_page_raster_diff_artifact() {
     .save_with_format(internal_path.as_std_path(), image::ImageFormat::Png)
     .expect("write internal image");
 
-    write_raster_diff_image(&oracle_path, &internal_path, &diff_path).expect("write diff");
+    let metrics =
+        write_raster_diff_image(&oracle_path, &internal_path, &diff_path).expect("write diff");
 
     let diff = image::load_from_memory_with_format(
         &fs::read(diff_path.as_std_path()).expect("read diff"),
@@ -1757,6 +1793,15 @@ fn arxiv_oracle_writes_first_page_raster_diff_artifact() {
     assert_eq!(diff.get_pixel(0, 0).0, [255, 255, 255, 255]);
     assert_eq!(diff.get_pixel(1, 0).0, [255, 0, 0, 255]);
     assert_eq!(diff.get_pixel(0, 1).0, [0, 0, 255, 255]);
+    assert_eq!(
+        metrics,
+        RasterDiffReport {
+            width_px: 2,
+            height_px: 2,
+            differing_pixel_count: 3,
+            differing_pixel_ratio: 0.75,
+        }
+    );
 }
 
 #[test]
