@@ -190,10 +190,12 @@ Resolver-backed SVG and PNG/JPEG bitmap assets are embedded as data-URI
 `<image>` elements in project-root display-list SVG debug artifacts, and simple
 relative PNG/JPEG `href` / `xlink:href` references inside those SVG assets are
 rewritten to data URIs through the same resolver. The SVG-internal image href
-path accepts quote style and `=` whitespace variations, normalizes
-project-root-relative `.` / `..` components, strips query/fragment suffixes for
-resolver lookup, and refuses fragment-only, absolute, external-scheme, and
-root-escaping references. Debug SVG output preserves existing `data:` and
+path accepts quote style and `=` whitespace variations, decodes XML attribute
+entities, decodes URL percent escapes inside relative path components without
+turning encoded slashes into separators, normalizes project-root-relative dot
+components (`.` / `..`), strips query/fragment suffixes for resolver lookup, and
+refuses fragment-only, absolute, external-scheme, and root-escaping references.
+Debug SVG output preserves existing `data:` and
 fragment-only image refs, but sanitizes unresolved non-`data:` / non-fragment
 image refs to inert `data:,` values rather than leaving browser-loadable URLs in
 the generated artifact. Simple
@@ -1215,7 +1217,8 @@ Status:
   and PNG/JPEG bitmap assets, including clip-enabled crop visualization for
   bitmap assets, simple SVG assets with parseable natural dimensions, and
   simple relative SVG-internal PNG/JPEG `href` / `xlink:href` assets rewritten
-  to data URIs with quote/whitespace-tolerant attribute parsing,
+  to data URIs with quote/whitespace-tolerant attribute parsing, XML attribute
+  entity decoding, URL percent decoding inside relative path components,
   parent-relative normalization, query/fragment stripping for lookup, and
   unresolved non-`data:` / non-fragment references sanitized to inert `data:,`
   values instead of remaining browser-loadable URLs;

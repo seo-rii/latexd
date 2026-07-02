@@ -1597,9 +1597,11 @@ approximate.
   references inside SVG `<image>` elements are now resolved through the
   display-list asset resolver for PDF XObject rendering and rewritten as nested
   data URIs in debug SVG output, with quote/whitespace-tolerant attribute
-  parsing, parent-relative path normalization, query/fragment suffix stripping
-  for lookup, and unresolved non-`data:` / non-fragment references sanitized to
-  inert `data:,` values instead of remaining browser-loadable URLs.
+  parsing, XML attribute entity decoding, URL percent decoding inside relative
+  path components, parent-relative path normalization, query/fragment suffix
+  stripping for lookup, and unresolved non-`data:` / non-fragment references
+  sanitized to inert `data:,` values instead of remaining browser-loadable
+  URLs.
 - The simple SVG vector subset now includes gradient paint-server first-stop
   solid approximations with `href` inheritance, including alias `currentColor`
   stops without overriding stop-local color, plus inline/style-rule
