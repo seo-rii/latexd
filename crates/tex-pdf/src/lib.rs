@@ -21337,7 +21337,12 @@ mod tests {
       <path d="M 0 0 L 4 0 L 4 4 Z"/>
       <rect x="0" y="5" width="4" height="2"/>
     </g>
+    <g id="currentGlyph">
+      <path d="M 0 0 L 4 0 L 4 4 Z" fill="currentColor"/>
+      <rect x="0" y="5" width="4" height="2" fill="currentColor"/>
+    </g>
   </defs>
+  <use href="#currentGlyph" x="0" y="1" color="#00ffff"/>
   <use href="#glyph" x="5" y="1" fill="#0000ff"/>
   <use href="#glyph" x="10" y="1" fill="#00ff00"/>
 </svg>"##
@@ -21346,9 +21351,12 @@ mod tests {
         });
         let pdf_text = String::from_utf8_lossy(&pdf);
 
+        assert!(pdf_text.contains("0 1 1 rg 10 270 m 50 270 l 50 230 l h f"));
+        assert!(pdf_text.contains("0 1 1 rg 10 220 m 50 220 l 50 200 l 10 200 l h f"));
         assert!(pdf_text.contains("0 0 1 rg 60 270 m 100 270 l 100 230 l h f"));
         assert!(pdf_text.contains("0 0 1 rg 60 220 m 100 220 l 100 200 l 60 200 l h f"));
         assert!(pdf_text.contains("0 1 0 rg 110 270 m 150 270 l 150 230 l h f"));
+        assert!(!pdf_text.contains("0 0 0 rg 10 270 m 50 270 l 50 230 l h f"));
         assert!(!pdf_text.contains("1 0 0 rg 10 280 m 50 280 l 50 240 l h f"));
         assert!(!pdf_text.contains("[unsupported image: figures/defs-group-use.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
