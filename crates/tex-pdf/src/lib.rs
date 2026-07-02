@@ -9644,6 +9644,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         tag: String,
         start: usize,
         body: String,
+        alias_base_presentation: Option<SimpleSvgPresentation>,
         alias_transform: Option<SimpleSvgTransform>,
         alias_presentation: Option<SimpleSvgPresentation>,
     }
@@ -9709,6 +9710,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     tag: text_tag.to_string(),
                     start: text_start,
                     body: text_body.to_string(),
+                    alias_base_presentation: None,
                     alias_transform: None,
                     alias_presentation: None,
                 });
@@ -10068,16 +10070,131 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             .cloned()
             .collect::<Vec<_>>();
         for definition in referenced_definitions {
+            let mut alias_outer_transform = translated_use_transform;
+            let mut alias_base_presentation = definition.alias_base_presentation;
+            if let Some(symbol_definition) = symbol_definitions
+                .iter()
+                .rev()
+                .find(|symbol_definition| symbol_definition.id == reference_id)
+            {
+                alias_base_presentation = Some(symbol_definition.presentation);
+                if let Some((view_box_x, view_box_y, view_box_width, view_box_height)) =
+                    symbol_definition.view_box
+                {
+                    let use_width = attr_value(use_tag, "width")
+                        .as_deref()
+                        .and_then(parse_x_length)
+                        .unwrap_or(view_box_width);
+                    let use_height = attr_value(use_tag, "height")
+                        .as_deref()
+                        .and_then(parse_y_length)
+                        .unwrap_or(view_box_height);
+                    if !use_width.is_finite()
+                        || !use_height.is_finite()
+                        || use_width <= 0.0
+                        || use_height <= 0.0
+                    {
+                        continue;
+                    }
+                    let (scale_x, scale_y, offset_x, offset_y) = match symbol_definition
+                        .preserve_aspect_ratio
+                        .scale
+                    {
+                        SimpleSvgAspectScale::None => (
+                            use_width / view_box_width,
+                            use_height / view_box_height,
+                            0.0,
+                            0.0,
+                        ),
+                        SimpleSvgAspectScale::Meet | SimpleSvgAspectScale::Slice => {
+                            let viewport_aspect = use_width / use_height;
+                            let view_box_aspect = view_box_width / view_box_height;
+                            let fit_width = match symbol_definition.preserve_aspect_ratio.scale {
+                                SimpleSvgAspectScale::None => use_width,
+                                SimpleSvgAspectScale::Meet => {
+                                    if viewport_aspect > view_box_aspect {
+                                        use_height * view_box_aspect
+                                    } else {
+                                        use_width
+                                    }
+                                }
+                                SimpleSvgAspectScale::Slice => {
+                                    if viewport_aspect > view_box_aspect {
+                                        use_width
+                                    } else {
+                                        use_height * view_box_aspect
+                                    }
+                                }
+                            };
+                            let fit_height = match symbol_definition.preserve_aspect_ratio.scale {
+                                SimpleSvgAspectScale::None => use_height,
+                                SimpleSvgAspectScale::Meet => {
+                                    if viewport_aspect > view_box_aspect {
+                                        use_height
+                                    } else {
+                                        use_width / view_box_aspect
+                                    }
+                                }
+                                SimpleSvgAspectScale::Slice => {
+                                    if viewport_aspect > view_box_aspect {
+                                        use_width / view_box_aspect
+                                    } else {
+                                        use_height
+                                    }
+                                }
+                            };
+                            if !fit_width.is_finite()
+                                || !fit_height.is_finite()
+                                || fit_width <= 0.0
+                                || fit_height <= 0.0
+                            {
+                                continue;
+                            }
+                            let remaining_x = use_width - fit_width;
+                            let remaining_y = use_height - fit_height;
+                            let offset_x = match symbol_definition.preserve_aspect_ratio.x_align {
+                                SimpleSvgAspectAlign::Min => 0.0,
+                                SimpleSvgAspectAlign::Mid => remaining_x / 2.0,
+                                SimpleSvgAspectAlign::Max => remaining_x,
+                            };
+                            let offset_y = match symbol_definition.preserve_aspect_ratio.y_align {
+                                SimpleSvgAspectAlign::Min => 0.0,
+                                SimpleSvgAspectAlign::Mid => remaining_y / 2.0,
+                                SimpleSvgAspectAlign::Max => remaining_y,
+                            };
+                            (
+                                fit_width / view_box_width,
+                                fit_height / view_box_height,
+                                offset_x,
+                                offset_y,
+                            )
+                        }
+                    };
+                    let symbol_transform = SimpleSvgTransform {
+                        a: scale_x,
+                        d: scale_y,
+                        e: offset_x - view_box_x * scale_x,
+                        f: offset_y - view_box_y * scale_y,
+                        stroke_scale: (scale_x.abs() + scale_y.abs()) / 2.0,
+                        ..identity_transform
+                    };
+                    alias_outer_transform = compose_transform(
+                        symbol_transform,
+                        alias_outer_transform,
+                        alias_outer_transform.stroke_scale,
+                    );
+                }
+            }
             let alias_transform = definition
                 .alias_transform
                 .map(|base_transform| {
                     compose_transform(
                         base_transform,
-                        translated_use_transform,
-                        translated_use_transform.stroke_scale,
+                        alias_outer_transform,
+                        alias_outer_transform.stroke_scale,
                     )
                 })
-                .unwrap_or(translated_use_transform);
+                .unwrap_or(alias_outer_transform);
             let alias_presentation = definition
                 .alias_presentation
                 .map(|base_presentation| inherit_presentation(base_presentation, use_presentation))
@@ -10088,6 +10205,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                     tag: definition.tag.clone(),
                     start: definition.start,
                     body: definition.body.clone(),
+                    alias_base_presentation,
                     alias_transform: Some(alias_transform),
                     alias_presentation: Some(alias_presentation),
                 });
@@ -10152,6 +10270,10 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             };
             let mut definition_transform = definition_transform;
             let mut definition_presentation = definition_presentation;
+            if let Some(alias_base_presentation) = definition.alias_base_presentation {
+                definition_presentation =
+                    inherit_presentation(alias_base_presentation, definition_presentation);
+            }
             if let Some(alias_transform) = definition.alias_transform {
                 definition_transform = compose_transform(
                     definition_transform,
@@ -22196,6 +22318,58 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 rg BT /F1 20 Tf 1 0 0 1 90 210 Tm (Hi) Tj ET"));
         assert!(!pdf_text.contains("1 0 0 rg BT /F1 20 Tf 1 0 0 1 90 210 Tm (Hi) Tj ET"));
         assert!(!pdf_text.contains("[unsupported image: figures/defs-symbol-text-use-alias.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_defs_symbol_text_alias_viewbox_as_pdf_text() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/defs-symbol-text-alias-viewbox.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:defs-symbol-text-alias-viewbox".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/defs-symbol-text-alias-viewbox.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <symbol id="label" viewBox="0 0 4 4" fill="currentColor">
+      <text x="1" y="3" font-size="1">Hi</text>
+    </symbol>
+    <use id="labelAlias" href="#label" width="8" height="8" color="#0000ff"/>
+  </defs>
+  <use href="#labelAlias" x="4" y="1"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 rg BT /F1 20 Tf 1 0 0 1 70 210 Tm (Hi) Tj ET"));
+        assert!(!pdf_text.contains("0 0 0 rg BT /F1 20 Tf 1 0 0 1 70 210 Tm (Hi) Tj ET"));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/defs-symbol-text-alias-viewbox.svg]")
+        );
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
