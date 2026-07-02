@@ -7169,6 +7169,50 @@ fn math_standard_function_variants_use_normalized_text_in_ir_and_display_list() 
 }
 
 #[test]
+fn math_minmax_supinf_scripts_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Bounds \(\max_{x\in S} f(x) + \min^{*}_{y} g(y) + \sup_{n} a_n + \inf_{m\to0} b_m\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    let expected = "max_{x in S} f(x) + min_{y}^{*} g(y) + sup_{n} a_n + inf_{m -> 0} b_m";
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"\max_{x\in S} f(x) + \min^{*}_{y} g(y) + \sup_{n} a_n + \inf_{m\to0} b_m"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let display_list_flat = display_list_text.replace('\n', " ");
+    assert!(display_list_flat.contains(expected), "{display_list_text}");
+    for hidden in [r"\max", r"\min", r"\sup", r"\inf"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_limit_operator_variants_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Limits \(\limsup_{n\to\infty} a_n + \liminf_{m\to0} b_m + \varlimsup_{k} c_k + \varliminf_{\ell} d_\ell + \injlim_i X_i + \projlim_j Y_j\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

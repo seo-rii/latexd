@@ -23980,24 +23980,6 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
         }};
     }
 
-    macro_rules! push_token_then_space {
-        ($token:expr) => {{
-            let token = $token;
-            if !token.is_empty() {
-                if pending_space
-                    && !text.is_empty()
-                    && !token
-                        .starts_with(['.', ',', ';', ':', '!', '?', ')', ']', '}', '/', '^', '_'])
-                    && !text.ends_with([' ', '(', '[', '/', '^', '_'])
-                {
-                    text.push(' ');
-                }
-                text.push_str(token);
-                pending_space = true;
-            }
-        }};
-    }
-
     macro_rules! push_operator {
         ($operator:expr) => {{
             if !text.is_empty() && !text.ends_with([' ', '(', '[', '/', '^', '_']) {
@@ -25198,9 +25180,9 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         index = command_index;
                     }
                     "sum" | "prod" | "int" | "lim" | "limsup" | "liminf" | "varlimsup"
-                    | "varliminf" | "injlim" | "projlim" | "varinjlim" | "varprojlim"
-                    | "bigcup" | "bigcap" | "bigoplus" | "bigotimes" | "bigodot" | "bigsqcup"
-                    | "bigvee" | "bigwedge" => {
+                    | "varliminf" | "injlim" | "projlim" | "varinjlim" | "varprojlim" | "min"
+                    | "max" | "sup" | "inf" | "bigcup" | "bigcap" | "bigoplus" | "bigotimes"
+                    | "bigodot" | "bigsqcup" | "bigvee" | "bigwedge" => {
                         let mut script_index = skip_ascii_whitespace(source, command_index);
                         if script_index < bytes.len() && bytes[script_index] == b'\\' {
                             let mut limit_command_index = script_index + 1;
@@ -25294,14 +25276,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token_then_space!(&operator);
                         index = script_index;
                     }
-                    "min" | "max" => {
-                        push_token_then_space!(command);
-                        index = command_index;
-                    }
                     "arcsin" | "arccos" | "arctan" | "sin" | "cos" | "tan" | "sinh" | "cosh"
                     | "tanh" | "cot" | "coth" | "sec" | "csc" | "log" | "lg" | "ln" | "exp"
-                    | "arg" | "deg" | "det" | "dim" | "gcd" | "hom" | "ker" | "Pr" | "sup"
-                    | "inf" | "poly" | "negl" | "Supp" | "loglog" | "argmax" => {
+                    | "arg" | "deg" | "det" | "dim" | "gcd" | "hom" | "ker" | "Pr" | "poly"
+                    | "negl" | "Supp" | "loglog" | "argmax" => {
                         push_command_token!(command);
                         index = command_index;
                     }
