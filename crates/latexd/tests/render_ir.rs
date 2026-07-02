@@ -1283,6 +1283,53 @@ fn arrow_math_accents_normalize_inner_math_through_display_list() {
 }
 
 #[test]
+fn common_math_accents_normalize_inner_math_through_display_list() {
+    let source = r"\begin{document}Marks $\check{x}+\breve{y}+\acute{z}+\grave{w}+\mathring{A}+\widecheck{B}$ now.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let expected = "check(x) + breve(y) + acute(z) + grave(w) + ring(A) + check(B)";
+
+    assert_eq!(
+        math_event.raw_source,
+        r"\check{x}+\breve{y}+\acute{z}+\grave{w}+\mathring{A}+\widecheck{B}"
+    );
+    assert_eq!(math_event.normalized_text.as_deref(), Some(expected));
+    assert!(extracted_text.contains(&format!("Marks {expected} now.")));
+    for visible in ["Marks", expected, "now"] {
+        assert!(display_list_text.contains(visible), "{display_list_text}");
+    }
+    for hidden in [
+        r"\check",
+        r"\breve",
+        r"\acute",
+        r"\grave",
+        r"\mathring",
+        r"\widecheck",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn title_inline_keys_are_redacted_in_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", TITLE_INLINE_KEY_SOURCE, &SemanticAux::default());

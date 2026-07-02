@@ -24535,6 +24535,12 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     }
                     "hat"
                     | "widehat"
+                    | "check"
+                    | "widecheck"
+                    | "breve"
+                    | "acute"
+                    | "grave"
+                    | "mathring"
                     | "bar"
                     | "overline"
                     | "vec"
@@ -24618,8 +24624,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                             };
                         let accent = match command {
                             "widehat" => "hat",
+                            "widecheck" => "check",
                             "overline" => "bar",
                             "widetilde" => "tilde",
+                            "mathring" => "ring",
                             _ => command,
                         };
                         push_command_token!(&format!("{accent}({argument})"));
