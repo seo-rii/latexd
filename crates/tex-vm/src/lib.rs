@@ -25279,7 +25279,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     "arcsin" | "arccos" | "arctan" | "sin" | "cos" | "tan" | "sinh" | "cosh"
                     | "tanh" | "cot" | "coth" | "sec" | "csc" | "log" | "lg" | "ln" | "exp"
                     | "arg" | "deg" | "det" | "dim" | "gcd" | "hom" | "ker" | "Pr" | "poly"
-                    | "negl" | "Supp" | "loglog" | "argmax" => {
+                    | "negl" | "Supp" | "loglog" | "argmax" | "argmin" => {
                         push_command_token!(command);
                         index = command_index;
                     }

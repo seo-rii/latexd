@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-02` note: Common `\argmin` math operator commands now normalize consistently with existing `\argmax` handling, preserving readable `argmin_x in S`-style text instead of forcing raw fallback.
 - `2026-07-02` note: Scripted `\min`, `\max`, `\sup`, and `\inf` math operators now reuse the same script parser as `\sum` and `\lim`, preserving attached subscript/superscript content in normalized IR and display-list text.
 - `2026-07-02` note: Standard LaTeX math function commands that were missing from the normalizer, including `\arcsin`, `\arccos`, `\arctan`, `\sinh`, `\cosh`, `\tanh`, `\coth`, and `\lg`, now render as readable function names instead of forcing raw TeX fallback.
 - `2026-07-02` note: Limit operator variants such as `\limsup`, `\liminf`, `\varlimsup`, `\varliminf`, `\injlim`, and `\projlim` now reuse the scripted operator parser so subscripts/superscripts are preserved in normalized text.

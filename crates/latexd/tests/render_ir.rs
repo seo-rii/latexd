@@ -7169,6 +7169,48 @@ fn math_standard_function_variants_use_normalized_text_in_ir_and_display_list() 
 }
 
 #[test]
+fn math_argmin_operator_uses_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Choose \(\argmin_{x \in S} f(x)\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source == r"\argmin_{x \in S} f(x)"
+                && normalized_text.as_deref() == Some("argmin_x in S f(x)")
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("argmin_x in S f(x)"));
+    assert!(
+        !display_list_text.contains(r"\argmin"),
+        "{display_list_text}"
+    );
+}
+
+#[test]
 fn math_minmax_supinf_scripts_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Bounds \(\max_{x\in S} f(x) + \min^{*}_{y} g(y) + \sup_{n} a_n + \inf_{m\to0} b_m\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
