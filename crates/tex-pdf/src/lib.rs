@@ -25699,6 +25699,10 @@ mod tests {
             Some("figures/nested/a b&c.png".to_string())
         );
         assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", "nested/%E2%82%AC.png"),
+            Some("figures/nested/\u{20ac}.png".to_string())
+        );
+        assert_eq!(
             super::resolve_svg_embedded_asset_ref("figures/vector.svg", "nested/a%2Fb.png"),
             Some("figures/nested/a%2Fb.png".to_string())
         );
