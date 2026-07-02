@@ -24207,6 +24207,19 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token!(&argument);
                         index = after_argument;
                     }
+                    "mathop" | "mathord" | "mathrel" | "mathbin" | "mathopen" | "mathclose"
+                    | "mathpunct" | "mathinner" => {
+                        let argument_index = skip_ascii_whitespace(source, command_index);
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_math_source(argument));
+                        push_command_token!(&argument);
+                        index = after_argument;
+                    }
                     "red" | "blue" | "green" | "cyan" | "magenta" | "yellow" | "black"
                     | "white" | "gray" | "grey" | "orange" | "purple" | "brown" | "pink" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);
