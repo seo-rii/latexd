@@ -2079,7 +2079,44 @@ fn parse_simple_svg_asset_with_embedded_assets(
             }
             let value_start = quote.len_utf8();
             let value_end = after[value_start..].find(quote)? + value_start;
-            return Some(after[value_start..value_end].to_string());
+            let raw_value = &after[value_start..value_end];
+            let mut decoded = String::new();
+            let mut remaining = raw_value;
+            while let Some(entity_start) = remaining.find('&') {
+                decoded.push_str(&remaining[..entity_start]);
+                let entity_tail = &remaining[entity_start + 1..];
+                let Some(entity_end) = entity_tail.find(';') else {
+                    decoded.push_str(&remaining[entity_start..]);
+                    return Some(decoded);
+                };
+                let entity = &entity_tail[..entity_end];
+                let numeric_char = if let Some(hex) = entity
+                    .strip_prefix("#x")
+                    .or_else(|| entity.strip_prefix("#X"))
+                {
+                    u32::from_str_radix(hex, 16).ok().and_then(char::from_u32)
+                } else if let Some(decimal) = entity.strip_prefix('#') {
+                    decimal.parse::<u32>().ok().and_then(char::from_u32)
+                } else {
+                    None
+                };
+                match (entity, numeric_char) {
+                    ("lt", _) => decoded.push('<'),
+                    ("gt", _) => decoded.push('>'),
+                    ("quot", _) => decoded.push('"'),
+                    ("apos", _) => decoded.push('\''),
+                    ("amp", _) => decoded.push('&'),
+                    (_, Some(ch)) => decoded.push(ch),
+                    _ => {
+                        decoded.push('&');
+                        decoded.push_str(entity);
+                        decoded.push(';');
+                    }
+                }
+                remaining = &entity_tail[entity_end + 1..];
+            }
+            decoded.push_str(remaining);
+            return Some(decoded);
         }
         None
     };
@@ -25286,6 +25323,57 @@ mod tests {
         assert!(pdf_text.contains("/XObject << /Im1"));
         assert!(pdf_text.contains("q 80 0 0 40 60 220 cm /Im1 Do Q"));
         assert!(!pdf_text.contains("[unsupported image: figures/vector.svg]"));
+    }
+
+    #[test]
+    fn renders_simple_svg_entity_escaped_relative_embedded_png_image_as_pdf_xobject() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector-entity-href.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector-entity-href".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let mut requested_asset_refs = Vec::new();
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            requested_asset_refs.push(asset_ref.to_string());
+            match asset_ref {
+                "figures/vector-entity-href.svg" => Some(
+                    br##"<svg width="20" height="10">
+  <image x="5" y="2" width="8" height="4" preserveAspectRatio="none" href="nested/a&amp;b.png"/>
+</svg>"##
+                        .to_vec(),
+                ),
+                "figures/nested/a&b.png" => Some(tiny_png_bytes()),
+                _ => None,
+            }
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(requested_asset_refs.contains(&"figures/nested/a&b.png".to_string()));
+        assert!(!requested_asset_refs.contains(&"figures/nested/a&amp;b.png".to_string()));
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(pdf_text.contains("/XObject << /Im1"));
+        assert!(!pdf_text.contains("[unsupported image: figures/vector-entity-href.svg]"));
     }
 
     #[test]
