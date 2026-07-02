@@ -1978,18 +1978,6 @@ fn resolve_svg_embedded_asset_ref(svg_asset_ref: &str, href: &str) -> Option<Str
     {
         return None;
     }
-    let first_component = href
-        .split(['/', '?', '#'])
-        .next()
-        .unwrap_or_default()
-        .trim();
-    if first_component.contains(':') {
-        return None;
-    }
-    let href = href.split(['?', '#']).next().unwrap_or_default().trim();
-    if href.is_empty() {
-        return None;
-    }
     let percent_decode_path_component = |raw: &str| {
         let bytes = raw.as_bytes();
         let mut decoded = Vec::with_capacity(bytes.len());
@@ -2021,6 +2009,19 @@ fn resolve_svg_embedded_asset_ref(svg_asset_ref: &str, href: &str) -> Option<Str
         }
         String::from_utf8(decoded).unwrap_or_else(|_| raw.to_string())
     };
+    let first_component = href
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default()
+        .trim();
+    let decoded_first_component = percent_decode_path_component(first_component);
+    if first_component.contains(':') || decoded_first_component.contains(':') {
+        return None;
+    }
+    let href = href.split(['?', '#']).next().unwrap_or_default().trim();
+    if href.is_empty() {
+        return None;
+    }
     let mut parts = svg_asset_ref
         .rsplit_once('/')
         .map(|(parent, _)| parent.split('/').map(str::to_string).collect::<Vec<_>>())
@@ -25715,6 +25716,17 @@ mod tests {
                 "figures/vector.svg",
                 "https://example.com/pixel.png"
             ),
+            None
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref(
+                "figures/vector.svg",
+                "https%3A%2F%2Fexample.com/pixel.png"
+            ),
+            None
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", "C%3A/pixel.png"),
             None
         );
         assert_eq!(

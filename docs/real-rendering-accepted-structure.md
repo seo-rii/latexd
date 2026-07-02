@@ -1600,8 +1600,9 @@ approximate.
   parsing, XML attribute entity decoding, URL percent decoding inside relative
   path components, parent-relative path normalization, query/fragment suffix
   stripping for lookup, raw backslash/NUL href rejection before resolver lookup,
-  and unresolved non-`data:` / non-fragment references sanitized to inert
-  `data:,` values instead of remaining browser-loadable URLs.
+  raw or percent-decoded scheme/drive-like first-component rejection, and
+  unresolved non-`data:` / non-fragment references sanitized to inert `data:,`
+  values instead of remaining browser-loadable URLs.
 - The simple SVG vector subset now includes gradient paint-server first-stop
   solid approximations with `href` inheritance, including alias `currentColor`
   stops without overriding stop-local color, plus inline/style-rule
