@@ -25037,7 +25037,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!(command);
                         index = command_index;
                     }
-                    "xrightarrow" | "xleftarrow" => {
+                    "xrightarrow" | "xleftarrow" | "xleftrightarrow" | "xRightarrow"
+                    | "xLeftarrow" | "xLeftrightarrow" | "xmapsto" => {
                         let mut label_index = skip_ascii_whitespace(source, command_index);
                         let lower = if let Some((lower, _, _, after_lower)) =
                             read_bracket_source_argument(source, label_index)
@@ -25060,6 +25061,11 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         let arrow = match command {
                             "xrightarrow" => "->",
                             "xleftarrow" => "<-",
+                            "xleftrightarrow" => "<->",
+                            "xRightarrow" => "=>",
+                            "xLeftarrow" => "<=",
+                            "xLeftrightarrow" => "<=>",
+                            "xmapsto" => "->",
                             _ => unreachable!("extended arrow command"),
                         };
                         let mut arrow_text = format!("{arrow}^{{{upper}}}");
