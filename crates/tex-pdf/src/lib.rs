@@ -9643,7 +9643,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         id: String,
         tag: String,
         start: usize,
-        text: String,
+        body: String,
     }
     let mut text_definitions = Vec::new();
     let mut search_index = 0usize;
@@ -9673,10 +9673,6 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         };
         let text_body_end = text_body_start + text_body_end_relative;
         let text_body = &svg_content[text_body_start..text_body_end];
-        if text_body.contains('<') {
-            search_index = text_body_end + "</text>".len();
-            continue;
-        }
         let preserve_text_space = attr_value(text_tag, "xml:space")
             .is_some_and(|value| value.trim().eq_ignore_ascii_case("preserve"));
         let text_body = if preserve_text_space {
@@ -9689,7 +9685,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 id,
                 tag: text_tag.to_string(),
                 start: text_start,
-                text: decode_xml_text(text_body),
+                body: text_body.to_string(),
             });
         }
         search_index = text_body_end + "</text>".len();
@@ -9752,6 +9748,224 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             });
         }
     };
+    let estimate_text_advance =
+        |text: &str, font_size: f32, letter_spacing: f32, word_spacing: f32| {
+            text.chars()
+                .map(|ch| {
+                    if ch.is_whitespace() || ch.is_ascii_punctuation() {
+                        0.33
+                    } else {
+                        0.5
+                    }
+                })
+                .sum::<f32>()
+                * font_size
+                + letter_spacing * text.chars().count().saturating_sub(1) as f32
+                + word_spacing * text.chars().filter(|ch| *ch == ' ').count() as f32
+        };
+    let apply_text_length_spacing =
+        |tag: &str, mut presentation: SimpleSvgPresentation, text: &str, font_size: f32| {
+            let length_adjust =
+                attr_value(tag, "lengthAdjust").unwrap_or_else(|| "spacing".to_string());
+            let length_adjust = length_adjust.trim();
+            if !(length_adjust.eq_ignore_ascii_case("spacing")
+                || length_adjust.eq_ignore_ascii_case("spacingAndGlyphs"))
+            {
+                return presentation;
+            }
+            let Some(text_length) = attr_value(tag, "textLength")
+                .as_deref()
+                .and_then(parse_x_length)
+                .filter(|value| value.is_finite())
+            else {
+                return presentation;
+            };
+            let spacing_gaps = text.chars().count().saturating_sub(1);
+            if spacing_gaps == 0 {
+                return presentation;
+            }
+            let current_advance = estimate_text_advance(
+                text,
+                font_size,
+                presentation.letter_spacing.unwrap_or(0.0),
+                presentation.word_spacing.unwrap_or(0.0),
+            );
+            let extra_spacing = (text_length - current_advance) / spacing_gaps as f32;
+            if extra_spacing.is_finite() {
+                presentation.letter_spacing =
+                    Some(presentation.letter_spacing.unwrap_or(0.0) + extra_spacing);
+            }
+            presentation
+        };
+    let resolve_text_runs = |text_tag: &str,
+                             text_body: &str,
+                             transform: SimpleSvgTransform,
+                             presentation: SimpleSvgPresentation|
+     -> Vec<((f32, f32), f32, SimpleSvgPresentation, String)> {
+        let preserve_text_space = attr_value(text_tag, "xml:space")
+            .is_some_and(|value| value.trim().eq_ignore_ascii_case("preserve"));
+        let text_body = if preserve_text_space {
+            text_body
+        } else {
+            text_body.trim()
+        };
+        if text_body.is_empty() {
+            return Vec::new();
+        }
+        let x = attr_value(text_tag, "x")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let y = attr_value(text_tag, "y")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let dx = attr_value(text_tag, "dx")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let dy = attr_value(text_tag, "dy")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let local_font_size = resolved_font_size(presentation);
+        let text_x = x + dx;
+        let text_raw_y = y + dy;
+        let text_y = text_raw_y
+            + baseline_y_offset(presentation, local_font_size)
+            + baseline_shift_y_offset(presentation, local_font_size);
+        let font_size = local_font_size * transform.stroke_scale;
+        let Some(point) = apply_transform(transform, text_x, text_y).map(normalize_point) else {
+            return Vec::new();
+        };
+        if !text_body.contains('<') {
+            let text = decode_xml_text(text_body);
+            let presentation =
+                apply_text_length_spacing(text_tag, presentation, &text, local_font_size);
+            return vec![(point, font_size, presentation, text)];
+        }
+        let mut remaining = text_body;
+        let mut current_x = text_x;
+        let mut current_y = text_raw_y;
+        let mut tspan_texts = Vec::new();
+        while !remaining.is_empty() {
+            let Some(tspan_start) = remaining.find("<tspan") else {
+                if !remaining.is_empty() && (preserve_text_space || !remaining.trim().is_empty()) {
+                    let literal_text = decode_xml_text(remaining);
+                    let literal_baseline_y = current_y
+                        + baseline_y_offset(presentation, local_font_size)
+                        + baseline_shift_y_offset(presentation, local_font_size);
+                    let Some(point) = apply_transform(transform, current_x, literal_baseline_y)
+                        .map(normalize_point)
+                    else {
+                        return Vec::new();
+                    };
+                    tspan_texts.push((point, font_size, presentation, literal_text));
+                }
+                break;
+            };
+            if tspan_start > 0
+                && (preserve_text_space || !remaining[..tspan_start].trim().is_empty())
+            {
+                let literal_text = decode_xml_text(&remaining[..tspan_start]);
+                let literal_baseline_y = current_y
+                    + baseline_y_offset(presentation, local_font_size)
+                    + baseline_shift_y_offset(presentation, local_font_size);
+                let Some(point) =
+                    apply_transform(transform, current_x, literal_baseline_y).map(normalize_point)
+                else {
+                    return Vec::new();
+                };
+                current_x += estimate_text_advance(
+                    &literal_text,
+                    local_font_size,
+                    presentation.letter_spacing.unwrap_or(0.0),
+                    presentation.word_spacing.unwrap_or(0.0),
+                );
+                tspan_texts.push((point, font_size, presentation, literal_text));
+            }
+            let tspan_tail = &remaining[tspan_start..];
+            if !is_start_tag_named(tspan_tail, "tspan") {
+                return Vec::new();
+            }
+            let Some(tspan_tag_end) = tspan_tail.find('>') else {
+                return Vec::new();
+            };
+            let tspan_tag = &tspan_tail[..tspan_tag_end];
+            let tspan_body_start = tspan_tag_end + 1;
+            let Some(tspan_body_end_relative) = tspan_tail[tspan_body_start..].find("</tspan>")
+            else {
+                return Vec::new();
+            };
+            let tspan_body_end = tspan_body_start + tspan_body_end_relative;
+            let tspan_body = &tspan_tail[tspan_body_start..tspan_body_end];
+            let preserve_tspan_space = attr_value(tspan_tag, "xml:space")
+                .map(|value| value.trim().eq_ignore_ascii_case("preserve"))
+                .unwrap_or(preserve_text_space);
+            if tspan_body.contains('<')
+                || (tspan_body.is_empty()
+                    || (!preserve_tspan_space && tspan_body.trim().is_empty()))
+            {
+                return Vec::new();
+            }
+            let tspan_x = attr_value(tspan_tag, "x")
+                .as_deref()
+                .and_then(parse_number_prefix)
+                .unwrap_or(current_x);
+            let tspan_y = attr_value(tspan_tag, "y")
+                .as_deref()
+                .and_then(parse_number_prefix)
+                .unwrap_or(current_y);
+            let tspan_dx = attr_value(tspan_tag, "dx")
+                .as_deref()
+                .and_then(parse_number_prefix)
+                .unwrap_or(0.0);
+            let tspan_dy = attr_value(tspan_tag, "dy")
+                .as_deref()
+                .and_then(parse_number_prefix)
+                .unwrap_or(0.0);
+            let tspan_presentation =
+                inherit_presentation(presentation, parse_presentation(tspan_tag));
+            if !presentation_is_visible(tspan_presentation) {
+                current_x = tspan_x + tspan_dx;
+                current_y = tspan_y + tspan_dy;
+                let tspan_close_end = tspan_body_end + "</tspan>".len();
+                remaining = &tspan_tail[tspan_close_end..];
+                continue;
+            }
+            let tspan_text = decode_xml_text(tspan_body);
+            let tspan_local_font_size = resolved_font_size(tspan_presentation);
+            let tspan_presentation = apply_text_length_spacing(
+                tspan_tag,
+                tspan_presentation,
+                &tspan_text,
+                tspan_local_font_size,
+            );
+            let tspan_font_size = tspan_local_font_size * transform.stroke_scale;
+            let tspan_x = tspan_x + tspan_dx;
+            let tspan_y = tspan_y + tspan_dy;
+            let tspan_baseline_y = tspan_y
+                + baseline_y_offset(tspan_presentation, tspan_local_font_size)
+                + baseline_shift_y_offset(tspan_presentation, tspan_local_font_size);
+            let Some(point) =
+                apply_transform(transform, tspan_x, tspan_baseline_y).map(normalize_point)
+            else {
+                return Vec::new();
+            };
+            current_x = tspan_x
+                + estimate_text_advance(
+                    &tspan_text,
+                    tspan_local_font_size,
+                    tspan_presentation.letter_spacing.unwrap_or(0.0),
+                    tspan_presentation.word_spacing.unwrap_or(0.0),
+                );
+            tspan_texts.push((point, tspan_font_size, tspan_presentation, tspan_text));
+            current_y = tspan_y;
+            let tspan_close_end = tspan_body_end + "</tspan>".len();
+            remaining = &tspan_tail[tspan_close_end..];
+        }
+        tspan_texts
+    };
     let mut search_index = 0usize;
     while let Some(relative) = svg_content[search_index..].find("<use") {
         let use_start = search_index + relative;
@@ -9813,41 +10027,11 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 translated_use_transform.stroke_scale,
             );
             let presentation = inherit_presentation(definition_presentation, use_presentation);
-            let x = attr_value(&definition.tag, "x")
-                .as_deref()
-                .and_then(parse_number_prefix)
-                .unwrap_or(0.0);
-            let y = attr_value(&definition.tag, "y")
-                .as_deref()
-                .and_then(parse_number_prefix)
-                .unwrap_or(0.0);
-            let dx = attr_value(&definition.tag, "dx")
-                .as_deref()
-                .and_then(parse_number_prefix)
-                .unwrap_or(0.0);
-            let dy = attr_value(&definition.tag, "dy")
-                .as_deref()
-                .and_then(parse_number_prefix)
-                .unwrap_or(0.0);
-            let local_font_size = resolved_font_size(presentation);
-            let text_x = x + dx;
-            let text_raw_y = y + dy;
-            let text_y = text_raw_y
-                + baseline_y_offset(presentation, local_font_size)
-                + baseline_shift_y_offset(presentation, local_font_size);
-            let font_size = local_font_size * transform.stroke_scale;
-            let Some(point) = apply_transform(transform, text_x, text_y).map(normalize_point)
-            else {
-                continue;
-            };
-            push_text(
-                &mut texts,
-                transform,
-                point,
-                font_size,
-                presentation,
-                definition.text.clone(),
-            );
+            for (point, font_size, presentation, text) in
+                resolve_text_runs(&definition.tag, &definition.body, transform, presentation)
+            {
+                push_text(&mut texts, transform, point, font_size, presentation, text);
+            }
         }
         search_index = use_start + use_end + 1;
     }
@@ -9889,225 +10073,9 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             search_index = text_body_end + "</text>".len();
             continue;
         };
-        let x = attr_value(text_tag, "x")
-            .as_deref()
-            .and_then(parse_number_prefix)
-            .unwrap_or(0.0);
-        let y = attr_value(text_tag, "y")
-            .as_deref()
-            .and_then(parse_number_prefix)
-            .unwrap_or(0.0);
-        let dx = attr_value(text_tag, "dx")
-            .as_deref()
-            .and_then(parse_number_prefix)
-            .unwrap_or(0.0);
-        let dy = attr_value(text_tag, "dy")
-            .as_deref()
-            .and_then(parse_number_prefix)
-            .unwrap_or(0.0);
-        let local_font_size = resolved_font_size(presentation);
-        let text_x = x + dx;
-        let text_raw_y = y + dy;
-        let text_y = text_raw_y
-            + baseline_y_offset(presentation, local_font_size)
-            + baseline_shift_y_offset(presentation, local_font_size);
-        let font_size = local_font_size * transform.stroke_scale;
-        let Some(point) = apply_transform(transform, text_x, text_y).map(normalize_point) else {
-            search_index = text_body_end + "</text>".len();
-            continue;
-        };
-        let estimate_text_advance =
-            |text: &str, font_size: f32, letter_spacing: f32, word_spacing: f32| {
-                text.chars()
-                    .map(|ch| {
-                        if ch.is_whitespace() || ch.is_ascii_punctuation() {
-                            0.33
-                        } else {
-                            0.5
-                        }
-                    })
-                    .sum::<f32>()
-                    * font_size
-                    + letter_spacing * text.chars().count().saturating_sub(1) as f32
-                    + word_spacing * text.chars().filter(|ch| *ch == ' ').count() as f32
-            };
-        let apply_text_length_spacing =
-            |tag: &str, mut presentation: SimpleSvgPresentation, text: &str, font_size: f32| {
-                let length_adjust =
-                    attr_value(tag, "lengthAdjust").unwrap_or_else(|| "spacing".to_string());
-                let length_adjust = length_adjust.trim();
-                if !(length_adjust.eq_ignore_ascii_case("spacing")
-                    || length_adjust.eq_ignore_ascii_case("spacingAndGlyphs"))
-                {
-                    return presentation;
-                }
-                let Some(text_length) = attr_value(tag, "textLength")
-                    .as_deref()
-                    .and_then(parse_x_length)
-                    .filter(|value| value.is_finite())
-                else {
-                    return presentation;
-                };
-                let spacing_gaps = text.chars().count().saturating_sub(1);
-                if spacing_gaps == 0 {
-                    return presentation;
-                }
-                let current_advance = estimate_text_advance(
-                    text,
-                    font_size,
-                    presentation.letter_spacing.unwrap_or(0.0),
-                    presentation.word_spacing.unwrap_or(0.0),
-                );
-                let extra_spacing = (text_length - current_advance) / spacing_gaps as f32;
-                if extra_spacing.is_finite() {
-                    presentation.letter_spacing =
-                        Some(presentation.letter_spacing.unwrap_or(0.0) + extra_spacing);
-                }
-                presentation
-            };
-        let resolved_texts = if !text_body.contains('<') {
-            let text = decode_xml_text(text_body);
-            let presentation =
-                apply_text_length_spacing(text_tag, presentation, &text, local_font_size);
-            vec![(point, font_size, presentation, text)]
-        } else {
-            let mut remaining = text_body;
-            let mut current_x = text_x;
-            let mut current_y = text_raw_y;
-            let mut tspan_texts = Vec::new();
-            let mut valid_tspans = true;
-            while !remaining.is_empty() {
-                let Some(tspan_start) = remaining.find("<tspan") else {
-                    if !remaining.is_empty()
-                        && (preserve_text_space || !remaining.trim().is_empty())
-                    {
-                        let literal_text = decode_xml_text(remaining);
-                        let literal_baseline_y = current_y
-                            + baseline_y_offset(presentation, local_font_size)
-                            + baseline_shift_y_offset(presentation, local_font_size);
-                        let Some(point) = apply_transform(transform, current_x, literal_baseline_y)
-                            .map(normalize_point)
-                        else {
-                            valid_tspans = false;
-                            break;
-                        };
-                        tspan_texts.push((point, font_size, presentation, literal_text));
-                    }
-                    break;
-                };
-                if tspan_start > 0
-                    && (preserve_text_space || !remaining[..tspan_start].trim().is_empty())
-                {
-                    let literal_text = decode_xml_text(&remaining[..tspan_start]);
-                    let literal_baseline_y = current_y
-                        + baseline_y_offset(presentation, local_font_size)
-                        + baseline_shift_y_offset(presentation, local_font_size);
-                    let Some(point) = apply_transform(transform, current_x, literal_baseline_y)
-                        .map(normalize_point)
-                    else {
-                        valid_tspans = false;
-                        break;
-                    };
-                    current_x += estimate_text_advance(
-                        &literal_text,
-                        local_font_size,
-                        presentation.letter_spacing.unwrap_or(0.0),
-                        presentation.word_spacing.unwrap_or(0.0),
-                    );
-                    tspan_texts.push((point, font_size, presentation, literal_text));
-                }
-                let tspan_tail = &remaining[tspan_start..];
-                if !is_start_tag_named(tspan_tail, "tspan") {
-                    valid_tspans = false;
-                    break;
-                }
-                let Some(tspan_tag_end) = tspan_tail.find('>') else {
-                    valid_tspans = false;
-                    break;
-                };
-                let tspan_tag = &tspan_tail[..tspan_tag_end];
-                let tspan_body_start = tspan_tag_end + 1;
-                let Some(tspan_body_end_relative) = tspan_tail[tspan_body_start..].find("</tspan>")
-                else {
-                    valid_tspans = false;
-                    break;
-                };
-                let tspan_body_end = tspan_body_start + tspan_body_end_relative;
-                let tspan_body = &tspan_tail[tspan_body_start..tspan_body_end];
-                let preserve_tspan_space = attr_value(tspan_tag, "xml:space")
-                    .map(|value| value.trim().eq_ignore_ascii_case("preserve"))
-                    .unwrap_or(preserve_text_space);
-                if tspan_body.contains('<')
-                    || (tspan_body.is_empty()
-                        || (!preserve_tspan_space && tspan_body.trim().is_empty()))
-                {
-                    valid_tspans = false;
-                    break;
-                }
-                let tspan_x = attr_value(tspan_tag, "x")
-                    .as_deref()
-                    .and_then(parse_number_prefix)
-                    .unwrap_or(current_x);
-                let tspan_y = attr_value(tspan_tag, "y")
-                    .as_deref()
-                    .and_then(parse_number_prefix)
-                    .unwrap_or(current_y);
-                let tspan_dx = attr_value(tspan_tag, "dx")
-                    .as_deref()
-                    .and_then(parse_number_prefix)
-                    .unwrap_or(0.0);
-                let tspan_dy = attr_value(tspan_tag, "dy")
-                    .as_deref()
-                    .and_then(parse_number_prefix)
-                    .unwrap_or(0.0);
-                let tspan_presentation =
-                    inherit_presentation(presentation, parse_presentation(tspan_tag));
-                if !presentation_is_visible(tspan_presentation) {
-                    current_x = tspan_x + tspan_dx;
-                    current_y = tspan_y + tspan_dy;
-                    let tspan_close_end = tspan_body_end + "</tspan>".len();
-                    remaining = &tspan_tail[tspan_close_end..];
-                    continue;
-                }
-                let tspan_text = decode_xml_text(tspan_body);
-                let tspan_local_font_size = resolved_font_size(tspan_presentation);
-                let tspan_presentation = apply_text_length_spacing(
-                    tspan_tag,
-                    tspan_presentation,
-                    &tspan_text,
-                    tspan_local_font_size,
-                );
-                let tspan_font_size = tspan_local_font_size * transform.stroke_scale;
-                let tspan_x = tspan_x + tspan_dx;
-                let tspan_y = tspan_y + tspan_dy;
-                let tspan_baseline_y = tspan_y
-                    + baseline_y_offset(tspan_presentation, tspan_local_font_size)
-                    + baseline_shift_y_offset(tspan_presentation, tspan_local_font_size);
-                let Some(point) =
-                    apply_transform(transform, tspan_x, tspan_baseline_y).map(normalize_point)
-                else {
-                    valid_tspans = false;
-                    break;
-                };
-                current_x = tspan_x
-                    + estimate_text_advance(
-                        &tspan_text,
-                        tspan_local_font_size,
-                        tspan_presentation.letter_spacing.unwrap_or(0.0),
-                        tspan_presentation.word_spacing.unwrap_or(0.0),
-                    );
-                tspan_texts.push((point, tspan_font_size, tspan_presentation, tspan_text));
-                current_y = tspan_y;
-                let tspan_close_end = tspan_body_end + "</tspan>".len();
-                remaining = &tspan_tail[tspan_close_end..];
-            }
-            if valid_tspans {
-                tspan_texts
-            } else {
-                Vec::new()
-            }
-        };
-        for (point, font_size, presentation, text) in resolved_texts {
+        for (point, font_size, presentation, text) in
+            resolve_text_runs(text_tag, text_body, transform, presentation)
+        {
             push_text(&mut texts, transform, point, font_size, presentation, text);
         }
         search_index = text_body_end + "</text>".len();
@@ -21669,6 +21637,56 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 rg BT /F1 20 Tf 1 0 0 1 60 240 Tm (Hi) Tj ET"));
         assert!(!pdf_text.contains("0 0 0 rg BT /F1 20 Tf 1 0 0 1 60 240 Tm (Hi) Tj ET"));
         assert!(!pdf_text.contains("[unsupported image: figures/defs-text-use.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_defs_text_use_tspans_as_pdf_text_runs() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/defs-text-use-tspan.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:defs-text-use-tspan".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/defs-text-use-tspan.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <text id="label" x="1" y="3" font-size="2" fill="#0000ff">
+      <tspan dx="1" fill="#ff0000">Hi</tspan>
+      <tspan x="8" y="4">There</tspan>
+    </text>
+  </defs>
+  <use href="#label" x="4" y="1"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("1 0 0 rg BT /F1 20 Tf 1 0 0 1 70 240 Tm (Hi) Tj ET"));
+        assert!(pdf_text.contains("0 0 1 rg BT /F1 20 Tf 1 0 0 1 130 230 Tm (There) Tj ET"));
+        assert!(!pdf_text.contains("[unsupported image: figures/defs-text-use-tspan.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
