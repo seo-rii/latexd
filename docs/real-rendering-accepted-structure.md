@@ -1589,7 +1589,9 @@ approximate.
 - The simple SVG image subset can now reuse direct `id`-addressed
   `<defs><image>` `data:image/png` / `data:image/jpeg` definitions and simple
   image `<defs>` `<use>` aliases through external `<use>`, preserving composed
-  positions and opacity before emitting the image as a PDF XObject.
+  positions and opacity before emitting the image as a PDF XObject. Simple
+  group-contained image definitions can also be reused through the containing
+  group id.
 - The simple SVG vector subset now includes gradient paint-server first-stop
   solid approximations with `href` inheritance, including alias `currentColor`
   stops without overriding stop-local color, plus inline/style-rule

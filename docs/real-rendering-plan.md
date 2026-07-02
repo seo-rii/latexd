@@ -262,7 +262,8 @@ transform/presentation state,
 plus simple embedded `data:image/png` / `data:image/jpeg` SVG
 `<image>` elements with `opacity` and `preserveAspectRatio` fitting, including
 direct `id`-addressed `<defs><image>` reuse and simple image `<defs>` `<use>`
-aliases through external `<use>`, is also
+aliases through external `<use>`, plus simple group-contained image definitions
+reused through the group id, is also
 rendered directly as vector PDF drawing operations in
 display-list PDF artifacts instead of falling back to unsupported-image
 placeholders. Simple SVG vector PDF rendering also uses display-list
@@ -778,7 +779,8 @@ Implemented first slice:
   `data:image/png` / `data:image/jpeg`
   SVG `<image>` elements as PDF XObjects with `opacity` and `preserveAspectRatio`
   fitting, including direct `id`-addressed `<defs><image>` reuse and simple
-  image `<defs>` `<use>` aliases through external `<use>`, display-list
+  image `<defs>` `<use>` aliases through external `<use>`, simple
+  group-contained image definitions reused through the group id, display-list
   crop/viewport placement, and
   `clip=true` destination clipping for simple SVG vector PDF assets;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in

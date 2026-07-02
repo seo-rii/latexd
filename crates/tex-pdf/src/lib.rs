@@ -9532,10 +9532,22 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             continue;
         }
         let image_tag = &image_tail[..image_end];
-        let Some(id) = attr_value(image_tag, "id").filter(|id| !id.trim().is_empty()) else {
+        let mut definition_ids = Vec::new();
+        if let Some(id) = attr_value(image_tag, "id").filter(|id| !id.trim().is_empty()) {
+            definition_ids.push(id);
+        }
+        for group_definition in &group_definitions {
+            if group_definition.content_start <= image_start
+                && image_start < group_definition.content_end
+                && !definition_ids.iter().any(|id| id == &group_definition.id)
+            {
+                definition_ids.push(group_definition.id.clone());
+            }
+        }
+        if definition_ids.is_empty() {
             search_index = image_start + image_end + 1;
             continue;
-        };
+        }
         let Some(decoded_image) = attr_value(image_tag, "href")
             .or_else(|| attr_value(image_tag, "xlink:href"))
             .as_deref()
@@ -9544,14 +9556,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             search_index = image_start + image_end + 1;
             continue;
         };
-        image_definitions.push(SimpleSvgImageDefinition {
-            id,
-            tag: image_tag.to_string(),
-            start: image_start,
-            image: decoded_image,
-            alias_transform: None,
-            alias_presentation: None,
-        });
+        for id in definition_ids {
+            image_definitions.push(SimpleSvgImageDefinition {
+                id,
+                tag: image_tag.to_string(),
+                start: image_start,
+                image: decoded_image.clone(),
+                alias_transform: None,
+                alias_presentation: None,
+            });
+        }
         search_index = image_start + image_end + 1;
     }
     let mut search_index = 0usize;
@@ -24513,6 +24527,59 @@ mod tests {
         assert!(pdf_text.contains("/GS400 << /Type /ExtGState /ca 0.4 /CA 0.4 >>"));
         assert!(pdf_text.contains("q /GS400 gs q 40 0 0 40 110 200 cm /Im1 Do Q Q"));
         assert!(!pdf_text.contains("[unsupported image: figures/defs-image-use-alias.svg]"));
+    }
+
+    #[test]
+    fn renders_simple_svg_defs_group_embedded_png_image_use_as_pdf_xobject() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/defs-group-image-use.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:defs-group-image-use".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let base64_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/defs-group-image-use.svg").then(|| {
+                format!(
+                    r##"<svg width="20" height="10">
+  <defs>
+    <g id="stamp-group" transform="translate(1 1)" opacity="0.5">
+      <image x="5" y="2" width="8" height="4" href="data:image/png;base64,{base64_png}"/>
+    </g>
+  </defs>
+  <use href="#stamp-group" x="1" y="1" opacity="0.8"/>
+</svg>"##
+                )
+                .into_bytes()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(pdf_text.contains("/XObject << /Im1"));
+        assert!(pdf_text.contains("/GS400 << /Type /ExtGState /ca 0.4 /CA 0.4 >>"));
+        assert!(pdf_text.contains("q /GS400 gs q 40 0 0 40 100 200 cm /Im1 Do Q Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/defs-group-image-use.svg]"));
     }
 
     #[test]
