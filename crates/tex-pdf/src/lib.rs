@@ -21107,8 +21107,10 @@ mod tests {
                 br##"<svg width="20" height="10">
   <defs>
     <path id="tri" d="M 0 0 L 4 0 L 4 4 Z" transform="translate(1 0)" fill="#ff0000"/>
+    <path id="currentTri" d="M 0 0 L 2 0 L 2 2 Z" fill="currentColor"/>
     <use id="triAlias" href="#tri" x="2" y="1" fill="#0000ff"/>
     <use id="triAlias2" href="#triAlias" x="1" y="1" fill="#00ff00"/>
+    <use id="currentAlias" href="#currentTri" x="0" y="3" color="#0000ff"/>
     <g id="glyph" fill="#ff0000">
       <path d="M 0 0 L 2 0 L 2 2 Z"/>
     </g>
@@ -21122,6 +21124,8 @@ mod tests {
   <use href="#triAlias2" x="10" y="2"/>
   <use href="#glyph" x="0" y="7" fill="#ff00ff"/>
   <use href="#glyphAlias" x="4" y="7"/>
+  <use href="#currentTri" x="14" y="0" color="#00ffff"/>
+  <use href="#currentAlias" x="14" y="3"/>
 </svg>"##
                     .to_vec()
             })
@@ -21133,8 +21137,12 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 rg 150 240 m 190 240 l 190 200 l h f"));
         assert!(pdf_text.contains("1 0 1 rg 10 210 m 30 210 l 30 190 l h f"));
         assert!(pdf_text.contains("0 0 1 rg 90 210 m 110 210 l 110 190 l h f"));
+        assert!(pdf_text.contains("0 1 1 rg 150 280 m 170 280 l 170 260 l h f"));
+        assert!(pdf_text.contains("0 0 1 rg 150 220 m 170 220 l 170 200 l h f"));
         assert!(!pdf_text.contains("1 0 1 rg 50 210 m 70 210 l 70 190 l h f"));
         assert!(!pdf_text.contains("1 0 0 rg 10 280 m 50 280 l 50 240 l h f"));
+        assert!(!pdf_text.contains("0 0 0 rg 150 280 m 170 280 l 170 260 l h f"));
+        assert!(!pdf_text.contains("0 0 0 rg 150 220 m 170 220 l 170 200 l h f"));
         assert!(!pdf_text.contains("[unsupported image: figures/defs-use-alias.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
