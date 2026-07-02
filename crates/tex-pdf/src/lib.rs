@@ -25978,6 +25978,52 @@ mod tests {
     }
 
     #[test]
+    fn sanitizes_simple_svg_encoded_colon_embedded_image_hrefs_for_svg_debug_output() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            (asset_ref == "figures/vector.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <image x="1" y="1" width="4" height="4" href="javascript%3Aalert(1)"/>
+  <image x="6" y="1" width="4" height="4" href="%ff%3A/pixel.png"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+
+        assert!(svg.contains("href=\"data:image/svg+xml;charset=utf-8,%3Csvg"));
+        assert!(svg.contains("data%3A%2C"));
+        assert!(!svg.contains("javascript%3Aalert"));
+        assert!(!svg.contains("javascript%253Aalert"));
+        assert!(!svg.contains("%25ff%253A"));
+        assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
+    }
+
+    #[test]
     fn preserves_simple_svg_data_and_fragment_embedded_image_hrefs_for_svg_debug_output() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
