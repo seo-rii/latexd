@@ -10020,6 +10020,14 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 alias_ids.push(group_definition.id.clone());
             }
         }
+        for symbol_definition in &symbol_definitions {
+            if symbol_definition.content_start <= use_start
+                && use_start < symbol_definition.content_end
+                && !alias_ids.iter().any(|id| id == &symbol_definition.id)
+            {
+                alias_ids.push(symbol_definition.id.clone());
+            }
+        }
         if alias_ids.is_empty() {
             search_index = use_start + use_end + 1;
             continue;
@@ -22138,6 +22146,56 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 rg BT /F1 20 Tf 1 0 0 1 70 210 Tm (Hi) Tj ET"));
         assert!(!pdf_text.contains("0 0 0 rg BT /F1 20 Tf 1 0 0 1 70 210 Tm (Hi) Tj ET"));
         assert!(!pdf_text.contains("[unsupported image: figures/defs-symbol-text-use.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_defs_symbol_text_use_alias_as_pdf_text() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/defs-symbol-text-use-alias.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:defs-symbol-text-use-alias".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/defs-symbol-text-use-alias.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <text id="unit" x="1" y="3" font-size="1" fill="#ff0000">Hi</text>
+    <symbol id="label" viewBox="0 0 4 4">
+      <use href="#unit" x="1" y="0" fill="#0000ff"/>
+    </symbol>
+  </defs>
+  <use href="#label" x="4" y="1" width="8" height="8"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 rg BT /F1 20 Tf 1 0 0 1 90 210 Tm (Hi) Tj ET"));
+        assert!(!pdf_text.contains("1 0 0 rg BT /F1 20 Tf 1 0 0 1 90 210 Tm (Hi) Tj ET"));
+        assert!(!pdf_text.contains("[unsupported image: figures/defs-symbol-text-use-alias.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
