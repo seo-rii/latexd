@@ -638,8 +638,8 @@ Tasks:
   count, diff artifact paths, and separate gross statuses for bbox-area vs
   pixel-count failures. The oracle now writes first-page raster diff PNG
   artifacts for successful internal builds and records their report-local paths
-  plus differing-pixel counts/ratios split into overlap, oracle-only, and
-  internal-only components;
+  plus differing-pixel bboxes/counts/ratios split into overlap, oracle-only,
+  and internal-only components;
 - report normalized unique overlap alongside raw overlap, currently folding
   Unicode Greek symbols to names, common ligatures, and soft hyphens;
 - further normalize citation-number noise where it does not hide real text
@@ -1151,7 +1151,7 @@ Scope:
 
 - add page count and raster smoke to the oracle;
 - persist enough report artifacts to inspect failures, including first-page
-  raster diff PNGs and differing-pixel metrics split by overlap and
+  raster diff PNGs and differing-pixel bboxes/metrics split by overlap and
   dimension-only regions;
 - add raw and normalized text metrics.
 

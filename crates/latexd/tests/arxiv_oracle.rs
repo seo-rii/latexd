@@ -166,6 +166,7 @@ struct RasterDiffReport {
     width_px: u32,
     height_px: u32,
     differing_pixel_count: u64,
+    differing_pixel_bbox: Option<RasterBoundingBox>,
     overlapping_differing_pixel_count: u64,
     oracle_only_pixel_count: u64,
     internal_only_pixel_count: u64,
@@ -1165,6 +1166,10 @@ fn write_raster_diff_image(
     let mut overlapping_differing_pixel_count = 0_u64;
     let mut oracle_only_pixel_count = 0_u64;
     let mut internal_only_pixel_count = 0_u64;
+    let mut differing_min_x = width;
+    let mut differing_min_y = height;
+    let mut differing_max_x = 0_u32;
+    let mut differing_max_y = 0_u32;
 
     for y in 0..height {
         for x in 0..width {
@@ -1207,6 +1212,10 @@ fn write_raster_diff_image(
             };
             if differs {
                 differing_pixel_count += 1;
+                differing_min_x = differing_min_x.min(x);
+                differing_min_y = differing_min_y.min(y);
+                differing_max_x = differing_max_x.max(x);
+                differing_max_y = differing_max_y.max(y);
                 if oracle_pixel.is_some() && internal_pixel.is_some() {
                     overlapping_differing_pixel_count += 1;
                 }
@@ -1219,10 +1228,17 @@ fn write_raster_diff_image(
         .expect("diff buffer should match image dimensions");
     diff_image.save_with_format(output_path.as_std_path(), image::ImageFormat::Png)?;
     let total_pixel_count = (width as u64 * height as u64).max(1);
+    let differing_pixel_bbox = (differing_pixel_count > 0).then(|| RasterBoundingBox {
+        x: differing_min_x,
+        y: differing_min_y,
+        width: differing_max_x - differing_min_x + 1,
+        height: differing_max_y - differing_min_y + 1,
+    });
     Ok(RasterDiffReport {
         width_px: width,
         height_px: height,
         differing_pixel_count,
+        differing_pixel_bbox,
         overlapping_differing_pixel_count,
         oracle_only_pixel_count,
         internal_only_pixel_count,
@@ -1737,6 +1753,12 @@ fn arxiv_oracle_report_serializes_first_page_raster_diff_path() {
             width_px: 100,
             height_px: 100,
             differing_pixel_count: 10,
+            differing_pixel_bbox: Some(RasterBoundingBox {
+                x: 4,
+                y: 5,
+                width: 6,
+                height: 7,
+            }),
             overlapping_differing_pixel_count: 7,
             oracle_only_pixel_count: 1,
             internal_only_pixel_count: 2,
@@ -1756,6 +1778,10 @@ fn arxiv_oracle_report_serializes_first_page_raster_diff_path() {
     assert_eq!(
         value["first_page_raster_diff_metrics"]["differing_pixel_count"],
         10
+    );
+    assert_eq!(
+        value["first_page_raster_diff_metrics"]["differing_pixel_bbox"]["x"],
+        4
     );
     assert_eq!(
         value["first_page_raster_diff_metrics"]["overlapping_differing_pixel_count"],
@@ -1832,6 +1858,12 @@ fn arxiv_oracle_writes_first_page_raster_diff_artifact() {
             width_px: 2,
             height_px: 2,
             differing_pixel_count: 3,
+            differing_pixel_bbox: Some(RasterBoundingBox {
+                x: 0,
+                y: 0,
+                width: 2,
+                height: 2,
+            }),
             overlapping_differing_pixel_count: 1,
             oracle_only_pixel_count: 0,
             internal_only_pixel_count: 2,
@@ -1879,10 +1911,50 @@ fn arxiv_oracle_writes_first_page_raster_diff_artifact() {
             width_px: 1,
             height_px: 2,
             differing_pixel_count: 1,
+            differing_pixel_bbox: Some(RasterBoundingBox {
+                x: 0,
+                y: 1,
+                width: 1,
+                height: 1,
+            }),
             overlapping_differing_pixel_count: 0,
             oracle_only_pixel_count: 1,
             internal_only_pixel_count: 0,
             differing_pixel_ratio: 0.5,
+        }
+    );
+
+    let identical_left_path = tempdir.join("identical-left.png");
+    let identical_right_path = tempdir.join("identical-right.png");
+    let identical_diff_path = tempdir.join("identical-diff.png");
+    image::RgbaImage::from_raw(1, 1, vec![0, 0, 0, 255])
+        .expect("identical left image")
+        .save_with_format(identical_left_path.as_std_path(), image::ImageFormat::Png)
+        .expect("write identical left image");
+    fs::copy(
+        identical_left_path.as_std_path(),
+        identical_right_path.as_std_path(),
+    )
+    .expect("copy identical image");
+
+    let identical_metrics = write_raster_diff_image(
+        &identical_left_path,
+        &identical_right_path,
+        &identical_diff_path,
+    )
+    .expect("write identical diff");
+
+    assert_eq!(
+        identical_metrics,
+        RasterDiffReport {
+            width_px: 1,
+            height_px: 1,
+            differing_pixel_count: 0,
+            differing_pixel_bbox: None,
+            overlapping_differing_pixel_count: 0,
+            oracle_only_pixel_count: 0,
+            internal_only_pixel_count: 0,
+            differing_pixel_ratio: 0.0,
         }
     );
 }
