@@ -634,7 +634,8 @@ Tasks:
 
 - extend `arxiv_oracle` report with page count;
 - keep official/internal extracted text paths or persist selected text snippets;
-- add raster smoke fields: page dimensions, non-white bbox, diff artifact paths;
+- add raster smoke fields: page dimensions, non-white bbox, non-white pixel
+  count, diff artifact paths;
 - report normalized unique overlap alongside raw overlap, currently folding
   Unicode Greek symbols to names, common ligatures, and soft hyphens;
 - further normalize citation-number noise where it does not hide real text
@@ -1183,7 +1184,8 @@ Scope:
 Exit criteria:
 
 - page count is within a small configured tolerance on text-heavy CC0 cases;
-- first-page raster smoke no longer flags missing major text blocks;
+- first-page raster smoke no longer flags missing major text/figure blocks by
+  bbox area or non-white pixel count;
 - unchanged page identity tests still pass.
 
 ### Phase 3: Figures And Tables

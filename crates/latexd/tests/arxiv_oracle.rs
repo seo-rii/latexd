@@ -135,6 +135,7 @@ enum OracleStructureSliceKind {
 struct RasterSmokeReport {
     width_px: u32,
     height_px: u32,
+    non_white_pixel_count: u64,
     non_white_bbox: Option<RasterBoundingBox>,
 }
 
@@ -153,6 +154,9 @@ struct RasterGrossReport {
     oracle_ink_bbox_area_px: Option<u64>,
     internal_ink_bbox_area_px: Option<u64>,
     internal_to_oracle_ink_bbox_ratio: Option<f64>,
+    oracle_ink_pixel_count: Option<u64>,
+    internal_ink_pixel_count: Option<u64>,
+    internal_to_oracle_ink_pixel_ratio: Option<f64>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -1122,6 +1126,7 @@ fn raster_smoke_from_rgba(
     let mut max_x = 0;
     let mut max_y = 0;
     let mut found = false;
+    let mut non_white_pixel_count = 0_u64;
     for y in 0..height_px {
         for x in 0..width_px {
             let offset = (y as usize * width_px as usize + x as usize) * 4;
@@ -1133,6 +1138,7 @@ fn raster_smoke_from_rgba(
                 continue;
             }
             found = true;
+            non_white_pixel_count += 1;
             min_x = min_x.min(x);
             min_y = min_y.min(y);
             max_x = max_x.max(x);
@@ -1143,6 +1149,7 @@ fn raster_smoke_from_rgba(
     Ok(RasterSmokeReport {
         width_px,
         height_px,
+        non_white_pixel_count,
         non_white_bbox: found.then_some(RasterBoundingBox {
             x: min_x,
             y: min_y,
@@ -1182,6 +1189,17 @@ fn compare_raster_smoke(
             }
             _ => None,
         };
+    let oracle_ink_pixel_count =
+        (oracle.non_white_pixel_count > 0).then_some(oracle.non_white_pixel_count);
+    let internal_ink_pixel_count =
+        (internal.non_white_pixel_count > 0).then_some(internal.non_white_pixel_count);
+    let internal_to_oracle_ink_pixel_ratio =
+        match (oracle_ink_pixel_count, internal_ink_pixel_count) {
+            (Some(oracle_pixels), Some(internal_pixels)) if oracle_pixels > 0 => {
+                Some(internal_pixels as f64 / oracle_pixels as f64)
+            }
+            _ => None,
+        };
     let status = if !page_size_matches {
         RasterGrossStatus::PageSizeMismatch
     } else if oracle_ink_bbox_area_px.is_none() {
@@ -1190,6 +1208,8 @@ fn compare_raster_smoke(
         RasterGrossStatus::BlankInternalPage
     } else if internal_to_oracle_ink_bbox_ratio
         .is_some_and(|ratio| ratio < min_internal_to_oracle_ink_ratio)
+        || internal_to_oracle_ink_pixel_ratio
+            .is_some_and(|ratio| ratio < min_internal_to_oracle_ink_ratio)
     {
         RasterGrossStatus::MissingMajorTextBlocks
     } else {
@@ -1202,6 +1222,9 @@ fn compare_raster_smoke(
         oracle_ink_bbox_area_px,
         internal_ink_bbox_area_px,
         internal_to_oracle_ink_bbox_ratio,
+        oracle_ink_pixel_count,
+        internal_ink_pixel_count,
+        internal_to_oracle_ink_pixel_ratio,
     }
 }
 
@@ -1671,6 +1694,7 @@ fn arxiv_oracle_raster_smoke_reports_non_white_bbox() {
 
     assert_eq!(smoke.width_px, 3);
     assert_eq!(smoke.height_px, 2);
+    assert_eq!(smoke.non_white_pixel_count, 2);
     assert_eq!(
         smoke.non_white_bbox,
         Some(RasterBoundingBox {
@@ -1810,6 +1834,7 @@ fn arxiv_oracle_raster_gross_passes_with_enough_matching_first_page_ink() {
     let oracle = RasterSmokeReport {
         width_px: 100,
         height_px: 100,
+        non_white_pixel_count: 1_000,
         non_white_bbox: Some(RasterBoundingBox {
             x: 10,
             y: 10,
@@ -1820,6 +1845,7 @@ fn arxiv_oracle_raster_gross_passes_with_enough_matching_first_page_ink() {
     let internal = RasterSmokeReport {
         width_px: 100,
         height_px: 100,
+        non_white_pixel_count: 600,
         non_white_bbox: Some(RasterBoundingBox {
             x: 12,
             y: 12,
@@ -1834,6 +1860,9 @@ fn arxiv_oracle_raster_gross_passes_with_enough_matching_first_page_ink() {
     assert_eq!(report.oracle_ink_bbox_area_px, Some(2000));
     assert_eq!(report.internal_ink_bbox_area_px, Some(1200));
     assert_eq!(report.internal_to_oracle_ink_bbox_ratio, Some(0.6));
+    assert_eq!(report.oracle_ink_pixel_count, Some(1_000));
+    assert_eq!(report.internal_ink_pixel_count, Some(600));
+    assert_eq!(report.internal_to_oracle_ink_pixel_ratio, Some(0.6));
 }
 
 #[test]
@@ -1841,6 +1870,7 @@ fn arxiv_oracle_raster_gross_flags_missing_major_text_blocks() {
     let oracle = RasterSmokeReport {
         width_px: 100,
         height_px: 100,
+        non_white_pixel_count: 6_400,
         non_white_bbox: Some(RasterBoundingBox {
             x: 5,
             y: 5,
@@ -1851,6 +1881,7 @@ fn arxiv_oracle_raster_gross_flags_missing_major_text_blocks() {
     let internal = RasterSmokeReport {
         width_px: 100,
         height_px: 100,
+        non_white_pixel_count: 400,
         non_white_bbox: Some(RasterBoundingBox {
             x: 5,
             y: 5,
@@ -1870,10 +1901,43 @@ fn arxiv_oracle_raster_gross_flags_missing_major_text_blocks() {
 }
 
 #[test]
+fn arxiv_oracle_raster_gross_flags_missing_major_ink_pixels() {
+    let oracle = RasterSmokeReport {
+        width_px: 100,
+        height_px: 100,
+        non_white_pixel_count: 2_000,
+        non_white_bbox: Some(RasterBoundingBox {
+            x: 10,
+            y: 10,
+            width: 60,
+            height: 50,
+        }),
+    };
+    let internal = RasterSmokeReport {
+        width_px: 100,
+        height_px: 100,
+        non_white_pixel_count: 300,
+        non_white_bbox: Some(RasterBoundingBox {
+            x: 10,
+            y: 10,
+            width: 60,
+            height: 50,
+        }),
+    };
+
+    let report = compare_raster_smoke(&oracle, &internal, 0.35);
+
+    assert_eq!(report.status, RasterGrossStatus::MissingMajorTextBlocks);
+    assert_eq!(report.internal_to_oracle_ink_bbox_ratio, Some(1.0));
+    assert_eq!(report.internal_to_oracle_ink_pixel_ratio, Some(0.15));
+}
+
+#[test]
 fn arxiv_oracle_raster_gross_flags_blank_and_page_size_failures() {
     let oracle = RasterSmokeReport {
         width_px: 100,
         height_px: 100,
+        non_white_pixel_count: 6_400,
         non_white_bbox: Some(RasterBoundingBox {
             x: 0,
             y: 0,
@@ -1884,11 +1948,13 @@ fn arxiv_oracle_raster_gross_flags_blank_and_page_size_failures() {
     let blank_internal = RasterSmokeReport {
         width_px: 100,
         height_px: 100,
+        non_white_pixel_count: 0,
         non_white_bbox: None,
     };
     let wrong_size_internal = RasterSmokeReport {
         width_px: 90,
         height_px: 100,
+        non_white_pixel_count: 6_400,
         non_white_bbox: Some(RasterBoundingBox {
             x: 0,
             y: 0,
