@@ -187,7 +187,9 @@ annotate `PageDisplayList::Image`, debug PDF placeholder text, and SVG debug
 unsupported-image placeholders, while resolved PDF/EPS assets can be converted
 to PNG for debug display-list PDF/SVG artifacts through Ghostscript or Poppler.
 Resolver-backed SVG and PNG/JPEG bitmap assets are embedded as data-URI
-`<image>` elements in project-root display-list SVG debug artifacts. Simple
+`<image>` elements in project-root display-list SVG debug artifacts, and simple
+relative PNG/JPEG `href` references inside those SVG assets are rewritten to
+data URIs through the same resolver. Simple
 resolver-backed SVG `<rect>`, `<line>`, `<circle>`, `<ellipse>`, `<polyline>`,
 `<polygon>`, and `<path>` content, including percentage geometry for simple
 rect/line/circle/ellipse attributes, with line, cubic/smooth cubic, and
@@ -1204,7 +1206,8 @@ Status:
   display-list PDF artifact;
 - project-root display-list SVG debug artifacts can embed resolver-backed SVG
   and PNG/JPEG bitmap assets, including clip-enabled crop visualization for
-  bitmap assets and simple SVG assets with parseable natural dimensions;
+  bitmap assets, simple SVG assets with parseable natural dimensions, and
+  simple relative SVG-internal PNG/JPEG `href` assets rewritten to data URIs;
 - project-root display-list PDF debug artifacts render simple resolver-backed
   SVG rectangle, rounded rectangle, line, circle, ellipse, polyline, polygon,
   percentage geometry for simple rect/line/circle/ellipse attributes,
@@ -1317,8 +1320,9 @@ Status:
   paths, with root/style/element scanners requiring tag-name boundaries to
   avoid prefix false positives such as `svgz` as `svg`, `stylesheet` as
   `style`, or `linearGradient` as `line`, plus simple embedded
-  `data:image/png` / `data:image/jpeg` SVG `<image>` elements as PDF XObjects
-  with `opacity` and `preserveAspectRatio` fitting,
+  `data:image/png` / `data:image/jpeg` and resolver-backed relative PNG/JPEG
+  SVG `<image>` elements as PDF XObjects with `opacity` and
+  `preserveAspectRatio` fitting,
   as vector PDF drawing operations,
   including display-list crop/viewport placement and `clip=true` destination
   clipping for simple SVG vector PDF assets;

@@ -1593,7 +1593,10 @@ approximate.
   group-contained image definitions and group-contained image aliases can also
   be reused through the containing group id, and simple symbol-contained image
   definitions support basic symbol `viewBox` viewport fitting, including simple
-  symbol image aliases.
+  symbol image aliases. Simple relative PNG/JPEG `href` references inside SVG
+  `<image>` elements are now resolved through the display-list asset resolver
+  for PDF XObject rendering and rewritten as nested data URIs in debug SVG
+  output.
 - The simple SVG vector subset now includes gradient paint-server first-stop
   solid approximations with `href` inheritance, including alias `currentColor`
   stops without overriding stop-local color, plus inline/style-rule
