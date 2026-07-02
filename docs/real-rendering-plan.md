@@ -202,6 +202,8 @@ percent escapes remain literal filename text.
 When both `href` and `xlink:href` exist on an SVG `<image>`, the PDF vector path
 uses `href` first and treats `xlink:href` as fallback for both direct images
 and `<defs><image>` definitions reused through `<use>`.
+The same `href`-first rule applies to PDF vector `<use>` references when both
+attributes point at conflicting definitions.
 Debug SVG output preserves existing `data:` and
 fragment-only image refs, but sanitizes unresolved non-`data:` / non-fragment
 image refs to inert `data:,` values rather than leaving browser-loadable URLs in
@@ -1237,6 +1239,8 @@ Status:
   lookup,
   `href` priority over `xlink:href` in the PDF vector parser for direct images
   and `<defs><image>` definitions reused through `<use>`,
+  `href` priority over `xlink:href` for conflicting PDF vector `<use>`
+  references,
   percent-encoded slash, backslash, and ASCII control bytes preserved instead
   of becoming path characters, including literal resolver-key coverage for PDF
   vector and debug SVG output, and unresolved non-`data:`/non-fragment

@@ -25832,6 +25832,61 @@ mod tests {
     }
 
     #[test]
+    fn prefers_simple_svg_image_use_href_over_xlink_href_in_pdf_output() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector-use-href-priority.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector-use-href-priority".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let mut requested_asset_refs = Vec::new();
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            requested_asset_refs.push(asset_ref.to_string());
+            match asset_ref {
+                "figures/vector-use-href-priority.svg" => Some(
+                    br##"<svg width="20" height="10">
+  <defs>
+    <image id="stamp" x="5" y="2" width="8" height="4" preserveAspectRatio="none" href="nested/pixel.png"/>
+  </defs>
+  <use href="#stamp" xlink:href="#missing" x="1" y="1" opacity="0.4"/>
+</svg>"##
+                        .to_vec(),
+                ),
+                "figures/nested/pixel.png" => Some(tiny_png_bytes()),
+                _ => None,
+            }
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(requested_asset_refs.contains(&"figures/nested/pixel.png".to_string()));
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(pdf_text.contains("/XObject << /Im1"));
+        assert!(pdf_text.contains("/GS400 << /Type /ExtGState /ca 0.4 /CA 0.4 >>"));
+        assert!(!pdf_text.contains("#missing"));
+        assert!(!pdf_text.contains("[unsupported image: figures/vector-use-href-priority.svg]"));
+    }
+
+    #[test]
     fn renders_simple_svg_relative_jpeg_xlink_image_in_pdf_and_svg_debug_output() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
