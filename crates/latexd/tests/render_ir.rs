@@ -2564,6 +2564,41 @@ fn bibliography_item_textstyle_and_box_wrappers_render_visible_text() {
 }
 
 #[test]
+fn bibliography_item_ensuremath_wrapper_renders_normalized_math_text() {
+    let source = r"\begin{document}\begin{thebibliography}{1}\bibitem{alpha}Visible \ensuremath{\alpha_i+\frac{1}{2}} title.\end{thebibliography}\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let bibliography = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Bibliography(bibliography) => Some(bibliography),
+            _ => None,
+        })
+        .expect("bibliography block");
+    let expected = "Visible alpha_i + 1/2 title.";
+
+    assert_eq!(bibliography.items[0].content, expected);
+    let extracted_text = capture.document_ir.extracted_text();
+    assert!(extracted_text.contains(expected), "{extracted_text}");
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in [r"\ensuremath", r"\alpha", r"\frac", "{1}", "{2}"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn bibliography_item_urlstyle_declaration_does_not_leak() {
     let capture = capture_internal_render_ir(
         "main.tex",

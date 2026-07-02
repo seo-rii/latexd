@@ -22317,6 +22317,26 @@ fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
             }
         }
 
+        const ENSUREMATH_COMMAND: &str = r"\ensuremath";
+        if source[math_cursor..].starts_with(ENSUREMATH_COMMAND) && !escaped_marker(math_cursor) {
+            let command_after = math_cursor + ENSUREMATH_COMMAND.len();
+            let command_has_alphabetic_suffix = bytes
+                .get(command_after)
+                .is_some_and(|byte| byte.is_ascii_alphabetic() || *byte == b'@');
+            if !command_has_alphabetic_suffix {
+                let argument_index = skip_ascii_whitespace(source, command_after);
+                if let Some((math_source, _, _, after)) =
+                    read_braced_source_argument(source, argument_index)
+                {
+                    let output =
+                        math_rewritten.get_or_insert_with(|| source[..math_cursor].to_string());
+                    output.push_str(&math_visible_text(math_source));
+                    math_cursor = after;
+                    continue;
+                }
+            }
+        }
+
         let ch = source[math_cursor..]
             .chars()
             .next()
