@@ -402,7 +402,11 @@ pub fn render_display_list_pdf_with_converted_assets(
                         let mut rendered_svg_vector = false;
                         if image.asset_format == Some(GraphicAssetFormat::Svg)
                             && let Ok(svg_text) = std::str::from_utf8(&bytes)
-                            && let Some(svg) = parse_simple_svg_asset(svg_text)
+                            && let Some(svg) =
+                                parse_simple_svg_asset_with_embedded_assets(svg_text, &mut |href| {
+                                    resolve_svg_embedded_asset_ref(&image.asset_ref, href)
+                                        .and_then(|asset_ref| resolve_asset(&asset_ref))
+                                })
                             && (!svg.rects.is_empty()
                                 || !svg.lines.is_empty()
                                 || !svg.ellipses.is_empty()
@@ -1961,6 +1965,46 @@ fn image_natural_size_or_fallback(
 }
 
 fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
+    parse_simple_svg_asset_with_embedded_assets(text, &mut |_| None)
+}
+
+fn resolve_svg_embedded_asset_ref(svg_asset_ref: &str, href: &str) -> Option<String> {
+    let href = href.trim();
+    if href.is_empty() || href.starts_with('#') || href.starts_with('/') {
+        return None;
+    }
+    let first_component = href
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or_default()
+        .trim();
+    if first_component.contains(':') {
+        return None;
+    }
+    let href = href.split(['?', '#']).next().unwrap_or_default().trim();
+    if href.is_empty() {
+        return None;
+    }
+    let mut parts = svg_asset_ref
+        .rsplit_once('/')
+        .map(|(parent, _)| parent.split('/').collect::<Vec<_>>())
+        .unwrap_or_default();
+    for component in href.split('/') {
+        match component {
+            "" | "." => {}
+            ".." => {
+                parts.pop()?;
+            }
+            _ => parts.push(component),
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("/"))
+}
+
+fn parse_simple_svg_asset_with_embedded_assets(
+    text: &str,
+    resolve_embedded_asset: &mut dyn FnMut(&str) -> Option<Vec<u8>>,
+) -> Option<SimpleSvgAsset> {
     let is_start_tag_named = |tag_tail: &str, element_name: &str| {
         let Some(after_lt) = tag_tail.strip_prefix('<') else {
             return false;
@@ -3516,6 +3560,15 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             bytes
         };
         decode_pdf_image(&bytes)
+    };
+    let mut decode_image_href = |raw: &str| -> Option<DecodedPdfImage> {
+        decode_data_image_uri(raw).or_else(|| {
+            let href = raw.trim();
+            if href.is_empty() || href.starts_with('#') {
+                return None;
+            }
+            resolve_embedded_asset(href).and_then(|bytes| decode_pdf_image(&bytes))
+        })
     };
     let first_some = |left: Option<String>, right: Option<String>| left.or(right);
     let initial_color = || SimpleSvgResolvedColor::opaque((0.0, 0.0, 0.0));
@@ -9559,7 +9612,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let Some(decoded_image) = attr_value(image_tag, "href")
             .or_else(|| attr_value(image_tag, "xlink:href"))
             .as_deref()
-            .and_then(decode_data_image_uri)
+            .and_then(|href| decode_image_href(href))
         else {
             search_index = image_start + image_end + 1;
             continue;
@@ -9879,7 +9932,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         let Some(decoded_image) = attr_value(image_tag, "href")
             .or_else(|| attr_value(image_tag, "xlink:href"))
             .as_deref()
-            .and_then(decode_data_image_uri)
+            .and_then(|href| decode_image_href(href))
         else {
             search_index = image_start + image_end + 1;
             continue;
@@ -24692,6 +24745,57 @@ mod tests {
         assert!(pdf_text.contains("q /GS400 gs q 20 0 0 20 150 240 cm /Im2 Do Q Q"));
         assert!(pdf_text.contains("0 1 0 RG 5 w 10 180 200 100 re S"));
         assert!(!pdf_text.contains("[unsupported image: figures/embedded-image.svg]"));
+    }
+
+    #[test]
+    fn renders_simple_svg_relative_embedded_png_image_as_pdf_xobject() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let mut requested_asset_refs = Vec::new();
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            requested_asset_refs.push(asset_ref.to_string());
+            match asset_ref {
+                "figures/vector.svg" => Some(
+                    br##"<svg width="20" height="10">
+  <image x="5" y="2" width="8" height="4" preserveAspectRatio="none" href="nested/pixel.png"/>
+</svg>"##
+                        .to_vec(),
+                ),
+                "figures/nested/pixel.png" => Some(tiny_png_bytes()),
+                _ => None,
+            }
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(requested_asset_refs.contains(&"figures/nested/pixel.png".to_string()));
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(pdf_text.contains("/XObject << /Im1"));
+        assert!(pdf_text.contains("q 80 0 0 40 60 220 cm /Im1 Do Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/vector.svg]"));
     }
 
     #[test]
