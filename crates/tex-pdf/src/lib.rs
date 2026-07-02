@@ -24853,6 +24853,57 @@ mod tests {
     }
 
     #[test]
+    fn renders_simple_svg_defs_embedded_png_image_use_transform_as_pdf_xobject() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/defs-image-use-transform.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:defs-image-use-transform".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let base64_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/defs-image-use-transform.svg").then(|| {
+                format!(
+                    r##"<svg width="20" height="10">
+  <defs>
+    <image id="stamp" x="5" y="2" width="8" height="4" transform="translate(2 1)" preserveAspectRatio="none" href="data:image/png;base64,{base64_png}"/>
+  </defs>
+  <use href="#stamp" x="1" y="1" opacity="0.4"/>
+</svg>"##
+                )
+                .into_bytes()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(pdf_text.contains("/XObject << /Im1"));
+        assert!(pdf_text.contains("/GS400 << /Type /ExtGState /ca 0.4 /CA 0.4 >>"));
+        assert!(pdf_text.contains("q /GS400 gs q 80 0 0 40 90 200 cm /Im1 Do Q Q"));
+        assert!(!pdf_text.contains("[unsupported image: figures/defs-image-use-transform.svg]"));
+    }
+
+    #[test]
     fn renders_simple_svg_defs_embedded_png_image_use_alias_as_pdf_xobject() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
