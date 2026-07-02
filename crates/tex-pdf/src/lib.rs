@@ -1974,7 +1974,7 @@ fn resolve_svg_embedded_asset_ref(svg_asset_ref: &str, href: &str) -> Option<Str
         || href.starts_with('#')
         || href.starts_with('/')
         || href.contains('\\')
-        || href.contains('\0')
+        || href.chars().any(|ch| ch.is_ascii_control())
     {
         return None;
     }
@@ -25787,6 +25787,14 @@ mod tests {
             Some("figures/nested/a%7Fb.png".to_string())
         );
         assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", "nested/a\nb.png"),
+            None
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", "nested/a\tb.png"),
+            None
+        );
+        assert_eq!(
             super::resolve_svg_embedded_asset_ref("figures/vector.svg", r"nested\pixel.png"),
             None
         );
@@ -26107,7 +26115,7 @@ mod tests {
     }
 
     #[test]
-    fn sanitizes_simple_svg_control_percent_embedded_image_hrefs_for_svg_debug_output() {
+    fn sanitizes_simple_svg_control_embedded_image_hrefs_for_svg_debug_output() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
             width_pt: 300.0,
@@ -26139,17 +26147,21 @@ mod tests {
                 br##"<svg width="20" height="10">
   <image x="1" y="1" width="4" height="4" href="nested/a%0Ab.png"/>
   <image x="6" y="1" width="4" height="4" href="nested/a%7Fb.png"/>
+  <image x="11" y="1" width="4" height="4" href="nested/a&#10;b.png"/>
+  <image x="16" y="1" width="4" height="4" href="nested/a&#x9;b.png"/>
 </svg>"##
                     .to_vec()
             })
         });
 
         assert!(svg.contains("href=\"data:image/svg+xml;charset=utf-8,%3Csvg"));
-        assert!(svg.matches("data%3A%2C").count() >= 2);
+        assert!(svg.matches("data%3A%2C").count() >= 4);
         assert!(!svg.contains("a%250Ab.png"));
         assert!(!svg.contains("a%0Ab.png"));
         assert!(!svg.contains("a%257Fb.png"));
         assert!(!svg.contains("a%7Fb.png"));
+        assert!(!svg.contains("a%26%2310%3Bb.png"));
+        assert!(!svg.contains("a%26%23x9%3Bb.png"));
         assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
     }
 
