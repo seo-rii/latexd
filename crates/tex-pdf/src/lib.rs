@@ -3525,12 +3525,40 @@ fn parse_simple_svg_asset_with_embedded_assets(
             return None;
         }
         let payload = &data[comma + 1..];
+        let percent_decode_payload = |payload: &[u8]| -> Option<Vec<u8>> {
+            let mut bytes = Vec::new();
+            let mut index = 0usize;
+            while index < payload.len() {
+                if payload[index] == b'%' {
+                    let high = payload.get(index + 1).copied()?;
+                    let low = payload.get(index + 2).copied()?;
+                    let hex = |byte: u8| -> Option<u8> {
+                        match byte {
+                            b'0'..=b'9' => Some(byte - b'0'),
+                            b'a'..=b'f' => Some(byte - b'a' + 10),
+                            b'A'..=b'F' => Some(byte - b'A' + 10),
+                            _ => None,
+                        }
+                    };
+                    bytes.push((hex(high)? << 4) | hex(low)?);
+                    index += 3;
+                } else {
+                    bytes.push(payload[index]);
+                    index += 1;
+                }
+            }
+            Some(bytes)
+        };
         let bytes = if metadata.split(';').any(|part| part.trim() == "base64") {
+            let payload = percent_decode_payload(payload.as_bytes())?;
             let mut bytes = Vec::new();
             let mut buffer = 0u32;
             let mut bits = 0u8;
             let mut padded = false;
-            for byte in payload.bytes().filter(|byte| !byte.is_ascii_whitespace()) {
+            for byte in payload
+                .into_iter()
+                .filter(|byte| !byte.is_ascii_whitespace())
+            {
                 if byte == b'=' {
                     padded = true;
                     continue;
@@ -3560,29 +3588,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             }
             bytes
         } else {
-            let mut bytes = Vec::new();
-            let payload = payload.as_bytes();
-            let mut index = 0usize;
-            while index < payload.len() {
-                if payload[index] == b'%' {
-                    let high = payload.get(index + 1).copied()?;
-                    let low = payload.get(index + 2).copied()?;
-                    let hex = |byte: u8| -> Option<u8> {
-                        match byte {
-                            b'0'..=b'9' => Some(byte - b'0'),
-                            b'a'..=b'f' => Some(byte - b'a' + 10),
-                            b'A'..=b'F' => Some(byte - b'A' + 10),
-                            _ => None,
-                        }
-                    };
-                    bytes.push((hex(high)? << 4) | hex(low)?);
-                    index += 3;
-                } else {
-                    bytes.push(payload[index]);
-                    index += 1;
-                }
-            }
-            bytes
+            percent_decode_payload(payload.as_bytes())?
         };
         decode_pdf_image(&bytes)
     };
@@ -25040,6 +25046,53 @@ mod tests {
         assert!(pdf_text.contains("q /GS400 gs q 20 0 0 20 150 240 cm /Im2 Do Q Q"));
         assert!(pdf_text.contains("0 1 0 RG 5 w 10 180 200 100 re S"));
         assert!(!pdf_text.contains("[unsupported image: figures/embedded-image.svg]"));
+    }
+
+    #[test]
+    fn renders_simple_svg_percent_encoded_base64_data_image_as_pdf_xobject() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/embedded-image-percent-base64.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:embedded-image-percent-base64".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/embedded-image-percent-base64.svg").then(|| {
+                let base64_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ%2FpLvAAAAAElFTkSuQmCC";
+                format!(
+                    r#"<svg width="20" height="10">
+  <image x="14" y="2" width="2" height="2" href="data:image/png;base64,{base64_png}"/>
+</svg>"#
+                )
+                .into_bytes()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(
+            !pdf_text.contains("[unsupported image: figures/embedded-image-percent-base64.svg]")
+        );
     }
 
     #[test]
