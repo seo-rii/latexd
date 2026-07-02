@@ -166,7 +166,8 @@ enum RasterGrossStatus {
     PageSizeMismatch,
     BlankOraclePage,
     BlankInternalPage,
-    MissingMajorTextBlocks,
+    MissingMajorInkBoundingBox,
+    MissingMajorInkPixels,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -1208,10 +1209,12 @@ fn compare_raster_smoke(
         RasterGrossStatus::BlankInternalPage
     } else if internal_to_oracle_ink_bbox_ratio
         .is_some_and(|ratio| ratio < min_internal_to_oracle_ink_ratio)
-        || internal_to_oracle_ink_pixel_ratio
-            .is_some_and(|ratio| ratio < min_internal_to_oracle_ink_ratio)
     {
-        RasterGrossStatus::MissingMajorTextBlocks
+        RasterGrossStatus::MissingMajorInkBoundingBox
+    } else if internal_to_oracle_ink_pixel_ratio
+        .is_some_and(|ratio| ratio < min_internal_to_oracle_ink_ratio)
+    {
+        RasterGrossStatus::MissingMajorInkPixels
     } else {
         RasterGrossStatus::Pass
     };
@@ -1774,7 +1777,7 @@ fn arxiv_oracle_metric_findings_classify_persistent_text_page_and_raster_failure
         Some(0.3),
         Some(0.4),
         Some(false),
-        Some(RasterGrossStatus::MissingMajorTextBlocks),
+        Some(RasterGrossStatus::MissingMajorInkBoundingBox),
         false,
     );
 
@@ -1866,7 +1869,7 @@ fn arxiv_oracle_raster_gross_passes_with_enough_matching_first_page_ink() {
 }
 
 #[test]
-fn arxiv_oracle_raster_gross_flags_missing_major_text_blocks() {
+fn arxiv_oracle_raster_gross_flags_missing_major_ink_bounding_box() {
     let oracle = RasterSmokeReport {
         width_px: 100,
         height_px: 100,
@@ -1892,7 +1895,7 @@ fn arxiv_oracle_raster_gross_flags_missing_major_text_blocks() {
 
     let report = compare_raster_smoke(&oracle, &internal, 0.35);
 
-    assert_eq!(report.status, RasterGrossStatus::MissingMajorTextBlocks);
+    assert_eq!(report.status, RasterGrossStatus::MissingMajorInkBoundingBox);
     assert!(
         report
             .internal_to_oracle_ink_bbox_ratio
@@ -1927,7 +1930,7 @@ fn arxiv_oracle_raster_gross_flags_missing_major_ink_pixels() {
 
     let report = compare_raster_smoke(&oracle, &internal, 0.35);
 
-    assert_eq!(report.status, RasterGrossStatus::MissingMajorTextBlocks);
+    assert_eq!(report.status, RasterGrossStatus::MissingMajorInkPixels);
     assert_eq!(report.internal_to_oracle_ink_bbox_ratio, Some(1.0));
     assert_eq!(report.internal_to_oracle_ink_pixel_ratio, Some(0.15));
 }
