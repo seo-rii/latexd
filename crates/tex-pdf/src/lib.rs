@@ -2039,7 +2039,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             svg_search_offset = tag_start + "<svg".len();
             continue;
         }
-        let tag_end = tag_tail.find('>')?;
+        let tag_end = find_simple_xml_tag_end(tag_tail)?;
         break (tag_start, tag_end);
     };
     let tag_tail = &text[tag_start..];
@@ -2726,7 +2726,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
                     style_block_offset = style_start + "<style".len();
                     continue;
                 }
-                let Some(style_tag_end) = style_tag_tail.find('>') else {
+                let Some(style_tag_end) = find_simple_xml_tag_end(style_tag_tail) else {
                     break;
                 };
                 let content_start = style_start + style_tag_end + 1;
@@ -2883,7 +2883,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
                     search_index = gradient_start + open_tag.len();
                     continue;
                 }
-                let Some(gradient_tag_end) = gradient_tail.find('>') else {
+                let Some(gradient_tag_end) = find_simple_xml_tag_end(gradient_tail) else {
                     break;
                 };
                 let gradient_tag = &gradient_tail[..gradient_tag_end];
@@ -2926,7 +2926,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
                         stop_search_index = stop_start + "<stop".len();
                         continue;
                     }
-                    let Some(stop_tag_end) = stop_tail.find('>') else {
+                    let Some(stop_tag_end) = find_simple_xml_tag_end(stop_tail) else {
                         break;
                     };
                     let stop_tag = &stop_tail[..stop_tag_end];
@@ -4113,7 +4113,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             style_block_offset = style_start + "<style".len();
             continue;
         }
-        let Some(style_tag_end) = style_tag_tail.find('>') else {
+        let Some(style_tag_end) = find_simple_xml_tag_end(style_tag_tail) else {
             break;
         };
         let content_start = style_start + style_tag_end + 1;
@@ -6905,7 +6905,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
     while let Some(relative) = svg_content[defs_search_index..].find('<') {
         let defs_tag_start = defs_search_index + relative;
         let defs_tag_tail = &svg_content[defs_tag_start..];
-        let Some(defs_tag_end) = defs_tag_tail.find('>') else {
+        let Some(defs_tag_end) = find_simple_xml_tag_end(defs_tag_tail) else {
             break;
         };
         let is_defs_close = defs_tag_tail.starts_with("</defs")
@@ -6953,7 +6953,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             clip_path_search_index = clip_path_start + "<clipPath".len();
             continue;
         }
-        let Some(clip_path_tag_end) = clip_path_tail.find('>') else {
+        let Some(clip_path_tag_end) = find_simple_xml_tag_end(clip_path_tail) else {
             break;
         };
         let clip_path_tag = &clip_path_tail[..clip_path_tag_end];
@@ -6981,7 +6981,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
                     break;
                 }
                 let group_tail = &body[group_start..];
-                let Some(group_tag_end) = group_tail.find('>') else {
+                let Some(group_tag_end) = find_simple_xml_tag_end(group_tail) else {
                     break;
                 };
                 let is_group_close = group_tail.starts_with("</g")
@@ -7032,7 +7032,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             clip_path_search_index = next_index;
             continue;
         }
-        let Some(rect_tag_end) = rect_tail.find('>') else {
+        let Some(rect_tag_end) = find_simple_xml_tag_end(rect_tail) else {
             clip_path_search_index = next_index;
             continue;
         };
@@ -7167,7 +7167,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
     while let Some(relative) = svg_content[group_search_index..].find('<') {
         let group_tag_start = group_search_index + relative;
         let group_tag_tail = &svg_content[group_tag_start..];
-        let Some(group_tag_end) = group_tag_tail.find('>') else {
+        let Some(group_tag_end) = find_simple_xml_tag_end(group_tag_tail) else {
             break;
         };
         let is_group_close = group_tag_tail.starts_with("</g")
@@ -7258,7 +7258,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             symbol_search_index = symbol_start + "<symbol".len();
             continue;
         }
-        let Some(symbol_tag_end) = symbol_tail.find('>') else {
+        let Some(symbol_tag_end) = find_simple_xml_tag_end(symbol_tail) else {
             break;
         };
         let symbol_tag = &symbol_tail[..symbol_tag_end];
@@ -7373,7 +7373,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             marker_search_index = marker_start + "<marker".len();
             continue;
         }
-        let Some(marker_tag_end) = marker_tail.find('>') else {
+        let Some(marker_tag_end) = find_simple_xml_tag_end(marker_tail) else {
             break;
         };
         let marker_tag = &marker_tail[..marker_tag_end];
@@ -7448,7 +7448,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             let child_start_in_body = body_search_index + child_relative;
             let child_start = body_start + child_start_in_body;
             let child_tail = &body[child_start_in_body..];
-            let Some(child_tag_end) = child_tail.find('>') else {
+            let Some(child_tag_end) = find_simple_xml_tag_end(child_tail) else {
                 break;
             };
             let child_tag = &child_tail[..child_tag_end];
@@ -7818,7 +7818,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = rect_start + "<rect".len();
             continue;
         }
-        let Some(rect_end) = rect_tail.find('>') else {
+        let Some(rect_end) = find_simple_xml_tag_end(rect_tail) else {
             break;
         };
         if in_defs(rect_start) {
@@ -8081,7 +8081,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = line_start + "<line".len();
             continue;
         }
-        let Some(line_end) = line_tail.find('>') else {
+        let Some(line_end) = find_simple_xml_tag_end(line_tail) else {
             break;
         };
         if in_defs(line_start) {
@@ -8187,7 +8187,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = circle_start + "<circle".len();
             continue;
         }
-        let Some(circle_end) = circle_tail.find('>') else {
+        let Some(circle_end) = find_simple_xml_tag_end(circle_tail) else {
             break;
         };
         if in_defs(circle_start) {
@@ -8285,7 +8285,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = ellipse_start + "<ellipse".len();
             continue;
         }
-        let Some(ellipse_end) = ellipse_tail.find('>') else {
+        let Some(ellipse_end) = find_simple_xml_tag_end(ellipse_tail) else {
             break;
         };
         if in_defs(ellipse_start) {
@@ -8481,7 +8481,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = poly_start + "<polyline".len();
             continue;
         }
-        let Some(poly_end) = poly_tail.find('>') else {
+        let Some(poly_end) = find_simple_xml_tag_end(poly_tail) else {
             break;
         };
         if in_defs(poly_start) {
@@ -8532,7 +8532,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = poly_start + "<polygon".len();
             continue;
         }
-        let Some(poly_end) = poly_tail.find('>') else {
+        let Some(poly_end) = find_simple_xml_tag_end(poly_tail) else {
             break;
         };
         if in_defs(poly_start) {
@@ -8814,7 +8814,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = path_start + "<path".len();
             continue;
         }
-        let Some(path_end) = path_tail.find('>') else {
+        let Some(path_end) = find_simple_xml_tag_end(path_tail) else {
             break;
         };
         if !in_defs(path_start) {
@@ -8841,7 +8841,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = rect_start + "<rect".len();
             continue;
         }
-        let Some(rect_end) = rect_tail.find('>') else {
+        let Some(rect_end) = find_simple_xml_tag_end(rect_tail) else {
             break;
         };
         if !in_defs(rect_start) {
@@ -8947,7 +8947,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = circle_start + "<circle".len();
             continue;
         }
-        let Some(circle_end) = circle_tail.find('>') else {
+        let Some(circle_end) = find_simple_xml_tag_end(circle_tail) else {
             break;
         };
         if !in_defs(circle_start) {
@@ -8986,7 +8986,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = ellipse_start + "<ellipse".len();
             continue;
         }
-        let Some(ellipse_end) = ellipse_tail.find('>') else {
+        let Some(ellipse_end) = find_simple_xml_tag_end(ellipse_tail) else {
             break;
         };
         if !in_defs(ellipse_start) {
@@ -9029,7 +9029,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = line_start + "<line".len();
             continue;
         }
-        let Some(line_end) = line_tail.find('>') else {
+        let Some(line_end) = find_simple_xml_tag_end(line_tail) else {
             break;
         };
         if !in_defs(line_start) {
@@ -9069,7 +9069,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = poly_start + "<polyline".len();
             continue;
         }
-        let Some(poly_end) = poly_tail.find('>') else {
+        let Some(poly_end) = find_simple_xml_tag_end(poly_tail) else {
             break;
         };
         if !in_defs(poly_start) {
@@ -9099,7 +9099,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = poly_start + "<polygon".len();
             continue;
         }
-        let Some(poly_end) = poly_tail.find('>') else {
+        let Some(poly_end) = find_simple_xml_tag_end(poly_tail) else {
             break;
         };
         if !in_defs(poly_start) {
@@ -9129,7 +9129,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = use_start + "<use".len();
             continue;
         }
-        let Some(use_end) = use_tail.find('>') else {
+        let Some(use_end) = find_simple_xml_tag_end(use_tail) else {
             break;
         };
         if !in_defs(use_start) {
@@ -9344,7 +9344,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = path_start + "<path".len();
             continue;
         }
-        let Some(path_end) = path_tail.find('>') else {
+        let Some(path_end) = find_simple_xml_tag_end(path_tail) else {
             break;
         };
         if in_defs(path_start) {
@@ -9367,7 +9367,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = use_start + "<use".len();
             continue;
         }
-        let Some(use_end) = use_tail.find('>') else {
+        let Some(use_end) = find_simple_xml_tag_end(use_tail) else {
             break;
         };
         if in_defs(use_start) {
@@ -9650,7 +9650,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = use_start + "<use".len();
             continue;
         }
-        let Some(use_end) = use_tail.find('>') else {
+        let Some(use_end) = find_simple_xml_tag_end(use_tail) else {
             break;
         };
         if !in_defs(use_start) {
@@ -9971,7 +9971,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = use_start + "<use".len();
             continue;
         }
-        let Some(use_end) = use_tail.find('>') else {
+        let Some(use_end) = find_simple_xml_tag_end(use_tail) else {
             break;
         };
         if in_defs(use_start) {
@@ -10230,7 +10230,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = text_start + "<text".len();
             continue;
         }
-        let Some(text_tag_end) = text_tail.find('>') else {
+        let Some(text_tag_end) = find_simple_xml_tag_end(text_tail) else {
             break;
         };
         if !in_defs(text_start) {
@@ -10489,7 +10489,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             if !is_start_tag_named(tspan_tail, "tspan") {
                 return Vec::new();
             }
-            let Some(tspan_tag_end) = tspan_tail.find('>') else {
+            let Some(tspan_tag_end) = find_simple_xml_tag_end(tspan_tail) else {
                 return Vec::new();
             };
             let tspan_tag = &tspan_tail[..tspan_tag_end];
@@ -10575,7 +10575,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = use_start + "<use".len();
             continue;
         }
-        let Some(use_end) = use_tail.find('>') else {
+        let Some(use_end) = find_simple_xml_tag_end(use_tail) else {
             break;
         };
         if !in_defs(use_start) {
@@ -10794,7 +10794,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = use_start + "<use".len();
             continue;
         }
-        let Some(use_end) = use_tail.find('>') else {
+        let Some(use_end) = find_simple_xml_tag_end(use_tail) else {
             break;
         };
         if in_defs(use_start) {
@@ -10998,7 +10998,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = text_start + "<text".len();
             continue;
         }
-        let Some(text_tag_end) = text_tail.find('>') else {
+        let Some(text_tag_end) = find_simple_xml_tag_end(text_tail) else {
             break;
         };
         if in_defs(text_start) {
@@ -12996,6 +12996,48 @@ mod tests {
         assert!(pdf_text.contains("0 0 0 rg 72 642 144 72 re f"));
         assert!(!pdf_text.contains("[unsupported image: figures/vector.svg]"));
         assert!(!pdf_text.contains("[image: figures/vector.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_rect_after_quoted_greater_than_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/vector-quoted.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector-quoted".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/vector-quoted.svg").then(|| {
+                br#"<svg width="20" height="10"><rect title="a > b" width="20" height="10"/></svg>"#
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 0 rg 72 642 144 72 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/vector-quoted.svg]"));
+        assert!(!pdf_text.contains("[image: figures/vector-quoted.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
