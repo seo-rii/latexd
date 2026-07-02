@@ -6438,6 +6438,34 @@ impl<'i> Vm<'i> {
                                             inner_index = math_end + 2;
                                         }
                                     }
+                                    "ensuremath" => {
+                                        let argument_index =
+                                            skip_ascii_whitespace(source, inner_index);
+                                        if let Some((math_source, math_start, math_end, after)) =
+                                            read_braced_source_argument(source, argument_index)
+                                            && after <= content_end
+                                        {
+                                            self.emit_render_event(
+                                                RenderEvent::InlineMath(math_source_event(
+                                                    math_source,
+                                                )),
+                                                SourceProvenance::file(
+                                                    source_path.to_owned(),
+                                                    math_start as u32,
+                                                    math_end as u32,
+                                                )
+                                                .with_related(
+                                                    SourceSpanRole::Invocation,
+                                                    ProvenanceSpan::File(SourceSpan {
+                                                        path: source_path.to_owned(),
+                                                        start_utf8: inner_command_start as u32,
+                                                        end_utf8: after as u32,
+                                                    }),
+                                                ),
+                                            );
+                                            inner_index = after;
+                                        }
+                                    }
                                     "textcites" | "Textcites" | "parencites" | "Parencites"
                                     | "smartcites" | "Smartcites" => {
                                         let style_hint = match inner_command {
@@ -9102,6 +9130,30 @@ impl<'i> Vm<'i> {
                             index as u32,
                         ),
                     );
+                }
+                "ensuremath" if in_document => {
+                    let argument_index = skip_ascii_whitespace(source, index);
+                    if let Some((math_source, content_start, content_end, after)) =
+                        read_braced_source_argument(source, argument_index)
+                    {
+                        self.emit_render_event(
+                            RenderEvent::InlineMath(math_source_event(math_source)),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                content_start as u32,
+                                content_end as u32,
+                            )
+                            .with_related(
+                                SourceSpanRole::Invocation,
+                                ProvenanceSpan::File(SourceSpan {
+                                    path: source_path.to_owned(),
+                                    start_utf8: command_start as u32,
+                                    end_utf8: after as u32,
+                                }),
+                            ),
+                        );
+                        index = after;
+                    }
                 }
                 "(" if in_document => {
                     if let Some(relative_end) = source[index..].find("\\)") {

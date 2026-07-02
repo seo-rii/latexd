@@ -6817,6 +6817,88 @@ fn math_problem_atoms_and_clock_wrappers_use_normalized_text_in_ir_and_display_l
 }
 
 #[test]
+fn ensuremath_wrapper_emits_inline_math_through_ir_and_display_list() {
+    let source = r"\begin{document}Value \ensuremath{\alpha_i+\frac{1}{2}} and \emph{nested \ensuremath{x+y}} done.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_events = capture
+        .events
+        .events
+        .iter()
+        .filter_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    assert_eq!(math_events.len(), 2);
+    assert_eq!(math_events[0].raw_source, r"\alpha_i+\frac{1}{2}");
+    assert_eq!(
+        math_events[0].normalized_text.as_deref(),
+        Some("alpha_i + 1/2")
+    );
+    assert_eq!(math_events[1].raw_source, "x+y");
+    assert_eq!(math_events[1].normalized_text.as_deref(), Some("x + y"));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source == r"\alpha_i+\frac{1}{2}"
+                && normalized_text.as_deref() == Some("alpha_i + 1/2")
+        )
+    }));
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source == "x+y" && normalized_text.as_deref() == Some("x + y")
+        )
+    }));
+    assert!(
+        capture
+            .document_ir
+            .extracted_text()
+            .contains("Value alpha_i + 1/2 and nested x + y done.")
+    );
+    assert!(display_list_text.contains("Value"));
+    assert!(display_list_text.contains("alpha_i + 1/2"));
+    assert!(display_list_text.contains("nested"));
+    assert!(display_list_text.contains("x + y"));
+    assert!(display_list_text.contains("done."));
+    for hidden in [r"\ensuremath", r"\alpha", r"\frac"] {
+        assert!(
+            !capture.document_ir.extracted_text().contains(hidden),
+            "{}",
+            capture.document_ir.extracted_text()
+        );
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_style_and_limit_controls_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Controls \(\displaystyle\sum\limits_{i=1}^{n} x_i + \textstyle\int\nolimits_{0}^{1} f(x)\,dx + \scriptstyle a + \scriptscriptstyle b\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
