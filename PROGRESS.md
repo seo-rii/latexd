@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Vertical and diagonal math ellipsis commands such as `\vdots`, `\ddots`, and `\iddots` now normalize to readable symbol names instead of forcing raw math fallback.
 - `2026-07-03` note: Logic and proof math symbols such as `\top`, `\bot`, `\therefore`, and `\because` now normalize to readable symbol names instead of forcing raw math fallback.
 - `2026-07-03` note: Music and marker math symbols such as `\flat`, `\natural`, `\sharp`, `\checkmark`, and `\maltese` now normalize to readable symbol names instead of forcing raw math fallback.
 - `2026-07-03` note: Geometry and suit math symbols such as `\angle`, `\measuredangle`, `\sphericalangle`, `\triangle`, `\square`, `\Box`, `\Diamond`, `\lozenge`, and `\heartsuit` now normalize to readable symbol names instead of forcing raw math fallback.

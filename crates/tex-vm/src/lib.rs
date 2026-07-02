@@ -25389,6 +25389,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("...");
                         index = command_index;
                     }
+                    "vdots" | "ddots" | "iddots" => {
+                        push_command_token!(command);
+                        index = command_index;
+                    }
                     "alpha" | "beta" | "gamma" | "delta" | "epsilon" | "varepsilon" | "zeta"
                     | "eta" | "theta" | "vartheta" | "iota" | "kappa" | "lambda" | "mu" | "nu"
                     | "xi" | "pi" | "varpi" | "rho" | "varrho" | "sigma" | "varsigma" | "tau"
