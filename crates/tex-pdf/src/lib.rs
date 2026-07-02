@@ -1985,12 +1985,44 @@ fn resolve_svg_embedded_asset_ref(svg_asset_ref: &str, href: &str) -> Option<Str
     if href.is_empty() {
         return None;
     }
+    let percent_decode_path_component = |raw: &str| {
+        let bytes = raw.as_bytes();
+        let mut decoded = Vec::with_capacity(bytes.len());
+        let mut index = 0usize;
+        while index < bytes.len() {
+            if bytes[index] == b'%' {
+                let hex = |byte: u8| -> Option<u8> {
+                    match byte {
+                        b'0'..=b'9' => Some(byte - b'0'),
+                        b'a'..=b'f' => Some(byte - b'a' + 10),
+                        b'A'..=b'F' => Some(byte - b'A' + 10),
+                        _ => None,
+                    }
+                };
+                if let (Some(high), Some(low)) = (
+                    bytes.get(index + 1).copied().and_then(hex),
+                    bytes.get(index + 2).copied().and_then(hex),
+                ) {
+                    let byte = (high << 4) | low;
+                    if !matches!(byte, b'\0' | b'/' | b'\\') {
+                        decoded.push(byte);
+                        index += 3;
+                        continue;
+                    }
+                }
+            }
+            decoded.push(bytes[index]);
+            index += 1;
+        }
+        String::from_utf8(decoded).unwrap_or_else(|_| raw.to_string())
+    };
     let mut parts = svg_asset_ref
         .rsplit_once('/')
-        .map(|(parent, _)| parent.split('/').collect::<Vec<_>>())
+        .map(|(parent, _)| parent.split('/').map(str::to_string).collect::<Vec<_>>())
         .unwrap_or_default();
     for component in href.split('/') {
-        match component {
+        let component = percent_decode_path_component(component);
+        match component.as_str() {
             "" | "." => {}
             ".." => {
                 parts.pop()?;
@@ -25373,6 +25405,74 @@ mod tests {
     }
 
     #[test]
+    fn renders_simple_svg_percent_encoded_relative_embedded_png_image_in_pdf_and_svg_debug_output()
+    {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector-percent-href.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector-percent-href".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let svg_asset_bytes = || {
+            br##"<svg width="20" height="10">
+  <image x="5" y="2" width="8" height="4" preserveAspectRatio="none" href="nested/a%20b%26c.png"/>
+</svg>"##
+                .to_vec()
+        };
+        let mut pdf_requested_asset_refs = Vec::new();
+        let pdf = render_display_list_pdf_with_assets(&[page.clone()], |asset_ref| {
+            pdf_requested_asset_refs.push(asset_ref.to_string());
+            match asset_ref {
+                "figures/vector-percent-href.svg" => Some(svg_asset_bytes()),
+                "figures/nested/a b&c.png" => Some(tiny_png_bytes()),
+                _ => None,
+            }
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+        let mut svg_requested_asset_refs = Vec::new();
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            svg_requested_asset_refs.push(asset_ref.to_string());
+            match asset_ref {
+                "figures/vector-percent-href.svg" => Some(svg_asset_bytes()),
+                "figures/nested/a b&c.png" => Some(tiny_png_bytes()),
+                _ => None,
+            }
+        });
+
+        assert!(pdf_requested_asset_refs.contains(&"figures/nested/a b&c.png".to_string()));
+        assert!(!pdf_requested_asset_refs.contains(&"figures/nested/a%20b%26c.png".to_string()));
+        assert!(svg_requested_asset_refs.contains(&"figures/nested/a b&c.png".to_string()));
+        assert!(!svg_requested_asset_refs.contains(&"figures/nested/a%20b%26c.png".to_string()));
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(pdf_text.contains("/XObject << /Im1"));
+        assert!(svg.contains("data%3Aimage%2Fpng%2C%2589PNG"));
+        assert!(!svg.contains("nested/a%20b%26c.png"));
+        assert!(!svg.contains("nested%2Fa%2520b%2526c.png"));
+        assert!(!pdf_text.contains("[unsupported image: figures/vector-percent-href.svg]"));
+        assert!(!svg.contains("[unsupported image: figures/vector-percent-href.svg]"));
+    }
+
+    #[test]
     fn renders_simple_svg_defs_relative_embedded_png_image_use_as_pdf_xobject() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
@@ -25561,6 +25661,21 @@ mod tests {
                 "./nested/pixel.png?cache=1#frag"
             ),
             Some("figures/plots/nested/pixel.png".to_string())
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref(
+                "figures/vector.svg",
+                "nested/a%20b%26c.png?cache=1#frag"
+            ),
+            Some("figures/nested/a b&c.png".to_string())
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", "nested/a%2Fb.png"),
+            Some("figures/nested/a%2Fb.png".to_string())
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", "nested/a%00b.png"),
+            Some("figures/nested/a%00b.png".to_string())
         );
         assert_eq!(
             super::resolve_svg_embedded_asset_ref("figures/vector.svg", "nested/../pixel.png"),
