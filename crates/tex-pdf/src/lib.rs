@@ -25434,6 +25434,61 @@ mod tests {
     }
 
     #[test]
+    fn does_not_resolve_entity_obfuscated_svg_embedded_image_hrefs_in_pdf_output() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector-entity-unsafe-href.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector-entity-unsafe-href".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let mut requested_asset_refs = Vec::new();
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            requested_asset_refs.push(asset_ref.to_string());
+            match asset_ref {
+                "figures/vector-entity-unsafe-href.svg" => Some(
+                    br##"<svg width="20" height="10">
+  <rect x="0" y="0" width="2" height="2" fill="#000000"/>
+  <image x="1" y="1" width="4" height="4" href="javascript&#58;alert(1)"/>
+  <image x="6" y="1" width="4" height="4" href="C&#58;/pixel.png"/>
+  <image x="11" y="1" width="4" height="4" href="nested&#92;pixel.png"/>
+</svg>"##
+                        .to_vec(),
+                ),
+                _ => None,
+            }
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert_eq!(
+            requested_asset_refs,
+            vec!["figures/vector-entity-unsafe-href.svg".to_string()]
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+        assert!(!pdf_text.contains("javascript"));
+        assert!(!pdf_text.contains("[unsupported image: figures/vector-entity-unsafe-href.svg]"));
+    }
+
+    #[test]
     fn renders_simple_svg_percent_encoded_relative_embedded_png_image_in_pdf_and_svg_debug_output()
     {
         let page = PageDisplayList {

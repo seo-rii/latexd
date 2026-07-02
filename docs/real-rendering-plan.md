@@ -1223,10 +1223,11 @@ Status:
   parent-relative normalization, query/fragment stripping for lookup, raw
   backslash or ASCII-control href rejection plus raw or percent-decoded
   scheme/drive-like first-component rejection after XML entity decoding and
-  before resolver lookup, percent-encoded slash, backslash, and ASCII control
-  bytes preserved instead of becoming path characters, and unresolved
-  non-`data:`/non-fragment references sanitized to inert `data:,` values instead
-  of remaining browser-loadable URLs;
+  before resolver lookup in both PDF vector and debug SVG artifact paths,
+  percent-encoded slash, backslash, and ASCII control bytes preserved instead
+  of becoming path characters, and unresolved non-`data:`/non-fragment
+  references sanitized to inert `data:,` values instead of remaining
+  browser-loadable URLs;
 - project-root display-list PDF debug artifacts render simple resolver-backed
   SVG rectangle, rounded rectangle, line, circle, ellipse, polyline, polygon,
   percentage geometry for simple rect/line/circle/ellipse attributes,
