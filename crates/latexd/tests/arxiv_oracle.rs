@@ -1954,6 +1954,12 @@ fn arxiv_oracle_raster_gross_flags_blank_and_page_size_failures() {
         non_white_pixel_count: 0,
         non_white_bbox: None,
     };
+    let blank_oracle = RasterSmokeReport {
+        width_px: 100,
+        height_px: 100,
+        non_white_pixel_count: 0,
+        non_white_bbox: None,
+    };
     let wrong_size_internal = RasterSmokeReport {
         width_px: 90,
         height_px: 100,
@@ -1969,6 +1975,10 @@ fn arxiv_oracle_raster_gross_flags_blank_and_page_size_failures() {
     assert_eq!(
         compare_raster_smoke(&oracle, &blank_internal, 0.35).status,
         RasterGrossStatus::BlankInternalPage
+    );
+    assert_eq!(
+        compare_raster_smoke(&blank_oracle, &oracle, 0.35).status,
+        RasterGrossStatus::BlankOraclePage
     );
     assert_eq!(
         compare_raster_smoke(&oracle, &wrong_size_internal, 0.35).status,
