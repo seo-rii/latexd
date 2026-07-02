@@ -2014,6 +2014,46 @@ fn find_simple_xml_tag_end(tag_tail: &str) -> Option<usize> {
     None
 }
 
+fn decode_simple_xml_attribute_value(raw_value: &str) -> String {
+    let mut decoded = String::new();
+    let mut remaining = raw_value;
+    while let Some(entity_start) = remaining.find('&') {
+        decoded.push_str(&remaining[..entity_start]);
+        let entity_tail = &remaining[entity_start + 1..];
+        let Some(entity_end) = entity_tail.find(';') else {
+            decoded.push_str(&remaining[entity_start..]);
+            return decoded;
+        };
+        let entity = &entity_tail[..entity_end];
+        let numeric_char = if let Some(hex) = entity
+            .strip_prefix("#x")
+            .or_else(|| entity.strip_prefix("#X"))
+        {
+            u32::from_str_radix(hex, 16).ok().and_then(char::from_u32)
+        } else if let Some(decimal) = entity.strip_prefix('#') {
+            decimal.parse::<u32>().ok().and_then(char::from_u32)
+        } else {
+            None
+        };
+        match (entity, numeric_char) {
+            ("lt", _) => decoded.push('<'),
+            ("gt", _) => decoded.push('>'),
+            ("quot", _) => decoded.push('"'),
+            ("apos", _) => decoded.push('\''),
+            ("amp", _) => decoded.push('&'),
+            (_, Some(ch)) => decoded.push(ch),
+            _ => {
+                decoded.push('&');
+                decoded.push_str(entity);
+                decoded.push(';');
+            }
+        }
+        remaining = &entity_tail[entity_end + 1..];
+    }
+    decoded.push_str(remaining);
+    decoded
+}
+
 fn parse_simple_svg_asset_with_embedded_assets(
     text: &str,
     resolve_embedded_asset: &mut dyn FnMut(&str) -> Option<Vec<u8>>,
@@ -2080,43 +2120,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             let value_start = quote.len_utf8();
             let value_end = after[value_start..].find(quote)? + value_start;
             let raw_value = &after[value_start..value_end];
-            let mut decoded = String::new();
-            let mut remaining = raw_value;
-            while let Some(entity_start) = remaining.find('&') {
-                decoded.push_str(&remaining[..entity_start]);
-                let entity_tail = &remaining[entity_start + 1..];
-                let Some(entity_end) = entity_tail.find(';') else {
-                    decoded.push_str(&remaining[entity_start..]);
-                    return Some(decoded);
-                };
-                let entity = &entity_tail[..entity_end];
-                let numeric_char = if let Some(hex) = entity
-                    .strip_prefix("#x")
-                    .or_else(|| entity.strip_prefix("#X"))
-                {
-                    u32::from_str_radix(hex, 16).ok().and_then(char::from_u32)
-                } else if let Some(decimal) = entity.strip_prefix('#') {
-                    decimal.parse::<u32>().ok().and_then(char::from_u32)
-                } else {
-                    None
-                };
-                match (entity, numeric_char) {
-                    ("lt", _) => decoded.push('<'),
-                    ("gt", _) => decoded.push('>'),
-                    ("quot", _) => decoded.push('"'),
-                    ("apos", _) => decoded.push('\''),
-                    ("amp", _) => decoded.push('&'),
-                    (_, Some(ch)) => decoded.push(ch),
-                    _ => {
-                        decoded.push('&');
-                        decoded.push_str(entity);
-                        decoded.push(';');
-                    }
-                }
-                remaining = &entity_tail[entity_end + 1..];
-            }
-            decoded.push_str(remaining);
-            return Some(decoded);
+            return Some(decode_simple_xml_attribute_value(raw_value));
         }
         None
     };
@@ -11808,49 +11812,41 @@ pub fn render_display_list_svg_with_converted_assets(
                                         let href_value_start = tag_start + href_value_start_in_tag;
                                         let href_value_end = tag_start + href_value_end_in_tag;
                                         let href = &svg_text[href_value_start..href_value_end];
-                                        let replacement =
-                                            resolve_svg_embedded_asset_ref(&image.asset_ref, href)
-                                                .and_then(|asset_ref| {
-                                                    resolve_asset(&asset_ref).and_then(
-                                                        |asset_bytes| {
-                                                            let lower =
-                                                                asset_ref.to_ascii_lowercase();
-                                                            let media_type = if lower
-                                                                .ends_with(".png")
-                                                                || asset_bytes.starts_with(
-                                                                    b"\x89PNG\r\n\x1a\n",
-                                                                ) {
-                                                                Some("image/png")
-                                                            } else if lower.ends_with(".jpg")
-                                                                || lower.ends_with(".jpeg")
-                                                                || asset_bytes.starts_with(&[
-                                                                    0xff, 0xd8, 0xff,
-                                                                ])
-                                                            {
-                                                                Some("image/jpeg")
-                                                            } else {
-                                                                None
-                                                            }?;
-                                                            Some(encode_data_uri(
-                                                                media_type,
-                                                                &asset_bytes,
-                                                            ))
-                                                        },
-                                                    )
-                                                })
-                                                .or_else(|| {
-                                                    let trimmed_href = href.trim();
-                                                    let lower_href =
-                                                        trimmed_href.to_ascii_lowercase();
-                                                    if trimmed_href.is_empty()
-                                                        || trimmed_href.starts_with('#')
-                                                        || lower_href.starts_with("data:")
-                                                    {
-                                                        None
-                                                    } else {
-                                                        Some("data:,".to_string())
-                                                    }
-                                                });
+                                        let decoded_href = decode_simple_xml_attribute_value(href);
+                                        let replacement = resolve_svg_embedded_asset_ref(
+                                            &image.asset_ref,
+                                            &decoded_href,
+                                        )
+                                        .and_then(|asset_ref| {
+                                            resolve_asset(&asset_ref).and_then(|asset_bytes| {
+                                                let lower = asset_ref.to_ascii_lowercase();
+                                                let media_type = if lower.ends_with(".png")
+                                                    || asset_bytes.starts_with(b"\x89PNG\r\n\x1a\n")
+                                                {
+                                                    Some("image/png")
+                                                } else if lower.ends_with(".jpg")
+                                                    || lower.ends_with(".jpeg")
+                                                    || asset_bytes.starts_with(&[0xff, 0xd8, 0xff])
+                                                {
+                                                    Some("image/jpeg")
+                                                } else {
+                                                    None
+                                                }?;
+                                                Some(encode_data_uri(media_type, &asset_bytes))
+                                            })
+                                        })
+                                        .or_else(|| {
+                                            let trimmed_href = decoded_href.trim();
+                                            let lower_href = trimmed_href.to_ascii_lowercase();
+                                            if trimmed_href.is_empty()
+                                                || trimmed_href.starts_with('#')
+                                                || lower_href.starts_with("data:")
+                                            {
+                                                None
+                                            } else {
+                                                Some("data:,".to_string())
+                                            }
+                                        });
                                         if let Some(replacement) = replacement {
                                             replacements.push((
                                                 href_value_start,
@@ -25695,6 +25691,57 @@ mod tests {
         assert!(requested_asset_refs.contains(&"figures/nested/pixel.png".to_string()));
         assert!(svg.contains("data%3Aimage%2Fpng%2C%2589PNG"));
         assert!(!svg.contains("nested/pixel.png"));
+        assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
+    }
+
+    #[test]
+    fn rewrites_simple_svg_entity_escaped_relative_embedded_image_href_for_svg_debug_output() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let mut requested_asset_refs = Vec::new();
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            requested_asset_refs.push(asset_ref.to_string());
+            match asset_ref {
+                "figures/vector.svg" => Some(
+                    br##"<svg width="20" height="10">
+  <image x="5" y="2" width="8" height="4" preserveAspectRatio="none" href="nested/a&amp;b.png"/>
+</svg>"##
+                        .to_vec(),
+                ),
+                "figures/nested/a&b.png" => Some(tiny_png_bytes()),
+                _ => None,
+            }
+        });
+
+        assert!(requested_asset_refs.contains(&"figures/nested/a&b.png".to_string()));
+        assert!(!requested_asset_refs.contains(&"figures/nested/a&amp;b.png".to_string()));
+        assert!(svg.contains("data%3Aimage%2Fpng%2C%2589PNG"));
+        assert!(!svg.contains("nested/a&amp;b.png"));
+        assert!(!svg.contains("nested%2Fa%26amp%3Bb.png"));
         assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
     }
 
