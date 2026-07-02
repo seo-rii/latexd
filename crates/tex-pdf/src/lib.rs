@@ -26115,6 +26115,53 @@ mod tests {
     }
 
     #[test]
+    fn sanitizes_simple_svg_entity_obfuscated_embedded_image_hrefs_for_svg_debug_output() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            (asset_ref == "figures/vector.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <image x="1" y="1" width="4" height="4" href="javascript&#58;alert(1)"/>
+  <image x="6" y="1" width="4" height="4" href="C&#58;/pixel.png"/>
+  <image x="11" y="1" width="4" height="4" href="nested&#92;pixel.png"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+
+        assert!(svg.contains("href=\"data:image/svg+xml;charset=utf-8,%3Csvg"));
+        assert!(svg.matches("data%3A%2C").count() >= 3);
+        assert!(!svg.contains("javascript%26%2358%3Balert"));
+        assert!(!svg.contains("C%26%2358%3B%2Fpixel.png"));
+        assert!(!svg.contains("nested%26%2392%3Bpixel.png"));
+        assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
+    }
+
+    #[test]
     fn sanitizes_simple_svg_control_embedded_image_hrefs_for_svg_debug_output() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
