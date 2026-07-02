@@ -199,6 +199,8 @@ first components, raw backslash or ASCII-control hrefs, and root-escaping
 references. Percent-encoded `?` / `#` characters inside path components remain
 filename characters rather than query/fragment delimiters, and malformed
 percent escapes remain literal filename text.
+When both `href` and `xlink:href` exist on an SVG `<image>`, the PDF vector path
+uses `href` first and treats `xlink:href` as fallback.
 Debug SVG output preserves existing `data:` and
 fragment-only image refs, but sanitizes unresolved non-`data:` / non-fragment
 image refs to inert `data:,` values rather than leaving browser-loadable URLs in
@@ -1232,6 +1234,7 @@ Status:
   malformed percent escapes preserved as literal filename text,
   raw and percent-encoded root-escaping paths rejected before nested resolver
   lookup,
+  `href` priority over `xlink:href` in the PDF vector parser,
   percent-encoded slash, backslash, and ASCII control bytes preserved instead
   of becoming path characters, including literal resolver-key coverage for PDF
   vector and debug SVG output, and unresolved non-`data:`/non-fragment

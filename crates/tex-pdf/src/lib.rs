@@ -25825,6 +25825,62 @@ mod tests {
     }
 
     #[test]
+    fn prefers_simple_svg_href_over_xlink_href_in_pdf_output() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector-href-priority.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector-href-priority".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let mut requested_asset_refs = Vec::new();
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            requested_asset_refs.push(asset_ref.to_string());
+            match asset_ref {
+                "figures/vector-href-priority.svg" => Some(
+                    br##"<svg width="20" height="10">
+  <image x="5" y="2" width="8" height="4" preserveAspectRatio="none" href="nested/pixel.png" xlink:href="https://example.test/pixel.png"/>
+</svg>"##
+                        .to_vec(),
+                ),
+                "figures/nested/pixel.png" => Some(tiny_png_bytes()),
+                _ => None,
+            }
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(requested_asset_refs.contains(&"figures/nested/pixel.png".to_string()));
+        assert!(
+            !requested_asset_refs
+                .iter()
+                .any(|asset_ref| asset_ref.contains("example.test"))
+        );
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(pdf_text.contains("/XObject << /Im1"));
+        assert!(!pdf_text.contains("example.test"));
+        assert!(!pdf_text.contains("[unsupported image: figures/vector-href-priority.svg]"));
+    }
+
+    #[test]
     fn renders_simple_svg_parent_relative_embedded_png_image_with_query_fragment() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
