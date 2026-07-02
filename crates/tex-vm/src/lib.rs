@@ -25363,7 +25363,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     | "complement" | "beth" | "gimel" | "daleth" | "angle" | "measuredangle"
                     | "sphericalangle" | "triangle" | "square" | "Box" | "Diamond" | "lozenge"
                     | "heartsuit" | "spadesuit" | "clubsuit" | "diamondsuit" | "flat"
-                    | "natural" | "sharp" | "checkmark" | "maltese" => {
+                    | "natural" | "sharp" | "checkmark" | "maltese" | "top" | "bot"
+                    | "therefore" | "because" => {
                         push_command_token!(command);
                         index = command_index;
                     }
