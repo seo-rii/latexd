@@ -195,7 +195,8 @@ entities, decodes URL percent escapes inside relative path components without
 turning encoded slashes into separators, normalizes project-root-relative dot
 components (`.` / `..`), strips query/fragment suffixes for resolver lookup, and
 refuses fragment-only, absolute, raw or percent-decoded external-scheme/drive-like
-first components, raw backslash/NUL, and root-escaping references.
+first components, raw backslash or ASCII-control hrefs, and root-escaping
+references.
 Debug SVG output preserves existing `data:` and
 fragment-only image refs, but sanitizes unresolved non-`data:` / non-fragment
 image refs to inert `data:,` values rather than leaving browser-loadable URLs in
@@ -1224,6 +1225,8 @@ Status:
   backslash or ASCII-control href rejection plus raw or percent-decoded
   scheme/drive-like first-component rejection after XML entity decoding and
   before resolver lookup in both PDF vector and debug SVG artifact paths,
+  raw and percent-encoded root-escaping paths rejected before nested resolver
+  lookup,
   percent-encoded slash, backslash, and ASCII control bytes preserved instead
   of becoming path characters, including literal resolver-key coverage for PDF
   vector and debug SVG output, and unresolved non-`data:`/non-fragment

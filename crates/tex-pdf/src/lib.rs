@@ -25873,6 +25873,60 @@ mod tests {
     }
 
     #[test]
+    fn does_not_resolve_root_escaping_svg_embedded_image_hrefs_in_pdf_output() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector-root-escape-href.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector-root-escape-href".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let mut requested_asset_refs = Vec::new();
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            requested_asset_refs.push(asset_ref.to_string());
+            match asset_ref {
+                "figures/vector-root-escape-href.svg" => Some(
+                    br##"<svg width="20" height="10">
+  <rect x="0" y="0" width="2" height="2" fill="#000000"/>
+  <image x="1" y="1" width="4" height="4" href="../../outside.png"/>
+  <image x="6" y="1" width="4" height="4" href="%2e%2e/%2e%2e/outside.png"/>
+</svg>"##
+                        .to_vec(),
+                ),
+                _ => None,
+            }
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert_eq!(
+            requested_asset_refs,
+            vec!["figures/vector-root-escape-href.svg".to_string()]
+        );
+        assert!(!pdf_text.contains("/Subtype /Image"));
+        assert!(!pdf_text.contains("outside.png"));
+        assert!(!pdf_text.contains("[unsupported image: figures/vector-root-escape-href.svg]"));
+    }
+
+    #[test]
     fn resolves_svg_embedded_asset_refs_safely() {
         assert_eq!(
             super::resolve_svg_embedded_asset_ref(
