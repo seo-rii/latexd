@@ -2000,7 +2000,7 @@ fn resolve_svg_embedded_asset_ref(svg_asset_ref: &str, href: &str) -> Option<Str
                     bytes.get(run_index + 2).copied().and_then(hex),
                 ) {
                     let byte = (high << 4) | low;
-                    if matches!(byte, b'\0' | b'/' | b'\\') {
+                    if byte.is_ascii_control() || matches!(byte, b'/' | b'\\') {
                         break;
                     }
                     run_bytes.push(byte);
@@ -25777,6 +25777,14 @@ mod tests {
         assert_eq!(
             super::resolve_svg_embedded_asset_ref("figures/vector.svg", "nested/a%00b.png"),
             Some("figures/nested/a%00b.png".to_string())
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", "nested/a%0Ab.png"),
+            Some("figures/nested/a%0Ab.png".to_string())
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", "nested/a%7Fb.png"),
+            Some("figures/nested/a%7Fb.png".to_string())
         );
         assert_eq!(
             super::resolve_svg_embedded_asset_ref("figures/vector.svg", r"nested\pixel.png"),
