@@ -24101,8 +24101,42 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         else {
                             return None;
                         };
-                        let annotation = normalize_latex_math_text(annotation)
+                        let mut annotation = normalize_latex_math_text(annotation)
                             .unwrap_or_else(|| normalize_latex_math_source(annotation));
+                        if let Some(command_name) = annotation.strip_prefix('\\')
+                            && command_name
+                                .chars()
+                                .all(|ch| ch.is_ascii_alphabetic() || ch == '@')
+                        {
+                            annotation = command_name.to_string();
+                        }
+                        let base = normalize_latex_math_text(base)
+                            .unwrap_or_else(|| normalize_latex_math_source(base));
+                        push_token!(&format!("{command}({annotation}, {base})"));
+                        index = after_base;
+                    }
+                    "accentset" | "underaccent" => {
+                        let annotation_index = skip_ascii_whitespace(source, command_index);
+                        let Some((annotation, _, _, after_annotation)) =
+                            read_braced_source_argument(source, annotation_index)
+                        else {
+                            return None;
+                        };
+                        let base_index = skip_ascii_whitespace(source, after_annotation);
+                        let Some((base, _, _, after_base)) =
+                            read_braced_source_argument(source, base_index)
+                        else {
+                            return None;
+                        };
+                        let mut annotation = normalize_latex_math_text(annotation)
+                            .unwrap_or_else(|| normalize_latex_math_source(annotation));
+                        if let Some(command_name) = annotation.strip_prefix('\\')
+                            && command_name
+                                .chars()
+                                .all(|ch| ch.is_ascii_alphabetic() || ch == '@')
+                        {
+                            annotation = command_name.to_string();
+                        }
                         let base = normalize_latex_math_text(base)
                             .unwrap_or_else(|| normalize_latex_math_source(base));
                         push_token!(&format!("{command}({annotation}, {base})"));
@@ -24549,6 +24583,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     | "dot"
                     | "ddot"
                     | "underline"
+                    | "underbar"
+                    | "undertilde"
                     | "overbrace"
                     | "underbrace"
                     | "overrightarrow"
