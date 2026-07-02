@@ -10008,10 +10008,22 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             continue;
         }
         let use_tag = &use_tail[..use_end];
-        let Some(alias_id) = attr_value(use_tag, "id").filter(|id| !id.trim().is_empty()) else {
+        let mut alias_ids = Vec::new();
+        if let Some(id) = attr_value(use_tag, "id").filter(|id| !id.trim().is_empty()) {
+            alias_ids.push(id);
+        }
+        for group_definition in &group_definitions {
+            if group_definition.content_start <= use_start
+                && use_start < group_definition.content_end
+                && !alias_ids.iter().any(|id| id == &group_definition.id)
+            {
+                alias_ids.push(group_definition.id.clone());
+            }
+        }
+        if alias_ids.is_empty() {
             search_index = use_start + use_end + 1;
             continue;
-        };
+        }
         let Some(reference_id) = attr_value(use_tag, "href")
             .or_else(|| attr_value(use_tag, "xlink:href"))
             .and_then(|href| href.trim().strip_prefix('#').map(str::to_string))
@@ -10062,14 +10074,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
                 .alias_presentation
                 .map(|base_presentation| inherit_presentation(base_presentation, use_presentation))
                 .unwrap_or(use_presentation);
-            text_definitions.push(SimpleSvgTextDefinition {
-                id: alias_id.clone(),
-                tag: definition.tag,
-                start: definition.start,
-                body: definition.body,
-                alias_transform: Some(alias_transform),
-                alias_presentation: Some(alias_presentation),
-            });
+            for id in &alias_ids {
+                text_definitions.push(SimpleSvgTextDefinition {
+                    id: id.clone(),
+                    tag: definition.tag.clone(),
+                    start: definition.start,
+                    body: definition.body.clone(),
+                    alias_transform: Some(alias_transform),
+                    alias_presentation: Some(alias_presentation),
+                });
+            }
         }
         search_index = use_start + use_end + 1;
     }
@@ -22025,6 +22039,56 @@ mod tests {
         assert!(pdf_text.contains("0 0 1 rg BT /F1 20 Tf 1 0 0 1 80 230 Tm (Hi) Tj ET"));
         assert!(!pdf_text.contains("0 0 0 rg BT /F1 20 Tf 1 0 0 1 80 230 Tm (Hi) Tj ET"));
         assert!(!pdf_text.contains("[unsupported image: figures/defs-group-text-use.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_defs_group_text_use_alias_as_pdf_text() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/defs-group-text-use-alias.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:defs-group-text-use-alias".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/defs-group-text-use-alias.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <text id="label" x="1" y="3" font-size="2" fill="#ff0000">Hi</text>
+    <g id="labels" transform="translate(2 1)" fill="#0000ff">
+      <use href="#label" x="1" y="1"/>
+    </g>
+  </defs>
+  <use href="#labels" x="4" y="1"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 rg BT /F1 20 Tf 1 0 0 1 90 220 Tm (Hi) Tj ET"));
+        assert!(!pdf_text.contains("1 0 0 rg BT /F1 20 Tf 1 0 0 1 90 220 Tm (Hi) Tj ET"));
+        assert!(!pdf_text.contains("[unsupported image: figures/defs-group-text-use-alias.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
