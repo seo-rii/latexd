@@ -188,8 +188,12 @@ unsupported-image placeholders, while resolved PDF/EPS assets can be converted
 to PNG for debug display-list PDF/SVG artifacts through Ghostscript or Poppler.
 Resolver-backed SVG and PNG/JPEG bitmap assets are embedded as data-URI
 `<image>` elements in project-root display-list SVG debug artifacts, and simple
-relative PNG/JPEG `href` references inside those SVG assets are rewritten to
-data URIs through the same resolver. Simple
+relative PNG/JPEG `href` / `xlink:href` references inside those SVG assets are
+rewritten to data URIs through the same resolver. The SVG-internal image href
+path accepts quote style and `=` whitespace variations, normalizes
+project-root-relative `.` / `..` components, strips query/fragment suffixes for
+resolver lookup, and refuses fragment-only, absolute, external-scheme, and
+root-escaping references. Simple
 resolver-backed SVG `<rect>`, `<line>`, `<circle>`, `<ellipse>`, `<polyline>`,
 `<polygon>`, and `<path>` content, including percentage geometry for simple
 rect/line/circle/ellipse attributes, with line, cubic/smooth cubic, and
@@ -1207,7 +1211,10 @@ Status:
 - project-root display-list SVG debug artifacts can embed resolver-backed SVG
   and PNG/JPEG bitmap assets, including clip-enabled crop visualization for
   bitmap assets, simple SVG assets with parseable natural dimensions, and
-  simple relative SVG-internal PNG/JPEG `href` assets rewritten to data URIs;
+  simple relative SVG-internal PNG/JPEG `href` / `xlink:href` assets rewritten
+  to data URIs with quote/whitespace-tolerant attribute parsing,
+  parent-relative normalization, query/fragment stripping for lookup, and
+  fragment-only, absolute, external-scheme, or root-escaping references refused;
 - project-root display-list PDF debug artifacts render simple resolver-backed
   SVG rectangle, rounded rectangle, line, circle, ellipse, polyline, polygon,
   percentage geometry for simple rect/line/circle/ellipse attributes,
