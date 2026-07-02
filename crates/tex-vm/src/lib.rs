@@ -182,12 +182,12 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\url}[1]{#1}
 \providecommand{\nolinkurl}[1]{#1}
 \providecommand{\path}[1]{#1}
+\providecommand{\,}{ }
 \providecommand{\includegraphics}[2][]{[image]}
 \providecommand{\epsfxsize}{}
 \providecommand{\epsfysize}{}
 \providecommand{\epsfbox}[1]{}
 \providecommand{\epsffile}[1]{}
-\providecommand{\DeclareMathOperator}[2]{\def#1{#2}}
 \providecommand{\DeclareMathAlphabet}[5]{}
 \providecommand{\Crefname}[3]{}
 \providecommand{\crefname}[3]{}
@@ -619,6 +619,7 @@ enum Primitive {
     DeclareRobustCommand,
     RenewCommand,
     ProvideCommand,
+    DeclareMathOperator,
     PackageInfo,
     PackageInfoNoLine,
     ClassInfo,
@@ -15832,6 +15833,33 @@ impl<'i> Vm<'i> {
                 self.transcript
                     .push(format!("newcommand \\{target} #{parameter_count}"));
             }
+            Primitive::DeclareMathOperator => {
+                let force_global = mem::take(&mut self.global_prefix);
+                self.skip_optional_spaces(queue);
+                if matches!(
+                    self.peek_next_token(queue).map(|token| token.kind),
+                    Some(TokenKind::Character { ch: '*', .. })
+                ) {
+                    self.pop_next_token(queue);
+                }
+                let Some(target) = self.read_macro_target(queue) else {
+                    return;
+                };
+                let Some(body) = self.read_balanced_group(queue) else {
+                    return;
+                };
+                self.define(
+                    target.clone(),
+                    Meaning::Macro(MacroDefinition {
+                        parameter_count: 0,
+                        optional_first_argument_default: None,
+                        body,
+                    }),
+                    force_global,
+                );
+                self.transcript
+                    .push(format!("DeclareMathOperator \\{target}"));
+            }
             Primitive::PackageInfo
             | Primitive::PackageInfoNoLine
             | Primitive::ClassInfo
@@ -20398,6 +20426,7 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
         "DeclareRobustCommand" => Some(Primitive::DeclareRobustCommand),
         "renewcommand" => Some(Primitive::RenewCommand),
         "providecommand" => Some(Primitive::ProvideCommand),
+        "DeclareMathOperator" => Some(Primitive::DeclareMathOperator),
         "PackageInfo" => Some(Primitive::PackageInfo),
         "PackageInfoNoLine" => Some(Primitive::PackageInfoNoLine),
         "ClassInfo" => Some(Primitive::ClassInfo),
@@ -20624,6 +20653,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
         Primitive::DeclareRobustCommand => "DeclareRobustCommand",
         Primitive::RenewCommand => "renewcommand",
         Primitive::ProvideCommand => "providecommand",
+        Primitive::DeclareMathOperator => "DeclareMathOperator",
         Primitive::PackageInfo => "PackageInfo",
         Primitive::PackageInfoNoLine => "PackageInfoNoLine",
         Primitive::ClassInfo => "ClassInfo",
@@ -28637,6 +28667,24 @@ mod tests {
             outcome
                 .loaded_modules
                 .contains(&Utf8PathBuf::from("hyperref.sty"))
+        );
+    }
+
+    #[test]
+    fn package_shim_supports_starred_declare_math_operator() {
+        let mut interner = ControlSequenceInterner::new();
+        let snapshot = compile_format_snapshot(&mut interner, r"\def\par{ }");
+        let mut vm = Vm::restore(&mut interner, &snapshot);
+
+        let outcome = vm.run_plain(
+            r"\documentclass{article}\usepackage{amsmath}\DeclareMathOperator*{\argmax}{arg\,max}\begin{document}\argmax\end{document}",
+        );
+
+        assert_eq!(outcome.output.trim(), "arg max");
+        assert!(
+            outcome.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            outcome.diagnostics
         );
     }
 

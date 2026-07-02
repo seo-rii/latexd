@@ -811,6 +811,54 @@ fn starred_operatorname_math_normalizes_through_ir_and_display_list() {
 }
 
 #[test]
+fn declared_starred_math_operator_does_not_leak_declaration_into_render_text() {
+    let source = r"\documentclass{article}\usepackage{amsmath}\DeclareMathOperator*{\argmax}{arg\,max}\begin{document}Choose $\argmax_{x \in S} f(x)$ now.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let display_list_math_run = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "argmax_x in S f(x)" => Some(run),
+            _ => None,
+        })
+        .expect("display-list math text run");
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    assert_eq!(math_event.raw_source, r"\argmax_{x \in S} f(x)");
+    assert_eq!(
+        math_event.normalized_text.as_deref(),
+        Some("argmax_x in S f(x)")
+    );
+    assert_eq!(display_list_math_run.text, "argmax_x in S f(x)");
+    assert!(extracted_text.contains("Choose argmax_x in S f(x) now."));
+    for visible in ["Choose", "argmax_x in S f(x)", "now."] {
+        assert!(display_list_text.contains(visible), "{display_list_text}");
+    }
+    for hidden in [r"\DeclareMathOperator", r"\argmax", r"\,", "{arg"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn title_inline_keys_are_redacted_in_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", TITLE_INLINE_KEY_SOURCE, &SemanticAux::default());
