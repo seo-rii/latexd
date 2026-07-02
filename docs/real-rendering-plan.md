@@ -194,7 +194,8 @@ path accepts quote style and `=` whitespace variations, decodes XML attribute
 entities, decodes URL percent escapes inside relative path components without
 turning encoded slashes into separators, normalizes project-root-relative dot
 components (`.` / `..`), strips query/fragment suffixes for resolver lookup, and
-refuses fragment-only, absolute, external-scheme, and root-escaping references.
+refuses fragment-only, absolute, external-scheme, raw backslash/NUL, and
+root-escaping references.
 Debug SVG output preserves existing `data:` and
 fragment-only image refs, but sanitizes unresolved non-`data:` / non-fragment
 image refs to inert `data:,` values rather than leaving browser-loadable URLs in
@@ -1219,9 +1220,10 @@ Status:
   simple relative SVG-internal PNG/JPEG `href` / `xlink:href` assets rewritten
   to data URIs with quote/whitespace-tolerant attribute parsing, XML attribute
   entity decoding, URL percent decoding inside relative path components,
-  parent-relative normalization, query/fragment stripping for lookup, and
-  unresolved non-`data:` / non-fragment references sanitized to inert `data:,`
-  values instead of remaining browser-loadable URLs;
+  parent-relative normalization, query/fragment stripping for lookup, raw
+  backslash/NUL href rejection before resolver lookup, and unresolved
+  non-`data:` / non-fragment references sanitized to inert `data:,` values
+  instead of remaining browser-loadable URLs;
 - project-root display-list PDF debug artifacts render simple resolver-backed
   SVG rectangle, rounded rectangle, line, circle, ellipse, polyline, polygon,
   percentage geometry for simple rect/line/circle/ellipse attributes,
