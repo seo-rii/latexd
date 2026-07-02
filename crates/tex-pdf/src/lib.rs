@@ -25318,6 +25318,51 @@ mod tests {
     }
 
     #[test]
+    fn preserves_simple_svg_data_and_fragment_embedded_image_hrefs_for_svg_debug_output() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            (asset_ref == "figures/vector.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <image x="1" y="1" width="4" height="4" href="data:image/png,%89PNG"/>
+  <image id="local" x="6" y="1" width="4" height="4" href="data:image/png,%89PNG"/>
+  <image x="11" y="1" width="4" height="4" href="#local"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+
+        assert!(svg.contains("data%3Aimage%2Fpng%2C%2589PNG"));
+        assert!(svg.contains("%23local"));
+        assert!(!svg.contains("data%3A%2C"));
+        assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
+    }
+
+    #[test]
     fn renders_simple_svg_defs_embedded_png_image_use_as_pdf_xobject() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
