@@ -282,8 +282,9 @@ transform/presentation state,
 plus simple embedded `data:image/png` / `data:image/jpeg` SVG
 `<image>` elements with `opacity` and `preserveAspectRatio` fitting, including
 direct `id`-addressed `<defs><image>` reuse and simple image `<defs>` `<use>`
-aliases through external `<use>`, plus simple group-contained image definitions
-and group-contained image aliases reused through the group id, and simple
+aliases through external `href` / `xlink:href` `<use>`, plus simple
+group-contained image definitions and group-contained image aliases reused
+through the group id, and simple
 symbol-contained image definitions with basic symbol `viewBox` viewport fitting,
 including simple symbol image aliases, is also
 rendered directly as vector PDF drawing operations in
@@ -801,7 +802,7 @@ Implemented first slice:
   `data:image/png` / `data:image/jpeg`
   SVG `<image>` elements as PDF XObjects with `opacity` and `preserveAspectRatio`
   fitting, including direct `id`-addressed `<defs><image>` reuse and simple
-  image `<defs>` `<use>` aliases through external `<use>`, simple
+  image `<defs>` `<use>` aliases through external `href` / `xlink:href` `<use>`, simple
   group-contained image definitions and group-contained image aliases reused
   through the group id, simple symbol-contained image definitions with basic symbol `viewBox` viewport
   fitting, including simple symbol image aliases, display-list crop/viewport
