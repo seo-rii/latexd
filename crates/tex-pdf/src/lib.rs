@@ -25432,6 +25432,59 @@ mod tests {
     }
 
     #[test]
+    fn rewrites_mixed_resolved_and_unresolved_svg_embedded_image_href_attributes() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let mut requested_asset_refs = Vec::new();
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            requested_asset_refs.push(asset_ref.to_string());
+            match asset_ref {
+                "figures/vector.svg" => Some(
+                    br##"<svg width="20" height="10">
+  <image x="1" y="1" width="4" height="4" href="nested/pixel.png" xlink:href="https://example.test/pixel.png"/>
+</svg>"##
+                        .to_vec(),
+                ),
+                "figures/nested/pixel.png" => Some(tiny_png_bytes()),
+                _ => None,
+            }
+        });
+
+        assert!(requested_asset_refs.contains(&"figures/nested/pixel.png".to_string()));
+        assert!(svg.contains("data%3Aimage%2Fpng%2C%2589PNG"));
+        assert!(svg.contains("data%3A%2C"));
+        assert!(!svg.contains("nested/pixel.png"));
+        assert!(!svg.contains("nested%2Fpixel.png"));
+        assert!(!svg.contains("https://example.test"));
+        assert!(!svg.contains("https%3A%2F%2Fexample.test"));
+        assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
+    }
+
+    #[test]
     fn renders_simple_svg_defs_embedded_png_image_use_as_pdf_xobject() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
