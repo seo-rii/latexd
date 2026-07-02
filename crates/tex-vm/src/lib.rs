@@ -24865,6 +24865,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("simeq");
                         index = command_index;
                     }
+                    "asymp" | "doteq" | "bowtie" | "smile" | "frown" => {
+                        push_operator!(command);
+                        index = command_index;
+                    }
                     "propto" => {
                         push_operator!("propto");
                         index = command_index;
