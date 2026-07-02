@@ -25502,6 +25502,74 @@ mod tests {
     }
 
     #[test]
+    fn renders_simple_svg_utf8_percent_image_href_in_pdf_and_svg_debug_output() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector-utf8-percent-href.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector-utf8-percent-href".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let decoded_asset_ref = "figures/nested/\u{20ac}.png".to_string();
+        let svg_asset_bytes = || {
+            br##"<svg width="20" height="10">
+  <image x="5" y="2" width="8" height="4" preserveAspectRatio="none" href="nested/%E2%82%AC.png"/>
+</svg>"##
+                .to_vec()
+        };
+        let mut pdf_requested_asset_refs = Vec::new();
+        let pdf = render_display_list_pdf_with_assets(&[page.clone()], |asset_ref| {
+            pdf_requested_asset_refs.push(asset_ref.to_string());
+            match asset_ref {
+                "figures/vector-utf8-percent-href.svg" => Some(svg_asset_bytes()),
+                _ if asset_ref == decoded_asset_ref => Some(tiny_png_bytes()),
+                _ => None,
+            }
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+        let mut svg_requested_asset_refs = Vec::new();
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            svg_requested_asset_refs.push(asset_ref.to_string());
+            match asset_ref {
+                "figures/vector-utf8-percent-href.svg" => Some(svg_asset_bytes()),
+                _ if asset_ref == decoded_asset_ref => Some(tiny_png_bytes()),
+                _ => None,
+            }
+        });
+
+        assert!(pdf_requested_asset_refs.contains(&decoded_asset_ref));
+        assert!(!pdf_requested_asset_refs.contains(&"figures/nested/%E2%82%AC.png".to_string()));
+        assert!(svg_requested_asset_refs.contains(&decoded_asset_ref));
+        assert!(!svg_requested_asset_refs.contains(&"figures/nested/%E2%82%AC.png".to_string()));
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(pdf_text.contains("/XObject << /Im1"));
+        assert!(svg.contains("data%3Aimage%2Fpng%2C%2589PNG"));
+        assert!(!svg.contains("nested/%E2%82%AC.png"));
+        assert!(!svg.contains("nested%2F%25E2%2582%25AC.png"));
+        assert!(!pdf_text.contains("[unsupported image: figures/vector-utf8-percent-href.svg]"));
+        assert!(!svg.contains("[unsupported image: figures/vector-utf8-percent-href.svg]"));
+    }
+
+    #[test]
     fn renders_simple_svg_defs_relative_embedded_png_image_use_as_pdf_xobject() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
