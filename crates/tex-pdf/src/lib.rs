@@ -9664,10 +9664,22 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             continue;
         }
         let text_tag = &text_tail[..text_tag_end];
-        let Some(id) = attr_value(text_tag, "id").filter(|id| !id.trim().is_empty()) else {
+        let mut definition_ids = Vec::new();
+        if let Some(id) = attr_value(text_tag, "id").filter(|id| !id.trim().is_empty()) {
+            definition_ids.push(id);
+        }
+        for group_definition in &group_definitions {
+            if group_definition.content_start <= text_start
+                && text_start < group_definition.content_end
+                && !definition_ids.iter().any(|id| id == &group_definition.id)
+            {
+                definition_ids.push(group_definition.id.clone());
+            }
+        }
+        if definition_ids.is_empty() {
             search_index = text_start + text_tag_end + 1;
             continue;
-        };
+        }
         let text_body_start = text_start + text_tag_end + 1;
         let Some(text_body_end_relative) = svg_content[text_body_start..].find("</text>") else {
             search_index = text_body_start;
@@ -9683,14 +9695,16 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             text_body.trim()
         };
         if !text_body.is_empty() {
-            text_definitions.push(SimpleSvgTextDefinition {
-                id,
-                tag: text_tag.to_string(),
-                start: text_start,
-                body: text_body.to_string(),
-                alias_transform: None,
-                alias_presentation: None,
-            });
+            for id in definition_ids {
+                text_definitions.push(SimpleSvgTextDefinition {
+                    id,
+                    tag: text_tag.to_string(),
+                    start: text_start,
+                    body: text_body.to_string(),
+                    alias_transform: None,
+                    alias_presentation: None,
+                });
+            }
         }
         search_index = text_body_end + "</text>".len();
     }
@@ -21836,6 +21850,55 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 rg BT /F1 20 Tf 1 0 0 1 130 220 Tm (Hi) Tj ET"));
         assert!(!pdf_text.contains("1 0 0 rg BT /F1 20 Tf 1 0 0 1 80 230 Tm (Hi) Tj ET"));
         assert!(!pdf_text.contains("[unsupported image: figures/defs-text-use-alias.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_defs_group_text_use_as_pdf_text() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/defs-group-text-use.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:defs-group-text-use".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/defs-group-text-use.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <g id="labels" transform="translate(2 1)" fill="currentColor">
+      <text x="1" y="3" font-size="2">Hi</text>
+    </g>
+  </defs>
+  <use href="#labels" x="4" y="1" color="#0000ff"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 rg BT /F1 20 Tf 1 0 0 1 80 230 Tm (Hi) Tj ET"));
+        assert!(!pdf_text.contains("0 0 0 rg BT /F1 20 Tf 1 0 0 1 80 230 Tm (Hi) Tj ET"));
+        assert!(!pdf_text.contains("[unsupported image: figures/defs-group-text-use.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 
