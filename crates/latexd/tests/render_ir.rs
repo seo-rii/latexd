@@ -1103,6 +1103,58 @@ fn compact_fraction_aliases_normalize_through_display_list() {
 }
 
 #[test]
+fn bold_math_wrappers_normalize_inner_math_through_display_list() {
+    let source =
+        r"\begin{document}Vector $\bm{\alpha}+\pmb{x}+\boldsymbol{\beta}$ now.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let display_list_math_run = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "alpha + x + beta" => Some(run),
+            _ => None,
+        })
+        .expect("display-list math text run");
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    assert_eq!(
+        math_event.raw_source,
+        r"\bm{\alpha}+\pmb{x}+\boldsymbol{\beta}"
+    );
+    assert_eq!(
+        math_event.normalized_text.as_deref(),
+        Some("alpha + x + beta")
+    );
+    assert_eq!(display_list_math_run.text, "alpha + x + beta");
+    assert!(extracted_text.contains("Vector alpha + x + beta now."));
+    for visible in ["Vector", "alpha + x + beta", "now."] {
+        assert!(display_list_text.contains(visible), "{display_list_text}");
+    }
+    for hidden in [r"\bm", r"\pmb", r"\boldsymbol", r"\alpha", r"\beta"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn title_inline_keys_are_redacted_in_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", TITLE_INLINE_KEY_SOURCE, &SemanticAux::default());
