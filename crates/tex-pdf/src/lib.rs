@@ -11743,6 +11743,18 @@ pub fn render_display_list_svg_with_converted_assets(
                                                     }?;
                                                     Some(encode_data_uri(media_type, &asset_bytes))
                                                 })
+                                            })
+                                            .or_else(|| {
+                                                let trimmed_href = href.trim();
+                                                let lower_href = trimmed_href.to_ascii_lowercase();
+                                                if trimmed_href.is_empty()
+                                                    || trimmed_href.starts_with('#')
+                                                    || lower_href.starts_with("data:")
+                                                {
+                                                    None
+                                                } else {
+                                                    Some("data:,".to_string())
+                                                }
                                             });
                                     if let Some(replacement) = replacement {
                                         rewritten_svg.push_str(&svg_text[cursor..href_value_start]);
@@ -25252,6 +25264,56 @@ mod tests {
         assert!(requested_asset_refs.contains(&"figures/nested/pixel.png".to_string()));
         assert!(svg.contains("data%3Aimage%2Fpng%2C%2589PNG"));
         assert!(!svg.contains("nested/pixel.png"));
+        assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
+    }
+
+    #[test]
+    fn sanitizes_simple_svg_unresolved_embedded_image_hrefs_for_svg_debug_output() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            (asset_ref == "figures/vector.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <image x="1" y="1" width="4" height="4" href="https://example.test/pixel.png"/>
+  <image x="6" y="1" width="4" height="4" href="/absolute/pixel.png"/>
+  <image x="11" y="1" width="4" height="4" href="missing/pixel.png"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+
+        assert!(svg.contains("href=\"data:image/svg+xml;charset=utf-8,%3Csvg"));
+        assert!(svg.contains("data%3A%2C"));
+        assert!(!svg.contains("https://example.test"));
+        assert!(!svg.contains("https%3A%2F%2Fexample.test"));
+        assert!(!svg.contains("/absolute/pixel.png"));
+        assert!(!svg.contains("%2Fabsolute%2Fpixel.png"));
+        assert!(!svg.contains("missing/pixel.png"));
+        assert!(!svg.contains("missing%2Fpixel.png"));
         assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
     }
 

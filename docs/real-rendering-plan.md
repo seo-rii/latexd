@@ -193,7 +193,10 @@ rewritten to data URIs through the same resolver. The SVG-internal image href
 path accepts quote style and `=` whitespace variations, normalizes
 project-root-relative `.` / `..` components, strips query/fragment suffixes for
 resolver lookup, and refuses fragment-only, absolute, external-scheme, and
-root-escaping references. Simple
+root-escaping references. Debug SVG output preserves existing `data:` and
+fragment-only image refs, but sanitizes unresolved non-`data:` / non-fragment
+image refs to inert `data:,` values rather than leaving browser-loadable URLs in
+the generated artifact. Simple
 resolver-backed SVG `<rect>`, `<line>`, `<circle>`, `<ellipse>`, `<polyline>`,
 `<polygon>`, and `<path>` content, including percentage geometry for simple
 rect/line/circle/ellipse attributes, with line, cubic/smooth cubic, and
@@ -1214,7 +1217,8 @@ Status:
   simple relative SVG-internal PNG/JPEG `href` / `xlink:href` assets rewritten
   to data URIs with quote/whitespace-tolerant attribute parsing,
   parent-relative normalization, query/fragment stripping for lookup, and
-  fragment-only, absolute, external-scheme, or root-escaping references refused;
+  unresolved non-`data:` / non-fragment references sanitized to inert `data:,`
+  values instead of remaining browser-loadable URLs;
 - project-root display-list PDF debug artifacts render simple resolver-backed
   SVG rectangle, rounded rectangle, line, circle, ellipse, polyline, polygon,
   percentage geometry for simple rect/line/circle/ellipse attributes,
