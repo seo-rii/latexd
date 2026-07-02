@@ -25197,8 +25197,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token_then_space!("compare");
                         index = command_index;
                     }
-                    "sum" | "prod" | "int" | "lim" | "bigcup" | "bigcap" | "bigoplus"
-                    | "bigotimes" | "bigodot" | "bigsqcup" | "bigvee" | "bigwedge" => {
+                    "sum" | "prod" | "int" | "lim" | "limsup" | "liminf" | "varlimsup"
+                    | "varliminf" | "injlim" | "projlim" | "varinjlim" | "varprojlim"
+                    | "bigcup" | "bigcap" | "bigoplus" | "bigotimes" | "bigodot" | "bigsqcup"
+                    | "bigvee" | "bigwedge" => {
                         let mut script_index = skip_ascii_whitespace(source, command_index);
                         if script_index < bytes.len() && bytes[script_index] == b'\\' {
                             let mut limit_command_index = script_index + 1;

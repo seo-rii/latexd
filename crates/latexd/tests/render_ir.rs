@@ -7123,6 +7123,57 @@ fn math_operators_and_scripts_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_limit_operator_variants_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Limits \(\limsup_{n\to\infty} a_n + \liminf_{m\to0} b_m + \varlimsup_{k} c_k + \varliminf_{\ell} d_\ell + \injlim_i X_i + \projlim_j Y_j\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    let expected = "limsup_{n -> infinity} a_n + liminf_{m -> 0} b_m + varlimsup_{k} c_k + varliminf_{ell} d_ell + injlim_{i} X_i + projlim_{j} Y_j";
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"\limsup_{n\to\infty} a_n + \liminf_{m\to0} b_m + \varlimsup_{k} c_k + \varliminf_{\ell} d_\ell + \injlim_i X_i + \projlim_j Y_j"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let display_list_flat = display_list_text.replace('\n', "");
+    assert!(display_list_flat.contains(expected), "{display_list_text}");
+    for hidden in [
+        r"\limsup",
+        r"\liminf",
+        r"\varlimsup",
+        r"\varliminf",
+        r"\injlim",
+        r"\projlim",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_substack_scripts_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Nested \(\sum_{\substack{i<j\\j<k}}^{n} x_i + \lim_{\substack{x\to0\\y\to0}} f(x,y)\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
