@@ -166,6 +166,9 @@ struct RasterDiffReport {
     width_px: u32,
     height_px: u32,
     differing_pixel_count: u64,
+    overlapping_differing_pixel_count: u64,
+    oracle_only_pixel_count: u64,
+    internal_only_pixel_count: u64,
     differing_pixel_ratio: f64,
 }
 
@@ -1159,6 +1162,9 @@ fn write_raster_diff_image(
     let height = oracle_height.max(internal_height);
     let mut diff_rgba = Vec::with_capacity(width as usize * height as usize * 4);
     let mut differing_pixel_count = 0_u64;
+    let mut overlapping_differing_pixel_count = 0_u64;
+    let mut oracle_only_pixel_count = 0_u64;
+    let mut internal_only_pixel_count = 0_u64;
 
     for y in 0..height {
         for x in 0..width {
@@ -1189,12 +1195,21 @@ fn write_raster_diff_image(
                         )
                     }
                 }
-                (Some(_), None) => ([255, 0, 255, 255], true),
-                (None, Some(_)) => ([0, 0, 255, 255], true),
+                (Some(_), None) => {
+                    oracle_only_pixel_count += 1;
+                    ([255, 0, 255, 255], true)
+                }
+                (None, Some(_)) => {
+                    internal_only_pixel_count += 1;
+                    ([0, 0, 255, 255], true)
+                }
                 (None, None) => ([255, 255, 255, 255], false),
             };
             if differs {
                 differing_pixel_count += 1;
+                if oracle_pixel.is_some() && internal_pixel.is_some() {
+                    overlapping_differing_pixel_count += 1;
+                }
             }
             diff_rgba.extend_from_slice(&diff_pixel);
         }
@@ -1208,6 +1223,9 @@ fn write_raster_diff_image(
         width_px: width,
         height_px: height,
         differing_pixel_count,
+        overlapping_differing_pixel_count,
+        oracle_only_pixel_count,
+        internal_only_pixel_count,
         differing_pixel_ratio: differing_pixel_count as f64 / total_pixel_count as f64,
     })
 }
@@ -1719,6 +1737,9 @@ fn arxiv_oracle_report_serializes_first_page_raster_diff_path() {
             width_px: 100,
             height_px: 100,
             differing_pixel_count: 10,
+            overlapping_differing_pixel_count: 7,
+            oracle_only_pixel_count: 1,
+            internal_only_pixel_count: 2,
             differing_pixel_ratio: 0.001,
         }),
         internal_build_failure: None,
@@ -1735,6 +1756,18 @@ fn arxiv_oracle_report_serializes_first_page_raster_diff_path() {
     assert_eq!(
         value["first_page_raster_diff_metrics"]["differing_pixel_count"],
         10
+    );
+    assert_eq!(
+        value["first_page_raster_diff_metrics"]["overlapping_differing_pixel_count"],
+        7
+    );
+    assert_eq!(
+        value["first_page_raster_diff_metrics"]["oracle_only_pixel_count"],
+        1
+    );
+    assert_eq!(
+        value["first_page_raster_diff_metrics"]["internal_only_pixel_count"],
+        2
     );
 }
 
@@ -1799,6 +1832,9 @@ fn arxiv_oracle_writes_first_page_raster_diff_artifact() {
             width_px: 2,
             height_px: 2,
             differing_pixel_count: 3,
+            overlapping_differing_pixel_count: 1,
+            oracle_only_pixel_count: 0,
+            internal_only_pixel_count: 2,
             differing_pixel_ratio: 0.75,
         }
     );
@@ -1843,6 +1879,9 @@ fn arxiv_oracle_writes_first_page_raster_diff_artifact() {
             width_px: 1,
             height_px: 2,
             differing_pixel_count: 1,
+            overlapping_differing_pixel_count: 0,
+            oracle_only_pixel_count: 1,
+            internal_only_pixel_count: 0,
             differing_pixel_ratio: 0.5,
         }
     );
