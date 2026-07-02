@@ -25066,6 +25066,55 @@ mod tests {
     }
 
     #[test]
+    fn resolves_svg_embedded_asset_refs_safely() {
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref(
+                "figures/plots/vector.svg",
+                "../shared/pixel.png"
+            ),
+            Some("figures/shared/pixel.png".to_string())
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref(
+                "figures/plots/vector.svg",
+                "./nested/pixel.png?cache=1#frag"
+            ),
+            Some("figures/plots/nested/pixel.png".to_string())
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", "nested/../pixel.png"),
+            Some("figures/pixel.png".to_string())
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref("vector.svg", "nested/pixel.png"),
+            Some("nested/pixel.png".to_string())
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", "#stamp"),
+            None
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", "/nested/pixel.png"),
+            None
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref(
+                "figures/vector.svg",
+                "https://example.com/pixel.png"
+            ),
+            None
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", "../outside.png"),
+            Some("outside.png".to_string())
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", "../../outside.png"),
+            None
+        );
+    }
+
+    #[test]
     fn rewrites_simple_svg_relative_embedded_png_image_for_svg_debug_output() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
