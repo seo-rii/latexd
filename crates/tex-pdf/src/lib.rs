@@ -23031,6 +23031,54 @@ mod tests {
     }
 
     #[test]
+    fn prefers_simple_svg_text_use_href_over_xlink_href_in_pdf_output() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/text-use-href-priority.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:text-use-href-priority".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/text-use-href-priority.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <text id="label" x="1" y="3" font-size="2" fill="currentColor">Hi</text>
+  </defs>
+  <use href="#label" xlink:href="#missing" x="4" y="1" color="#0000ff"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 rg BT /F1 20 Tf 1 0 0 1 60 240 Tm (Hi) Tj ET"));
+        assert!(!pdf_text.contains("0 0 0 rg BT /F1 20 Tf 1 0 0 1 60 240 Tm (Hi) Tj ET"));
+        assert!(!pdf_text.contains("#missing"));
+        assert!(!pdf_text.contains("[unsupported image: figures/text-use-href-priority.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn renders_simple_svg_defs_text_use_tspans_as_pdf_text_runs() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
