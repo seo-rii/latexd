@@ -26033,6 +26033,7 @@ mod tests {
   <image x="1" y="1" width="4" height="4" href="https://example.test/pixel.png"/>
   <image x="6" y="1" width="4" height="4" href="/absolute/pixel.png"/>
   <image x="11" y="1" width="4" height="4" href="missing/pixel.png"/>
+  <image x="16" y="1" width="4" height="4" href="%2e%2e/%2e%2e/outside.png"/>
 </svg>"##
                     .to_vec()
             })
@@ -26046,6 +26047,8 @@ mod tests {
         assert!(!svg.contains("%2Fabsolute%2Fpixel.png"));
         assert!(!svg.contains("missing/pixel.png"));
         assert!(!svg.contains("missing%2Fpixel.png"));
+        assert!(!svg.contains("%252e%252e%2F%252e%252e%2Foutside.png"));
+        assert!(!svg.contains("outside.png"));
         assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
     }
 
