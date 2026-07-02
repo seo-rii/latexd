@@ -25421,6 +25421,10 @@ mod tests {
       <stop offset="0%" style="color: initial; stop-color: currentColor"/>
     </linearGradient>
     <linearGradient id="initialColorAlias" href="#initialColorBase" color="#0000ff"/>
+    <linearGradient id="currentColorOpacityBase">
+      <stop offset="0%" stop-color="currentColor" stop-opacity="0.25"/>
+    </linearGradient>
+    <linearGradient id="currentColorOpacityAlias" href="#currentColorOpacityBase" color="#0000ff"/>
   </defs>
   <rect x="1" y="1" width="2" height="2" fill="url(#fillAlias)"/>
   <line x1="0" y1="2" x2="5" y2="2" stroke="url(#strokeAlias)" stroke-width="2" fill="none"/>
@@ -25428,6 +25432,7 @@ mod tests {
   <rect x="10" y="1" width="2" height="2" fill="url(#currentColorCssAlias)"/>
   <rect x="13" y="1" width="2" height="2" fill="url(#stopColorAlias)"/>
   <rect x="16" y="1" width="2" height="2" fill="url(#initialColorAlias)"/>
+  <rect x="1" y="4" width="2" height="2" fill="url(#currentColorOpacityAlias)"/>
 </svg>"##
                     .to_vec()
             })
@@ -25440,6 +25445,8 @@ mod tests {
         assert!(pdf_text.contains("1 0 1 rg 110 250 20 20 re f"));
         assert!(pdf_text.contains("1 0 0 rg 140 250 20 20 re f"));
         assert!(pdf_text.contains("0 0 0 rg 170 250 20 20 re f"));
+        assert!(pdf_text.contains("/GS250 << /Type /ExtGState /ca 0.25 /CA 0.25 >>"));
+        assert!(pdf_text.contains("q /GS250 gs 0 0 1 rg 20 220 20 20 re f Q"));
         assert!(!pdf_text.contains("0 0 0 rg 20 250 20 20 re f"));
         assert!(!pdf_text.contains("0 0 0 rg 80 250 20 20 re f"));
         assert!(!pdf_text.contains("0 0 0 rg 110 250 20 20 re f"));
