@@ -25362,7 +25362,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     "ell" | "aleph" | "hbar" | "Re" | "Im" | "wp" | "mho" | "Bbbk"
                     | "complement" | "beth" | "gimel" | "daleth" | "angle" | "measuredangle"
                     | "sphericalangle" | "triangle" | "square" | "Box" | "Diamond" | "lozenge"
-                    | "heartsuit" | "spadesuit" | "clubsuit" | "diamondsuit" => {
+                    | "heartsuit" | "spadesuit" | "clubsuit" | "diamondsuit" | "flat"
+                    | "natural" | "sharp" | "checkmark" | "maltese" => {
                         push_command_token!(command);
                         index = command_index;
                     }
