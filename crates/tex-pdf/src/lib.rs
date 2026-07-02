@@ -11658,6 +11658,22 @@ pub fn render_display_list_svg_with_converted_assets(
                                             tag[attr_search..].find(attr_name)
                                         {
                                             let attr_start = attr_search + relative;
+                                            let mut active_quote = None;
+                                            for ch in tag[..attr_start].chars() {
+                                                match active_quote {
+                                                    Some(quote) if ch == quote => {
+                                                        active_quote = None
+                                                    }
+                                                    None if ch == '"' || ch == '\'' => {
+                                                        active_quote = Some(ch)
+                                                    }
+                                                    _ => {}
+                                                }
+                                            }
+                                            if active_quote.is_some() {
+                                                attr_search = attr_start + attr_name.len();
+                                                continue;
+                                            }
                                             let before = tag[..attr_start].chars().next_back();
                                             if before.is_some_and(|ch| {
                                                 !(ch.is_whitespace() || matches!(ch, '<' | '/'))
@@ -25575,6 +25591,50 @@ mod tests {
         assert!(svg.contains("data-href%3D%22metadata.png%22"));
         assert!(svg.contains("href2%3D%22metadata-2.png%22"));
         assert!(svg.contains("xmlns%3Axlink%3D%22http%3A%2F%2Fwww.w3.org%2F1999%2Fxlink%22"));
+        assert!(svg.contains("data%3A%2C"));
+        assert!(!svg.contains("missing/pixel.png"));
+        assert!(!svg.contains("missing%2Fpixel.png"));
+        assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
+    }
+
+    #[test]
+    fn preserves_simple_svg_href_text_inside_quoted_attribute_values_for_svg_debug_output() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            (asset_ref == "figures/vector.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <image x="1" y="1" width="4" height="4" title="metadata href='metadata.png'" href="missing/pixel.png"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+
+        assert!(svg.contains("metadata%20href%3D%27metadata.png%27"));
         assert!(svg.contains("data%3A%2C"));
         assert!(!svg.contains("missing/pixel.png"));
         assert!(!svg.contains("missing%2Fpixel.png"));
