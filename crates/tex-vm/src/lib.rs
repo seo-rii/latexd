@@ -24438,13 +24438,67 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     "hat" | "widehat" | "bar" | "overline" | "vec" | "tilde" | "widetilde"
                     | "dot" | "ddot" | "underline" | "overbrace" | "underbrace" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);
-                        let Some((argument, _, _, after_argument)) =
-                            read_braced_source_argument(source, argument_index)
-                        else {
-                            return None;
-                        };
-                        let argument = normalize_latex_math_text(argument)
-                            .unwrap_or_else(|| normalize_latex_math_source(argument));
+                        let (argument, after_argument) =
+                            if let Some((argument, _, _, after_argument)) =
+                                read_braced_source_argument(source, argument_index)
+                            {
+                                (
+                                    normalize_latex_math_text(argument)
+                                        .unwrap_or_else(|| normalize_latex_math_source(argument)),
+                                    after_argument,
+                                )
+                            } else if argument_index < bytes.len() && bytes[argument_index] == b'\\'
+                            {
+                                let argument_start = argument_index;
+                                let mut argument_end = argument_index + 1;
+                                if argument_end >= bytes.len() {
+                                    return None;
+                                }
+                                if bytes[argument_end].is_ascii_alphabetic()
+                                    || bytes[argument_end] == b'@'
+                                {
+                                    while argument_end < bytes.len()
+                                        && (bytes[argument_end].is_ascii_alphabetic()
+                                            || bytes[argument_end] == b'@')
+                                    {
+                                        argument_end += 1;
+                                    }
+                                } else {
+                                    let command_char = source[argument_end..]
+                                        .chars()
+                                        .next()
+                                        .expect("math accent control symbol");
+                                    argument_end += command_char.len_utf8();
+                                }
+                                let group_index = skip_ascii_whitespace(source, argument_end);
+                                if let Some((_, _, _, after_group)) =
+                                    read_braced_source_argument(source, group_index)
+                                {
+                                    argument_end = after_group;
+                                }
+                                let argument_source = &source[argument_start..argument_end];
+                                (
+                                    normalize_latex_math_text(argument_source).unwrap_or_else(
+                                        || normalize_latex_math_source(argument_source),
+                                    ),
+                                    argument_end,
+                                )
+                            } else if argument_index < bytes.len() {
+                                let argument_char = source[argument_index..]
+                                    .chars()
+                                    .next()
+                                    .expect("math accent character argument");
+                                let after_argument = argument_index + argument_char.len_utf8();
+                                let argument_source = &source[argument_index..after_argument];
+                                (
+                                    normalize_latex_math_text(argument_source).unwrap_or_else(
+                                        || normalize_latex_math_source(argument_source),
+                                    ),
+                                    after_argument,
+                                )
+                            } else {
+                                return None;
+                            };
                         let accent = match command {
                             "widehat" => "hat",
                             "overline" => "bar",

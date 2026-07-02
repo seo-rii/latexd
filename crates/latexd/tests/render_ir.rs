@@ -955,6 +955,54 @@ fn boxed_math_wrapper_normalizes_inner_math_through_display_list() {
 }
 
 #[test]
+fn unbraced_math_accents_normalize_single_token_arguments() {
+    let source = r"\begin{document}State $\hat x+\bar\alpha+\vec\mathbf{v}$ now.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let display_list_math_run = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "hat(x) + bar(alpha) + vec(v)" => Some(run),
+            _ => None,
+        })
+        .expect("display-list math text run");
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    assert_eq!(math_event.raw_source, r"\hat x+\bar\alpha+\vec\mathbf{v}");
+    assert_eq!(
+        math_event.normalized_text.as_deref(),
+        Some("hat(x) + bar(alpha) + vec(v)")
+    );
+    assert_eq!(display_list_math_run.text, "hat(x) + bar(alpha) + vec(v)");
+    assert!(extracted_text.contains("State hat(x) + bar(alpha) + vec(v) now."));
+    for visible in ["State", "hat(x) + bar(alpha) + vec(v)", "now."] {
+        assert!(display_list_text.contains(visible), "{display_list_text}");
+    }
+    for hidden in [r"\hat", r"\bar", r"\vec", r"\alpha", r"\mathbf"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn title_inline_keys_are_redacted_in_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", TITLE_INLINE_KEY_SOURCE, &SemanticAux::default());
