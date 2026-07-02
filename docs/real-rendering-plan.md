@@ -1222,9 +1222,10 @@ Status:
   entity decoding, URL percent decoding inside relative path components,
   parent-relative normalization, query/fragment stripping for lookup, raw
   backslash/NUL href rejection plus raw or percent-decoded scheme/drive-like
-  first-component rejection before resolver lookup, and unresolved
-  non-`data:`/non-fragment references sanitized to inert `data:,` values instead
-  of remaining browser-loadable URLs;
+  first-component rejection before resolver lookup, percent-encoded slash,
+  backslash, and ASCII control bytes preserved instead of becoming path
+  characters, and unresolved non-`data:`/non-fragment references sanitized to
+  inert `data:,` values instead of remaining browser-loadable URLs;
 - project-root display-list PDF debug artifacts render simple resolver-backed
   SVG rectangle, rounded rectangle, line, circle, ellipse, polyline, polygon,
   percentage geometry for simple rect/line/circle/ellipse attributes,
