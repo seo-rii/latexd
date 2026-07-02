@@ -2001,6 +2001,19 @@ fn resolve_svg_embedded_asset_ref(svg_asset_ref: &str, href: &str) -> Option<Str
     (!parts.is_empty()).then(|| parts.join("/"))
 }
 
+fn find_simple_xml_tag_end(tag_tail: &str) -> Option<usize> {
+    let mut active_quote = None;
+    for (index, ch) in tag_tail.char_indices() {
+        match active_quote {
+            Some(quote) if ch == quote => active_quote = None,
+            None if ch == '"' || ch == '\'' => active_quote = Some(ch),
+            None if ch == '>' => return Some(index),
+            _ => {}
+        }
+    }
+    None
+}
+
 fn parse_simple_svg_asset_with_embedded_assets(
     text: &str,
     resolve_embedded_asset: &mut dyn FnMut(&str) -> Option<Vec<u8>>,
@@ -9577,7 +9590,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = image_start + "<image".len();
             continue;
         }
-        let Some(image_end) = image_tail.find('>') else {
+        let Some(image_end) = find_simple_xml_tag_end(image_tail) else {
             break;
         };
         if !in_defs(image_start) {
@@ -9921,7 +9934,7 @@ fn parse_simple_svg_asset_with_embedded_assets(
             search_index = image_start + "<image".len();
             continue;
         }
-        let Some(image_end) = image_tail.find('>') else {
+        let Some(image_end) = find_simple_xml_tag_end(image_tail) else {
             break;
         };
         if in_defs(image_start) {
@@ -11646,22 +11659,8 @@ pub fn render_display_list_svg_with_converted_assets(
                                         cursor = tag_start + advance;
                                         continue;
                                     }
-                                    let mut active_quote = None;
-                                    let mut tag_end_relative = None;
-                                    for (index, ch) in tag_tail.char_indices() {
-                                        match active_quote {
-                                            Some(quote) if ch == quote => active_quote = None,
-                                            None if ch == '"' || ch == '\'' => {
-                                                active_quote = Some(ch)
-                                            }
-                                            None if ch == '>' => {
-                                                tag_end_relative = Some(index);
-                                                break;
-                                            }
-                                            _ => {}
-                                        }
-                                    }
-                                    let Some(tag_end_relative) = tag_end_relative else {
+                                    let Some(tag_end_relative) = find_simple_xml_tag_end(tag_tail)
+                                    else {
                                         break;
                                     };
                                     let tag_end = tag_start + tag_end_relative + 1;
@@ -24944,6 +24943,51 @@ mod tests {
         assert!(pdf_text.contains("q /GS400 gs q 20 0 0 20 150 240 cm /Im2 Do Q Q"));
         assert!(pdf_text.contains("0 1 0 RG 5 w 10 180 200 100 re S"));
         assert!(!pdf_text.contains("[unsupported image: figures/embedded-image.svg]"));
+    }
+
+    #[test]
+    fn renders_simple_svg_embedded_image_after_quoted_greater_than_as_pdf_xobject() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/embedded-image-quoted.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:embedded-image-quoted".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/embedded-image-quoted.svg").then(|| {
+                let base64_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+                format!(
+                    r#"<svg width="20" height="10">
+  <image x="14" y="2" width="2" height="2" title="a > b" href="data:image/png;base64,{base64_png}"/>
+</svg>"#
+                )
+                .into_bytes()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(!pdf_text.contains("[unsupported image: figures/embedded-image-quoted.svg]"));
     }
 
     #[test]
