@@ -23974,7 +23974,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     command if is_latex_layout_spacing_command(command) || command == "tag" => {
                         index = skip_latex_layout_spacing_command(source, command_index);
                     }
-                    "frac" | "dfrac" | "tfrac" => {
+                    "frac" | "dfrac" | "tfrac" | "nicefrac" | "sfrac" => {
                         let numerator_index = skip_ascii_whitespace(source, command_index);
                         let Some((numerator, _, _, after_numerator)) =
                             read_braced_source_argument(source, numerator_index)

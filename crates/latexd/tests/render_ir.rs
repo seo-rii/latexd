@@ -1051,6 +1051,58 @@ fn braced_modular_math_notation_normalizes_through_display_list() {
 }
 
 #[test]
+fn compact_fraction_aliases_normalize_through_display_list() {
+    let source =
+        r"\begin{document}Fractions $\nicefrac{a+b}{c_d}+\sfrac{\alpha}{2}$ now.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let display_list_math_run = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "a + b/c_d + alpha/2" => Some(run),
+            _ => None,
+        })
+        .expect("display-list math text run");
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    assert_eq!(
+        math_event.raw_source,
+        r"\nicefrac{a+b}{c_d}+\sfrac{\alpha}{2}"
+    );
+    assert_eq!(
+        math_event.normalized_text.as_deref(),
+        Some("a + b/c_d + alpha/2")
+    );
+    assert_eq!(display_list_math_run.text, "a + b/c_d + alpha/2");
+    assert!(extracted_text.contains("Fractions a + b/c_d + alpha/2 now."));
+    for visible in ["Fractions", "a + b/c_d + alpha/2", "now."] {
+        assert!(display_list_text.contains(visible), "{display_list_text}");
+    }
+    for hidden in [r"\nicefrac", r"\sfrac", r"\alpha", "{a+b}", "{c_d}"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn title_inline_keys_are_redacted_in_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", TITLE_INLINE_KEY_SOURCE, &SemanticAux::default());
