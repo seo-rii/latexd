@@ -1592,7 +1592,7 @@ approximate.
   positions and opacity before emitting the image as a PDF XObject. Simple
   group-contained image definitions can also be reused through the containing
   group id, and simple symbol-contained image definitions support basic symbol
-  `viewBox` viewport fitting.
+  `viewBox` viewport fitting, including simple symbol image aliases.
 - The simple SVG vector subset now includes gradient paint-server first-stop
   solid approximations with `href` inheritance, including alias `currentColor`
   stops without overriding stop-local color, plus inline/style-rule

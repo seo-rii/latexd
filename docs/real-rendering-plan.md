@@ -264,7 +264,8 @@ plus simple embedded `data:image/png` / `data:image/jpeg` SVG
 direct `id`-addressed `<defs><image>` reuse and simple image `<defs>` `<use>`
 aliases through external `<use>`, plus simple group-contained image definitions
 reused through the group id and simple symbol-contained image definitions with
-basic symbol `viewBox` viewport fitting, is also
+basic symbol `viewBox` viewport fitting, including simple symbol image aliases,
+is also
 rendered directly as vector PDF drawing operations in
 display-list PDF artifacts instead of falling back to unsupported-image
 placeholders. Simple SVG vector PDF rendering also uses display-list
@@ -783,7 +784,8 @@ Implemented first slice:
   image `<defs>` `<use>` aliases through external `<use>`, simple
   group-contained image definitions reused through the group id, simple
   symbol-contained image definitions with basic symbol `viewBox` viewport
-  fitting, display-list crop/viewport placement, and
+  fitting, including simple symbol image aliases, display-list crop/viewport
+  placement, and
   `clip=true` destination clipping for simple SVG vector PDF assets;
 - default regression coverage exercises both PNG and JPEG bitmap embedding in
   display-list PDF and debug SVG artifacts;
