@@ -25521,6 +25521,7 @@ mod tests {
             br##"<svg width="20" height="10">
   <image x="5" y="2" width="8" height="4" preserveAspectRatio="none" href="nested/a%20b%26c.png"/>
   <image x="9" y="2" width="4" height="4" preserveAspectRatio="none" href="nested/a%3Fb%23c.png?cache=1#frag"/>
+  <image x="14" y="2" width="4" height="4" preserveAspectRatio="none" href="nested/a%zz%2.png"/>
 </svg>"##
                 .to_vec()
         };
@@ -25531,6 +25532,7 @@ mod tests {
                 "figures/vector-percent-href.svg" => Some(svg_asset_bytes()),
                 "figures/nested/a b&c.png" => Some(tiny_png_bytes()),
                 "figures/nested/a?b#c.png" => Some(tiny_png_bytes()),
+                "figures/nested/a%zz%2.png" => Some(tiny_png_bytes()),
                 _ => None,
             }
         });
@@ -25542,27 +25544,32 @@ mod tests {
                 "figures/vector-percent-href.svg" => Some(svg_asset_bytes()),
                 "figures/nested/a b&c.png" => Some(tiny_png_bytes()),
                 "figures/nested/a?b#c.png" => Some(tiny_png_bytes()),
+                "figures/nested/a%zz%2.png" => Some(tiny_png_bytes()),
                 _ => None,
             }
         });
 
         assert!(pdf_requested_asset_refs.contains(&"figures/nested/a b&c.png".to_string()));
         assert!(pdf_requested_asset_refs.contains(&"figures/nested/a?b#c.png".to_string()));
+        assert!(pdf_requested_asset_refs.contains(&"figures/nested/a%zz%2.png".to_string()));
         assert!(!pdf_requested_asset_refs.contains(&"figures/nested/a%20b%26c.png".to_string()));
         assert!(!pdf_requested_asset_refs.contains(&"figures/nested/a%3Fb%23c.png".to_string()));
         assert!(svg_requested_asset_refs.contains(&"figures/nested/a b&c.png".to_string()));
         assert!(svg_requested_asset_refs.contains(&"figures/nested/a?b#c.png".to_string()));
+        assert!(svg_requested_asset_refs.contains(&"figures/nested/a%zz%2.png".to_string()));
         assert!(!svg_requested_asset_refs.contains(&"figures/nested/a%20b%26c.png".to_string()));
         assert!(!svg_requested_asset_refs.contains(&"figures/nested/a%3Fb%23c.png".to_string()));
         assert!(pdf_text.contains("/Subtype /Image"));
         assert!(pdf_text.contains("/XObject << /Im1"));
-        assert!(svg.matches("data%3Aimage%2Fpng%2C%2589PNG").count() >= 2);
+        assert!(svg.matches("data%3Aimage%2Fpng%2C%2589PNG").count() >= 3);
         assert!(!svg.contains("nested/a%20b%26c.png"));
         assert!(!svg.contains("nested/a%3Fb%23c.png"));
+        assert!(!svg.contains("nested/a%zz%2.png"));
         assert!(!svg.contains("?cache=1"));
         assert!(!svg.contains("#frag"));
         assert!(!svg.contains("nested%2Fa%2520b%2526c.png"));
         assert!(!svg.contains("nested%2Fa%253Fb%2523c.png"));
+        assert!(!svg.contains("nested%2Fa%25zz%252.png"));
         assert!(!pdf_text.contains("[unsupported image: figures/vector-percent-href.svg]"));
         assert!(!svg.contains("[unsupported image: figures/vector-percent-href.svg]"));
     }
@@ -25966,6 +25973,10 @@ mod tests {
                 "nested/a%3Fb%23c.png?cache=1#frag"
             ),
             Some("figures/nested/a?b#c.png".to_string())
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", "nested/a%zz%2.png"),
+            Some("figures/nested/a%zz%2.png".to_string())
         );
         assert_eq!(
             super::resolve_svg_embedded_asset_ref("figures/vector.svg", "nested/%E2%82%AC.png"),

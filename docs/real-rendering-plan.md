@@ -197,7 +197,8 @@ components (`.` / `..`), strips query/fragment suffixes for resolver lookup, and
 refuses fragment-only, absolute, raw or percent-decoded external-scheme/drive-like
 first components, raw backslash or ASCII-control hrefs, and root-escaping
 references. Percent-encoded `?` / `#` characters inside path components remain
-filename characters rather than query/fragment delimiters.
+filename characters rather than query/fragment delimiters, and malformed
+percent escapes remain literal filename text.
 Debug SVG output preserves existing `data:` and
 fragment-only image refs, but sanitizes unresolved non-`data:` / non-fragment
 image refs to inert `data:,` values rather than leaving browser-loadable URLs in
@@ -1228,6 +1229,7 @@ Status:
   before resolver lookup in both PDF vector and debug SVG artifact paths,
   percent-encoded query/fragment characters preserved as filename characters
   while raw query/fragment suffixes are stripped for lookup,
+  malformed percent escapes preserved as literal filename text,
   raw and percent-encoded root-escaping paths rejected before nested resolver
   lookup,
   percent-encoded slash, backslash, and ASCII control bytes preserved instead
