@@ -739,6 +739,78 @@ fn compact_display_math_provenance_preserves_body_and_delimiter_spans() {
 }
 
 #[test]
+fn starred_operatorname_math_normalizes_through_ir_and_display_list() {
+    let source =
+        r"\begin{document}Choose $\operatorname*{arg\,max}_{x \in S} f(x)$ now.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let math_node = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => paragraph.content.iter().find_map(|node| match node {
+                InlineNode::InlineMath {
+                    raw_source,
+                    normalized_text,
+                    ..
+                } => Some((raw_source, normalized_text)),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .expect("inline math node");
+    let display_list_math_run = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "arg max_x in S f(x)" => Some(run),
+            _ => None,
+        })
+        .expect("display-list math text run");
+
+    assert_eq!(
+        math_event.raw_source,
+        r"\operatorname*{arg\,max}_{x \in S} f(x)"
+    );
+    assert_eq!(
+        math_event.normalized_text.as_deref(),
+        Some("arg max_x in S f(x)")
+    );
+    assert_eq!(math_node.0, r"\operatorname*{arg\,max}_{x \in S} f(x)");
+    assert_eq!(math_node.1.as_deref(), Some("arg max_x in S f(x)"));
+    assert_eq!(display_list_math_run.text, "arg max_x in S f(x)");
+
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    assert!(extracted_text.contains("Choose arg max_x in S f(x) now."));
+    for visible in ["Choose", "arg max_x in S f(x)", "now."] {
+        assert!(display_list_text.contains(visible), "{display_list_text}");
+    }
+    for hidden in [r"\operatorname", r"\,", "{arg", "max}"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn title_inline_keys_are_redacted_in_ir_and_display_list() {
     let capture =
         capture_internal_render_ir("main.tex", TITLE_INLINE_KEY_SOURCE, &SemanticAux::default());
