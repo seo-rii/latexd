@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Common binary operator variants such as `\div`, `\smallsetminus`, `\wr`, `\amalg`, `\sqcup`, and `\uplus` now normalize to readable operator text in RenderEvent, Document IR, and PageDisplayList output instead of forcing raw math fallback.
 - `2026-07-02` note: Extended order relation commands such as `\lessapprox`, `\gtrapprox`, `\precsim`, `\succsim`, `\preccurlyeq`, `\succcurlyeq`, `\nprec`, `\nsucc`, and `\nsucceq` now normalize to readable relation text instead of forcing raw math fallback.
 - `2026-07-02` note: Common `\argmin` math operator commands now normalize consistently with existing `\argmax` handling, preserving readable `argmin_x in S`-style text instead of forcing raw fallback.
 - `2026-07-02` note: Scripted `\min`, `\max`, `\sup`, and `\inf` math operators now reuse the same script parser as `\sum` and `\lim`, preserving attached subscript/superscript content in normalized IR and display-list text.

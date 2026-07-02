@@ -25046,8 +25046,12 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         index = command_index;
                     }
                     "oplus" | "ominus" | "otimes" | "oslash" | "odot" | "circ" | "bullet"
-                    | "star" | "diamond" => {
+                    | "star" | "diamond" | "div" | "wr" | "amalg" | "sqcup" | "uplus" => {
                         push_operator!(command);
+                        index = command_index;
+                    }
+                    "smallsetminus" => {
+                        push_operator!("setminus");
                         index = command_index;
                     }
                     "prime" | "dag" | "dagger" => {

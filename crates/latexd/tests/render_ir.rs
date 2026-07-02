@@ -8375,6 +8375,63 @@ fn math_binary_and_large_operators_use_normalized_text_in_ir_and_display_list() 
 }
 
 #[test]
+fn math_binary_operator_variants_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Ops \(A\div B + C\smallsetminus D + E\wr F + G\amalg H + I\sqcup J + K\uplus L\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "A div B + C setminus D + E wr F + G amalg H + I sqcup J + K uplus L";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"A\div B + C\smallsetminus D + E\wr F + G\amalg H + I\sqcup J + K\uplus L"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    for hidden in [
+        r"\div",
+        r"\smallsetminus",
+        r"\wr",
+        r"\amalg",
+        r"\sqcup",
+        r"\uplus",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn unknown_math_commands_use_raw_source_without_lossy_normalization() {
     let source = r"\begin{document}Set \(\mathbb{R} + \unknownmath{x}\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
