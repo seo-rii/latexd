@@ -1970,7 +1970,12 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
 
 fn resolve_svg_embedded_asset_ref(svg_asset_ref: &str, href: &str) -> Option<String> {
     let href = href.trim();
-    if href.is_empty() || href.starts_with('#') || href.starts_with('/') {
+    if href.is_empty()
+        || href.starts_with('#')
+        || href.starts_with('/')
+        || href.contains('\\')
+        || href.contains('\0')
+    {
         return None;
     }
     let first_component = href
@@ -25676,6 +25681,14 @@ mod tests {
         assert_eq!(
             super::resolve_svg_embedded_asset_ref("figures/vector.svg", "nested/a%00b.png"),
             Some("figures/nested/a%00b.png".to_string())
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", r"nested\pixel.png"),
+            None
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", r"..\outside.png"),
+            None
         );
         assert_eq!(
             super::resolve_svg_embedded_asset_ref("figures/vector.svg", "nested/../pixel.png"),
