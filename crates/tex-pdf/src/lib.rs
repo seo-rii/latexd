@@ -2048,6 +2048,18 @@ fn parse_simple_svg_asset_with_embedded_assets(
         let mut offset = 0usize;
         while let Some(relative) = tag[offset..].find(name) {
             let index = offset + relative;
+            let mut active_quote = None;
+            for ch in tag[..index].chars() {
+                match active_quote {
+                    Some(quote) if ch == quote => active_quote = None,
+                    None if ch == '"' || ch == '\'' => active_quote = Some(ch),
+                    _ => {}
+                }
+            }
+            if active_quote.is_some() {
+                offset = index + name.len();
+                continue;
+            }
             let before = tag[..index].chars().next_back();
             if before
                 .is_some_and(|ch| !(ch.is_whitespace() || matches!(ch, '<' | '/' | '\'' | '"')))
@@ -25030,6 +25042,51 @@ mod tests {
 
         assert!(pdf_text.contains("/Subtype /Image"));
         assert!(!pdf_text.contains("[unsupported image: figures/embedded-image-quoted.svg]"));
+    }
+
+    #[test]
+    fn renders_simple_svg_embedded_image_after_href_text_in_quoted_attribute() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/embedded-image-href-text.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:embedded-image-href-text".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/embedded-image-href-text.svg").then(|| {
+                let base64_png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC";
+                format!(
+                    r#"<svg width="20" height="10">
+  <image x="14" y="2" width="2" height="2" title="metadata href='metadata.png'" href="data:image/png;base64,{base64_png}"/>
+</svg>"#
+                )
+                .into_bytes()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(!pdf_text.contains("[unsupported image: figures/embedded-image-href-text.svg]"));
     }
 
     #[test]
