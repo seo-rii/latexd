@@ -1980,7 +1980,7 @@ fn resolve_svg_embedded_asset_ref(svg_asset_ref: &str, href: &str) -> Option<Str
     }
     let percent_decode_path_component = |raw: &str| {
         let bytes = raw.as_bytes();
-        let mut decoded = Vec::with_capacity(bytes.len());
+        let mut decoded = String::with_capacity(raw.len());
         let mut index = 0usize;
         while index < bytes.len() {
             if bytes[index] == b'%' {
@@ -1992,22 +1992,45 @@ fn resolve_svg_embedded_asset_ref(svg_asset_ref: &str, href: &str) -> Option<Str
                         _ => None,
                     }
                 };
-                if let (Some(high), Some(low)) = (
-                    bytes.get(index + 1).copied().and_then(hex),
-                    bytes.get(index + 2).copied().and_then(hex),
+                let mut run_index = index;
+                let mut run_bytes = Vec::new();
+                let mut run_raw = Vec::new();
+                while let (Some(high), Some(low)) = (
+                    bytes.get(run_index + 1).copied().and_then(hex),
+                    bytes.get(run_index + 2).copied().and_then(hex),
                 ) {
                     let byte = (high << 4) | low;
-                    if !matches!(byte, b'\0' | b'/' | b'\\') {
-                        decoded.push(byte);
-                        index += 3;
-                        continue;
+                    if matches!(byte, b'\0' | b'/' | b'\\') {
+                        break;
+                    }
+                    run_bytes.push(byte);
+                    run_raw.push(&raw[run_index..run_index + 3]);
+                    run_index += 3;
+                    if bytes.get(run_index).copied() != Some(b'%') {
+                        break;
                     }
                 }
+                if !run_bytes.is_empty() {
+                    if let Ok(text) = std::str::from_utf8(&run_bytes) {
+                        decoded.push_str(text);
+                    } else {
+                        for (byte, raw_escape) in run_bytes.into_iter().zip(run_raw) {
+                            if byte.is_ascii() {
+                                decoded.push(char::from(byte));
+                            } else {
+                                decoded.push_str(raw_escape);
+                            }
+                        }
+                    }
+                    index = run_index;
+                    continue;
+                }
             }
-            decoded.push(bytes[index]);
-            index += 1;
+            let ch = raw[index..].chars().next().unwrap();
+            decoded.push(ch);
+            index += ch.len_utf8();
         }
-        String::from_utf8(decoded).unwrap_or_else(|_| raw.to_string())
+        decoded
     };
     let first_component = href
         .split(['/', '?', '#'])
@@ -25727,6 +25750,10 @@ mod tests {
         );
         assert_eq!(
             super::resolve_svg_embedded_asset_ref("figures/vector.svg", "C%3A/pixel.png"),
+            None
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", "%ff%3A/pixel.png"),
             None
         );
         assert_eq!(
