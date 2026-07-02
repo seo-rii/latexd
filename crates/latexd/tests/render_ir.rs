@@ -8155,6 +8155,63 @@ fn math_named_symbols_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_named_symbol_variants_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Symbols \(\wp + \mho + \Bbbk + \complement A + \beth + \gimel + \daleth\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "wp + mho + Bbbk + complement A + beth + gimel + daleth";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source == r"\wp + \mho + \Bbbk + \complement A + \beth + \gimel + \daleth"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    for hidden in [
+        r"\wp",
+        r"\mho",
+        r"\Bbbk",
+        r"\complement",
+        r"\beth",
+        r"\gimel",
+        r"\daleth",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_special_symbols_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Symbols \(f^\prime(x) + A^\dagger + B^\dag + C \bigcirc D + X \backslash Y\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

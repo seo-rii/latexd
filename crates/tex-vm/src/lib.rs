@@ -25359,7 +25359,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token!("nabla");
                         index = command_index;
                     }
-                    "ell" | "aleph" | "hbar" | "Re" | "Im" => {
+                    "ell" | "aleph" | "hbar" | "Re" | "Im" | "wp" | "mho" | "Bbbk"
+                    | "complement" | "beth" | "gimel" | "daleth" => {
                         push_command_token!(command);
                         index = command_index;
                     }
