@@ -9638,7 +9638,219 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
         decoded.push_str(remaining);
         decoded
     };
+    #[derive(Debug, Clone)]
+    struct SimpleSvgTextDefinition {
+        id: String,
+        tag: String,
+        start: usize,
+        text: String,
+    }
+    let mut text_definitions = Vec::new();
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<text") {
+        let text_start = search_index + relative;
+        let text_tail = &svg_content[text_start..];
+        if !is_start_tag_named(text_tail, "text") {
+            search_index = text_start + "<text".len();
+            continue;
+        }
+        let Some(text_tag_end) = text_tail.find('>') else {
+            break;
+        };
+        if !in_defs(text_start) {
+            search_index = text_start + text_tag_end + 1;
+            continue;
+        }
+        let text_tag = &text_tail[..text_tag_end];
+        let Some(id) = attr_value(text_tag, "id").filter(|id| !id.trim().is_empty()) else {
+            search_index = text_start + text_tag_end + 1;
+            continue;
+        };
+        let text_body_start = text_start + text_tag_end + 1;
+        let Some(text_body_end_relative) = svg_content[text_body_start..].find("</text>") else {
+            search_index = text_body_start;
+            continue;
+        };
+        let text_body_end = text_body_start + text_body_end_relative;
+        let text_body = &svg_content[text_body_start..text_body_end];
+        if text_body.contains('<') {
+            search_index = text_body_end + "</text>".len();
+            continue;
+        }
+        let preserve_text_space = attr_value(text_tag, "xml:space")
+            .is_some_and(|value| value.trim().eq_ignore_ascii_case("preserve"));
+        let text_body = if preserve_text_space {
+            text_body
+        } else {
+            text_body.trim()
+        };
+        if !text_body.is_empty() {
+            text_definitions.push(SimpleSvgTextDefinition {
+                id,
+                tag: text_tag.to_string(),
+                start: text_start,
+                text: decode_xml_text(text_body),
+            });
+        }
+        search_index = text_body_end + "</text>".len();
+    }
     let mut texts = Vec::new();
+    let push_text = |texts: &mut Vec<SimpleSvgText>,
+                     transform: SimpleSvgTransform,
+                     point: (f32, f32),
+                     font_size: f32,
+                     presentation: SimpleSvgPresentation,
+                     text: String| {
+        if font_size.is_finite() && font_size > 0.0 {
+            let matrix_scale = if transform.stroke_scale.is_finite() && transform.stroke_scale > 0.0
+            {
+                transform.stroke_scale
+            } else {
+                1.0
+            };
+            texts.push(SimpleSvgText {
+                x_ratio: point.0,
+                y_ratio: point.1,
+                matrix_a: snap_transform_number(transform.a / matrix_scale),
+                matrix_b: snap_transform_number(-transform.b / matrix_scale),
+                matrix_c: snap_transform_number(-transform.c / matrix_scale),
+                matrix_d: snap_transform_number(transform.d / matrix_scale),
+                font_size_ratio: font_size / view_box.3,
+                letter_spacing_ratio: presentation.letter_spacing.unwrap_or(0.0)
+                    * transform.stroke_scale
+                    / view_box.2,
+                word_spacing_ratio: presentation.word_spacing.unwrap_or(0.0)
+                    * transform.stroke_scale
+                    / view_box.2,
+                anchor: presentation
+                    .text_anchor
+                    .unwrap_or(SimpleSvgTextAnchor::Start),
+                font_family: presentation
+                    .font_family
+                    .unwrap_or(SimpleSvgFontFamily::Serif),
+                font_series: presentation.font_series.unwrap_or(FontSeries::Regular),
+                font_shape: presentation.font_shape.unwrap_or(FontShape::Upright),
+                fill: fill_paint(presentation, Some((0.0, 0.0, 0.0))),
+                stroke: stroke_paint(presentation),
+                stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
+                stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
+                stroke_style: stroke_style(presentation),
+                paint_order: presentation
+                    .paint_order
+                    .unwrap_or(SimpleSvgPaintOrder::Normal),
+                decoration: presentation.text_decoration.unwrap_or_default(),
+                decoration_paint: text_decoration_paint(presentation),
+                decoration_thickness_ratio: presentation
+                    .text_decoration_thickness
+                    .map(|thickness| thickness * transform.stroke_scale / view_box.2)
+                    .filter(|thickness| thickness.is_finite() && *thickness > 0.0),
+                decoration_style: presentation
+                    .text_decoration_style
+                    .unwrap_or(SimpleSvgTextDecorationStyle::Solid),
+                clip_rect: clip_rect_for(presentation, transform),
+                text,
+            });
+        }
+    };
+    let mut search_index = 0usize;
+    while let Some(relative) = svg_content[search_index..].find("<use") {
+        let use_start = search_index + relative;
+        let use_tail = &svg_content[use_start..];
+        if !is_start_tag_named(use_tail, "use") {
+            search_index = use_start + "<use".len();
+            continue;
+        }
+        let Some(use_end) = use_tail.find('>') else {
+            break;
+        };
+        if in_defs(use_start) {
+            search_index = use_start + use_end + 1;
+            continue;
+        }
+        let use_tag = &use_tail[..use_end];
+        let Some(reference_id) = attr_value(use_tag, "href")
+            .or_else(|| attr_value(use_tag, "xlink:href"))
+            .and_then(|href| href.trim().strip_prefix('#').map(str::to_string))
+            .filter(|id| !id.is_empty())
+        else {
+            search_index = use_start + use_end + 1;
+            continue;
+        };
+        let Some((use_transform, use_presentation)) = parse_element_state(use_tag, use_start)
+        else {
+            search_index = use_start + use_end + 1;
+            continue;
+        };
+        let x = attr_value(use_tag, "x")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let y = attr_value(use_tag, "y")
+            .as_deref()
+            .and_then(parse_number_prefix)
+            .unwrap_or(0.0);
+        let translated_use_transform = compose_transform(
+            SimpleSvgTransform {
+                e: x,
+                f: y,
+                ..identity_transform
+            },
+            use_transform,
+            use_transform.stroke_scale,
+        );
+        for definition in text_definitions
+            .iter()
+            .filter(|definition| definition.id == reference_id)
+        {
+            let Some((definition_transform, definition_presentation)) =
+                parse_element_state(&definition.tag, definition.start)
+            else {
+                continue;
+            };
+            let transform = compose_transform(
+                definition_transform,
+                translated_use_transform,
+                translated_use_transform.stroke_scale,
+            );
+            let presentation = inherit_presentation(definition_presentation, use_presentation);
+            let x = attr_value(&definition.tag, "x")
+                .as_deref()
+                .and_then(parse_number_prefix)
+                .unwrap_or(0.0);
+            let y = attr_value(&definition.tag, "y")
+                .as_deref()
+                .and_then(parse_number_prefix)
+                .unwrap_or(0.0);
+            let dx = attr_value(&definition.tag, "dx")
+                .as_deref()
+                .and_then(parse_number_prefix)
+                .unwrap_or(0.0);
+            let dy = attr_value(&definition.tag, "dy")
+                .as_deref()
+                .and_then(parse_number_prefix)
+                .unwrap_or(0.0);
+            let local_font_size = resolved_font_size(presentation);
+            let text_x = x + dx;
+            let text_raw_y = y + dy;
+            let text_y = text_raw_y
+                + baseline_y_offset(presentation, local_font_size)
+                + baseline_shift_y_offset(presentation, local_font_size);
+            let font_size = local_font_size * transform.stroke_scale;
+            let Some(point) = apply_transform(transform, text_x, text_y).map(normalize_point)
+            else {
+                continue;
+            };
+            push_text(
+                &mut texts,
+                transform,
+                point,
+                font_size,
+                presentation,
+                definition.text.clone(),
+            );
+        }
+        search_index = use_start + use_end + 1;
+    }
     let mut search_index = 0usize;
     while let Some(relative) = svg_content[search_index..].find("<text") {
         let text_start = search_index + relative;
@@ -9896,56 +10108,7 @@ fn parse_simple_svg_asset(text: &str) -> Option<SimpleSvgAsset> {
             }
         };
         for (point, font_size, presentation, text) in resolved_texts {
-            if font_size.is_finite() && font_size > 0.0 {
-                let matrix_scale =
-                    if transform.stroke_scale.is_finite() && transform.stroke_scale > 0.0 {
-                        transform.stroke_scale
-                    } else {
-                        1.0
-                    };
-                texts.push(SimpleSvgText {
-                    x_ratio: point.0,
-                    y_ratio: point.1,
-                    matrix_a: snap_transform_number(transform.a / matrix_scale),
-                    matrix_b: snap_transform_number(-transform.b / matrix_scale),
-                    matrix_c: snap_transform_number(-transform.c / matrix_scale),
-                    matrix_d: snap_transform_number(transform.d / matrix_scale),
-                    font_size_ratio: font_size / view_box.3,
-                    letter_spacing_ratio: presentation.letter_spacing.unwrap_or(0.0)
-                        * transform.stroke_scale
-                        / view_box.2,
-                    word_spacing_ratio: presentation.word_spacing.unwrap_or(0.0)
-                        * transform.stroke_scale
-                        / view_box.2,
-                    anchor: presentation
-                        .text_anchor
-                        .unwrap_or(SimpleSvgTextAnchor::Start),
-                    font_family: presentation
-                        .font_family
-                        .unwrap_or(SimpleSvgFontFamily::Serif),
-                    font_series: presentation.font_series.unwrap_or(FontSeries::Regular),
-                    font_shape: presentation.font_shape.unwrap_or(FontShape::Upright),
-                    fill: fill_paint(presentation, Some((0.0, 0.0, 0.0))),
-                    stroke: stroke_paint(presentation),
-                    stroke_width_ratio: transformed_stroke_width_ratio(presentation, transform),
-                    stroke_dasharray: transformed_stroke_dasharray_ratio(presentation, transform),
-                    stroke_style: stroke_style(presentation),
-                    paint_order: presentation
-                        .paint_order
-                        .unwrap_or(SimpleSvgPaintOrder::Normal),
-                    decoration: presentation.text_decoration.unwrap_or_default(),
-                    decoration_paint: text_decoration_paint(presentation),
-                    decoration_thickness_ratio: presentation
-                        .text_decoration_thickness
-                        .map(|thickness| thickness * transform.stroke_scale / view_box.2)
-                        .filter(|thickness| thickness.is_finite() && *thickness > 0.0),
-                    decoration_style: presentation
-                        .text_decoration_style
-                        .unwrap_or(SimpleSvgTextDecorationStyle::Solid),
-                    clip_rect: clip_rect_for(presentation, transform),
-                    text,
-                });
-            }
+            push_text(&mut texts, transform, point, font_size, presentation, text);
         }
         search_index = text_body_end + "</text>".len();
     }
@@ -21459,6 +21622,53 @@ mod tests {
         assert!(pdf_text.contains("0 1 0 rg 150 250 m 190 250 l 190 210 l h f"));
         assert!(!pdf_text.contains("1 0 0 rg 10 280 m 50 280 l 50 240 l h f"));
         assert!(!pdf_text.contains("[unsupported image: figures/defs-symbol-use.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
+    fn renders_simple_svg_defs_text_use_as_pdf_text() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/defs-text-use.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:defs-text-use".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/defs-text-use.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <text id="label" x="1" y="3" font-size="2" fill="currentColor">Hi</text>
+  </defs>
+  <use href="#label" x="4" y="1" color="#0000ff"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 rg BT /F1 20 Tf 1 0 0 1 60 240 Tm (Hi) Tj ET"));
+        assert!(!pdf_text.contains("0 0 0 rg BT /F1 20 Tf 1 0 0 1 60 240 Tm (Hi) Tj ET"));
+        assert!(!pdf_text.contains("[unsupported image: figures/defs-text-use.svg]"));
         assert!(!pdf_text.contains("/Subtype /Image"));
     }
 

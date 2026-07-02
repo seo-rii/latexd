@@ -1243,7 +1243,8 @@ Status:
   `symbol` definitions containing those path-like children, including symbol
   `viewBox` to `<use>` viewport fitting, simple `<defs>` `<use>` aliases,
   simple `<defs>` group children composed from `<use>` aliases, and simple
-  symbol children composed from `<use>` aliases, plus simple `<defs>` symbol
+  symbol children composed from `<use>` aliases, simple literal `<text>`
+  definitions reused through `<use>`, plus simple `<defs>` symbol
   aliases with symbol `viewBox` fitting,
   through whitespace-tolerant `href` / `xlink:href` `<use>`
   references, basic

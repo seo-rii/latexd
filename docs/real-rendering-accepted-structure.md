@@ -1580,6 +1580,9 @@ approximate.
   renderer-neutral font resolver, shaper, glyph ids, and shaped cluster mapping
   are still required before Skia or PDF fidelity work should be treated as
   serious.
+- The simple SVG vector subset can now reuse literal `<text>` definitions from
+  `<defs>` through external `<use>` references while preserving the `<use>`
+  position and presentation metadata.
 - The simple SVG vector subset now includes gradient paint-server first-stop
   solid approximations with `href` inheritance, including alias `currentColor`
   stops without overriding stop-local color, plus inline/style-rule
