@@ -25691,6 +25691,10 @@ mod tests {
             None
         );
         assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", "nested/\0pixel.png"),
+            None
+        );
+        assert_eq!(
             super::resolve_svg_embedded_asset_ref("figures/vector.svg", "nested/../pixel.png"),
             Some("figures/pixel.png".to_string())
         );
