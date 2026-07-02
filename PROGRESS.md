@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-02` note: Extended order relation commands such as `\lessapprox`, `\gtrapprox`, `\precsim`, `\succsim`, `\preccurlyeq`, `\succcurlyeq`, `\nprec`, `\nsucc`, and `\nsucceq` now normalize to readable relation text instead of forcing raw math fallback.
 - `2026-07-02` note: Common `\argmin` math operator commands now normalize consistently with existing `\argmax` handling, preserving readable `argmin_x in S`-style text instead of forcing raw fallback.
 - `2026-07-02` note: Scripted `\min`, `\max`, `\sup`, and `\inf` math operators now reuse the same script parser as `\sum` and `\lim`, preserving attached subscript/superscript content in normalized IR and display-list text.
 - `2026-07-02` note: Standard LaTeX math function commands that were missing from the normalizer, including `\arcsin`, `\arccos`, `\arctan`, `\sinh`, `\cosh`, `\tanh`, `\coth`, and `\lg`, now render as readable function names instead of forcing raw TeX fallback.

@@ -24781,24 +24781,60 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("lesssim");
                         index = command_index;
                     }
+                    "lessapprox" => {
+                        push_operator!("lessapprox");
+                        index = command_index;
+                    }
                     "gtrsim" => {
                         push_operator!("gtrsim");
+                        index = command_index;
+                    }
+                    "gtrapprox" => {
+                        push_operator!("gtrapprox");
                         index = command_index;
                     }
                     "prec" => {
                         push_operator!("prec");
                         index = command_index;
                     }
+                    "nprec" => {
+                        push_operator!("not prec");
+                        index = command_index;
+                    }
+                    "precsim" => {
+                        push_operator!("precsim");
+                        index = command_index;
+                    }
                     "preceq" => {
                         push_operator!("preceq");
+                        index = command_index;
+                    }
+                    "preccurlyeq" => {
+                        push_operator!("preccurlyeq");
                         index = command_index;
                     }
                     "succ" => {
                         push_operator!("succ");
                         index = command_index;
                     }
+                    "nsucc" => {
+                        push_operator!("not succ");
+                        index = command_index;
+                    }
+                    "succsim" => {
+                        push_operator!("succsim");
+                        index = command_index;
+                    }
                     "succeq" => {
                         push_operator!("succeq");
+                        index = command_index;
+                    }
+                    "nsucceq" => {
+                        push_operator!("not succeq");
+                        index = command_index;
+                    }
+                    "succcurlyeq" => {
+                        push_operator!("succcurlyeq");
                         index = command_index;
                     }
                     "npreceq" => {
