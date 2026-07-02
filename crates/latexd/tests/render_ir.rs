@@ -7123,6 +7123,52 @@ fn math_operators_and_scripts_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_standard_function_variants_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Functions \(\arcsin x + \arccos y + \arctan z + \sinh t + \cosh u + \tanh v + \coth w + \lg n\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    let expected = "arcsin x + arccos y + arctan z + sinh t + cosh u + tanh v + coth w + lg n";
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"\arcsin x + \arccos y + \arctan z + \sinh t + \cosh u + \tanh v + \coth w + \lg n"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let display_list_flat = display_list_text.replace('\n', "");
+    assert!(display_list_flat.contains(expected), "{display_list_text}");
+    for hidden in [
+        r"\arcsin", r"\arccos", r"\arctan", r"\sinh", r"\cosh", r"\tanh", r"\coth", r"\lg",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_limit_operator_variants_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Limits \(\limsup_{n\to\infty} a_n + \liminf_{m\to0} b_m + \varlimsup_{k} c_k + \varliminf_{\ell} d_\ell + \injlim_i X_i + \projlim_j Y_j\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

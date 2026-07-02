@@ -25298,7 +25298,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token_then_space!(command);
                         index = command_index;
                     }
-                    "sin" | "cos" | "tan" | "cot" | "sec" | "csc" | "log" | "ln" | "exp"
+                    "arcsin" | "arccos" | "arctan" | "sin" | "cos" | "tan" | "sinh" | "cosh"
+                    | "tanh" | "cot" | "coth" | "sec" | "csc" | "log" | "lg" | "ln" | "exp"
                     | "arg" | "deg" | "det" | "dim" | "gcd" | "hom" | "ker" | "Pr" | "sup"
                     | "inf" | "poly" | "negl" | "Supp" | "loglog" | "argmax" => {
                         push_command_token!(command);

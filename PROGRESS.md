@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-02` note: Standard LaTeX math function commands that were missing from the normalizer, including `\arcsin`, `\arccos`, `\arctan`, `\sinh`, `\cosh`, `\tanh`, `\coth`, and `\lg`, now render as readable function names instead of forcing raw TeX fallback.
 - `2026-07-02` note: Limit operator variants such as `\limsup`, `\liminf`, `\varlimsup`, `\varliminf`, `\injlim`, and `\projlim` now reuse the scripted operator parser so subscripts/superscripts are preserved in normalized text.
 - Scope: Rust-based partial LaTeX-compatible incremental compiler, following the roadmap in [`README.md`](/home/seorii/dev/hancomac/latexd/README.md).
 - Detailed remaining-work backlog: [`docs/work-backlog.md`](/home/seorii/dev/hancomac/latexd/docs/work-backlog.md).
