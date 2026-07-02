@@ -22548,6 +22548,54 @@ mod tests {
     }
 
     #[test]
+    fn prefers_simple_svg_pathlike_use_href_over_xlink_href_in_pdf_output() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/pathlike-use-href-priority.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:pathlike-use-href-priority".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/pathlike-use-href-priority.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <defs>
+    <path id="tri" d="M 0 0 L 4 0 L 4 4 Z" fill="#ff0000"/>
+  </defs>
+  <use href="#tri" xlink:href="#missing" x="5" y="0" fill="#0000ff"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 0 1 rg 60 280 m 100 280 l 100 240 l h f"));
+        assert!(!pdf_text.contains("1 0 0 rg 10 280 m 50 280 l 50 240 l h f"));
+        assert!(!pdf_text.contains("#missing"));
+        assert!(!pdf_text.contains("[unsupported image: figures/pathlike-use-href-priority.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn renders_simple_svg_defs_use_aliases_as_pdf_vector_content() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
