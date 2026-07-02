@@ -24949,7 +24949,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("not |");
                         index = command_index;
                     }
-                    "ni" => {
+                    "ni" | "owns" => {
                         push_operator!("contains");
                         index = command_index;
                     }
@@ -25374,6 +25374,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     }
                     "exists" => {
                         push_command_token!("exists");
+                        index = command_index;
+                    }
+                    "nexists" => {
+                        push_command_token_then_space!("not exists");
                         index = command_index;
                     }
                     "emptyset" | "varnothing" => {
