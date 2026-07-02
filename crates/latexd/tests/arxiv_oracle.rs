@@ -1802,6 +1802,50 @@ fn arxiv_oracle_writes_first_page_raster_diff_artifact() {
             differing_pixel_ratio: 0.75,
         }
     );
+
+    let oracle_only_oracle_path = tempdir.join("oracle-only-oracle.png");
+    let oracle_only_internal_path = tempdir.join("oracle-only-internal.png");
+    let oracle_only_diff_path = tempdir.join("oracle-only-diff.png");
+    image::RgbaImage::from_raw(1, 2, vec![0, 0, 0, 255, 255, 255, 255, 255])
+        .expect("oracle-only oracle image")
+        .save_with_format(
+            oracle_only_oracle_path.as_std_path(),
+            image::ImageFormat::Png,
+        )
+        .expect("write oracle-only oracle image");
+    image::RgbaImage::from_raw(1, 1, vec![0, 0, 0, 255])
+        .expect("oracle-only internal image")
+        .save_with_format(
+            oracle_only_internal_path.as_std_path(),
+            image::ImageFormat::Png,
+        )
+        .expect("write oracle-only internal image");
+
+    let oracle_only_metrics = write_raster_diff_image(
+        &oracle_only_oracle_path,
+        &oracle_only_internal_path,
+        &oracle_only_diff_path,
+    )
+    .expect("write oracle-only diff");
+    let oracle_only_diff = image::load_from_memory_with_format(
+        &fs::read(oracle_only_diff_path.as_std_path()).expect("read oracle-only diff"),
+        image::ImageFormat::Png,
+    )
+    .expect("decode oracle-only diff")
+    .into_rgba8();
+
+    assert_eq!(oracle_only_diff.dimensions(), (1, 2));
+    assert_eq!(oracle_only_diff.get_pixel(0, 0).0, [255, 255, 255, 255]);
+    assert_eq!(oracle_only_diff.get_pixel(0, 1).0, [255, 0, 255, 255]);
+    assert_eq!(
+        oracle_only_metrics,
+        RasterDiffReport {
+            width_px: 1,
+            height_px: 2,
+            differing_pixel_count: 1,
+            differing_pixel_ratio: 0.5,
+        }
+    );
 }
 
 #[test]
