@@ -90,6 +90,7 @@ struct OracleCaseReport {
     internal_first_page_raster: Option<Utf8PathBuf>,
     internal_first_page_raster_smoke: Option<RasterSmokeReport>,
     first_page_raster_gross: Option<RasterGrossReport>,
+    first_page_raster_diff: Option<Utf8PathBuf>,
     internal_build_failure: Option<String>,
     internal_diagnostics: Vec<String>,
 }
@@ -346,6 +347,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             internal_first_page_raster: None,
             internal_first_page_raster_smoke: None,
             first_page_raster_gross: None,
+            first_page_raster_diff: None,
             internal_build_failure: None,
             internal_diagnostics: Vec::new(),
         };
@@ -438,6 +440,23 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                     extract_raster_smoke(&internal_first_page_raster).unwrap_or_else(|error| {
                         panic!("{} internal raster smoke failed: {error}", case.arxiv_id)
                     });
+                let first_page_raster_diff = oracle_case_artifact_path(
+                    &report_dir,
+                    &case.arxiv_id,
+                    &case.version,
+                    "first-page-raster-diff.png",
+                );
+                write_raster_diff_image(
+                    &report.oracle_first_page_raster,
+                    &internal_first_page_raster,
+                    &first_page_raster_diff,
+                )
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "{} write first-page raster diff failed: {error}",
+                        case.arxiv_id
+                    )
+                });
                 let internal_tokens = tokenize(&internal_text);
                 let internal_normalized_tokens = tokenize_normalized(&internal_text);
                 let internal_unique = unique_tokens(&internal_tokens);
@@ -490,6 +509,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                     case.min_first_page_ink_ratio,
                 ));
                 report.internal_first_page_raster_smoke = Some(internal_first_page_raster_smoke);
+                report.first_page_raster_diff = Some(first_page_raster_diff);
                 let raster_status = report
                     .first_page_raster_gross
                     .as_ref()
@@ -1106,6 +1126,68 @@ fn extract_raster_smoke(path: &Utf8Path) -> anyhow::Result<RasterSmokeReport> {
     raster_smoke_from_rgba(width, height, image.into_raw())
 }
 
+fn write_raster_diff_image(
+    oracle_path: &Utf8Path,
+    internal_path: &Utf8Path,
+    output_path: &Utf8Path,
+) -> anyhow::Result<()> {
+    let oracle_bytes = fs::read(oracle_path.as_std_path())?;
+    let oracle_image = image::load_from_memory_with_format(&oracle_bytes, image::ImageFormat::Png)
+        .map_err(|error| anyhow::anyhow!("failed to decode oracle PNG {}: {error}", oracle_path))?
+        .into_rgba8();
+    let internal_bytes = fs::read(internal_path.as_std_path())?;
+    let internal_image =
+        image::load_from_memory_with_format(&internal_bytes, image::ImageFormat::Png)
+            .map_err(|error| {
+                anyhow::anyhow!("failed to decode internal PNG {}: {error}", internal_path)
+            })?
+            .into_rgba8();
+    let (oracle_width, oracle_height) = oracle_image.dimensions();
+    let (internal_width, internal_height) = internal_image.dimensions();
+    let width = oracle_width.max(internal_width);
+    let height = oracle_height.max(internal_height);
+    let mut diff_rgba = Vec::with_capacity(width as usize * height as usize * 4);
+
+    for y in 0..height {
+        for x in 0..width {
+            let oracle_pixel =
+                (x < oracle_width && y < oracle_height).then(|| oracle_image.get_pixel(x, y).0);
+            let internal_pixel = (x < internal_width && y < internal_height)
+                .then(|| internal_image.get_pixel(x, y).0);
+            let diff_pixel = match (oracle_pixel, internal_pixel) {
+                (Some(oracle), Some(internal)) => {
+                    let channel_diff = oracle
+                        .iter()
+                        .zip(internal.iter())
+                        .map(|(left, right)| left.abs_diff(*right))
+                        .max()
+                        .unwrap_or(0);
+                    if channel_diff == 0 {
+                        [255, 255, 255, 255]
+                    } else {
+                        let intensity = channel_diff.max(32);
+                        [
+                            255,
+                            255_u8.saturating_sub(intensity),
+                            255_u8.saturating_sub(intensity),
+                            255,
+                        ]
+                    }
+                }
+                (Some(_), None) => [255, 0, 255, 255],
+                (None, Some(_)) => [0, 0, 255, 255],
+                (None, None) => [255, 255, 255, 255],
+            };
+            diff_rgba.extend_from_slice(&diff_pixel);
+        }
+    }
+
+    let diff_image = image::RgbaImage::from_raw(width, height, diff_rgba)
+        .expect("diff buffer should match image dimensions");
+    diff_image.save_with_format(output_path.as_std_path(), image::ImageFormat::Png)?;
+    Ok(())
+}
+
 fn raster_smoke_from_rgba(
     width_px: u32,
     height_px: u32,
@@ -1542,6 +1624,41 @@ fn arxiv_oracle_first_page_raster_png_path_preserves_dotted_ids() {
         rasterized_singlefile_png_path(&prefix),
         Utf8PathBuf::from("/tmp/latexd-report/2602.14379-v1-oracle-page-1.png")
     );
+}
+
+#[test]
+fn arxiv_oracle_writes_first_page_raster_diff_artifact() {
+    let tempdir = tempdir().expect("tempdir");
+    let tempdir = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8");
+    let oracle_path = tempdir.join("oracle.png");
+    let internal_path = tempdir.join("internal.png");
+    let diff_path = tempdir.join("diff.png");
+
+    image::RgbaImage::from_raw(2, 1, vec![0, 0, 0, 255, 255, 255, 255, 255])
+        .expect("oracle image")
+        .save_with_format(oracle_path.as_std_path(), image::ImageFormat::Png)
+        .expect("write oracle image");
+    image::RgbaImage::from_raw(
+        2,
+        2,
+        vec![0, 0, 0, 255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 255, 255],
+    )
+    .expect("internal image")
+    .save_with_format(internal_path.as_std_path(), image::ImageFormat::Png)
+    .expect("write internal image");
+
+    write_raster_diff_image(&oracle_path, &internal_path, &diff_path).expect("write diff");
+
+    let diff = image::load_from_memory_with_format(
+        &fs::read(diff_path.as_std_path()).expect("read diff"),
+        image::ImageFormat::Png,
+    )
+    .expect("decode diff")
+    .into_rgba8();
+    assert_eq!(diff.dimensions(), (2, 2));
+    assert_eq!(diff.get_pixel(0, 0).0, [255, 255, 255, 255]);
+    assert_eq!(diff.get_pixel(1, 0).0, [255, 0, 0, 255]);
+    assert_eq!(diff.get_pixel(0, 1).0, [0, 0, 255, 255]);
 }
 
 #[test]
