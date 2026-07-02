@@ -11651,7 +11651,7 @@ pub fn render_display_list_svg_with_converted_assets(
                                     };
                                     let tag_end = tag_start + tag_end_relative + 1;
                                     let tag = &svg_text[tag_start..tag_end];
-                                    let mut href_attr = None::<(usize, usize, usize)>;
+                                    let mut href_attrs = Vec::<(usize, usize, usize)>::new();
                                     for attr_name in ["href", "xlink:href"] {
                                         let mut attr_search = 0usize;
                                         while let Some(relative) =
@@ -11701,67 +11701,88 @@ pub fn render_display_list_svg_with_converted_assets(
                                                 continue;
                                             };
                                             let value_end = value_start + value_end_relative;
-                                            match href_attr {
-                                                Some((current_start, _, _))
-                                                    if current_start <= attr_start => {}
-                                                _ => {
-                                                    href_attr =
-                                                        Some((attr_start, value_start, value_end));
-                                                }
-                                            }
+                                            href_attrs.push((attr_start, value_start, value_end));
                                             attr_search = value_end + quote.len_utf8();
                                         }
                                     }
-                                    let Some((_, href_value_start_in_tag, href_value_end_in_tag)) =
-                                        href_attr
-                                    else {
+                                    if href_attrs.is_empty() {
                                         rewritten_svg.push_str(&svg_text[cursor..tag_end]);
                                         cursor = tag_end;
                                         continue;
-                                    };
-                                    let href_value_start = tag_start + href_value_start_in_tag;
-                                    let href_value_end = tag_start + href_value_end_in_tag;
-                                    let href = &svg_text[href_value_start..href_value_end];
-                                    let replacement =
-                                        resolve_svg_embedded_asset_ref(&image.asset_ref, href)
-                                            .and_then(|asset_ref| {
-                                                resolve_asset(&asset_ref).and_then(|asset_bytes| {
-                                                    let lower = asset_ref.to_ascii_lowercase();
-                                                    let media_type = if lower.ends_with(".png")
-                                                        || asset_bytes
-                                                            .starts_with(b"\x89PNG\r\n\x1a\n")
-                                                    {
-                                                        Some("image/png")
-                                                    } else if lower.ends_with(".jpg")
-                                                        || lower.ends_with(".jpeg")
-                                                        || asset_bytes
-                                                            .starts_with(&[0xff, 0xd8, 0xff])
-                                                    {
-                                                        Some("image/jpeg")
-                                                    } else {
-                                                        None
-                                                    }?;
-                                                    Some(encode_data_uri(media_type, &asset_bytes))
+                                    }
+                                    href_attrs.sort_by_key(|(attr_start, _, _)| *attr_start);
+                                    let mut replacements = Vec::<(usize, usize, String)>::new();
+                                    for (_, href_value_start_in_tag, href_value_end_in_tag) in
+                                        href_attrs
+                                    {
+                                        let href_value_start = tag_start + href_value_start_in_tag;
+                                        let href_value_end = tag_start + href_value_end_in_tag;
+                                        let href = &svg_text[href_value_start..href_value_end];
+                                        let replacement =
+                                            resolve_svg_embedded_asset_ref(&image.asset_ref, href)
+                                                .and_then(|asset_ref| {
+                                                    resolve_asset(&asset_ref).and_then(
+                                                        |asset_bytes| {
+                                                            let lower =
+                                                                asset_ref.to_ascii_lowercase();
+                                                            let media_type = if lower
+                                                                .ends_with(".png")
+                                                                || asset_bytes.starts_with(
+                                                                    b"\x89PNG\r\n\x1a\n",
+                                                                ) {
+                                                                Some("image/png")
+                                                            } else if lower.ends_with(".jpg")
+                                                                || lower.ends_with(".jpeg")
+                                                                || asset_bytes.starts_with(&[
+                                                                    0xff, 0xd8, 0xff,
+                                                                ])
+                                                            {
+                                                                Some("image/jpeg")
+                                                            } else {
+                                                                None
+                                                            }?;
+                                                            Some(encode_data_uri(
+                                                                media_type,
+                                                                &asset_bytes,
+                                                            ))
+                                                        },
+                                                    )
                                                 })
-                                            })
-                                            .or_else(|| {
-                                                let trimmed_href = href.trim();
-                                                let lower_href = trimmed_href.to_ascii_lowercase();
-                                                if trimmed_href.is_empty()
-                                                    || trimmed_href.starts_with('#')
-                                                    || lower_href.starts_with("data:")
-                                                {
-                                                    None
-                                                } else {
-                                                    Some("data:,".to_string())
-                                                }
-                                            });
-                                    if let Some(replacement) = replacement {
-                                        rewritten_svg.push_str(&svg_text[cursor..href_value_start]);
-                                        rewritten_svg.push_str(&replacement);
-                                        rewritten_svg.push_str(&svg_text[href_value_end..tag_end]);
-                                    } else {
+                                                .or_else(|| {
+                                                    let trimmed_href = href.trim();
+                                                    let lower_href =
+                                                        trimmed_href.to_ascii_lowercase();
+                                                    if trimmed_href.is_empty()
+                                                        || trimmed_href.starts_with('#')
+                                                        || lower_href.starts_with("data:")
+                                                    {
+                                                        None
+                                                    } else {
+                                                        Some("data:,".to_string())
+                                                    }
+                                                });
+                                        if let Some(replacement) = replacement {
+                                            replacements.push((
+                                                href_value_start,
+                                                href_value_end,
+                                                replacement,
+                                            ));
+                                        }
+                                    }
+                                    if replacements.is_empty() {
                                         rewritten_svg.push_str(&svg_text[cursor..tag_end]);
+                                    } else {
+                                        let mut rewrite_cursor = cursor;
+                                        for (href_value_start, href_value_end, replacement) in
+                                            replacements
+                                        {
+                                            rewritten_svg.push_str(
+                                                &svg_text[rewrite_cursor..href_value_start],
+                                            );
+                                            rewritten_svg.push_str(&replacement);
+                                            rewrite_cursor = href_value_end;
+                                        }
+                                        rewritten_svg.push_str(&svg_text[rewrite_cursor..tag_end]);
                                     }
                                     cursor = tag_end;
                                 }
@@ -25359,6 +25380,54 @@ mod tests {
         assert!(svg.contains("data%3Aimage%2Fpng%2C%2589PNG"));
         assert!(svg.contains("%23local"));
         assert!(!svg.contains("data%3A%2C"));
+        assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
+    }
+
+    #[test]
+    fn sanitizes_all_simple_svg_embedded_image_href_attributes_for_svg_debug_output() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            (asset_ref == "figures/vector.svg").then(|| {
+                br##"<svg width="20" height="10">
+  <image x="1" y="1" width="4" height="4" href="nested/pixel.png" xlink:href="https://example.test/pixel.png"/>
+  <image x="6" y="1" width="4" height="4" xlink:href="/absolute/pixel.png" href="nested/pixel.png"/>
+</svg>"##
+                    .to_vec()
+            })
+        });
+
+        assert!(svg.contains("data%3A%2C"));
+        assert!(!svg.contains("nested/pixel.png"));
+        assert!(!svg.contains("nested%2Fpixel.png"));
+        assert!(!svg.contains("https://example.test"));
+        assert!(!svg.contains("https%3A%2F%2Fexample.test"));
+        assert!(!svg.contains("/absolute/pixel.png"));
+        assert!(!svg.contains("%2Fabsolute%2Fpixel.png"));
         assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
     }
 
