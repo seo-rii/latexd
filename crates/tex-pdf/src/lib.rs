@@ -13054,6 +13054,49 @@ mod tests {
     }
 
     #[test]
+    fn renders_simple_svg_rect_with_fill_text_in_quoted_attribute_as_pdf_vector_content() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/vector-fill-text.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector-fill-text".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let pdf = render_display_list_pdf_with_assets(&[page], |asset_ref| {
+            (asset_ref == "figures/vector-fill-text.svg").then(|| {
+                br##"<svg width="20" height="10"><rect title="metadata fill='#ff0000'" fill="#00ff00" width="20" height="10"/></svg>"##
+                    .to_vec()
+            })
+        });
+        let pdf_text = String::from_utf8_lossy(&pdf);
+
+        assert!(pdf_text.contains("0 1 0 rg 72 642 144 72 re f"));
+        assert!(!pdf_text.contains("1 0 0 rg 72 642 144 72 re f"));
+        assert!(!pdf_text.contains("[unsupported image: figures/vector-fill-text.svg]"));
+        assert!(!pdf_text.contains("[image: figures/vector-fill-text.svg]"));
+        assert!(!pdf_text.contains("/Subtype /Image"));
+    }
+
+    #[test]
     fn renders_simple_svg_rounded_rects_as_pdf_vector_paths() {
         let page = PageDisplayList {
             page_id: "page-1".to_string(),
