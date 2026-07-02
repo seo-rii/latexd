@@ -25737,6 +25737,17 @@ mod tests {
             super::resolve_svg_embedded_asset_ref("figures/vector.svg", "../../outside.png"),
             None
         );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref("figures/vector.svg", "%2e%2e/outside.png"),
+            Some("outside.png".to_string())
+        );
+        assert_eq!(
+            super::resolve_svg_embedded_asset_ref(
+                "figures/vector.svg",
+                "%2e%2e/%2e%2e/outside.png"
+            ),
+            None
+        );
     }
 
     #[test]
