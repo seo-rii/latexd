@@ -11651,34 +11651,76 @@ pub fn render_display_list_svg_with_converted_assets(
                                     };
                                     let tag_end = tag_start + tag_end_relative + 1;
                                     let tag = &svg_text[tag_start..tag_end];
-                                    let href_attr = [
-                                        ("href=\"", '"'),
-                                        ("href='", '\''),
-                                        ("xlink:href=\"", '"'),
-                                        ("xlink:href='", '\''),
-                                    ]
-                                    .iter()
-                                    .filter_map(|(needle, quote)| {
-                                        tag.find(needle).map(|start| (start, needle.len(), *quote))
-                                    })
-                                    .min_by_key(|(start, _, _)| *start);
-                                    let Some((href_attr_start, href_value_offset, quote)) =
+                                    let mut href_attr = None::<(usize, usize, usize)>;
+                                    for attr_name in ["href", "xlink:href"] {
+                                        let mut attr_search = 0usize;
+                                        while let Some(relative) =
+                                            tag[attr_search..].find(attr_name)
+                                        {
+                                            let attr_start = attr_search + relative;
+                                            let before = tag[..attr_start].chars().next_back();
+                                            if before.is_some_and(|ch| {
+                                                !(ch.is_whitespace() || matches!(ch, '<' | '/'))
+                                            }) {
+                                                attr_search = attr_start + attr_name.len();
+                                                continue;
+                                            }
+                                            let after_attr_start = attr_start + attr_name.len();
+                                            let after_attr = &tag[after_attr_start..];
+                                            let after_whitespace = after_attr.trim_start();
+                                            let whitespace_len =
+                                                after_attr.len() - after_whitespace.len();
+                                            let Some(after_equals) =
+                                                after_whitespace.strip_prefix('=')
+                                            else {
+                                                attr_search = after_attr_start;
+                                                continue;
+                                            };
+                                            let after_equals_whitespace = after_equals.trim_start();
+                                            let equals_whitespace_len =
+                                                after_equals.len() - after_equals_whitespace.len();
+                                            let Some(quote) =
+                                                after_equals_whitespace.chars().next()
+                                            else {
+                                                attr_search = after_attr_start;
+                                                continue;
+                                            };
+                                            if quote != '"' && quote != '\'' {
+                                                attr_search = after_attr_start;
+                                                continue;
+                                            }
+                                            let value_start = after_attr_start
+                                                + whitespace_len
+                                                + '='.len_utf8()
+                                                + equals_whitespace_len
+                                                + quote.len_utf8();
+                                            let Some(value_end_relative) =
+                                                tag[value_start..].find(quote)
+                                            else {
+                                                attr_search = after_attr_start;
+                                                continue;
+                                            };
+                                            let value_end = value_start + value_end_relative;
+                                            match href_attr {
+                                                Some((current_start, _, _))
+                                                    if current_start <= attr_start => {}
+                                                _ => {
+                                                    href_attr =
+                                                        Some((attr_start, value_start, value_end));
+                                                }
+                                            }
+                                            attr_search = value_end + quote.len_utf8();
+                                        }
+                                    }
+                                    let Some((_, href_value_start_in_tag, href_value_end_in_tag)) =
                                         href_attr
                                     else {
                                         rewritten_svg.push_str(&svg_text[cursor..tag_end]);
                                         cursor = tag_end;
                                         continue;
                                     };
-                                    let href_value_start =
-                                        tag_start + href_attr_start + href_value_offset;
-                                    let Some(href_value_end_relative) =
-                                        svg_text[href_value_start..tag_end].find(quote)
-                                    else {
-                                        rewritten_svg.push_str(&svg_text[cursor..tag_end]);
-                                        cursor = tag_end;
-                                        continue;
-                                    };
-                                    let href_value_end = href_value_start + href_value_end_relative;
+                                    let href_value_start = tag_start + href_value_start_in_tag;
+                                    let href_value_end = tag_start + href_value_end_in_tag;
                                     let href = &svg_text[href_value_start..href_value_end];
                                     let replacement =
                                         resolve_svg_embedded_asset_ref(&image.asset_ref, href)
@@ -25159,6 +25201,55 @@ mod tests {
 
         assert!(requested_asset_refs.contains(&"figures/nested/pixel.png".to_string()));
         assert!(svg.contains("href=\"data:image/svg+xml;charset=utf-8,%3Csvg"));
+        assert!(svg.contains("data%3Aimage%2Fpng%2C%2589PNG"));
+        assert!(!svg.contains("nested/pixel.png"));
+        assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
+    }
+
+    #[test]
+    fn rewrites_simple_svg_spaced_relative_embedded_image_href_for_svg_debug_output() {
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 300.0,
+            height_pt: 300.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 10.0,
+                    y: 20.0,
+                    width: 200.0,
+                    height: 100.0,
+                },
+                asset_ref: "figures/vector.svg".to_string(),
+                asset_format: Some(GraphicAssetFormat::Svg),
+                page_selection: None,
+                asset_hash: Some("blake3:vector".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let mut requested_asset_refs = Vec::new();
+        let svg = render_display_list_svg_with_assets(&page, |asset_ref| {
+            requested_asset_refs.push(asset_ref.to_string());
+            match asset_ref {
+                "figures/vector.svg" => Some(
+                    br##"<svg width="20" height="10">
+  <image x="5" y="2" width="8" height="4" preserveAspectRatio="none" href = "nested/pixel.png"/>
+</svg>"##
+                        .to_vec(),
+                ),
+                "figures/nested/pixel.png" => Some(tiny_png_bytes()),
+                _ => None,
+            }
+        });
+
+        assert!(requested_asset_refs.contains(&"figures/nested/pixel.png".to_string()));
         assert!(svg.contains("data%3Aimage%2Fpng%2C%2589PNG"));
         assert!(!svg.contains("nested/pixel.png"));
         assert!(!svg.contains("[unsupported image: figures/vector.svg]"));
