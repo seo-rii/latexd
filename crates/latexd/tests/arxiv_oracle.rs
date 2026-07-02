@@ -1596,6 +1596,15 @@ fn arxiv_oracle_artifact_paths_are_report_local_and_safe() {
         oracle_case_artifact_path(&report_dir, "math/0301001", "v1", "internal.pdf"),
         Utf8PathBuf::from("/tmp/latexd-report/math_0301001-v1-internal.pdf")
     );
+    assert_eq!(
+        oracle_case_artifact_path(
+            &report_dir,
+            "math/0301001",
+            "v1",
+            "first-page-raster-diff.png"
+        ),
+        Utf8PathBuf::from("/tmp/latexd-report/math_0301001-v1-first-page-raster-diff.png")
+    );
 }
 
 #[test]
@@ -1603,6 +1612,95 @@ fn arxiv_oracle_parses_pdfinfo_page_count() {
     let output = "Title:          A Paper\nPages:          17\nPage size:      612 x 792 pts\n";
 
     assert_eq!(parse_pdfinfo_page_count(output).expect("page count"), 17);
+}
+
+#[test]
+fn arxiv_oracle_report_serializes_first_page_raster_diff_path() {
+    let report = OracleCaseReport {
+        arxiv_id: "2301.01234".to_string(),
+        version: "v1".to_string(),
+        title: "A Paper".to_string(),
+        license: "cc0".to_string(),
+        source_url: "https://example.invalid/source".to_string(),
+        pdf_url: "https://example.invalid/pdf".to_string(),
+        toplevel: Utf8PathBuf::from("main.tex"),
+        oracle_pdf: Utf8PathBuf::from("/tmp/oracle.pdf"),
+        oracle_text: Utf8PathBuf::from("/tmp/oracle.txt"),
+        oracle_page_count: 1,
+        oracle_first_page_raster: Utf8PathBuf::from("/tmp/oracle-page-1.png"),
+        oracle_first_page_raster_smoke: RasterSmokeReport {
+            width_px: 100,
+            height_px: 100,
+            non_white_pixel_count: 50,
+            non_white_bbox: Some(RasterBoundingBox {
+                x: 1,
+                y: 2,
+                width: 3,
+                height: 4,
+            }),
+        },
+        max_page_count_delta: 2,
+        min_first_page_ink_ratio: 0.35,
+        source_root: Utf8PathBuf::from("/tmp/source"),
+        oracle_token_count: 10,
+        oracle_unique_token_count: 9,
+        oracle_normalized_token_count: 10,
+        oracle_normalized_unique_token_count: 9,
+        internal_token_count: Some(8),
+        internal_unique_token_count: Some(7),
+        common_unique_token_count: Some(6),
+        common_unique_token_ratio: Some(0.75),
+        internal_normalized_token_count: Some(8),
+        internal_normalized_unique_token_count: Some(7),
+        normalized_common_unique_token_count: Some(6),
+        normalized_common_unique_token_ratio: Some(0.75),
+        ir_structure_slices: Vec::new(),
+        missing_token_sample: Vec::new(),
+        extra_token_sample: Vec::new(),
+        normalized_missing_token_sample: Vec::new(),
+        normalized_extra_token_sample: Vec::new(),
+        metric_findings: Vec::new(),
+        internal_text: Some(Utf8PathBuf::from("/tmp/internal.txt")),
+        internal_pdf: Some(Utf8PathBuf::from("/tmp/internal.pdf")),
+        internal_document_ir: Some(Utf8PathBuf::from("/tmp/internal-document-ir.json")),
+        internal_page_count: Some(1),
+        page_count_delta: Some(0),
+        page_count_within_tolerance: Some(true),
+        internal_first_page_raster: Some(Utf8PathBuf::from("/tmp/internal-page-1.png")),
+        internal_first_page_raster_smoke: Some(RasterSmokeReport {
+            width_px: 100,
+            height_px: 100,
+            non_white_pixel_count: 45,
+            non_white_bbox: Some(RasterBoundingBox {
+                x: 1,
+                y: 2,
+                width: 3,
+                height: 4,
+            }),
+        }),
+        first_page_raster_gross: Some(RasterGrossReport {
+            status: RasterGrossStatus::Pass,
+            page_size_matches: true,
+            oracle_ink_bbox_area_px: Some(12),
+            internal_ink_bbox_area_px: Some(12),
+            internal_to_oracle_ink_bbox_ratio: Some(1.0),
+            oracle_ink_pixel_count: Some(50),
+            internal_ink_pixel_count: Some(45),
+            internal_to_oracle_ink_pixel_ratio: Some(0.9),
+        }),
+        first_page_raster_diff: Some(Utf8PathBuf::from(
+            "/tmp/2301.01234-v1-first-page-raster-diff.png",
+        )),
+        internal_build_failure: None,
+        internal_diagnostics: Vec::new(),
+    };
+
+    let value = serde_json::to_value(report).expect("serialize report");
+
+    assert_eq!(
+        value["first_page_raster_diff"],
+        "/tmp/2301.01234-v1-first-page-raster-diff.png"
+    );
 }
 
 #[test]
