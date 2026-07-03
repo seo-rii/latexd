@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Direct negated membership aliases such as `\notni` and `\nni` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Currency and copyright math symbol aliases such as `\pounds`, `\sterling`, `\mathsterling`, and `\copyright` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Double dagger math aliases such as `\ddagger` and `\ddag` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Double arrow aliases such as `\Lleftarrow` and `\Rrightarrow` now normalize to readable text instead of forcing raw math fallback.

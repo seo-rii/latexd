@@ -25165,6 +25165,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("contains");
                         index = command_index;
                     }
+                    "notni" | "nni" => {
+                        push_operator!("not contains");
+                        index = command_index;
+                    }
                     "subset" => {
                         push_operator!("subset");
                         index = command_index;
