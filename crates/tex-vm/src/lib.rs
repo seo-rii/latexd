@@ -24944,7 +24944,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     }
                     "asymp" | "doteq" | "bowtie" | "smile" | "frown" | "eqsim" | "eqcirc"
                     | "circeq" | "doteqdot" | "fallingdotseq" | "risingdotseq" | "bumpeq"
-                    | "Bumpeq" => {
+                    | "Bumpeq" | "thicksim" | "thickapprox" | "approxeq" | "backsim"
+                    | "backsimeq" | "varpropto" | "between" | "pitchfork" => {
                         push_operator!(command);
                         index = command_index;
                     }
