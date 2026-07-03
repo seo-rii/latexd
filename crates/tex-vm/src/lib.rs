@@ -24736,6 +24736,22 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!("]]");
                         index = command_index;
                     }
+                    "llparenthesis" => {
+                        push_token!("((");
+                        index = command_index;
+                    }
+                    "rrparenthesis" => {
+                        push_token!("))");
+                        index = command_index;
+                    }
+                    "lbag" => {
+                        push_token!("{|");
+                        index = command_index;
+                    }
+                    "rbag" => {
+                        push_token!("|}");
+                        index = command_index;
+                    }
                     "lgroup" => {
                         push_token!("(");
                         index = command_index;

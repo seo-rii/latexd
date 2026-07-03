@@ -10567,6 +10567,55 @@ fn math_semantic_bracket_delimiters_use_normalized_text_in_ir_and_display_list()
 }
 
 #[test]
+fn math_semantic_pair_delimiters_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Semantics \(\llparenthesis x \rrparenthesis + \lbag y \rbag\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "((x)) + {| y |}";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source == r"\llparenthesis x \rrparenthesis + \lbag y \rbag"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    for hidden in [r"\llparenthesis", r"\rrparenthesis", r"\lbag", r"\rbag"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_moustache_delimiter_aliases_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Delims \(\lmoustache A + B \rmoustache + \bracevert C \bracevert\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
