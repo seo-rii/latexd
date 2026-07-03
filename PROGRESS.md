@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Dotted and circular relation aliases such as `\eqsim`, `\eqcirc`, `\circeq`, `\doteqdot`, `\fallingdotseq`, `\risingdotseq`, `\bumpeq`, and `\Bumpeq` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Set and composition binary math operators such as `\Cup`, `\Cap`, `\dotplus`, `\centerdot`, `\interleave`, `\doublecap`, and `\doublecup` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Circled and barred binary math operators such as `\circledast`, `\circledcirc`, `\circleddash`, `\barwedge`, `\veebar`, and `\doublebarwedge` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Square and double subset relation aliases such as `\sqsubset`, `\sqsupset`, `\nsqsubseteq`, `\nsqsupseteq`, `\Subset`, and `\Supset` now normalize to readable text instead of forcing raw math fallback.
