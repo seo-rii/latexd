@@ -25672,7 +25672,11 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         index = command_index;
                     }
                     "xrightarrow" | "xleftarrow" | "xleftrightarrow" | "xRightarrow"
-                    | "xLeftarrow" | "xLeftrightarrow" | "xmapsto" => {
+                    | "xLeftarrow" | "xLeftrightarrow" | "xmapsto" | "xhookrightarrow"
+                    | "xhookleftarrow" | "xtwoheadrightarrow" | "xtwoheadleftarrow"
+                    | "xrightarrowtail" | "xleftarrowtail" | "xlongequal" | "xrightharpoonup"
+                    | "xrightharpoondown" | "xleftharpoonup" | "xleftharpoondown"
+                    | "xrightleftharpoons" | "xleftrightharpoons" => {
                         let mut label_index = skip_ascii_whitespace(source, command_index);
                         let lower = if let Some((lower, _, _, after_lower)) =
                             read_bracket_source_argument(source, label_index)
@@ -25700,6 +25704,19 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                             "xLeftarrow" => "<=",
                             "xLeftrightarrow" => "<=>",
                             "xmapsto" => "->",
+                            "xhookrightarrow" => "hook->",
+                            "xhookleftarrow" => "<-hook",
+                            "xtwoheadrightarrow" => "twoheadrightarrow",
+                            "xtwoheadleftarrow" => "twoheadleftarrow",
+                            "xrightarrowtail" => "rightarrowtail",
+                            "xleftarrowtail" => "leftarrowtail",
+                            "xlongequal" => "=",
+                            "xrightharpoonup" => "rightharpoonup",
+                            "xrightharpoondown" => "rightharpoondown",
+                            "xleftharpoonup" => "leftharpoonup",
+                            "xleftharpoondown" => "leftharpoondown",
+                            "xrightleftharpoons" => "rightleftharpoons",
+                            "xleftrightharpoons" => "leftrightharpoons",
                             _ => unreachable!("extended arrow command"),
                         };
                         let mut arrow_text = format!("{arrow}^{{{upper}}}");

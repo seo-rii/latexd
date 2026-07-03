@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Additional extensible arrow aliases such as `\xhookrightarrow`, `\xlongequal`, `\xrightharpoonup`, and `\xrightleftharpoons` now reuse the labeled-arrow normalizer instead of forcing raw math fallback.
 - `2026-07-03` note: Amsmath `\sideset` now normalizes script decoration around large operators while preserving following scripts instead of forcing raw math fallback.
 - `2026-07-03` note: `\prescript` and `\tensor` math wrappers now preserve their visible arguments as readable normalized text instead of forcing raw math fallback.
 - `2026-07-03` note: Amsmath fraction wrappers `\genfrac` and `\cfrac` now normalize to readable fraction text, preserving `\genfrac` delimiters and ignoring non-visible style/thickness arguments.
