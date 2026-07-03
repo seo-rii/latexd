@@ -25378,11 +25378,12 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         index = command_index;
                     }
                     "ell" | "aleph" | "hbar" | "Re" | "Im" | "wp" | "mho" | "Bbbk"
-                    | "complement" | "beth" | "gimel" | "daleth" | "angle" | "measuredangle"
-                    | "sphericalangle" | "triangle" | "square" | "Box" | "Diamond" | "lozenge"
-                    | "heartsuit" | "spadesuit" | "clubsuit" | "diamondsuit" | "flat"
-                    | "natural" | "sharp" | "checkmark" | "maltese" | "top" | "bot"
-                    | "therefore" | "because" => {
+                    | "complement" | "beth" | "gimel" | "daleth" | "eth" | "Finv" | "Game"
+                    | "backprime" | "diagup" | "diagdown" | "backepsilon" | "angle"
+                    | "measuredangle" | "sphericalangle" | "triangle" | "square" | "Box"
+                    | "Diamond" | "lozenge" | "heartsuit" | "spadesuit" | "clubsuit"
+                    | "diamondsuit" | "flat" | "natural" | "sharp" | "checkmark" | "maltese"
+                    | "top" | "bot" | "therefore" | "because" => {
                         push_command_token!(command);
                         index = command_index;
                     }
