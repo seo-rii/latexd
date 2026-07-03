@@ -25131,7 +25131,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     | "triangleleft" | "bigtriangleup" | "bigtriangledown" | "ltimes"
                     | "rtimes" | "leftthreetimes" | "rightthreetimes" | "boxplus" | "boxminus"
                     | "boxtimes" | "boxdot" | "curlyvee" | "curlywedge" | "intercal"
-                    | "divideontimes" => {
+                    | "divideontimes" | "circledast" | "circledcirc" | "circleddash"
+                    | "barwedge" | "veebar" | "doublebarwedge" => {
                         push_operator!(command);
                         index = command_index;
                     }
