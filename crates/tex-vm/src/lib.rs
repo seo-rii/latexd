@@ -24728,6 +24728,14 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!("]");
                         index = command_index;
                     }
+                    "llbracket" => {
+                        push_token!("[[");
+                        index = command_index;
+                    }
+                    "rrbracket" => {
+                        push_token!("]]");
+                        index = command_index;
+                    }
                     "lgroup" => {
                         push_token!("(");
                         index = command_index;
