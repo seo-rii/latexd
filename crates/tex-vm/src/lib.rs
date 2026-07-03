@@ -25050,7 +25050,11 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         index = command_index;
                     }
                     "oplus" | "ominus" | "otimes" | "oslash" | "odot" | "circ" | "bullet"
-                    | "star" | "diamond" | "div" | "wr" | "amalg" | "sqcup" | "uplus" => {
+                    | "star" | "diamond" | "div" | "wr" | "amalg" | "sqcup" | "sqcap" | "uplus"
+                    | "triangleleft" | "bigtriangleup" | "bigtriangledown" | "ltimes"
+                    | "rtimes" | "leftthreetimes" | "rightthreetimes" | "boxplus" | "boxminus"
+                    | "boxtimes" | "boxdot" | "curlyvee" | "curlywedge" | "intercal"
+                    | "divideontimes" => {
                         push_operator!(command);
                         index = command_index;
                     }
