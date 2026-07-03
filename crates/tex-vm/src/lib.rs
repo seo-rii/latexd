@@ -24769,7 +24769,11 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("<=");
                         index = command_index;
                     }
-                    "nleq" | "nleqslant" => {
+                    "nless" => {
+                        push_operator!("not <");
+                        index = command_index;
+                    }
+                    "nleq" | "nleqslant" | "nleqq" => {
                         push_operator!("not <=");
                         index = command_index;
                     }
@@ -24777,11 +24781,16 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!(">=");
                         index = command_index;
                     }
-                    "ngeq" | "ngeqslant" => {
+                    "ngtr" => {
+                        push_operator!("not >");
+                        index = command_index;
+                    }
+                    "ngeq" | "ngeqslant" | "ngeqq" => {
                         push_operator!("not >=");
                         index = command_index;
                     }
-                    "lneq" | "lneqq" | "gneq" | "gneqq" => {
+                    "lneq" | "lneqq" | "gneq" | "gneqq" | "lvertneqq" | "gvertneqq" | "lnsim"
+                    | "gnsim" | "lnapprox" | "gnapprox" => {
                         push_operator!(command);
                         index = command_index;
                     }

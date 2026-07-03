@@ -8422,6 +8422,62 @@ fn math_negated_order_relation_aliases_use_normalized_text_in_ir_and_display_lis
 }
 
 #[test]
+fn math_negated_comparison_relation_aliases_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Order \(a\nless b + c\ngtr d + e\nleqq f + g\ngeqq h + i\lnsim j + k\gnsim l + m\lnapprox n + o\gnapprox p\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "a not < b + c not > d + e not <= f + g not >= h + i lnsim j + k gnsim l + m lnapprox n + o gnapprox p";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"a\nless b + c\ngtr d + e\nleqq f + g\ngeqq h + i\lnsim j + k\gnsim l + m\lnapprox n + o\gnapprox p"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text.replace('\n', "");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    for hidden in [
+        r"\nless",
+        r"\ngtr",
+        r"\nleqq",
+        r"\ngeqq",
+        r"\lnsim",
+        r"\gnsim",
+        r"\lnapprox",
+        r"\gnapprox",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_named_symbols_use_normalized_text_in_ir_and_display_list() {
     let source =
         r"\begin{document}Symbols \(\ell + \aleph + \hbar + \Re z + \Im z\).\end{document}";
