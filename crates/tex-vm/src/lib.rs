@@ -24939,6 +24939,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!(command);
                         index = command_index;
                     }
+                    "lhd" | "rhd" | "unlhd" | "unrhd" | "Join" => {
+                        push_operator!(command);
+                        index = command_index;
+                    }
                     "ntriangleleft" => {
                         push_operator!("not triangleleft");
                         index = command_index;

@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Triangle-style relation aliases such as `\lhd`, `\rhd`, `\unlhd`, `\unrhd`, and `\Join` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Comparison relation aliases such as `\leqq`, `\geqq`, `\lessgtr`, and `\gtrless` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Negated similarity relation aliases such as `\nsim`, `\napprox`, and `\ncong` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Short relation aliases such as `\shortmid`, `\shortparallel`, `\nshortmid`, and `\nshortparallel` now normalize to readable text instead of forcing raw math fallback.
