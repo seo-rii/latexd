@@ -1247,6 +1247,44 @@ fn braced_modular_math_notation_normalizes_through_display_list() {
 }
 
 #[test]
+fn genfrac_and_cfrac_math_wrappers_normalize_through_display_list() {
+    let source = r"\begin{document}Fractions $\genfrac{[}{]}{0pt}{}{a+b}{c_d}+\genfrac{\langle}{\rangle}{0pt}{1}{x}{y}+\cfrac[l]{1}{z}$ now.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let expected = "[a + b/c_d] + <x/y> + 1/z";
+
+    assert_eq!(
+        math_event.raw_source,
+        r"\genfrac{[}{]}{0pt}{}{a+b}{c_d}+\genfrac{\langle}{\rangle}{0pt}{1}{x}{y}+\cfrac[l]{1}{z}"
+    );
+    assert_eq!(math_event.normalized_text.as_deref(), Some(expected));
+    assert!(extracted_text.contains("Fractions [a + b/c_d] + <x/y> + 1/z now."));
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in [r"\genfrac", r"\cfrac", r"\langle", r"\rangle", "{0pt}"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn compact_fraction_aliases_normalize_through_display_list() {
     let source =
         r"\begin{document}Fractions $\nicefrac{a+b}{c_d}+\sfrac{\alpha}{2}$ now.\end{document}";

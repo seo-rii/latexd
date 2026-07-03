@@ -24028,8 +24028,14 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     command if is_latex_layout_spacing_command(command) || command == "tag" => {
                         index = skip_latex_layout_spacing_command(source, command_index);
                     }
-                    "frac" | "dfrac" | "tfrac" | "nicefrac" | "sfrac" => {
-                        let numerator_index = skip_ascii_whitespace(source, command_index);
+                    "frac" | "dfrac" | "tfrac" | "nicefrac" | "sfrac" | "cfrac" => {
+                        let mut numerator_index = skip_ascii_whitespace(source, command_index);
+                        if command == "cfrac"
+                            && let Some((_, _, _, after_option)) =
+                                read_bracket_source_argument(source, numerator_index)
+                        {
+                            numerator_index = skip_ascii_whitespace(source, after_option);
+                        }
                         let Some((numerator, _, _, after_numerator)) =
                             read_braced_source_argument(source, numerator_index)
                         else {
@@ -24048,6 +24054,54 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!(&numerator);
                         push_token!("/");
                         push_token!(&denominator);
+                        index = after_denominator;
+                    }
+                    "genfrac" => {
+                        let left_index = skip_ascii_whitespace(source, command_index);
+                        let Some((left, _, _, after_left)) =
+                            read_braced_source_argument(source, left_index)
+                        else {
+                            return None;
+                        };
+                        let right_index = skip_ascii_whitespace(source, after_left);
+                        let Some((right, _, _, after_right)) =
+                            read_braced_source_argument(source, right_index)
+                        else {
+                            return None;
+                        };
+                        let thickness_index = skip_ascii_whitespace(source, after_right);
+                        let Some((_, _, _, after_thickness)) =
+                            read_braced_source_argument(source, thickness_index)
+                        else {
+                            return None;
+                        };
+                        let style_index = skip_ascii_whitespace(source, after_thickness);
+                        let Some((_, _, _, after_style)) =
+                            read_braced_source_argument(source, style_index)
+                        else {
+                            return None;
+                        };
+                        let numerator_index = skip_ascii_whitespace(source, after_style);
+                        let Some((numerator, _, _, after_numerator)) =
+                            read_braced_source_argument(source, numerator_index)
+                        else {
+                            return None;
+                        };
+                        let denominator_index = skip_ascii_whitespace(source, after_numerator);
+                        let Some((denominator, _, _, after_denominator)) =
+                            read_braced_source_argument(source, denominator_index)
+                        else {
+                            return None;
+                        };
+                        let left = normalize_latex_math_text(left)
+                            .unwrap_or_else(|| normalize_latex_math_source(left));
+                        let right = normalize_latex_math_text(right)
+                            .unwrap_or_else(|| normalize_latex_math_source(right));
+                        let numerator = normalize_latex_math_text(numerator)
+                            .unwrap_or_else(|| normalize_latex_math_source(numerator));
+                        let denominator = normalize_latex_math_text(denominator)
+                            .unwrap_or_else(|| normalize_latex_math_source(denominator));
+                        push_token!(&format!("{left}{numerator}/{denominator}{right}"));
                         index = after_denominator;
                     }
                     "binom" | "dbinom" | "tbinom" => {
