@@ -24765,7 +24765,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     | "limits" | "nolimits" => {
                         index = command_index;
                     }
-                    "le" | "leq" | "leqslant" => {
+                    "le" | "leq" | "leqslant" | "leqq" => {
                         push_operator!("<=");
                         index = command_index;
                     }
@@ -24777,7 +24777,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("not <=");
                         index = command_index;
                     }
-                    "ge" | "geq" | "geqslant" => {
+                    "ge" | "geq" | "geqslant" | "geqq" => {
                         push_operator!(">=");
                         index = command_index;
                     }
@@ -24820,6 +24820,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     }
                     "gtrapprox" => {
                         push_operator!("gtrapprox");
+                        index = command_index;
+                    }
+                    "lessgtr" | "gtrless" => {
+                        push_operator!(command);
                         index = command_index;
                     }
                     "lll" | "llless" => {
