@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Additional Greek math symbol variants such as `\digamma`, `\varkappa`, `\varGamma`, `\varDelta`, `\varTheta`, and `\varOmega` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Additional special math symbols such as `\eth`, `\Finv`, `\Game`, `\backprime`, `\diagup`, `\diagdown`, and `\backepsilon` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Additional binary math operator variants such as `\sqcap`, `\triangleleft`, `\bigtriangleup`, `\ltimes`, `\boxplus`, and `\curlyvee` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Additional arrow math symbols such as `\Uparrow`, `\Downarrow`, `\Updownarrow`, `\nrightarrow`, `\nleftarrow`, and harpoon variants now normalize to readable text instead of forcing raw math fallback.

@@ -25417,11 +25417,13 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         index = command_index;
                     }
                     "alpha" | "beta" | "gamma" | "delta" | "epsilon" | "varepsilon" | "zeta"
-                    | "eta" | "theta" | "vartheta" | "iota" | "kappa" | "lambda" | "mu" | "nu"
-                    | "xi" | "pi" | "varpi" | "rho" | "varrho" | "sigma" | "varsigma" | "tau"
-                    | "upsilon" | "phi" | "varphi" | "chi" | "psi" | "omega" | "Gamma"
-                    | "Delta" | "Theta" | "Lambda" | "Xi" | "Pi" | "Sigma" | "Upsilon" | "Phi"
-                    | "Psi" | "Omega" => {
+                    | "eta" | "theta" | "vartheta" | "iota" | "kappa" | "varkappa" | "lambda"
+                    | "mu" | "nu" | "xi" | "pi" | "varpi" | "rho" | "varrho" | "sigma"
+                    | "varsigma" | "tau" | "upsilon" | "phi" | "varphi" | "chi" | "psi"
+                    | "omega" | "digamma" | "Gamma" | "varGamma" | "Delta" | "varDelta"
+                    | "Theta" | "varTheta" | "Lambda" | "varLambda" | "Xi" | "varXi" | "Pi"
+                    | "varPi" | "Sigma" | "varSigma" | "Upsilon" | "varUpsilon" | "Phi"
+                    | "varPhi" | "Psi" | "varPsi" | "Omega" | "varOmega" => {
                         push_command_token!(command);
                         index = command_index;
                     }
