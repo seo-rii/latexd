@@ -24769,8 +24769,20 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("<=");
                         index = command_index;
                     }
+                    "nleq" | "nleqslant" => {
+                        push_operator!("not <=");
+                        index = command_index;
+                    }
                     "ge" | "geq" | "geqslant" => {
                         push_operator!(">=");
+                        index = command_index;
+                    }
+                    "ngeq" | "ngeqslant" => {
+                        push_operator!("not >=");
+                        index = command_index;
+                    }
+                    "lneq" | "lneqq" | "gneq" | "gneqq" => {
+                        push_operator!(command);
                         index = command_index;
                     }
                     "neq" | "ne" => {

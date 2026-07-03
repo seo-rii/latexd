@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Negated and strict order relation aliases such as `\nleq`, `\ngeq`, `\nleqslant`, `\lneq`, `\gneq`, `\lneqq`, and `\gneqq` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Additional order relation aliases such as `\lessdot`, `\gtrdot`, `\lll`, `\ggg`, `\lesseqgtr`, and `\eqslantless` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Additional Greek math symbol variants such as `\digamma`, `\varkappa`, `\varGamma`, `\varDelta`, `\varTheta`, and `\varOmega` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Additional special math symbols such as `\eth`, `\Finv`, `\Game`, `\backprime`, `\diagup`, `\diagdown`, and `\backepsilon` now normalize to readable text instead of forcing raw math fallback.
