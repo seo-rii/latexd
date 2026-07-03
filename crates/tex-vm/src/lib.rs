@@ -25656,16 +25656,16 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token!("nabla");
                         index = command_index;
                     }
-                    "ell" | "aleph" | "hbar" | "Re" | "Im" | "imath" | "jmath" | "wp" | "mho"
-                    | "Bbbk" | "complement" | "beth" | "gimel" | "daleth" | "eth" | "Finv"
-                    | "Game" | "backprime" | "diagup" | "diagdown" | "backepsilon"
-                    | "mathsection" | "mathparagraph" | "angle" | "measuredangle"
-                    | "sphericalangle" | "triangle" | "square" | "Box" | "Diamond" | "lozenge"
-                    | "blacktriangle" | "blacktriangledown" | "blacktriangleleft"
-                    | "blacktriangleright" | "blacksquare" | "blacklozenge" | "bigstar"
-                    | "heartsuit" | "spadesuit" | "clubsuit" | "diamondsuit" | "flat"
-                    | "natural" | "sharp" | "checkmark" | "maltese" | "top" | "bot"
-                    | "therefore" | "because" => {
+                    "ell" | "aleph" | "hbar" | "hslash" | "Re" | "Im" | "imath" | "jmath"
+                    | "wp" | "mho" | "Bbbk" | "complement" | "beth" | "gimel" | "daleth"
+                    | "eth" | "Finv" | "Game" | "backprime" | "diagup" | "diagdown"
+                    | "backepsilon" | "mathsection" | "mathparagraph" | "angle"
+                    | "measuredangle" | "sphericalangle" | "triangle" | "square" | "Box"
+                    | "Diamond" | "lozenge" | "blacktriangle" | "blacktriangledown"
+                    | "blacktriangleleft" | "blacktriangleright" | "blacksquare"
+                    | "blacklozenge" | "bigstar" | "circledR" | "circledS" | "heartsuit"
+                    | "spadesuit" | "clubsuit" | "diamondsuit" | "flat" | "natural" | "sharp"
+                    | "checkmark" | "maltese" | "yen" | "top" | "bot" | "therefore" | "because" => {
                         push_command_token!(command);
                         index = command_index;
                     }

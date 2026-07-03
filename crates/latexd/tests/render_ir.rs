@@ -9619,6 +9619,56 @@ fn math_additional_special_symbols_use_normalized_text_in_ir_and_display_list() 
 }
 
 #[test]
+fn math_hslash_circled_and_currency_symbols_use_normalized_text_in_ir_and_display_list() {
+    let source =
+        r"\begin{document}Symbols \(\hslash + \circledR + \circledS + \yen\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "hslash + circledR + circledS + yen";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source == r"\hslash + \circledR + \circledS + \yen"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    for hidden in [r"\hslash", r"\circledR", r"\circledS", r"\yen"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_geometry_and_suit_symbols_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Symbols \(\angle A + \measuredangle B + \sphericalangle C + \triangle + \square + \Box + \Diamond + \lozenge + \heartsuit + \spadesuit + \clubsuit + \diamondsuit\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
