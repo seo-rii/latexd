@@ -24580,6 +24580,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     | "widetilde"
                     | "dot"
                     | "ddot"
+                    | "dddot"
+                    | "ddddot"
                     | "underline"
                     | "underbar"
                     | "undertilde"

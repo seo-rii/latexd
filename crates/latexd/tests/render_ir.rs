@@ -1077,6 +1077,41 @@ fn unbraced_math_accents_normalize_single_token_arguments() {
 }
 
 #[test]
+fn high_dot_math_accents_normalize_through_ir_and_display_list() {
+    let source = r"\begin{document}State $\dddot{x}+\ddddot{y}$ now.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let expected = "dddot(x) + ddddot(y)";
+
+    assert_eq!(math_event.raw_source, r"\dddot{x}+\ddddot{y}");
+    assert_eq!(math_event.normalized_text.as_deref(), Some(expected));
+    assert!(extracted_text.contains("State dddot(x) + ddddot(y) now."));
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in [r"\dddot", r"\ddddot"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn braced_modular_math_notation_normalizes_through_display_list() {
     let source = r"\begin{document}Congruence $a\pmod{n}+b\pod{m}$ now.\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
