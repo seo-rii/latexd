@@ -25303,7 +25303,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("setminus");
                         index = command_index;
                     }
-                    "prime" | "dag" | "dagger" => {
+                    "prime" | "dag" | "dagger" | "ddag" | "ddagger" => {
                         push_token!(command);
                         index = command_index;
                     }
