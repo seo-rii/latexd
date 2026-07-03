@@ -24513,6 +24513,62 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token!(&format!("tensor({base}, {script})"));
                         index = after_script;
                     }
+                    "sideset" => {
+                        let left_index = skip_ascii_whitespace(source, command_index);
+                        let Some((left, _, _, after_left)) =
+                            read_braced_source_argument(source, left_index)
+                        else {
+                            return None;
+                        };
+                        let right_index = skip_ascii_whitespace(source, after_left);
+                        let Some((right, _, _, after_right)) =
+                            read_braced_source_argument(source, right_index)
+                        else {
+                            return None;
+                        };
+                        let base_index = skip_ascii_whitespace(source, after_right);
+                        if base_index >= bytes.len() {
+                            return None;
+                        }
+                        let (base_source, after_base) = if bytes[base_index] == b'\\' {
+                            let base_start = base_index;
+                            let mut after_base = base_index + 1;
+                            if after_base >= bytes.len() {
+                                return None;
+                            }
+                            if bytes[after_base].is_ascii_alphabetic() || bytes[after_base] == b'@'
+                            {
+                                while after_base < bytes.len()
+                                    && (bytes[after_base].is_ascii_alphabetic()
+                                        || bytes[after_base] == b'@')
+                                {
+                                    after_base += 1;
+                                }
+                            } else {
+                                let command_char = source[after_base..]
+                                    .chars()
+                                    .next()
+                                    .expect("sideset base control symbol");
+                                after_base += command_char.len_utf8();
+                            }
+                            (&source[base_start..after_base], after_base)
+                        } else {
+                            let base_char = source[base_index..]
+                                .chars()
+                                .next()
+                                .expect("sideset base character");
+                            let after_base = base_index + base_char.len_utf8();
+                            (&source[base_index..after_base], after_base)
+                        };
+                        let left = normalize_latex_math_text(left)
+                            .unwrap_or_else(|| normalize_latex_math_source(left));
+                        let right = normalize_latex_math_text(right)
+                            .unwrap_or_else(|| normalize_latex_math_source(right));
+                        let base = normalize_latex_math_text(base_source)
+                            .unwrap_or_else(|| normalize_latex_math_source(base_source));
+                        push_command_token!(&format!("sideset({left}, {right}, {base})"));
+                        index = after_base;
+                    }
                     "boxed" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);
                         let Some((argument, _, _, after_argument)) =
