@@ -25669,13 +25669,14 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     | "wp" | "mho" | "Bbbk" | "complement" | "beth" | "gimel" | "daleth"
                     | "eth" | "Finv" | "Game" | "backprime" | "diagup" | "diagdown"
                     | "backepsilon" | "mathsection" | "mathparagraph" | "angle"
-                    | "measuredangle" | "sphericalangle" | "triangle" | "square" | "Box"
-                    | "Diamond" | "lozenge" | "blacktriangle" | "blacktriangledown"
-                    | "blacktriangleleft" | "blacktriangleright" | "blacksquare"
-                    | "blacklozenge" | "bigstar" | "circledR" | "circledS" | "heartsuit"
-                    | "spadesuit" | "clubsuit" | "diamondsuit" | "flat" | "natural" | "sharp"
-                    | "checkmark" | "maltese" | "yen" | "pounds" | "sterling" | "mathsterling"
-                    | "copyright" | "top" | "bot" | "therefore" | "because" => {
+                    | "measuredangle" | "sphericalangle" | "triangle" | "vartriangle"
+                    | "triangledown" | "square" | "Box" | "Diamond" | "lozenge"
+                    | "blacktriangle" | "blacktriangledown" | "blacktriangleleft"
+                    | "blacktriangleright" | "blacksquare" | "blacklozenge" | "bigstar"
+                    | "circledR" | "circledS" | "heartsuit" | "spadesuit" | "clubsuit"
+                    | "diamondsuit" | "flat" | "natural" | "sharp" | "checkmark" | "maltese"
+                    | "yen" | "pounds" | "sterling" | "mathsterling" | "copyright" | "top"
+                    | "bot" | "therefore" | "because" => {
                         push_command_token!(command);
                         index = command_index;
                     }
