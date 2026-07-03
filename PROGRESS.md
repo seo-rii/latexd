@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Leftward arrow aliases now pin `\longleftarrow` normalization alongside `\hookleftarrow`, `\swarrow`, and `\nwarrow`, keeping readable math text in RenderEvent, Document IR, and PageDisplayList output.
 - `2026-07-03` note: Additional standalone triangle symbol aliases such as `\vartriangle` and `\triangledown` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Direct negated membership aliases such as `\notni` and `\nni` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Currency and copyright math symbol aliases such as `\pounds`, `\sterling`, `\mathsterling`, and `\copyright` now normalize to readable text instead of forcing raw math fallback.

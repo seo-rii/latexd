@@ -25331,7 +25331,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("not ->");
                         index = command_index;
                     }
-                    "leftarrow" | "gets" => {
+                    "leftarrow" | "longleftarrow" | "gets" => {
                         push_operator!("<-");
                         index = command_index;
                     }
