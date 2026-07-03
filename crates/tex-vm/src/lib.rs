@@ -24772,7 +24772,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!("}");
                         index = command_index;
                     }
-                    "ulcorner" | "urcorner" | "llcorner" | "lrcorner" => {
+                    "ulcorner" | "urcorner" | "llcorner" | "lrcorner" | "lmoustache"
+                    | "rmoustache" | "bracevert" => {
                         push_command_token!(command);
                         index = command_index;
                     }

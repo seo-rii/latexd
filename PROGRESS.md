@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Moustache-style delimiter aliases such as `\lmoustache`, `\rmoustache`, and `\bracevert` now normalize to readable delimiter names instead of forcing raw math fallback.
 - `2026-07-03` note: Additional delimiter aliases such as `\lbrack`, `\rbrack`, `\lgroup`, `\rgroup`, `\arrowvert`, and `\Arrowvert` now normalize to readable bracket/vertical-bar text instead of forcing raw math fallback.
 - `2026-07-03` note: Additional integral aliases such as `\smallint`, `\oiint`, `\oiiint`, `\ointclockwise`, and `\ointctrclockwise` now reuse the large-operator math normalizer, preserving readable scripts in RenderEvent, Document IR, and PageDisplayList output.
 - `2026-07-03` note: Leftward arrow aliases now pin `\longleftarrow` normalization alongside `\hookleftarrow`, `\swarrow`, and `\nwarrow`, keeping readable math text in RenderEvent, Document IR, and PageDisplayList output.
