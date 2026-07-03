@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Black and filled math symbol aliases such as `\blacktriangle`, `\blacktriangledown`, `\blacktriangleleft`, `\blacktriangleright`, `\blacksquare`, `\blacklozenge`, and `\bigstar` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Squiggle, leadsto, and multimap arrow aliases such as `\rightsquigarrow`, `\leftrightsquigarrow`, `\leadsto`, and `\multimap` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Negated long and bidirectional arrow aliases such as `\nLongrightarrow`, `\nLongleftarrow`, `\nLeftrightarrow`, `\nlongleftrightarrow`, and `\nLongleftrightarrow` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Additional named math symbol aliases such as `\imath`, `\jmath`, `\mathsection`, and `\mathparagraph` now normalize to readable text instead of forcing raw math fallback.

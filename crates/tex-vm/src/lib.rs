@@ -25657,6 +25657,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     | "Game" | "backprime" | "diagup" | "diagdown" | "backepsilon"
                     | "mathsection" | "mathparagraph" | "angle" | "measuredangle"
                     | "sphericalangle" | "triangle" | "square" | "Box" | "Diamond" | "lozenge"
+                    | "blacktriangle" | "blacktriangledown" | "blacktriangleleft"
+                    | "blacktriangleright" | "blacksquare" | "blacklozenge" | "bigstar"
                     | "heartsuit" | "spadesuit" | "clubsuit" | "diamondsuit" | "flat"
                     | "natural" | "sharp" | "checkmark" | "maltese" | "top" | "bot"
                     | "therefore" | "because" => {
