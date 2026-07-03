@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Short relation aliases such as `\shortmid`, `\shortparallel`, `\nshortmid`, and `\nshortparallel` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Curved and vertical arrow aliases such as `\curvearrowleft`, `\curvearrowright`, `\circlearrowleft`, `\circlearrowright`, `\Lsh`, `\Rsh`, `\upharpoonleft`, and `\downharpoonright` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Additional arrow aliases such as `\dashrightarrow`, `\dashleftarrow`, `\leftleftarrows`, `\rightrightarrows`, `\twoheadrightarrow`, `\leftarrowtail`, `\looparrowleft`, and `\looparrowright` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Subset and superset relation aliases such as `\subseteqq`, `\supseteqq`, `\nsubseteqq`, `\nsupseteqq`, `\subsetapprox`, `\supsetapprox`, `\varsubsetneq`, and `\varsupsetneqq` now normalize to readable text instead of forcing raw math fallback.

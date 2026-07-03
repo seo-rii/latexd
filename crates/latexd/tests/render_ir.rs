@@ -8065,6 +8065,61 @@ fn math_strict_and_negated_relations_use_normalized_text_in_ir_and_display_list(
 }
 
 #[test]
+fn math_short_relation_aliases_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Relations \(a\shortmid b + c\shortparallel d + e\nshortmid f + g\nshortparallel h\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "a | b + c parallel d + e not | f + g not parallel h";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"a\shortmid b + c\shortparallel d + e\nshortmid f + g\nshortparallel h"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    for hidden in [
+        r"\shortmid",
+        r"\shortparallel",
+        r"\nshortmid",
+        r"\nshortparallel",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_subset_superset_aliases_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Relations \(A\subseteqq B + C\supseteqq D + E\nsubseteqq F + G\nsupseteqq H + I\subsetapprox J + K\supsetapprox L + M\varsubsetneq N + O\varsupsetneq P + Q\varsubsetneqq R + S\varsupsetneqq T\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

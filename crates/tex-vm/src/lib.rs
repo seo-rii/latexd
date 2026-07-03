@@ -24986,6 +24986,14 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("not parallel");
                         index = command_index;
                     }
+                    "shortparallel" => {
+                        push_operator!("parallel");
+                        index = command_index;
+                    }
+                    "nshortparallel" => {
+                        push_operator!("not parallel");
+                        index = command_index;
+                    }
                     "ll" => {
                         push_operator!("<<");
                         index = command_index;
@@ -25083,6 +25091,14 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         index = command_index;
                     }
                     "nmid" => {
+                        push_operator!("not |");
+                        index = command_index;
+                    }
+                    "shortmid" => {
+                        push_operator!("|");
+                        index = command_index;
+                    }
+                    "nshortmid" => {
                         push_operator!("not |");
                         index = command_index;
                     }
