@@ -25359,6 +25359,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     | "rightharpoondown"
                     | "rightleftharpoons"
                     | "leftrightharpoons"
+                    | "Lleftarrow"
+                    | "Rrightarrow"
                     | "dashrightarrow"
                     | "dashleftarrow"
                     | "leftleftarrows"

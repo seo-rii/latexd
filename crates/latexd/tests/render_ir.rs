@@ -7622,6 +7622,55 @@ fn math_additional_arrow_variants_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_double_arrow_aliases_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Flow \(A\Lleftarrow B + C\Rrightarrow D\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "A Lleftarrow B + C Rrightarrow D";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source == r"A\Lleftarrow B + C\Rrightarrow D"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    for hidden in [r"\Lleftarrow", r"\Rrightarrow"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_negated_arrow_aliases_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Flow \(A\nLongrightarrow B + C\nLongleftarrow D + E\nLeftrightarrow F + G\nlongleftrightarrow H + I\nLongleftrightarrow J\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
