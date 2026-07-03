@@ -25528,7 +25528,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     | "varliminf" | "injlim" | "projlim" | "varinjlim" | "varprojlim" | "min"
                     | "max" | "sup" | "inf" | "bigcup" | "bigcap" | "bigoplus" | "bigotimes"
                     | "bigodot" | "bigsqcup" | "bigvee" | "bigwedge" | "oint" | "iint"
-                    | "iiint" | "iiiint" | "idotsint" | "coprod" => {
+                    | "iiint" | "iiiint" | "idotsint" | "smallint" | "oiint" | "oiiint"
+                    | "ointclockwise" | "ointctrclockwise" | "coprod" => {
                         let mut script_index = skip_ascii_whitespace(source, command_index);
                         if script_index < bytes.len() && bytes[script_index] == b'\\' {
                             let mut limit_command_index = script_index + 1;

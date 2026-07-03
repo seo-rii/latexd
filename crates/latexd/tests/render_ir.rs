@@ -10617,6 +10617,62 @@ fn math_large_integral_operators_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_additional_integral_aliases_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Ops \(\smallint_0^1 f + \oiint_S g + \oiiint_V h + \ointclockwise_C k + \ointctrclockwise_D m\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "smallint_{0}^{1} f + oiint_{S} g + oiiint_{V} h + ointclockwise_{C} k + ointctrclockwise_{D} m";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"\smallint_0^1 f + \oiint_S g + \oiiint_V h + \ointclockwise_C k + \ointctrclockwise_D m"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    for hidden in [
+        r"\smallint",
+        r"\oiint",
+        r"\oiiint",
+        r"\ointclockwise",
+        r"\ointctrclockwise",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_binary_operator_variants_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Ops \(A\div B + C\smallsetminus D + E\wr F + G\amalg H + I\sqcup J + K\uplus L\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
