@@ -24959,6 +24959,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("cong");
                         index = command_index;
                     }
+                    "ncong" => {
+                        push_operator!("not cong");
+                        index = command_index;
+                    }
                     "simeq" => {
                         push_operator!("simeq");
                         index = command_index;
@@ -25212,6 +25216,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     }
                     "approx" | "sim" => {
                         push_operator!("~");
+                        index = command_index;
+                    }
+                    "napprox" | "nsim" => {
+                        push_operator!("not ~");
                         index = command_index;
                     }
                     "times" => {
