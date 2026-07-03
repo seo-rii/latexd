@@ -24930,6 +24930,27 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("triangleq");
                         index = command_index;
                     }
+                    "vartriangleleft" | "vartriangleright" | "trianglelefteq"
+                    | "trianglerighteq" => {
+                        push_operator!(command);
+                        index = command_index;
+                    }
+                    "ntriangleleft" => {
+                        push_operator!("not triangleleft");
+                        index = command_index;
+                    }
+                    "ntriangleright" => {
+                        push_operator!("not triangleright");
+                        index = command_index;
+                    }
+                    "ntrianglelefteq" => {
+                        push_operator!("not trianglelefteq");
+                        index = command_index;
+                    }
+                    "ntrianglerighteq" => {
+                        push_operator!("not trianglerighteq");
+                        index = command_index;
+                    }
                     "equiv" => {
                         push_operator!("equiv");
                         index = command_index;

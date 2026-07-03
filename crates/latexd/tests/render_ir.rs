@@ -8147,6 +8147,65 @@ fn math_turnstile_relation_aliases_use_normalized_text_in_ir_and_display_list() 
 }
 
 #[test]
+fn math_triangle_relation_aliases_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Relations \(A\vartriangleleft B + C\vartriangleright D + E\trianglelefteq F + G\trianglerighteq H + I\ntriangleleft J + K\ntriangleright L + M\ntrianglelefteq N + O\ntrianglerighteq P\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "A vartriangleleft B + C vartriangleright D + E trianglelefteq F + G trianglerighteq H + I not triangleleft J + K not triangleright L + M not trianglelefteq N + O not trianglerighteq P";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"A\vartriangleleft B + C\vartriangleright D + E\trianglelefteq F + G\trianglerighteq H + I\ntriangleleft J + K\ntriangleright L + M\ntrianglelefteq N + O\ntrianglerighteq P"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    for hidden in [
+        r"\vartriangleleft",
+        r"\vartriangleright",
+        r"\trianglelefteq",
+        r"\trianglerighteq",
+        r"\ntriangleleft",
+        r"\ntriangleright",
+        r"\ntrianglelefteq",
+        r"\ntrianglerighteq",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_relation_symbol_variants_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Relations \(a\asymp b + c\doteq d + e\bowtie f + g\smile h + i\frown j\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
