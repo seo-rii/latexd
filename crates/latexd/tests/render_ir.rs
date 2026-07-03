@@ -7564,6 +7564,63 @@ fn math_arrow_variants_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_mapsto_arrow_aliases_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Flow \(A\Mapsto B + C\Longmapsto D + E\mapsfrom F + G\longmapsfrom H + I\Mapsfrom J + K\Longmapsfrom L\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "A => B + C => D + E <- F + G <- H + I <= J + K <= L";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"A\Mapsto B + C\Longmapsto D + E\mapsfrom F + G\longmapsfrom H + I\Mapsfrom J + K\Longmapsfrom L"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    for hidden in [
+        r"\Mapsto",
+        r"\Longmapsto",
+        r"\mapsfrom",
+        r"\longmapsfrom",
+        r"\Mapsfrom",
+        r"\Longmapsfrom",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_leftward_arrow_aliases_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Flow \(A\longleftarrow B + C\hookleftarrow D + E\swarrow F + G\nwarrow H\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

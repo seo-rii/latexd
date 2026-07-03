@@ -25352,12 +25352,24 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("->");
                         index = command_index;
                     }
+                    "Mapsto" | "Longmapsto" => {
+                        push_operator!("=>");
+                        index = command_index;
+                    }
                     "nrightarrow" | "nRightarrow" | "nlongrightarrow" | "nLongrightarrow" => {
                         push_operator!("not ->");
                         index = command_index;
                     }
                     "leftarrow" | "longleftarrow" | "gets" => {
                         push_operator!("<-");
+                        index = command_index;
+                    }
+                    "mapsfrom" | "longmapsfrom" => {
+                        push_operator!("<-");
+                        index = command_index;
+                    }
+                    "Mapsfrom" | "Longmapsfrom" => {
+                        push_operator!("<=");
                         index = command_index;
                     }
                     "nleftarrow" | "nLeftarrow" | "nlongleftarrow" | "nLongleftarrow" => {

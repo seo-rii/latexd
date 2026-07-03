@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Mapsto arrow aliases such as `\Mapsto`, `\Longmapsto`, `\mapsfrom`, `\longmapsfrom`, `\Mapsfrom`, and `\Longmapsfrom` now normalize to readable arrow text instead of forcing raw math fallback.
 - `2026-07-03` note: Semantic bracket delimiter aliases such as `\llbracket` and `\rrbracket` now normalize to readable `[[...]]` text instead of forcing raw math fallback.
 - `2026-07-03` note: Moustache-style delimiter aliases such as `\lmoustache`, `\rmoustache`, and `\bracevert` now normalize to readable delimiter names instead of forcing raw math fallback.
 - `2026-07-03` note: Additional delimiter aliases such as `\lbrack`, `\rbrack`, `\lgroup`, `\rgroup`, `\arrowvert`, and `\Arrowvert` now normalize to readable bracket/vertical-bar text instead of forcing raw math fallback.
