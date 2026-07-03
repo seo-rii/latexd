@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Subset and superset relation aliases such as `\subseteqq`, `\supseteqq`, `\nsubseteqq`, `\nsupseteqq`, `\subsetapprox`, `\supsetapprox`, `\varsubsetneq`, and `\varsupsetneqq` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Triangle relation aliases such as `\vartriangleleft`, `\vartriangleright`, `\trianglelefteq`, `\trianglerighteq`, `\ntriangleleft`, `\ntriangleright`, `\ntrianglelefteq`, and `\ntrianglerighteq` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Turnstile relation aliases such as `\Vdash`, `\Vvdash`, `\vDash`, `\VDash`, `\nvdash`, `\nvDash`, `\nVdash`, and `\nVDash` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Similarity and proportionality relation aliases such as `\thicksim`, `\thickapprox`, `\approxeq`, `\backsim`, `\backsimeq`, `\varpropto`, `\between`, and `\pitchfork` now normalize to readable text instead of forcing raw math fallback.

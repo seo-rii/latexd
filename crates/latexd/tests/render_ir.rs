@@ -7945,6 +7945,64 @@ fn math_strict_and_negated_relations_use_normalized_text_in_ir_and_display_list(
 }
 
 #[test]
+fn math_subset_superset_aliases_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Relations \(A\subseteqq B + C\supseteqq D + E\nsubseteqq F + G\nsupseteqq H + I\subsetapprox J + K\supsetapprox L + M\varsubsetneq N + O\varsupsetneq P + Q\varsubsetneqq R + S\varsupsetneqq T\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "A subseteqq B + C supseteqq D + E not subseteqq F + G not supseteqq H + I subsetapprox J + K supsetapprox L + M varsubsetneq N + O varsupsetneq P + Q varsubsetneqq R + S varsupsetneqq T";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"A\subseteqq B + C\supseteqq D + E\nsubseteqq F + G\nsupseteqq H + I\subsetapprox J + K\supsetapprox L + M\varsubsetneq N + O\varsupsetneq P + Q\varsubsetneqq R + S\varsupsetneqq T"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text.replace('\n', "");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    for hidden in [
+        r"\subseteqq",
+        r"\supseteqq",
+        r"\nsubseteqq",
+        r"\nsupseteqq",
+        r"\subsetapprox",
+        r"\supsetapprox",
+        r"\varsubsetneq",
+        r"\varsupsetneq",
+        r"\varsubsetneqq",
+        r"\varsupsetneqq",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_ellipsis_commands_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Series \(x_1,\ldots,x_n + a_1+\cdots+a_n + b_1,\dots,b_k\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

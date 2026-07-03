@@ -25102,12 +25102,24 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("subseteq");
                         index = command_index;
                     }
+                    "subseteqq" => {
+                        push_operator!("subseteqq");
+                        index = command_index;
+                    }
                     "nsubseteq" => {
                         push_operator!("not subseteq");
                         index = command_index;
                     }
+                    "nsubseteqq" => {
+                        push_operator!("not subseteqq");
+                        index = command_index;
+                    }
                     "subsetneq" | "subsetneqq" => {
                         push_operator!("subsetneq");
+                        index = command_index;
+                    }
+                    "subsetapprox" | "varsubsetneq" | "varsubsetneqq" => {
+                        push_operator!(command);
                         index = command_index;
                     }
                     "supset" => {
@@ -25122,12 +25134,24 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("supseteq");
                         index = command_index;
                     }
+                    "supseteqq" => {
+                        push_operator!("supseteqq");
+                        index = command_index;
+                    }
                     "nsupseteq" => {
                         push_operator!("not supseteq");
                         index = command_index;
                     }
+                    "nsupseteqq" => {
+                        push_operator!("not supseteqq");
+                        index = command_index;
+                    }
                     "supsetneq" | "supsetneqq" => {
                         push_operator!("supsetneq");
+                        index = command_index;
+                    }
+                    "supsetapprox" | "varsupsetneq" | "varsupsetneqq" => {
+                        push_operator!(command);
                         index = command_index;
                     }
                     "cup" => {
