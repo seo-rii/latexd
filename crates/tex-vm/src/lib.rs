@@ -25670,7 +25670,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     | "blacktriangleleft" | "blacktriangleright" | "blacksquare"
                     | "blacklozenge" | "bigstar" | "circledR" | "circledS" | "heartsuit"
                     | "spadesuit" | "clubsuit" | "diamondsuit" | "flat" | "natural" | "sharp"
-                    | "checkmark" | "maltese" | "yen" | "top" | "bot" | "therefore" | "because" => {
+                    | "checkmark" | "maltese" | "yen" | "pounds" | "sterling" | "mathsterling"
+                    | "copyright" | "top" | "bot" | "therefore" | "because" => {
                         push_command_token!(command);
                         index = command_index;
                     }
