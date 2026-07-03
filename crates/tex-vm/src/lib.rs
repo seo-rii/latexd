@@ -24862,6 +24862,18 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("precsim");
                         index = command_index;
                     }
+                    "precapprox" => {
+                        push_operator!("precapprox");
+                        index = command_index;
+                    }
+                    "nprecsim" => {
+                        push_operator!("not precsim");
+                        index = command_index;
+                    }
+                    "precnsim" | "precnapprox" => {
+                        push_operator!(command);
+                        index = command_index;
+                    }
                     "preceq" => {
                         push_operator!("preceq");
                         index = command_index;
@@ -24880,6 +24892,18 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     }
                     "succsim" => {
                         push_operator!("succsim");
+                        index = command_index;
+                    }
+                    "succapprox" => {
+                        push_operator!("succapprox");
+                        index = command_index;
+                    }
+                    "nsuccsim" => {
+                        push_operator!("not succsim");
+                        index = command_index;
+                    }
+                    "succnsim" | "succnapprox" => {
+                        push_operator!(command);
                         index = command_index;
                     }
                     "succeq" => {
