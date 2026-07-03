@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: `\prescript` and `\tensor` math wrappers now preserve their visible arguments as readable normalized text instead of forcing raw math fallback.
 - `2026-07-03` note: Amsmath fraction wrappers `\genfrac` and `\cfrac` now normalize to readable fraction text, preserving `\genfrac` delimiters and ignoring non-visible style/thickness arguments.
 - `2026-07-03` note: Math `\smash`/lap overlap wrappers now preserve visible content, while `\phantom`, `\hphantom`, and `\vphantom` hide invisible content without forcing raw math fallback.
 - `2026-07-03` note: Cancel-package math wrappers `\cancel`, `\bcancel`, `\xcancel`, and `\cancelto` now normalize to readable wrapper calls instead of forcing raw math fallback.

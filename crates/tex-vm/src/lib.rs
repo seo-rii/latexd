@@ -24463,6 +24463,56 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         };
                         index = after_argument;
                     }
+                    "prescript" => {
+                        let superscript_index = skip_ascii_whitespace(source, command_index);
+                        let Some((superscript, _, _, after_superscript)) =
+                            read_braced_source_argument(source, superscript_index)
+                        else {
+                            return None;
+                        };
+                        let subscript_index = skip_ascii_whitespace(source, after_superscript);
+                        let Some((subscript, _, _, after_subscript)) =
+                            read_braced_source_argument(source, subscript_index)
+                        else {
+                            return None;
+                        };
+                        let base_index = skip_ascii_whitespace(source, after_subscript);
+                        let Some((base, _, _, after_base)) =
+                            read_braced_source_argument(source, base_index)
+                        else {
+                            return None;
+                        };
+                        let superscript = normalize_latex_math_text(superscript)
+                            .unwrap_or_else(|| normalize_latex_math_source(superscript));
+                        let subscript = normalize_latex_math_text(subscript)
+                            .unwrap_or_else(|| normalize_latex_math_source(subscript));
+                        let base = normalize_latex_math_text(base)
+                            .unwrap_or_else(|| normalize_latex_math_source(base));
+                        push_command_token!(&format!(
+                            "prescript({superscript}, {subscript}, {base})"
+                        ));
+                        index = after_base;
+                    }
+                    "tensor" => {
+                        let base_index = skip_ascii_whitespace(source, command_index);
+                        let Some((base, _, _, after_base)) =
+                            read_braced_source_argument(source, base_index)
+                        else {
+                            return None;
+                        };
+                        let script_index = skip_ascii_whitespace(source, after_base);
+                        let Some((script, _, _, after_script)) =
+                            read_braced_source_argument(source, script_index)
+                        else {
+                            return None;
+                        };
+                        let base = normalize_latex_math_text(base)
+                            .unwrap_or_else(|| normalize_latex_math_source(base));
+                        let script = normalize_latex_math_text(script)
+                            .unwrap_or_else(|| normalize_latex_math_source(script));
+                        push_command_token!(&format!("tensor({base}, {script})"));
+                        index = after_script;
+                    }
                     "boxed" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);
                         let Some((argument, _, _, after_argument)) =
