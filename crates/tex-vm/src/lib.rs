@@ -25264,7 +25264,11 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     "uparrow" | "downarrow" | "updownarrow" | "nearrow" | "searrow" | "swarrow"
                     | "nwarrow" | "Uparrow" | "Downarrow" | "Updownarrow" | "leftharpoonup"
                     | "leftharpoondown" | "rightharpoonup" | "rightharpoondown"
-                    | "rightleftharpoons" | "leftrightharpoons" => {
+                    | "rightleftharpoons" | "leftrightharpoons" | "dashrightarrow"
+                    | "dashleftarrow" | "leftleftarrows" | "rightrightarrows"
+                    | "leftrightarrows" | "rightleftarrows" | "twoheadrightarrow"
+                    | "twoheadleftarrow" | "rightarrowtail" | "leftarrowtail" | "looparrowleft"
+                    | "looparrowright" => {
                         push_operator!(command);
                         index = command_index;
                     }

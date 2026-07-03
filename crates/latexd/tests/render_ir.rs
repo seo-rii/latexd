@@ -7622,6 +7622,66 @@ fn math_additional_arrow_variants_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_arrow_relation_aliases_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Flow \(A\dashrightarrow B + C\dashleftarrow D + E\leftleftarrows F + G\rightrightarrows H + I\leftrightarrows J + K\rightleftarrows L + M\twoheadrightarrow N + O\twoheadleftarrow P + Q\rightarrowtail R + S\leftarrowtail T + U\looparrowleft V + W\looparrowright X\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "A dashrightarrow B + C dashleftarrow D + E leftleftarrows F + G rightrightarrows H + I leftrightarrows J + K rightleftarrows L + M twoheadrightarrow N + O twoheadleftarrow P + Q rightarrowtail R + S leftarrowtail T + U looparrowleft V + W looparrowright X";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"A\dashrightarrow B + C\dashleftarrow D + E\leftleftarrows F + G\rightrightarrows H + I\leftrightarrows J + K\rightleftarrows L + M\twoheadrightarrow N + O\twoheadleftarrow P + Q\rightarrowtail R + S\leftarrowtail T + U\looparrowleft V + W\looparrowright X"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text.replace('\n', "");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    for hidden in [
+        r"\dashrightarrow",
+        r"\dashleftarrow",
+        r"\leftleftarrows",
+        r"\rightrightarrows",
+        r"\leftrightarrows",
+        r"\rightleftarrows",
+        r"\twoheadrightarrow",
+        r"\twoheadleftarrow",
+        r"\rightarrowtail",
+        r"\leftarrowtail",
+        r"\looparrowleft",
+        r"\looparrowright",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_brace_groups_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Groups \(\overbrace{a+b}^{n} + \underbrace{c_d}_{\text{reason}}\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
