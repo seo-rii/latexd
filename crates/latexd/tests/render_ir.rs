@@ -11104,6 +11104,64 @@ fn math_circled_and_barred_binary_operators_use_normalized_text_in_ir_and_displa
 }
 
 #[test]
+fn math_boxed_binary_operator_aliases_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Ops \(A\boxbar B + C\boxslash D + E\boxbslash F + G\boxast H + I\boxcircle J + K\boxbox L\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected =
+        "A boxbar B + C boxslash D + E boxbslash F + G boxast H + I boxcircle J + K boxbox L";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"A\boxbar B + C\boxslash D + E\boxbslash F + G\boxast H + I\boxcircle J + K\boxbox L"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    for hidden in [
+        r"\boxbar",
+        r"\boxslash",
+        r"\boxbslash",
+        r"\boxast",
+        r"\boxcircle",
+        r"\boxbox",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_set_and_composition_binary_operators_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Ops \(A\Cup B + C\Cap D + E\dotplus F + G\centerdot H + I\interleave J + K\doublecap L + M\doublecup N\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

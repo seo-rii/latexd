@@ -25340,7 +25340,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     | "boxtimes" | "boxdot" | "curlyvee" | "curlywedge" | "intercal"
                     | "divideontimes" | "circledast" | "circledcirc" | "circleddash"
                     | "barwedge" | "veebar" | "doublebarwedge" | "Cup" | "Cap" | "dotplus"
-                    | "centerdot" | "interleave" | "doublecap" | "doublecup" => {
+                    | "centerdot" | "interleave" | "doublecap" | "doublecup" | "boxbar"
+                    | "boxslash" | "boxbslash" | "boxast" | "boxcircle" | "boxbox" => {
                         push_operator!(command);
                         index = command_index;
                     }
