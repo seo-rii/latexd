@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Math `\smash`/lap overlap wrappers now preserve visible content, while `\phantom`, `\hphantom`, and `\vphantom` hide invisible content without forcing raw math fallback.
 - `2026-07-03` note: Cancel-package math wrappers `\cancel`, `\bcancel`, `\xcancel`, and `\cancelto` now normalize to readable wrapper calls instead of forcing raw math fallback.
 - `2026-07-03` note: High-dot math accents `\dddot` and `\ddddot` now normalize to readable accent calls instead of forcing raw math fallback.
 - `2026-07-03` note: Boxed binary operator aliases such as `\boxbar`, `\boxslash`, `\boxbslash`, `\boxast`, `\boxcircle`, and `\boxbox` now normalize to readable operator names instead of forcing raw math fallback.

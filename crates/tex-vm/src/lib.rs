@@ -24382,6 +24382,33 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token!(&format!("cancelto({target}, {argument})"));
                         index = after_argument;
                     }
+                    "rlap" | "llap" | "clap" | "mathrlap" | "mathllap" | "mathclap" | "smash" => {
+                        let mut argument_index = skip_ascii_whitespace(source, command_index);
+                        if command == "smash"
+                            && let Some((_, _, _, after_option)) =
+                                read_bracket_source_argument(source, argument_index)
+                        {
+                            argument_index = skip_ascii_whitespace(source, after_option);
+                        }
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_math_source(argument));
+                        push_command_token!(&argument);
+                        index = after_argument;
+                    }
+                    "phantom" | "hphantom" | "vphantom" => {
+                        let argument_index = skip_ascii_whitespace(source, command_index);
+                        let Some((_, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        index = after_argument;
+                    }
                     "boxed" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);
                         let Some((argument, _, _, after_argument)) =
