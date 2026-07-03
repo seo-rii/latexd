@@ -7682,6 +7682,66 @@ fn math_arrow_relation_aliases_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_curved_and_vertical_arrow_aliases_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Flow \(A\curvearrowleft B + C\curvearrowright D + E\circlearrowleft F + G\circlearrowright H + I\Lsh J + K\Rsh L + M\upuparrows N + O\downdownarrows P + Q\upharpoonleft R + S\upharpoonright T + U\downharpoonleft V + W\downharpoonright X\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "A curvearrowleft B + C curvearrowright D + E circlearrowleft F + G circlearrowright H + I Lsh J + K Rsh L + M upuparrows N + O downdownarrows P + Q upharpoonleft R + S upharpoonright T + U downharpoonleft V + W downharpoonright X";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"A\curvearrowleft B + C\curvearrowright D + E\circlearrowleft F + G\circlearrowright H + I\Lsh J + K\Rsh L + M\upuparrows N + O\downdownarrows P + Q\upharpoonleft R + S\upharpoonright T + U\downharpoonleft V + W\downharpoonright X"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text.replace('\n', "");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    for hidden in [
+        r"\curvearrowleft",
+        r"\curvearrowright",
+        r"\circlearrowleft",
+        r"\circlearrowright",
+        r"\Lsh",
+        r"\Rsh",
+        r"\upuparrows",
+        r"\downdownarrows",
+        r"\upharpoonleft",
+        r"\upharpoonright",
+        r"\downharpoonleft",
+        r"\downharpoonright",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_brace_groups_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Groups \(\overbrace{a+b}^{n} + \underbrace{c_d}_{\text{reason}}\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

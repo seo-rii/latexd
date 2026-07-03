@@ -25268,7 +25268,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     | "dashleftarrow" | "leftleftarrows" | "rightrightarrows"
                     | "leftrightarrows" | "rightleftarrows" | "twoheadrightarrow"
                     | "twoheadleftarrow" | "rightarrowtail" | "leftarrowtail" | "looparrowleft"
-                    | "looparrowright" => {
+                    | "looparrowright" | "curvearrowleft" | "curvearrowright"
+                    | "circlearrowleft" | "circlearrowright" | "Lsh" | "Rsh" | "upuparrows"
+                    | "downdownarrows" | "upharpoonleft" | "upharpoonright" | "downharpoonleft"
+                    | "downharpoonright" => {
                         push_operator!(command);
                         index = command_index;
                     }
