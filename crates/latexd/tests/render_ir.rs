@@ -8799,6 +8799,62 @@ fn math_dotted_and_circular_relation_aliases_use_normalized_text_in_ir_and_displ
 }
 
 #[test]
+fn math_colon_relation_aliases_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Relations \(a\coloneqq b + c\eqqcolon d + e\Coloneqq f + g\Eqqcolon h + i\coloneq j + k\eqcolon l + m\Coloneq n + o\Eqcolon p\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "a coloneqq b + c eqqcolon d + e Coloneqq f + g Eqqcolon h + i coloneq j + k eqcolon l + m Coloneq n + o Eqcolon p";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"a\coloneqq b + c\eqqcolon d + e\Coloneqq f + g\Eqqcolon h + i\coloneq j + k\eqcolon l + m\Coloneq n + o\Eqcolon p"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text.replace('\n', "");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    for hidden in [
+        r"\coloneqq",
+        r"\eqqcolon",
+        r"\Coloneqq",
+        r"\Eqqcolon",
+        r"\coloneq",
+        r"\eqcolon",
+        r"\Coloneq",
+        r"\Eqcolon",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_similarity_relation_aliases_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Relations \(a\thicksim b + c\thickapprox d + e\approxeq f + g\backsim h + i\backsimeq j + k\varpropto l + m\between n + o\pitchfork p\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

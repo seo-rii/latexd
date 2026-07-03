@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Colon-equals relation aliases such as `\coloneqq`, `\eqqcolon`, `\Coloneqq`, `\Eqqcolon`, `\coloneq`, `\eqcolon`, `\Coloneq`, and `\Eqcolon` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Additional special math symbol aliases such as `\hslash`, `\circledR`, `\circledS`, and `\yen` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Corner delimiter math aliases such as `\ulcorner`, `\urcorner`, `\llcorner`, and `\lrcorner` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Black and filled math symbol aliases such as `\blacktriangle`, `\blacktriangledown`, `\blacktriangleleft`, `\blacktriangleright`, `\blacksquare`, `\blacklozenge`, and `\bigstar` now normalize to readable text instead of forcing raw math fallback.
