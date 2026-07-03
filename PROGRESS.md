@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Additional arrow math symbols such as `\Uparrow`, `\Downarrow`, `\Updownarrow`, `\nrightarrow`, `\nleftarrow`, and harpoon variants now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Additional relation math symbols such as `\asymp`, `\doteq`, `\bowtie`, `\smile`, and `\frown` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Negated existential and membership alias math symbols such as `\nexists`, `\owns`, and `\not\owns` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Vertical and diagonal math ellipsis commands such as `\vdots`, `\ddots`, and `\iddots` now normalize to readable symbol names instead of forcing raw math fallback.

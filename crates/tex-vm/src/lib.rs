@@ -25078,8 +25078,16 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("->");
                         index = command_index;
                     }
+                    "nrightarrow" | "nRightarrow" | "nlongrightarrow" => {
+                        push_operator!("not ->");
+                        index = command_index;
+                    }
                     "leftarrow" | "gets" => {
                         push_operator!("<-");
+                        index = command_index;
+                    }
+                    "nleftarrow" | "nLeftarrow" | "nlongleftarrow" => {
+                        push_operator!("not <-");
                         index = command_index;
                     }
                     "hookrightarrow" => {
@@ -25091,7 +25099,9 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         index = command_index;
                     }
                     "uparrow" | "downarrow" | "updownarrow" | "nearrow" | "searrow" | "swarrow"
-                    | "nwarrow" => {
+                    | "nwarrow" | "Uparrow" | "Downarrow" | "Updownarrow" | "leftharpoonup"
+                    | "leftharpoondown" | "rightharpoonup" | "rightharpoondown"
+                    | "rightleftharpoons" | "leftrightharpoons" => {
                         push_operator!(command);
                         index = command_index;
                     }
