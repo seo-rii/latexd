@@ -25258,7 +25258,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("<->");
                         index = command_index;
                     }
-                    "nleftrightarrow" => {
+                    "nleftrightarrow"
+                    | "nLeftrightarrow"
+                    | "nlongleftrightarrow"
+                    | "nLongleftrightarrow" => {
                         push_operator!("not <->");
                         index = command_index;
                     }
@@ -25313,7 +25316,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("->");
                         index = command_index;
                     }
-                    "nrightarrow" | "nRightarrow" | "nlongrightarrow" => {
+                    "nrightarrow" | "nRightarrow" | "nlongrightarrow" | "nLongrightarrow" => {
                         push_operator!("not ->");
                         index = command_index;
                     }
@@ -25321,7 +25324,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("<-");
                         index = command_index;
                     }
-                    "nleftarrow" | "nLeftarrow" | "nlongleftarrow" => {
+                    "nleftarrow" | "nLeftarrow" | "nlongleftarrow" | "nLongleftarrow" => {
                         push_operator!("not <-");
                         index = command_index;
                     }
