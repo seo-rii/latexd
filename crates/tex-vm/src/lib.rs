@@ -24350,6 +24350,38 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token!(&argument);
                         index = after_argument;
                     }
+                    "cancel" | "bcancel" | "xcancel" => {
+                        let argument_index = skip_ascii_whitespace(source, command_index);
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_math_source(argument));
+                        push_command_token!(&format!("{command}({argument})"));
+                        index = after_argument;
+                    }
+                    "cancelto" => {
+                        let target_index = skip_ascii_whitespace(source, command_index);
+                        let Some((target, _, _, after_target)) =
+                            read_braced_source_argument(source, target_index)
+                        else {
+                            return None;
+                        };
+                        let argument_index = skip_ascii_whitespace(source, after_target);
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let target = normalize_latex_math_text(target)
+                            .unwrap_or_else(|| normalize_latex_math_source(target));
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_math_source(argument));
+                        push_command_token!(&format!("cancelto({target}, {argument})"));
+                        index = after_argument;
+                    }
                     "boxed" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);
                         let Some((argument, _, _, after_argument)) =
