@@ -24781,6 +24781,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("lesssim");
                         index = command_index;
                     }
+                    "lessdot" => {
+                        push_operator!("lessdot");
+                        index = command_index;
+                    }
                     "lessapprox" => {
                         push_operator!("lessapprox");
                         index = command_index;
@@ -24789,8 +24793,36 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("gtrsim");
                         index = command_index;
                     }
+                    "gtrdot" => {
+                        push_operator!("gtrdot");
+                        index = command_index;
+                    }
                     "gtrapprox" => {
                         push_operator!("gtrapprox");
+                        index = command_index;
+                    }
+                    "lll" | "llless" => {
+                        push_operator!("lll");
+                        index = command_index;
+                    }
+                    "ggg" | "gggtr" => {
+                        push_operator!("ggg");
+                        index = command_index;
+                    }
+                    "lesseqgtr" | "lesseqqgtr" => {
+                        push_operator!("lesseqgtr");
+                        index = command_index;
+                    }
+                    "gtreqless" | "gtreqqless" => {
+                        push_operator!("gtreqless");
+                        index = command_index;
+                    }
+                    "eqslantless" => {
+                        push_operator!("eqslantless");
+                        index = command_index;
+                    }
+                    "eqslantgtr" => {
+                        push_operator!("eqslantgtr");
                         index = command_index;
                     }
                     "prec" => {

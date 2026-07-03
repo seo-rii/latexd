@@ -8310,6 +8310,62 @@ fn math_extended_order_relations_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_order_relation_aliases_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Order \(a\lessdot b + c\gtrdot d + e\lll f + g\ggg h + i\lesseqgtr j + k\gtreqless l + m\eqslantless n + o\eqslantgtr p\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "a lessdot b + c gtrdot d + e lll f + g ggg h + i lesseqgtr j + k gtreqless l + m eqslantless n + o eqslantgtr p";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"a\lessdot b + c\gtrdot d + e\lll f + g\ggg h + i\lesseqgtr j + k\gtreqless l + m\eqslantless n + o\eqslantgtr p"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text.replace('\n', "");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    for hidden in [
+        r"\lessdot",
+        r"\gtrdot",
+        r"\lll",
+        r"\ggg",
+        r"\lesseqgtr",
+        r"\gtreqless",
+        r"\eqslantless",
+        r"\eqslantgtr",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_named_symbols_use_normalized_text_in_ir_and_display_list() {
     let source =
         r"\begin{document}Symbols \(\ell + \aleph + \hbar + \Re z + \Im z\).\end{document}";
