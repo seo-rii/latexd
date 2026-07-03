@@ -24981,6 +24981,38 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("|-");
                         index = command_index;
                     }
+                    "Vdash" => {
+                        push_operator!("||-");
+                        index = command_index;
+                    }
+                    "Vvdash" => {
+                        push_operator!("|||-");
+                        index = command_index;
+                    }
+                    "vDash" => {
+                        push_operator!("|=");
+                        index = command_index;
+                    }
+                    "VDash" => {
+                        push_operator!("||=");
+                        index = command_index;
+                    }
+                    "nvdash" => {
+                        push_operator!("not |-");
+                        index = command_index;
+                    }
+                    "nvDash" => {
+                        push_operator!("not |=");
+                        index = command_index;
+                    }
+                    "nVdash" => {
+                        push_operator!("not ||-");
+                        index = command_index;
+                    }
+                    "nVDash" => {
+                        push_operator!("not ||=");
+                        index = command_index;
+                    }
                     "dashv" => {
                         push_operator!("-|");
                         index = command_index;
