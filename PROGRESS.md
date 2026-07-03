@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Large integral and coproduct operators such as `\oint`, `\iint`, `\iiint`, `\iiiint`, `\idotsint`, and `\coprod` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: `prec`/`succ` approximation aliases such as `\precapprox`, `\succapprox`, `\nprecsim`, `\nsuccsim`, `\precnsim`, and `\succnapprox` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Triangle-style relation aliases such as `\lhd`, `\rhd`, `\unlhd`, `\unrhd`, and `\Join` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Comparison relation aliases such as `\leqq`, `\geqq`, `\lessgtr`, and `\gtrless` now normalize to readable text instead of forcing raw math fallback.
