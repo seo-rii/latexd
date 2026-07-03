@@ -24720,11 +24720,27 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!(">");
                         index = command_index;
                     }
-                    "lvert" | "rvert" | "vert" | "mid" => {
+                    "lbrack" => {
+                        push_token!("[");
+                        index = command_index;
+                    }
+                    "rbrack" => {
+                        push_token!("]");
+                        index = command_index;
+                    }
+                    "lgroup" => {
+                        push_token!("(");
+                        index = command_index;
+                    }
+                    "rgroup" => {
+                        push_token!(")");
+                        index = command_index;
+                    }
+                    "lvert" | "rvert" | "vert" | "mid" | "arrowvert" => {
                         push_token!("|");
                         index = command_index;
                     }
-                    "lVert" | "rVert" | "Vert" => {
+                    "lVert" | "rVert" | "Vert" | "Arrowvert" => {
                         push_token!("||");
                         index = command_index;
                     }
