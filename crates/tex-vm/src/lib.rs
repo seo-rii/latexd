@@ -24894,12 +24894,36 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!("not preceq");
                         index = command_index;
                     }
+                    "sqsubset" => {
+                        push_operator!("sqsubset");
+                        index = command_index;
+                    }
                     "sqsubseteq" => {
                         push_operator!("sqsubseteq");
                         index = command_index;
                     }
+                    "nsqsubseteq" => {
+                        push_operator!("not sqsubseteq");
+                        index = command_index;
+                    }
+                    "sqsupset" => {
+                        push_operator!("sqsupset");
+                        index = command_index;
+                    }
                     "sqsupseteq" => {
                         push_operator!("sqsupseteq");
+                        index = command_index;
+                    }
+                    "nsqsupseteq" => {
+                        push_operator!("not sqsupseteq");
+                        index = command_index;
+                    }
+                    "Subset" => {
+                        push_operator!("Subset");
+                        index = command_index;
+                    }
+                    "Supset" => {
+                        push_operator!("Supset");
                         index = command_index;
                     }
                     "triangleq" => {

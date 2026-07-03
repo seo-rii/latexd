@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-03` note: Square and double subset relation aliases such as `\sqsubset`, `\sqsupset`, `\nsqsubseteq`, `\nsqsupseteq`, `\Subset`, and `\Supset` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Additional negated comparison aliases such as `\nless`, `\ngtr`, `\nleqq`, `\ngeqq`, `\lnsim`, `\gnsim`, `\lnapprox`, and `\gnapprox` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Negated and strict order relation aliases such as `\nleq`, `\ngeq`, `\nleqslant`, `\lneq`, `\gneq`, `\lneqq`, and `\gneqq` now normalize to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Additional order relation aliases such as `\lessdot`, `\gtrdot`, `\lll`, `\ggg`, `\lesseqgtr`, and `\eqslantless` now normalize to readable text instead of forcing raw math fallback.

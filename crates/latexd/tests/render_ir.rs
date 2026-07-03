@@ -8478,6 +8478,60 @@ fn math_negated_comparison_relation_aliases_use_normalized_text_in_ir_and_displa
 }
 
 #[test]
+fn math_square_subset_relation_aliases_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Order \(A\sqsubset B + C\sqsupset D + E\nsqsubseteq F + G\nsqsupseteq H + I\Subset J + K\Supset L\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "A sqsubset B + C sqsupset D + E not sqsubseteq F + G not sqsupseteq H + I Subset J + K Supset L";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"A\sqsubset B + C\sqsupset D + E\nsqsubseteq F + G\nsqsupseteq H + I\Subset J + K\Supset L"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text.replace('\n', "");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    for hidden in [
+        r"\sqsubset",
+        r"\sqsupset",
+        r"\nsqsubseteq",
+        r"\nsqsupseteq",
+        r"\Subset",
+        r"\Supset",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_named_symbols_use_normalized_text_in_ir_and_display_list() {
     let source =
         r"\begin{document}Symbols \(\ell + \aleph + \hbar + \Re z + \Im z\).\end{document}";
