@@ -24728,6 +24728,29 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token!(&format!("{wrapper}({argument})"));
                         index = after_argument;
                     }
+                    "pqty" | "bqty" | "Bqty" | "vqty" | "eval" => {
+                        let mut argument_index = skip_ascii_whitespace(source, command_index);
+                        if argument_index < bytes.len() && bytes[argument_index] == b'*' {
+                            argument_index = skip_ascii_whitespace(source, argument_index + 1);
+                        }
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_math_source(argument));
+                        let visible = match command {
+                            "pqty" => format!("({argument})"),
+                            "bqty" => format!("[{argument}]"),
+                            "Bqty" => format!("{{{argument}}}"),
+                            "vqty" => format!("|{argument}|"),
+                            "eval" => format!("{argument}|"),
+                            _ => unreachable!("physics delimiter wrapper command"),
+                        };
+                        push_command_token!(&visible);
+                        index = after_argument;
+                    }
                     "dv" | "odv" | "pdv" => {
                         let mut numerator_index = skip_ascii_whitespace(source, command_index);
                         let order = if let Some((order, _, _, after_order)) =
