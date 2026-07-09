@@ -24077,6 +24077,46 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token!(&format!("splitfrac({first}; {second})"));
                         index = after_second;
                     }
+                    "mathchoice" => {
+                        let display_index = skip_ascii_whitespace(source, command_index);
+                        let Some((display, _, _, after_display)) =
+                            read_braced_source_argument(source, display_index)
+                        else {
+                            return None;
+                        };
+                        let text_index = skip_ascii_whitespace(source, after_display);
+                        let Some((text_style, _, _, after_text)) =
+                            read_braced_source_argument(source, text_index)
+                        else {
+                            return None;
+                        };
+                        let script_index = skip_ascii_whitespace(source, after_text);
+                        let Some((script, _, _, after_script)) =
+                            read_braced_source_argument(source, script_index)
+                        else {
+                            return None;
+                        };
+                        let scriptscript_index = skip_ascii_whitespace(source, after_script);
+                        let Some((scriptscript, _, _, after_scriptscript)) =
+                            read_braced_source_argument(source, scriptscript_index)
+                        else {
+                            return None;
+                        };
+                        let mut visible = String::new();
+                        for alternative in [display, text_style, script, scriptscript] {
+                            let alternative = normalize_latex_math_text(alternative)
+                                .unwrap_or_else(|| normalize_latex_math_source(alternative));
+                            if !alternative.is_empty() {
+                                visible = alternative;
+                                break;
+                            }
+                        }
+                        if visible.is_empty() {
+                            return None;
+                        }
+                        push_command_token!(&visible);
+                        index = after_scriptscript;
+                    }
                     "genfrac" => {
                         let left_index = skip_ascii_whitespace(source, command_index);
                         let Some((left, _, _, after_left)) =

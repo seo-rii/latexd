@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-09` note: TeX `\mathchoice` now consumes all four style alternatives and preserves a representative visible normalized choice instead of forcing raw math fallback.
 - `2026-07-09` note: Mathtools `\splitfrac` and `\splitdfrac` now preserve both visible rows as readable `splitfrac(...; ...)` text instead of forcing raw math fallback.
 - `2026-07-09` note: Mathtools cramped wrappers `\cramped`, `\crampedllap`, `\crampedclap`, and `\crampedrlap` now preserve visible math content through the overlap-wrapper normalization path instead of forcing raw math fallback.
 - `2026-07-09` note: Mathtools `\smashoperator` now preserves its visible operator argument while consuming optional side hints, matching the existing overlap-wrapper normalization path instead of forcing raw math fallback.
