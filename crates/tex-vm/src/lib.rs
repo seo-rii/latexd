@@ -24439,9 +24439,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token!(&format!("cancelto({target}, {argument})"));
                         index = after_argument;
                     }
-                    "rlap" | "llap" | "clap" | "mathrlap" | "mathllap" | "mathclap" | "smash" => {
+                    "rlap" | "llap" | "clap" | "mathrlap" | "mathllap" | "mathclap" | "smash"
+                    | "smashoperator" => {
                         let mut argument_index = skip_ascii_whitespace(source, command_index);
-                        if command == "smash"
+                        if matches!(command, "smash" | "smashoperator")
                             && let Some((_, _, _, after_option)) =
                                 read_bracket_source_argument(source, argument_index)
                         {
