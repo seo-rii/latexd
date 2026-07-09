@@ -24692,6 +24692,61 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token!(&format!("||{argument}||"));
                         index = after_argument;
                     }
+                    "abs" => {
+                        let mut argument_index = skip_ascii_whitespace(source, command_index);
+                        if argument_index < bytes.len() && bytes[argument_index] == b'*' {
+                            argument_index = skip_ascii_whitespace(source, argument_index + 1);
+                        }
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_math_source(argument));
+                        push_command_token!(&format!("|{argument}|"));
+                        index = after_argument;
+                    }
+                    "dv" | "odv" | "pdv" => {
+                        let mut numerator_index = skip_ascii_whitespace(source, command_index);
+                        let order = if let Some((order, _, _, after_order)) =
+                            read_bracket_source_argument(source, numerator_index)
+                        {
+                            numerator_index = skip_ascii_whitespace(source, after_order);
+                            Some(
+                                normalize_latex_math_text(order)
+                                    .unwrap_or_else(|| normalize_latex_math_source(order)),
+                            )
+                        } else {
+                            None
+                        };
+                        let Some((numerator, _, _, after_numerator)) =
+                            read_braced_source_argument(source, numerator_index)
+                        else {
+                            return None;
+                        };
+                        let denominator_index = skip_ascii_whitespace(source, after_numerator);
+                        let Some((denominator, _, _, after_denominator)) =
+                            read_braced_source_argument(source, denominator_index)
+                        else {
+                            return None;
+                        };
+                        let numerator = normalize_latex_math_text(numerator)
+                            .unwrap_or_else(|| normalize_latex_math_source(numerator));
+                        let denominator = normalize_latex_math_text(denominator)
+                            .unwrap_or_else(|| normalize_latex_math_source(denominator));
+                        let differential = if command == "pdv" { "partial" } else { "d" };
+                        if let Some(order) = order {
+                            push_command_token!(&format!(
+                                "{differential}^{order} {numerator}/{differential} {denominator}^{order}"
+                            ));
+                        } else {
+                            push_command_token!(&format!(
+                                "{differential} {numerator}/{differential} {denominator}"
+                            ));
+                        }
+                        index = after_denominator;
+                    }
                     "myO" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);
                         let Some((argument, _, _, after_argument)) =
