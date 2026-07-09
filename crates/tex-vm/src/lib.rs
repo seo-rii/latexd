@@ -24029,7 +24029,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     command if is_latex_layout_spacing_command(command) || command == "tag" => {
                         index = skip_latex_layout_spacing_command(source, command_index);
                     }
-                    "frac" | "dfrac" | "tfrac" | "nicefrac" | "sfrac" | "cfrac" => {
+                    "frac" | "dfrac" | "tfrac" | "nicefrac" | "sfrac" | "xfrac" | "cfrac" => {
                         let mut numerator_index = skip_ascii_whitespace(source, command_index);
                         if command == "cfrac"
                             && let Some((_, _, _, after_option)) =

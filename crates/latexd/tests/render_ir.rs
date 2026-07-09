@@ -1719,8 +1719,7 @@ fn mathchoice_wrapper_normalizes_representative_visible_choice() {
 
 #[test]
 fn compact_fraction_aliases_normalize_through_display_list() {
-    let source =
-        r"\begin{document}Fractions $\nicefrac{a+b}{c_d}+\sfrac{\alpha}{2}$ now.\end{document}";
+    let source = r"\begin{document}Fractions $\nicefrac{a+b}{c_d}+\sfrac{\alpha}{2}+\xfrac{m}{n}$ now.\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
     let math_event = capture
         .events
@@ -1735,7 +1734,7 @@ fn compact_fraction_aliases_normalize_through_display_list() {
         .ops
         .iter()
         .find_map(|op| match op {
-            DrawOp::TextRun(run) if run.text == "a + b/c_d + alpha/2" => Some(run),
+            DrawOp::TextRun(run) if run.text == "a + b/c_d + alpha/2 + m/n" => Some(run),
             _ => None,
         })
         .expect("display-list math text run");
@@ -1752,18 +1751,25 @@ fn compact_fraction_aliases_normalize_through_display_list() {
 
     assert_eq!(
         math_event.raw_source,
-        r"\nicefrac{a+b}{c_d}+\sfrac{\alpha}{2}"
+        r"\nicefrac{a+b}{c_d}+\sfrac{\alpha}{2}+\xfrac{m}{n}"
     );
     assert_eq!(
         math_event.normalized_text.as_deref(),
-        Some("a + b/c_d + alpha/2")
+        Some("a + b/c_d + alpha/2 + m/n")
     );
-    assert_eq!(display_list_math_run.text, "a + b/c_d + alpha/2");
-    assert!(extracted_text.contains("Fractions a + b/c_d + alpha/2 now."));
-    for visible in ["Fractions", "a + b/c_d + alpha/2", "now."] {
+    assert_eq!(display_list_math_run.text, "a + b/c_d + alpha/2 + m/n");
+    assert!(extracted_text.contains("Fractions a + b/c_d + alpha/2 + m/n now."));
+    for visible in ["Fractions", "a + b/c_d + alpha/2 + m/n", "now."] {
         assert!(display_list_text.contains(visible), "{display_list_text}");
     }
-    for hidden in [r"\nicefrac", r"\sfrac", r"\alpha", "{a+b}", "{c_d}"] {
+    for hidden in [
+        r"\nicefrac",
+        r"\sfrac",
+        r"\xfrac",
+        r"\alpha",
+        "{a+b}",
+        "{c_d}",
+    ] {
         assert!(!extracted_text.contains(hidden), "{extracted_text}");
         assert!(!display_list_text.contains(hidden), "{display_list_text}");
     }
