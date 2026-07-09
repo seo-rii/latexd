@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-09` note: Physics differential wrappers `\dd` and `\fdv` now normalize simple braced forms to readable text instead of forcing raw math fallback.
 - `2026-07-09` note: Physics delimiter/evaluation wrappers `\pqty`, `\bqty`, `\Bqty`, `\vqty`, and `\eval` now normalize simple braced forms to readable text instead of forcing raw math fallback.
 - `2026-07-09` note: Paired delimiter math wrappers `\ceil`, `\floor`, and `\order` now normalize simple braced forms to readable text instead of forcing raw math fallback.
 - `2026-07-09` note: Physics/braket wrappers `\comm`, `\anticomm`, `\expval`, and `\matrixel` now normalize to readable bracket notation instead of forcing raw math fallback.

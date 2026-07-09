@@ -24751,7 +24751,21 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token!(&visible);
                         index = after_argument;
                     }
-                    "dv" | "odv" | "pdv" => {
+                    "dd" => {
+                        let argument_index = skip_ascii_whitespace(source, command_index);
+                        if let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        {
+                            let argument = normalize_latex_math_text(argument)
+                                .unwrap_or_else(|| normalize_latex_math_source(argument));
+                            push_command_token!(&format!("d {argument}"));
+                            index = after_argument;
+                        } else {
+                            push_command_token!("d");
+                            index = command_index;
+                        }
+                    }
+                    "dv" | "odv" | "pdv" | "fdv" => {
                         let mut numerator_index = skip_ascii_whitespace(source, command_index);
                         let order = if let Some((order, _, _, after_order)) =
                             read_bracket_source_argument(source, numerator_index)
@@ -24779,7 +24793,11 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                             .unwrap_or_else(|| normalize_latex_math_source(numerator));
                         let denominator = normalize_latex_math_text(denominator)
                             .unwrap_or_else(|| normalize_latex_math_source(denominator));
-                        let differential = if command == "pdv" { "partial" } else { "d" };
+                        let differential = match command {
+                            "pdv" => "partial",
+                            "fdv" => "delta",
+                            _ => "d",
+                        };
                         if let Some(order) = order {
                             push_command_token!(&format!(
                                 "{differential}^{order} {numerator}/{differential} {denominator}^{order}"
