@@ -7513,6 +7513,39 @@ fn math_style_and_limit_controls_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_spacing_controls_do_not_leak_to_ir_and_display_list() {
+    let source = r"\begin{document}Spacing \(A\mskip5mu B\mkern-2mu C\kern1pt D\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let extracted_text = capture.document_ir.extracted_text();
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_eq!(math_event.raw_source, "ABCD");
+    assert!(extracted_text.contains("Spacing ABCD"));
+    assert!(display_list_text.contains("ABCD"));
+    for hidden in [r"\mskip", r"\mkern", r"\kern", "5mu", "-2mu", "1pt"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_operators_and_scripts_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Series \(\sum_{i=1}^{n} x_i + \int_{0}^{1} f(x)\,dx + \sin \theta\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

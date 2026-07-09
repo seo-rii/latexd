@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-09` note: Math spacing control `\mskip` now follows the existing `\mkern`/`\kern` normalization path, consuming its dimension without forcing raw math fallback or leaking spacing units into visible text.
 - `2026-07-09` note: Physics differential wrappers `\dd` and `\fdv` now normalize simple braced forms to readable text instead of forcing raw math fallback.
 - `2026-07-09` note: Physics delimiter/evaluation wrappers `\pqty`, `\bqty`, `\Bqty`, `\vqty`, and `\eval` now normalize simple braced forms to readable text instead of forcing raw math fallback.
 - `2026-07-09` note: Paired delimiter math wrappers `\ceil`, `\floor`, and `\order` now normalize simple braced forms to readable text instead of forcing raw math fallback.
