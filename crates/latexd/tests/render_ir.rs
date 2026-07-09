@@ -1642,6 +1642,44 @@ fn genfrac_and_cfrac_math_wrappers_normalize_through_display_list() {
 }
 
 #[test]
+fn splitfrac_math_wrappers_normalize_through_display_list() {
+    let source = r"\begin{document}Fractions $\splitfrac{a+b}{\frac{c}{d}}+\splitdfrac{x}{y}$ now.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let expected = "splitfrac(a + b; c/d) + splitfrac(x; y)";
+
+    assert_eq!(
+        math_event.raw_source,
+        r"\splitfrac{a+b}{\frac{c}{d}}+\splitdfrac{x}{y}"
+    );
+    assert_eq!(math_event.normalized_text.as_deref(), Some(expected));
+    assert!(extracted_text.contains("Fractions splitfrac(a + b; c/d) + splitfrac(x; y) now."));
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in [r"\splitfrac", r"\splitdfrac", r"\frac", "{a+b}", "{c}"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn compact_fraction_aliases_normalize_through_display_list() {
     let source =
         r"\begin{document}Fractions $\nicefrac{a+b}{c_d}+\sfrac{\alpha}{2}$ now.\end{document}";

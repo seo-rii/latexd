@@ -24057,6 +24057,26 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!(&denominator);
                         index = after_denominator;
                     }
+                    "splitfrac" | "splitdfrac" => {
+                        let first_index = skip_ascii_whitespace(source, command_index);
+                        let Some((first, _, _, after_first)) =
+                            read_braced_source_argument(source, first_index)
+                        else {
+                            return None;
+                        };
+                        let second_index = skip_ascii_whitespace(source, after_first);
+                        let Some((second, _, _, after_second)) =
+                            read_braced_source_argument(source, second_index)
+                        else {
+                            return None;
+                        };
+                        let first = normalize_latex_math_text(first)
+                            .unwrap_or_else(|| normalize_latex_math_source(first));
+                        let second = normalize_latex_math_text(second)
+                            .unwrap_or_else(|| normalize_latex_math_source(second));
+                        push_command_token!(&format!("splitfrac({first}; {second})"));
+                        index = after_second;
+                    }
                     "genfrac" => {
                         let left_index = skip_ascii_whitespace(source, command_index);
                         let Some((left, _, _, after_left)) =
