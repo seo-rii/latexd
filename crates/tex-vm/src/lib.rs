@@ -25062,6 +25062,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     | "undertilde"
                     | "overbrace"
                     | "underbrace"
+                    | "overbracket"
+                    | "underbracket"
                     | "overrightarrow"
                     | "overleftarrow"
                     | "overleftrightarrow"

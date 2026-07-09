@@ -8776,6 +8776,47 @@ fn math_brace_groups_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_bracket_groups_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Groups \(\overbracket{a+b}^{n} + \underbracket{c_d}_{\text{reason}}\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source == r"\overbracket{a+b}^{n} + \underbracket{c_d}_{\text{reason}}"
+                && normalized_text.as_deref()
+                    == Some("overbracket(a + b)^n + underbracket(c_d)_reason")
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains("overbracket(a + b)^n + underbracket(c_d)_reason"));
+    assert!(!display_list_text.contains(r"\overbracket"));
+    assert!(!display_list_text.contains(r"\underbracket"));
+}
+
+#[test]
 fn math_binomial_commands_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Choose \(\binom{n}{k} + \dbinom{a+b}{c_d} + \tbinom{\alpha}{2}\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
