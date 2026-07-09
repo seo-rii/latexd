@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-09` note: Physics/braket wrappers `\comm`, `\anticomm`, `\expval`, and `\matrixel` now normalize to readable bracket notation instead of forcing raw math fallback.
 - `2026-07-09` note: Basic physics-style math wrappers `\abs`, `\dv`, and `\pdv` now normalize simple braced forms to readable text instead of forcing raw math fallback.
 - `2026-07-03` note: Additional extensible arrow aliases such as `\xhookrightarrow`, `\xlongequal`, `\xrightharpoonup`, and `\xrightleftharpoons` now reuse the labeled-arrow normalizer instead of forcing raw math fallback.
 - `2026-07-03` note: Amsmath `\sideset` now normalizes script decoration around large operators while preserving following scripts instead of forcing raw math fallback.

@@ -24787,6 +24787,80 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         }
                         index = after_argument;
                     }
+                    "comm" | "commutator" | "anticomm" | "acomm" | "anticommutator" => {
+                        let first_index = skip_ascii_whitespace(source, command_index);
+                        let Some((first, _, _, after_first)) =
+                            read_braced_source_argument(source, first_index)
+                        else {
+                            return None;
+                        };
+                        let second_index = skip_ascii_whitespace(source, after_first);
+                        let Some((second, _, _, after_second)) =
+                            read_braced_source_argument(source, second_index)
+                        else {
+                            return None;
+                        };
+                        let first = normalize_latex_math_text(first)
+                            .unwrap_or_else(|| normalize_latex_math_source(first));
+                        let second = normalize_latex_math_text(second)
+                            .unwrap_or_else(|| normalize_latex_math_source(second));
+                        if matches!(command, "comm" | "commutator") {
+                            push_command_token!(&format!("[{first}, {second}]"));
+                        } else {
+                            push_command_token!(&format!("{{{first}, {second}}}"));
+                        }
+                        index = after_second;
+                    }
+                    "expval" | "ev" => {
+                        let operator_index = skip_ascii_whitespace(source, command_index);
+                        let Some((operator, _, _, after_operator)) =
+                            read_braced_source_argument(source, operator_index)
+                        else {
+                            return None;
+                        };
+                        let operator = normalize_latex_math_text(operator)
+                            .unwrap_or_else(|| normalize_latex_math_source(operator));
+                        let state_index = skip_ascii_whitespace(source, after_operator);
+                        if let Some((state, _, _, after_state)) =
+                            read_braced_source_argument(source, state_index)
+                        {
+                            let state = normalize_latex_math_text(state)
+                                .unwrap_or_else(|| normalize_latex_math_source(state));
+                            push_command_token!(&format!("<{state}|{operator}|{state}>"));
+                            index = after_state;
+                        } else {
+                            push_command_token!(&format!("<{operator}>"));
+                            index = after_operator;
+                        }
+                    }
+                    "matrixel" | "mel" => {
+                        let bra_index = skip_ascii_whitespace(source, command_index);
+                        let Some((bra, _, _, after_bra)) =
+                            read_braced_source_argument(source, bra_index)
+                        else {
+                            return None;
+                        };
+                        let operator_index = skip_ascii_whitespace(source, after_bra);
+                        let Some((operator, _, _, after_operator)) =
+                            read_braced_source_argument(source, operator_index)
+                        else {
+                            return None;
+                        };
+                        let ket_index = skip_ascii_whitespace(source, after_operator);
+                        let Some((ket, _, _, after_ket)) =
+                            read_braced_source_argument(source, ket_index)
+                        else {
+                            return None;
+                        };
+                        let bra = normalize_latex_math_text(bra)
+                            .unwrap_or_else(|| normalize_latex_math_source(bra));
+                        let operator = normalize_latex_math_text(operator)
+                            .unwrap_or_else(|| normalize_latex_math_source(operator));
+                        let ket = normalize_latex_math_text(ket)
+                            .unwrap_or_else(|| normalize_latex_math_source(ket));
+                        push_command_token!(&format!("<{bra}|{operator}|{ket}>"));
+                        index = after_ket;
+                    }
                     "expec" | "inner" => {
                         let first_index = skip_ascii_whitespace(source, command_index);
                         let Some((first, _, _, after_first)) =
