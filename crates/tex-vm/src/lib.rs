@@ -24440,7 +24440,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         index = after_argument;
                     }
                     "rlap" | "llap" | "clap" | "mathrlap" | "mathllap" | "mathclap" | "smash"
-                    | "smashoperator" => {
+                    | "smashoperator" | "cramped" | "crampedllap" | "crampedclap"
+                    | "crampedrlap" => {
                         let mut argument_index = skip_ascii_whitespace(source, command_index);
                         if matches!(command, "smash" | "smashoperator")
                             && let Some((_, _, _, after_option)) =

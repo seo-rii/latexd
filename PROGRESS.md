@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-09` note: Mathtools cramped wrappers `\cramped`, `\crampedllap`, `\crampedclap`, and `\crampedrlap` now preserve visible math content through the overlap-wrapper normalization path instead of forcing raw math fallback.
 - `2026-07-09` note: Mathtools `\smashoperator` now preserves its visible operator argument while consuming optional side hints, matching the existing overlap-wrapper normalization path instead of forcing raw math fallback.
 - `2026-07-09` note: Math `subarray` environments now normalize like script-oriented stacks, consuming the alignment argument and preserving readable row conditions instead of forcing raw math fallback.
 - `2026-07-09` note: Math spacing control `\mskip` now follows the existing `\mkern`/`\kern` normalization path, consuming its dimension without forcing raw math fallback or leaking spacing units into visible text.

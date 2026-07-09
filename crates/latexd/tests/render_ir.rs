@@ -1238,6 +1238,50 @@ fn smashoperator_wrapper_normalizes_visible_operator_through_display_list() {
 }
 
 #[test]
+fn cramped_math_wrappers_normalize_visible_content_through_display_list() {
+    let source = r"\begin{document}State $\cramped{\frac{x}{2}}+\crampedllap{A}+\crampedclap{B}+\crampedrlap{C}$ now.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let expected = "x/2 + A + B + C";
+
+    assert_eq!(
+        math_event.raw_source,
+        r"\cramped{\frac{x}{2}}+\crampedllap{A}+\crampedclap{B}+\crampedrlap{C}"
+    );
+    assert_eq!(math_event.normalized_text.as_deref(), Some(expected));
+    assert!(extracted_text.contains("State x/2 + A + B + C now."));
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in [
+        r"\cramped",
+        r"\crampedllap",
+        r"\crampedclap",
+        r"\crampedrlap",
+        r"\frac",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn prescript_and_tensor_math_wrappers_normalize_through_display_list() {
     let source =
         r"\begin{document}State $\prescript{14}{2}{C}+\tensor{T}{^a_b}$ now.\end{document}";
