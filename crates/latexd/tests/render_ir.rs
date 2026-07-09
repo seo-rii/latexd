@@ -7823,6 +7823,50 @@ fn math_substack_scripts_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn math_subarray_scripts_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Nested \(\sum_{\begin{subarray}{c}i<j\\j<k\end{subarray}} x_i\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source == r"\sum_{\begin{subarray}{c}i<j\\j<k\end{subarray}} x_i"
+                && normalized_text.as_deref()
+                    == Some("sum_{subarray(i < j; j < k)} x_i")
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        display_list_text.contains("sum_{subarray(i < j; j < k)} x_i"),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains(r"\begin{subarray}"));
+    assert!(!display_list_text.contains(r"\end{subarray}"));
+}
+
+#[test]
 fn math_stack_relation_wrappers_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Limits \(\overset{p}{\to} X + \underset{n\to\infty}{\lim} a_n + \stackrel{d}{=} Y\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

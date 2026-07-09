@@ -24260,6 +24260,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                                 | "gathered"
                                 | "alignedat"
                                 | "array"
+                                | "subarray"
                         ) {
                             return None;
                         }
@@ -24273,7 +24274,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                                 body_start = after_option;
                             }
                         }
-                        if matches!(environment, "alignedat" | "array") {
+                        if matches!(environment, "alignedat" | "array" | "subarray") {
                             let argument_index = skip_ascii_whitespace(source, body_start);
                             let Some((_, _, _, after_argument)) =
                                 read_braced_source_argument(source, argument_index)
@@ -24324,6 +24325,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                             "gathered" => "gathered",
                             "alignedat" => "alignedat",
                             "array" => "array",
+                            "subarray" => "subarray",
                             _ => "matrix",
                         };
                         push_token!(&format!("{wrapper}({})", rows.join("; ")));
