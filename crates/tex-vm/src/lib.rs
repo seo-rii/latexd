@@ -24026,6 +24026,16 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     "nonumber" | "notag" => {
                         index = command_index;
                     }
+                    "vdotswithin" => {
+                        let argument_index = skip_ascii_whitespace(source, command_index);
+                        let Some((_, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        push_command_token!("vdots");
+                        index = after_argument;
+                    }
                     command if is_latex_layout_spacing_command(command) || command == "tag" => {
                         index = skip_latex_layout_spacing_command(source, command_index);
                     }

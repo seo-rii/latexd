@@ -9587,6 +9587,36 @@ fn math_vertical_and_diagonal_ellipsis_use_normalized_text_in_ir_and_display_lis
 }
 
 #[test]
+fn mathtools_vdotswithin_uses_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}\[\begin{aligned}a&=b\\\vdotswithin{=}\\c&=d\end{aligned}\]\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let expected = "aligned(a = b; vdots; c = d)";
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::DisplayMath(display)
+                if display.raw_source == r"\begin{aligned}a&=b\\\vdotswithin{=}\\c&=d\end{aligned}"
+                    && display.normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in [r"\vdotswithin", r"\begin{aligned}", r"\end{aligned}"] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_relation_operators_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Relations \(a\equiv b \cong c \simeq d \propto e \perp f \parallel g \ll h \gg i \models J \vdash K \dashv L\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
