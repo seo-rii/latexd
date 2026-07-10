@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-10` note: Paper-local math commands `\clock{...}` and `\indicator` now normalize to readable clock/indicator notation in RenderEvent, Document IR, and PageDisplayList text instead of leaking raw macro names.
 - `2026-07-10` note: Math `\sqrt` / Plain TeX `\root` wrappers now preserve token boundaries after adjacent atoms, avoiding fused normalized text such as `deltasqrt` or `2sqrt`.
 - `2026-07-10` note: Low-level math box position primitives `\raise` and `\lower` now hide layout dimensions while preserving following visible box content instead of forcing raw math fallback.
 - `2026-07-10` note: Math vertical box wrappers `\vcenter`, `\vbox`, and `\vtop` now preserve visible braced content instead of forcing raw math fallback.

@@ -25489,6 +25489,29 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         }
                         index = after_argument;
                     }
+                    "clock" => {
+                        let argument_index = skip_ascii_whitespace(source, command_index);
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_math_source(argument));
+                        if argument
+                            .chars()
+                            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '\''))
+                        {
+                            push_command_token!(&format!("gamma_{argument}"));
+                        } else {
+                            push_command_token!(&format!("gamma({argument})"));
+                        }
+                        index = after_argument;
+                    }
+                    "indicator" => {
+                        push_command_token!("1");
+                        index = command_index;
+                    }
                     "comm" | "commutator" | "anticomm" | "acomm" | "anticommutator" => {
                         let first_index = skip_ascii_whitespace(source, command_index);
                         let Some((first, _, _, after_first)) =
@@ -37552,6 +37575,30 @@ Fallback text.
             Some(
                 "k LH(H, E_yes, E_no) + k SAT(Phi) + k QPF(H, beta, delta) + Z + H_clock + S_t + A(t - 1) + ~B(t + 2)"
             )
+        );
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_clock_and_indicator_math_macros() {
+        let source = r"\begin{document}\[\ket{\clock{t}}+\ket{\clock{t+1}}+\ket{\indicator_{S_t}(i)}\]\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let display_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::DisplayMath(_)))
+            .expect("display math event");
+
+        let RenderEvent::DisplayMath(math) = &display_math.event else {
+            panic!("display math event");
+        };
+
+        assert_eq!(
+            math.normalized_text.as_deref(),
+            Some("|gamma_t> + |gamma(t + 1)> + |1_S_t(i)>")
         );
     }
 

@@ -8044,6 +8044,48 @@ fn math_problem_atoms_and_clock_wrappers_use_normalized_text_in_ir_and_display_l
 }
 
 #[test]
+fn clock_and_indicator_math_macros_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Clock \[\ket{\clock{t}}+\ket{\clock{t+1}}+\ket{\indicator_{S_t}(i)}\]\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let display_math = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::DisplayMath(display) => Some(display),
+            _ => None,
+        })
+        .expect("display math");
+
+    assert_eq!(
+        display_math.normalized_text.as_deref(),
+        Some("|gamma_t> + |gamma(t + 1)> + |1_S_t(i)>")
+    );
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(
+        display_list_text.contains("|gamma_t> + |gamma(t + 1)> + |1_S_t(i)>"),
+        "{display_list_text}"
+    );
+    assert!(
+        !display_list_text.contains(r"\clock"),
+        "{display_list_text}"
+    );
+    assert!(
+        !display_list_text.contains(r"\indicator"),
+        "{display_list_text}"
+    );
+}
+
+#[test]
 fn amsmath_raisetag_helper_does_not_leak_into_display_math() {
     let source = r"\begin{document}\[\sum_{i=1}^{n} x_i\raisetag{6pt}\]\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
