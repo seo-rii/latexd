@@ -24334,6 +24334,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                                 | "gathered"
                                 | "lgathered"
                                 | "rgathered"
+                                | "multlined"
                                 | "alignedat"
                                 | "array"
                                 | "subarray"
@@ -24348,6 +24349,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                                 | "gathered"
                                 | "lgathered"
                                 | "rgathered"
+                                | "multlined"
                                 | "alignedat"
                                 | "array"
                                 | "matrix*"
@@ -24363,6 +24365,14 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                                 read_bracket_source_argument(source, option_index)
                             {
                                 body_start = after_option;
+                            }
+                            if environment == "multlined" {
+                                let option_index = skip_ascii_whitespace(source, body_start);
+                                if let Some((_, _, _, after_option)) =
+                                    read_bracket_source_argument(source, option_index)
+                                {
+                                    body_start = after_option;
+                                }
                             }
                         }
                         if matches!(environment, "alignedat" | "array" | "subarray") {
@@ -24381,7 +24391,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         let body = &source[body_start..body_end];
                         let cell_separator = if matches!(
                             environment,
-                            "aligned" | "split" | "gathered" | "alignedat"
+                            "aligned" | "split" | "gathered" | "multlined" | "alignedat"
                         ) {
                             " "
                         } else {
@@ -24415,6 +24425,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                             "aligned" => "aligned",
                             "split" => "split",
                             "gathered" | "lgathered" | "rgathered" => "gathered",
+                            "multlined" => "multlined",
                             "alignedat" => "alignedat",
                             "array" => "array",
                             "subarray" => "subarray",
