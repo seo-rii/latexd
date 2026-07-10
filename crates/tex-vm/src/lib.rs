@@ -24687,7 +24687,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token!(&format!("sideset({left}, {right}, {base})"));
                         index = after_base;
                     }
-                    "boxed" => {
+                    "boxed" | "Aboxed" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);
                         let Some((argument, _, _, after_argument)) =
                             read_braced_source_argument(source, argument_index)

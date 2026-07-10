@@ -1029,6 +1029,41 @@ fn boxed_math_wrapper_normalizes_inner_math_through_display_list() {
 }
 
 #[test]
+fn aboxed_math_wrapper_normalizes_inner_math_through_display_list() {
+    let source = r"\begin{document}Energy $E=\Aboxed{\frac{a}{b}}+c$ now.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let extracted_text = capture.document_ir.extracted_text();
+    let expected = "E = a/b + c";
+
+    assert_eq!(math_event.raw_source, r"E=\Aboxed{\frac{a}{b}}+c");
+    assert_eq!(math_event.normalized_text.as_deref(), Some(expected));
+    assert!(extracted_text.contains("Energy E = a/b + c now."));
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in [r"\Aboxed", r"\frac", "{a}", "{b}"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn unbraced_math_accents_normalize_single_token_arguments() {
     let source = r"\begin{document}State $\hat x+\bar\alpha+\vec\mathbf{v}$ now.\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

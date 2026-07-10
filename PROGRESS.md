@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-10` note: Mathtools `\Aboxed` now reuses boxed-math normalization, preserving its inner visible math instead of forcing raw fallback.
 - `2026-07-10` note: Mathtools `multlined` now consumes its optional position/width arguments and normalizes visible rows to readable `multlined(...)` text instead of raw fallback.
 - `2026-07-10` note: Mathtools gathered variants `lgathered` and `rgathered` now consume optional position arguments and normalize to readable `gathered(...)` text instead of raw fallback.
 - `2026-07-10` note: Mathtools starred matrix environments such as `pmatrix*` and `smallmatrix*` now consume optional alignment arguments and normalize to readable `matrix(...)` text instead of raw fallback.
