@@ -523,6 +523,7 @@ struct MacroDefinition {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Primitive {
     Relax,
+    LegacyMathWordBoundary,
     Def,
     GlobalDef,
     ExpandedDef,
@@ -791,6 +792,8 @@ pub struct VmSnapshot {
     pub read_stream_eof: BTreeMap<u32, bool>,
     #[serde(default)]
     pub legacy_math_output_active: bool,
+    #[serde(default)]
+    pub legacy_math_pending_word_boundary: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1057,6 +1060,7 @@ pub struct Vm<'i> {
     next_write_stream: u32,
     global_prefix: bool,
     legacy_math_output_active: bool,
+    legacy_math_pending_word_boundary: bool,
 }
 
 impl<'i> Vm<'i> {
@@ -1109,6 +1113,7 @@ impl<'i> Vm<'i> {
             next_write_stream: default_next_write_stream(),
             global_prefix: false,
             legacy_math_output_active: false,
+            legacy_math_pending_word_boundary: false,
         };
         vm.define(
             "@empty".to_string(),
@@ -13931,6 +13936,7 @@ impl<'i> Vm<'i> {
             read_stream_lines: self.read_stream_lines.clone(),
             read_stream_eof: self.read_stream_eof.clone(),
             legacy_math_output_active: self.legacy_math_output_active,
+            legacy_math_pending_word_boundary: self.legacy_math_pending_word_boundary,
         }
     }
 
@@ -14017,10 +14023,22 @@ impl<'i> Vm<'i> {
         vm.read_stream_lines = snapshot.read_stream_lines.clone();
         vm.read_stream_eof = snapshot.read_stream_eof.clone();
         vm.legacy_math_output_active = snapshot.legacy_math_output_active;
+        vm.legacy_math_pending_word_boundary = snapshot.legacy_math_pending_word_boundary;
         vm
     }
 
     fn push_legacy_output_char(&mut self, ch: char) {
+        let pending_word_boundary = mem::take(&mut self.legacy_math_pending_word_boundary);
+        if pending_word_boundary && self.legacy_math_output_active && ch.is_ascii_alphanumeric() {
+            if !self
+                .output
+                .chars()
+                .next_back()
+                .is_some_and(|last| last == '_' || last == '^')
+            {
+                self.push_legacy_math_word_boundary();
+            }
+        }
         if self.legacy_math_output_active
             && ch.is_whitespace()
             && self.output.ends_with(char::is_whitespace)
@@ -14034,6 +14052,7 @@ impl<'i> Vm<'i> {
     }
 
     fn push_legacy_math_shift(&mut self, ch: char) {
+        self.legacy_math_pending_word_boundary = false;
         let adjacent_math_shift = self.output.ends_with(ch);
         self.output.push(ch);
         if !adjacent_math_shift {
@@ -14105,7 +14124,10 @@ impl<'i> Vm<'i> {
                 | CatCode::Parameter
                 | CatCode::Superscript
                 | CatCode::Subscript
-                | CatCode::Invalid => self.output.push(ch),
+                | CatCode::Invalid => {
+                    self.legacy_math_pending_word_boundary = false;
+                    self.output.push(ch);
+                }
                 CatCode::Escape | CatCode::EndOfLine | CatCode::Ignored | CatCode::Comment => {}
             },
             TokenKind::ControlSequence { name } => {
@@ -14132,13 +14154,16 @@ impl<'i> Vm<'i> {
                         let math_control_word = self.legacy_math_output_active
                             && !control_sequence.is_empty()
                             && control_sequence.chars().all(|ch| ch.is_ascii_alphabetic());
-                        if math_control_word {
+                        if math_control_word
+                            && !self.output.ends_with('_')
+                            && !self.output.ends_with('^')
+                        {
                             self.push_legacy_math_word_boundary();
                         }
                         self.output.push('\\');
                         self.output.push_str(&control_sequence);
                         if math_control_word {
-                            self.push_legacy_math_word_boundary();
+                            self.legacy_math_pending_word_boundary = true;
                         }
                     }
                 }
@@ -14154,6 +14179,9 @@ impl<'i> Vm<'i> {
     ) {
         match primitive {
             Primitive::Relax | Primitive::Immediate | Primitive::Protect => {}
+            Primitive::LegacyMathWordBoundary => {
+                self.legacy_math_pending_word_boundary = self.legacy_math_output_active;
+            }
             Primitive::Citation => {
                 self.skip_optional_spaces(queue);
                 if let Some(token) = self.pop_next_token(queue) {
@@ -20384,6 +20412,7 @@ impl<'i> Vm<'i> {
 fn builtin_primitive(name: &str) -> Option<Primitive> {
     match name {
         "relax" => Some(Primitive::Relax),
+        "latexdmathwordboundary" => Some(Primitive::LegacyMathWordBoundary),
         "def" => Some(Primitive::Def),
         "gdef" => Some(Primitive::GlobalDef),
         "edef" => Some(Primitive::ExpandedDef),
@@ -20618,6 +20647,7 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
 fn primitive_name(primitive: Primitive) -> &'static str {
     match primitive {
         Primitive::Relax => "relax",
+        Primitive::LegacyMathWordBoundary => "latexdmathwordboundary",
         Primitive::Def => "def",
         Primitive::GlobalDef => "gdef",
         Primitive::ExpandedDef => "edef",
@@ -30760,6 +30790,29 @@ mod tests {
             assert!(
                 !outcome.output.contains(glued),
                 "{glued} leaked into {:?}",
+                outcome.output
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_math_word_boundary_primitive_splits_atoms_without_breaking_scripts() {
+        let source = r"\def\word{\latexdmathwordboundary word\latexdmathwordboundary}\begin{document}$a\word b+\word_1+\word^2+\word{C}$\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(source);
+
+        for visible in ["a word b", "word_1", "word^2", "word C"] {
+            assert!(
+                outcome.output.contains(visible),
+                "{visible} missing from {:?}",
+                outcome.output
+            );
+        }
+        for hidden in ["aword", "wordb", "word _1", "word ^2", "wordC"] {
+            assert!(
+                !outcome.output.contains(hidden),
+                "{hidden} leaked into {:?}",
                 outcome.output
             );
         }

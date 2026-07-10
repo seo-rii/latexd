@@ -180,44 +180,44 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\rVert{||}
 \def\vert{|}
 \def\Vert{||}
-\def\alpha{ alpha}
-\def\beta{ beta}
-\def\gamma{ gamma}
-\def\delta{ delta}
-\def\epsilon{ epsilon}
-\def\varepsilon{ varepsilon}
-\def\zeta{ zeta}
-\def\eta{ eta}
-\def\theta{ theta}
-\def\vartheta{ vartheta}
-\def\iota{ iota}
-\def\kappa{ kappa}
-\def\lambda{ lambda}
-\def\mu{ mu}
-\def\nu{ nu}
-\def\xi{ xi}
-\def\pi{ pi}
-\def\rho{ rho}
-\def\sigma{ sigma}
-\def\tau{ tau}
-\def\upsilon{ upsilon}
-\def\phi{ phi}
-\def\varphi{ varphi}
-\def\chi{ chi}
-\def\psi{ psi}
-\def\omega{ omega}
-\def\Gamma{ Gamma}
-\def\Delta{ Delta}
-\def\Theta{ Theta}
-\def\Lambda{ Lambda}
-\def\Xi{ Xi}
-\def\Pi{ Pi}
-\def\Sigma{ Sigma}
-\def\Phi{ Phi}
-\def\Psi{ Psi}
-\def\Omega{ Omega}
-\def\ell{ell}
-\def\hbar{hbar}
+\def\alpha{\latexdmathwordboundary alpha\latexdmathwordboundary}
+\def\beta{\latexdmathwordboundary beta\latexdmathwordboundary}
+\def\gamma{\latexdmathwordboundary gamma\latexdmathwordboundary}
+\def\delta{\latexdmathwordboundary delta\latexdmathwordboundary}
+\def\epsilon{\latexdmathwordboundary epsilon\latexdmathwordboundary}
+\def\varepsilon{\latexdmathwordboundary varepsilon\latexdmathwordboundary}
+\def\zeta{\latexdmathwordboundary zeta\latexdmathwordboundary}
+\def\eta{\latexdmathwordboundary eta\latexdmathwordboundary}
+\def\theta{\latexdmathwordboundary theta\latexdmathwordboundary}
+\def\vartheta{\latexdmathwordboundary vartheta\latexdmathwordboundary}
+\def\iota{\latexdmathwordboundary iota\latexdmathwordboundary}
+\def\kappa{\latexdmathwordboundary kappa\latexdmathwordboundary}
+\def\lambda{\latexdmathwordboundary lambda\latexdmathwordboundary}
+\def\mu{\latexdmathwordboundary mu\latexdmathwordboundary}
+\def\nu{\latexdmathwordboundary nu\latexdmathwordboundary}
+\def\xi{\latexdmathwordboundary xi\latexdmathwordboundary}
+\def\pi{\latexdmathwordboundary pi\latexdmathwordboundary}
+\def\rho{\latexdmathwordboundary rho\latexdmathwordboundary}
+\def\sigma{\latexdmathwordboundary sigma\latexdmathwordboundary}
+\def\tau{\latexdmathwordboundary tau\latexdmathwordboundary}
+\def\upsilon{\latexdmathwordboundary upsilon\latexdmathwordboundary}
+\def\phi{\latexdmathwordboundary phi\latexdmathwordboundary}
+\def\varphi{\latexdmathwordboundary varphi\latexdmathwordboundary}
+\def\chi{\latexdmathwordboundary chi\latexdmathwordboundary}
+\def\psi{\latexdmathwordboundary psi\latexdmathwordboundary}
+\def\omega{\latexdmathwordboundary omega\latexdmathwordboundary}
+\def\Gamma{\latexdmathwordboundary Gamma\latexdmathwordboundary}
+\def\Delta{\latexdmathwordboundary Delta\latexdmathwordboundary}
+\def\Theta{\latexdmathwordboundary Theta\latexdmathwordboundary}
+\def\Lambda{\latexdmathwordboundary Lambda\latexdmathwordboundary}
+\def\Xi{\latexdmathwordboundary Xi\latexdmathwordboundary}
+\def\Pi{\latexdmathwordboundary Pi\latexdmathwordboundary}
+\def\Sigma{\latexdmathwordboundary Sigma\latexdmathwordboundary}
+\def\Phi{\latexdmathwordboundary Phi\latexdmathwordboundary}
+\def\Psi{\latexdmathwordboundary Psi\latexdmathwordboundary}
+\def\Omega{\latexdmathwordboundary Omega\latexdmathwordboundary}
+\def\ell{\latexdmathwordboundary ell\latexdmathwordboundary}
+\def\hbar{\latexdmathwordboundary hbar\latexdmathwordboundary}
 \def\sum{ sum }
 \def\prod{ prod }
 \def\int{ int }
@@ -269,8 +269,8 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\dagger{ dagger }
 \def\sim{ sim }
 \def\triangleq{=}
-\def\nabla{nabla}
-\def\prime{prime}
+\def\nabla{\latexdmathwordboundary nabla\latexdmathwordboundary}
+\def\prime{\latexdmathwordboundary prime\latexdmathwordboundary}
 \def\to{ to }
 \def\rightarrow{ to }
 \def\Rightarrow{ to }
@@ -280,7 +280,7 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\forall{ for all }
 \def\equiv{=}
 \def\gets{ gets }
-\def\backslash{backslash}
+\def\backslash{\latexdmathwordboundary backslash\latexdmathwordboundary}
 \def\arg{ arg }
 \def\min{ min }
 \def\max{ max }
@@ -289,12 +289,12 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\bmod{ mod }
 \def\mid{|}
 \def\colon{:}
-\def\perp{perp}
+\def\perp{\latexdmathwordboundary perp\latexdmathwordboundary}
 \def\triangleright{>}
-\def\lceil{ ceil }
-\def\rceil{ ceil }
-\def\lfloor{ floor }
-\def\rfloor{ floor }
+\def\lceil{\latexdmathwordboundary ceil\latexdmathwordboundary}
+\def\rceil{\latexdmathwordboundary ceil\latexdmathwordboundary}
+\def\lfloor{\latexdmathwordboundary floor\latexdmathwordboundary}
+\def\rfloor{\latexdmathwordboundary floor\latexdmathwordboundary}
 \def\displaystyle{}
 \def\quad{ }
 \def\qquad{ }
@@ -353,7 +353,7 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\operatorname#1{#1}
 \def\text#1{#1}
 \def\frac#1#2{#1/#2}
-\newcommand{\sqrt}[2][]{ #2 }
+\newcommand{\sqrt}[2][]{\latexdmathwordboundary#2\latexdmathwordboundary}
 \def\multirow#1#2#3{#3}
 \def\multicolumn#1#2#3{#3}
 \def\shortstack#1{#1}
@@ -1612,6 +1612,62 @@ mod tests {
         for hidden in ["delta2", "floort", "sqrt2"] {
             assert!(
                 !result.output.contains(hidden),
+                "{hidden} leaked into {:?}",
+                result.output
+            );
+        }
+    }
+
+    #[test]
+    fn mini_kernel_pending_math_word_boundaries_preserve_scripts() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            r"\begin{document}$q\ell+\ell e+\beta H+\delta E+\lambda a+\omega n+10\hbar+\omega_{\ell'}+\ell_1+\beta^2$.\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        for visible in [
+            "q ell",
+            "ell e",
+            "beta H",
+            "delta E",
+            "lambda a",
+            "omega n",
+            "10 hbar",
+            "omega_ell",
+            "ell_1",
+            "beta^2",
+        ] {
+            assert!(
+                result.output.contains(visible),
+                "{visible} missing from {:?}",
+                result.output
+            );
+        }
+        for hidden in [
+            "qell",
+            "elle",
+            "betah",
+            "deltae",
+            "lambdaa",
+            "omegan",
+            "10hbar",
+            "omega_ ell",
+            "ell _1",
+            "beta ^2",
+        ] {
+            assert!(
+                !result.output.to_lowercase().contains(hidden),
                 "{hidden} leaked into {:?}",
                 result.output
             );
