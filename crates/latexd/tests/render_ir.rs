@@ -1199,6 +1199,45 @@ fn math_phantom_and_overlap_wrappers_normalize_through_ir_and_display_list() {
 }
 
 #[test]
+fn mathmakebox_wrapper_normalizes_visible_content_through_display_list() {
+    let source =
+        r"\begin{document}State $\mathmakebox[0pt][l]{\frac{x}{2}+A}+B$ now.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let expected = "x/2 + A + B";
+
+    assert_eq!(
+        math_event.raw_source,
+        r"\mathmakebox[0pt][l]{\frac{x}{2}+A}+B"
+    );
+    assert_eq!(math_event.normalized_text.as_deref(), Some(expected));
+    assert!(extracted_text.contains("State x/2 + A + B now."));
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in [r"\mathmakebox", r"\frac", "[0pt]", "[l]"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn smashoperator_wrapper_normalizes_visible_operator_through_display_list() {
     let source =
         r"\begin{document}State $\smashoperator[r]{\sum_{i=1}^{n}} x_i$ now.\end{document}";
