@@ -24852,6 +24852,13 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     | "textsf"
                     | "textup"
                     | "rm"
+                    | "bf"
+                    | "it"
+                    | "sl"
+                    | "sf"
+                    | "tt"
+                    | "cal"
+                    | "mit"
                     | "mathrm"
                     | "mathbf"
                     | "mathit"
@@ -24894,15 +24901,21 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         {
                             argument_index = skip_ascii_whitespace(source, argument_index + 1);
                         }
-                        let Some((argument, _, _, after_argument)) =
+                        if let Some((argument, _, _, after_argument)) =
                             read_braced_source_argument(source, argument_index)
-                        else {
+                        {
+                            let argument = normalize_latex_math_text(argument)
+                                .unwrap_or_else(|| normalize_latex_text(argument));
+                            push_command_token!(&argument);
+                            index = after_argument;
+                        } else if matches!(
+                            command,
+                            "rm" | "bf" | "it" | "sl" | "sf" | "tt" | "cal" | "mit"
+                        ) {
+                            index = command_index;
+                        } else {
                             return None;
-                        };
-                        let argument = normalize_latex_math_text(argument)
-                            .unwrap_or_else(|| normalize_latex_text(argument));
-                        push_command_token!(&argument);
-                        index = after_argument;
+                        }
                     }
                     "mathop" | "mathord" | "mathrel" | "mathbin" | "mathopen" | "mathclose"
                     | "mathpunct" | "mathinner" => {
@@ -36985,6 +36998,30 @@ Fallback text.
                 if math.raw_source
                     == r"x+\raise1pt\hbox{high}+\lower 2pt\vbox{\hbox{low}}+y"
                     && math.normalized_text.as_deref() == Some("x + high + low + y")
+        ));
+    }
+
+    #[test]
+    fn render_event_capture_hides_old_style_math_font_declarations() {
+        let source = r"\begin{document}Value \(\frac{ {\rm d} \rho(c)}{ {\rm d} \rho_0(c)}+f_{\rm quad}+{\rm min}\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math)
+                if math.raw_source
+                    == r"\frac{ {\rm d} \rho(c)}{ {\rm d} \rho_0(c)}+f_{\rm quad}+{\rm min}"
+                    && math.normalized_text.as_deref()
+                        == Some("d rho(c)/d rho_0(c) + f_quad + min")
         ));
     }
 

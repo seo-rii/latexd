@@ -1584,6 +1584,42 @@ fn math_raise_lower_primitives_normalize_visible_box_content_through_display_lis
 }
 
 #[test]
+fn old_style_math_font_declarations_do_not_leak_into_ir_or_display_list() {
+    let source = r"\begin{document}Value $\frac{ {\rm d} \rho(c)}{ {\rm d} \rho_0(c)}+f_{\rm quad}+{\rm min}$ now.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let expected = "d rho(c)/d rho_0(c) + f_quad + min";
+
+    assert_eq!(
+        math_event.raw_source,
+        r"\frac{ {\rm d} \rho(c)}{ {\rm d} \rho_0(c)}+f_{\rm quad}+{\rm min}"
+    );
+    assert_eq!(math_event.normalized_text.as_deref(), Some(expected));
+    assert!(extracted_text.contains("Value d rho(c)/d rho_0(c) + f_quad + min now."));
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    assert!(!extracted_text.contains(r"\rm"), "{extracted_text}");
+    assert!(!display_list_text.contains(r"\rm"), "{display_list_text}");
+}
+
+#[test]
 fn smashoperator_wrapper_normalizes_visible_operator_through_display_list() {
     let source =
         r"\begin{document}State $\smashoperator[r]{\sum_{i=1}^{n}} x_i$ now.\end{document}";
