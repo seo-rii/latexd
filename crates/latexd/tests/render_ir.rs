@@ -8256,6 +8256,54 @@ fn math_stack_relation_wrappers_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn mathtools_adjustlimits_hides_limit_layout_helper_in_ir_and_display_list() {
+    let source = r"\begin{document}Limits \(\adjustlimits\lim_{n\to\infty}\sup_{x\in S} f_n(x)\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "lim_{n -> infinity} sup_{x in S} f_n(x)";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"\adjustlimits\lim_{n\to\infty}\sup_{x\in S} f_n(x)"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains(r"\adjustlimits"));
+}
+
+#[test]
 fn math_extended_arrows_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Flow \(\xrightarrow{p} X + Y \xleftarrow[n\to\infty]{d} Z\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
