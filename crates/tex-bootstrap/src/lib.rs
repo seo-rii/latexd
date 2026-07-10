@@ -1693,12 +1693,12 @@ mod tests {
         let result = run_project(&world).expect("project run");
 
         assert!(
-            result.output.contains("q_k varphi_k"),
+            result.output.contains("sum _k q_k varphi_k"),
             "nested math boundaries missing from {:?}",
             result.output
         );
         assert!(
-            !result.output.contains("q_kvarphi"),
+            !result.output.contains("_kq_k") && !result.output.contains("q_kvarphi"),
             "nested math atom leaked into {:?}",
             result.output
         );
@@ -1716,7 +1716,7 @@ mod tests {
         fs::write(root.join("child.tex"), "circuit").expect("child");
         fs::write(
             root.join("paper.tex"),
-            r"\begin{document}$\textit{Hamiltonian \input{child}:$q_k\varphi_k$}\varphi_k$\end{document}",
+            r"\begin{document}$\textit{Hamiltonian:$x_{\input{child}}q+q_k\varphi_k$}\varphi_k$\end{document}",
         )
         .expect("paper");
 
@@ -1742,7 +1742,18 @@ mod tests {
         )
         .expect("replayed run");
 
-        assert_eq!(replayed.output, full.output);
+        assert_eq!(
+            replayed.output,
+            full.output,
+            "resume_offset={}, scopes={}, script_depths={:?}, text_depth={:?}",
+            child_exit.source_offset_utf8,
+            child_exit.snapshot.scopes.len(),
+            child_exit.snapshot.legacy_math_script_boundary_scope_depths,
+            child_exit
+                .snapshot
+                .legacy_math_text_wrapper_restore_scope_depth,
+        );
+        assert!(full.output.contains("x_circuit q"), "{:?}", full.output);
         assert!(full.output.contains("q_k varphi_k"), "{:?}", full.output);
     }
 

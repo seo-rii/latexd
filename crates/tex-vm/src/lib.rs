@@ -796,6 +796,10 @@ pub struct VmSnapshot {
     pub legacy_math_pending_word_boundary: bool,
     #[serde(default)]
     pub legacy_math_text_wrapper_restore_scope_depth: Option<usize>,
+    #[serde(default)]
+    pub legacy_math_script_boundary_scope_depths: Vec<usize>,
+    #[serde(default)]
+    pub legacy_output_last_char: Option<char>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1064,6 +1068,8 @@ pub struct Vm<'i> {
     legacy_math_output_active: bool,
     legacy_math_pending_word_boundary: bool,
     legacy_math_text_wrapper_restore_scope_depth: Option<usize>,
+    legacy_math_script_boundary_scope_depths: Vec<usize>,
+    legacy_output_last_char: Option<char>,
 }
 
 impl<'i> Vm<'i> {
@@ -1118,6 +1124,8 @@ impl<'i> Vm<'i> {
             legacy_math_output_active: false,
             legacy_math_pending_word_boundary: false,
             legacy_math_text_wrapper_restore_scope_depth: None,
+            legacy_math_script_boundary_scope_depths: Vec::new(),
+            legacy_output_last_char: None,
         };
         vm.define(
             "@empty".to_string(),
@@ -13844,6 +13852,11 @@ impl<'i> Vm<'i> {
         if pushed_root_source.is_some() {
             self.source_stack.pop();
         }
+        self.legacy_output_last_char = self
+            .output
+            .chars()
+            .next_back()
+            .or(self.legacy_output_last_char);
 
         VmOutcome {
             output: mem::take(&mut self.output),
@@ -13943,6 +13956,14 @@ impl<'i> Vm<'i> {
             legacy_math_pending_word_boundary: self.legacy_math_pending_word_boundary,
             legacy_math_text_wrapper_restore_scope_depth: self
                 .legacy_math_text_wrapper_restore_scope_depth,
+            legacy_math_script_boundary_scope_depths: self
+                .legacy_math_script_boundary_scope_depths
+                .clone(),
+            legacy_output_last_char: self
+                .output
+                .chars()
+                .next_back()
+                .or(self.legacy_output_last_char),
         }
     }
 
@@ -14032,16 +14053,24 @@ impl<'i> Vm<'i> {
         vm.legacy_math_pending_word_boundary = snapshot.legacy_math_pending_word_boundary;
         vm.legacy_math_text_wrapper_restore_scope_depth =
             snapshot.legacy_math_text_wrapper_restore_scope_depth;
+        vm.legacy_math_script_boundary_scope_depths =
+            snapshot.legacy_math_script_boundary_scope_depths.clone();
+        vm.legacy_output_last_char = snapshot.legacy_output_last_char;
         vm
+    }
+
+    fn last_legacy_output_char(&self) -> Option<char> {
+        self.output
+            .chars()
+            .next_back()
+            .or(self.legacy_output_last_char)
     }
 
     fn push_legacy_output_char(&mut self, ch: char) {
         let pending_word_boundary = mem::take(&mut self.legacy_math_pending_word_boundary);
         if pending_word_boundary && self.legacy_math_output_active && ch.is_ascii_alphanumeric() {
             if !self
-                .output
-                .chars()
-                .next_back()
+                .last_legacy_output_char()
                 .is_some_and(|last| last == '_' || last == '^')
             {
                 self.push_legacy_math_word_boundary();
@@ -14049,7 +14078,9 @@ impl<'i> Vm<'i> {
         }
         if self.legacy_math_output_active
             && ch.is_whitespace()
-            && self.output.ends_with(char::is_whitespace)
+            && self
+                .last_legacy_output_char()
+                .is_some_and(char::is_whitespace)
         {
             return;
         }
@@ -14057,12 +14088,14 @@ impl<'i> Vm<'i> {
             self.output.push(' ');
         }
         self.output.push(ch);
+        self.legacy_output_last_char = Some(ch);
     }
 
     fn push_legacy_math_shift(&mut self, ch: char) {
         self.legacy_math_pending_word_boundary = false;
-        let adjacent_math_shift = self.output.ends_with(ch);
+        let adjacent_math_shift = self.last_legacy_output_char() == Some(ch);
         self.output.push(ch);
+        self.legacy_output_last_char = Some(ch);
         if !adjacent_math_shift {
             self.legacy_math_output_active = !self.legacy_math_output_active;
         }
@@ -14072,11 +14105,12 @@ impl<'i> Vm<'i> {
         if !self.legacy_math_output_active {
             return;
         }
-        let Some(last) = self.output.chars().next_back() else {
+        let Some(last) = self.last_legacy_output_char() else {
             return;
         };
         if !last.is_whitespace() && last != '$' {
             self.output.push(' ');
+            self.legacy_output_last_char = Some(' ');
         }
     }
 
@@ -14130,18 +14164,45 @@ impl<'i> Vm<'i> {
                         self.legacy_math_pending_word_boundary = false;
                         self.push_legacy_output_char(' ');
                     }
+                    while self
+                        .legacy_math_script_boundary_scope_depths
+                        .last()
+                        .is_some_and(|depth| *depth == self.scopes.len())
+                    {
+                        self.legacy_math_script_boundary_scope_depths.pop();
+                        self.legacy_math_pending_word_boundary = self.legacy_math_output_active;
+                    }
                 }
                 CatCode::Space | CatCode::Letter | CatCode::Other | CatCode::Active => {
                     self.push_legacy_output_char(ch);
                 }
                 CatCode::MathShift => self.push_legacy_math_shift(ch),
-                CatCode::AlignmentTab
-                | CatCode::Parameter
-                | CatCode::Superscript
-                | CatCode::Subscript
-                | CatCode::Invalid => {
+                CatCode::Superscript | CatCode::Subscript => {
                     self.legacy_math_pending_word_boundary = false;
                     self.output.push(ch);
+                    self.legacy_output_last_char = Some(ch);
+                    if self.legacy_math_output_active
+                        && let Some(argument) = self.read_macro_argument(queue)
+                    {
+                        self.push_token_front(
+                            queue,
+                            Token::character('}', CatCode::EndGroup, 0, 0),
+                        );
+                        self.legacy_math_script_boundary_scope_depths
+                            .push(self.scopes.len());
+                        for token in argument.into_iter().rev() {
+                            self.push_token_front(queue, token);
+                        }
+                        self.push_token_front(
+                            queue,
+                            Token::character('{', CatCode::BeginGroup, 0, 0),
+                        );
+                    }
+                }
+                CatCode::AlignmentTab | CatCode::Parameter | CatCode::Invalid => {
+                    self.legacy_math_pending_word_boundary = false;
+                    self.output.push(ch);
+                    self.legacy_output_last_char = Some(ch);
                 }
                 CatCode::Escape | CatCode::EndOfLine | CatCode::Ignored | CatCode::Comment => {}
             },
@@ -14177,6 +14238,8 @@ impl<'i> Vm<'i> {
                         }
                         self.output.push('\\');
                         self.output.push_str(&control_sequence);
+                        self.legacy_output_last_char =
+                            control_sequence.chars().next_back().or(Some('\\'));
                         if math_control_word {
                             self.legacy_math_pending_word_boundary = true;
                         }
@@ -30863,6 +30926,29 @@ mod tests {
             "outer math mode was not closed after the text wrapper"
         );
         for glued in ["q_kvarphi", "varphi_kvarphi"] {
+            assert!(
+                !outcome.output.contains(glued),
+                "{glued} leaked into {:?}",
+                outcome.output
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_math_output_separates_script_arguments_from_following_atoms() {
+        let source = r"\begin{document}$S_{k}q_k+x_iq+x_{ij}q+x_{i_j}q+x^2q$\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(source);
+
+        for visible in ["S_k q_k", "x_i q", "x_ij q", "x_i_j q", "x^2 q"] {
+            assert!(
+                outcome.output.contains(visible),
+                "{visible} missing from {:?}",
+                outcome.output
+            );
+        }
+        for glued in ["S_kq", "x_iq", "x_ijq", "x_i_jq", "x^2q"] {
             assert!(
                 !outcome.output.contains(glued),
                 "{glued} leaked into {:?}",
