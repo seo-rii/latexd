@@ -1508,6 +1508,44 @@ fn math_text_box_wrappers_normalize_visible_content_through_display_list() {
 }
 
 #[test]
+fn math_vertical_box_wrappers_normalize_visible_content_through_display_list() {
+    let source = r"\begin{document}State $x+\vcenter{\hbox{centered}}+\vbox{\hbox{stacked}}+\vtop{\hbox{top}}+y$ now.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let expected = "x + centered + stacked + top + y";
+
+    assert_eq!(
+        math_event.raw_source,
+        r"x+\vcenter{\hbox{centered}}+\vbox{\hbox{stacked}}+\vtop{\hbox{top}}+y"
+    );
+    assert_eq!(math_event.normalized_text.as_deref(), Some(expected));
+    assert!(extracted_text.contains("State x + centered + stacked + top + y now."));
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in [r"\vcenter", r"\vbox", r"\vtop", r"\hbox"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn smashoperator_wrapper_normalizes_visible_operator_through_display_list() {
     let source =
         r"\begin{document}State $\smashoperator[r]{\sum_{i=1}^{n}} x_i$ now.\end{document}";
