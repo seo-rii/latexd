@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-10` note: Plain TeX `\abovewithdelims` math now consumes delimiter and rule-thickness tokens before normalizing to readable fraction text.
 - `2026-07-10` note: Plain TeX delimited infix math commands `\overwithdelims` and `\atopwithdelims` now consume delimiter tokens and normalize to readable fraction/operator text instead of raw fallback.
 - `2026-07-10` note: Plain TeX infix `\above` math fractions now normalize to readable slash fractions while hiding rule-thickness dimensions.
 - `2026-07-10` note: Equation-like display environments `flalign*`, `alignat*`, and `eqnarray*` now have IR assertions pinning normalized text alongside existing display-list readability checks.

@@ -24079,7 +24079,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!("/");
                         index = skip_latex_layout_spacing_command(source, command_index);
                     }
-                    "overwithdelims" | "atopwithdelims" => {
+                    "overwithdelims" | "atopwithdelims" | "abovewithdelims" => {
                         let mut delimiter_index = skip_ascii_whitespace(source, command_index);
                         for _ in 0..2 {
                             delimiter_index = skip_ascii_whitespace(source, delimiter_index);
@@ -24115,12 +24115,16 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                                 delimiter_index += delimiter.len_utf8();
                             }
                         }
-                        if command == "overwithdelims" {
-                            push_token!("/");
-                        } else {
+                        if command == "atopwithdelims" {
                             push_operator!("atop");
+                        } else {
+                            push_token!("/");
                         }
-                        index = skip_ascii_whitespace(source, delimiter_index);
+                        if command == "abovewithdelims" {
+                            index = skip_latex_layout_spacing_command(source, delimiter_index);
+                        } else {
+                            index = skip_ascii_whitespace(source, delimiter_index);
+                        }
                     }
                     "choose" | "atop" => {
                         push_operator!(command);

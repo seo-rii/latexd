@@ -1133,8 +1133,7 @@ fn plain_tex_above_fraction_normalizes_through_display_list() {
 
 #[test]
 fn plain_tex_delimited_infix_math_normalizes_through_display_list() {
-    let source =
-        r"\begin{document}Stack ${a\overwithdelims() b}+{c\atopwithdelims[] d}$ now.\end{document}";
+    let source = r"\begin{document}Stack ${a\overwithdelims() b}+{c\atopwithdelims[] d}+{e\abovewithdelims\{\}0.4pt f}$ now.\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
     let math_event = capture
         .events
@@ -1155,16 +1154,21 @@ fn plain_tex_delimited_infix_math_normalizes_through_display_list() {
         })
         .collect::<Vec<_>>()
         .join(" ");
-    let expected = "a/b + c atop d";
+    let expected = "a/b + c atop d + e/f";
 
     assert_eq!(
         math_event.raw_source,
-        r"{a\overwithdelims() b}+{c\atopwithdelims[] d}"
+        r"{a\overwithdelims() b}+{c\atopwithdelims[] d}+{e\abovewithdelims\{\}0.4pt f}"
     );
     assert_eq!(math_event.normalized_text.as_deref(), Some(expected));
-    assert!(extracted_text.contains("Stack a/b + c atop d now."));
+    assert!(extracted_text.contains("Stack a/b + c atop d + e/f now."));
     assert!(display_list_text.contains(expected), "{display_list_text}");
-    for hidden in [r"\overwithdelims", r"\atopwithdelims"] {
+    for hidden in [
+        r"\overwithdelims",
+        r"\atopwithdelims",
+        r"\abovewithdelims",
+        "0.4pt",
+    ] {
         assert!(!extracted_text.contains(hidden), "{extracted_text}");
         assert!(!display_list_text.contains(hidden), "{display_list_text}");
     }
