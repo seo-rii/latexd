@@ -24126,7 +24126,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                             index = skip_ascii_whitespace(source, delimiter_index);
                         }
                     }
-                    "choose" | "atop" => {
+                    "choose" | "atop" | "brace" | "brack" => {
                         push_operator!(command);
                         index = skip_ascii_whitespace(source, command_index);
                     }

@@ -1176,7 +1176,7 @@ fn plain_tex_delimited_infix_math_normalizes_through_display_list() {
 
 #[test]
 fn plain_tex_choose_and_atop_normalize_through_display_list() {
-    let source = r"\begin{document}Stack ${n\choose k}+{a\atop b}$ now.\end{document}";
+    let source = r"\begin{document}Stack ${n\choose k}+{a\atop b}+{x\brack y}+{p\brace q}$ now.\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
     let math_event = capture
         .events
@@ -1197,13 +1197,16 @@ fn plain_tex_choose_and_atop_normalize_through_display_list() {
         })
         .collect::<Vec<_>>()
         .join(" ");
-    let expected = "n choose k + a atop b";
+    let expected = "n choose k + a atop b + x brack y + p brace q";
 
-    assert_eq!(math_event.raw_source, r"{n\choose k}+{a\atop b}");
+    assert_eq!(
+        math_event.raw_source,
+        r"{n\choose k}+{a\atop b}+{x\brack y}+{p\brace q}"
+    );
     assert_eq!(math_event.normalized_text.as_deref(), Some(expected));
-    assert!(extracted_text.contains("Stack n choose k + a atop b now."));
+    assert!(extracted_text.contains("Stack n choose k + a atop b + x brack y + p brace q now."));
     assert!(display_list_text.contains(expected), "{display_list_text}");
-    for hidden in [r"\choose", r"\atop"] {
+    for hidden in [r"\choose", r"\atop", r"\brack", r"\brace"] {
         assert!(!extracted_text.contains(hidden), "{extracted_text}");
         assert!(!display_list_text.contains(hidden), "{display_list_text}");
     }
