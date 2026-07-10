@@ -20837,6 +20837,7 @@ fn is_latex_layout_spacing_command(command: &str) -> bool {
             | "kern"
             | "mkern"
             | "mskip"
+            | "mspace"
             | "smallskip"
             | "medskip"
             | "bigskip"

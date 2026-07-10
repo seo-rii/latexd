@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-10` note: Math spacing control `\mspace{...}` now follows the existing `\mskip`/`\mkern`/`\kern` layout-spacing cleanup path, hiding spacing dimensions from raw and normalized math text.
 - `2026-07-10` note: Amsmath `\raisetag{...}` now stays hidden in normalized display math text, preserving visible operators without leaking equation-tag positioning dimensions.
 - `2026-07-10` note: Group annotation wrappers `\overgroup` and `\undergroup` now normalize like brace/bracket annotations, preserving visible grouped content and scripts instead of forcing raw fallback.
 - `2026-07-10` note: Amsmath root-position helpers `\leftroot` and `\uproot` now stay hidden inside optional `\sqrt[...]` root indices, preserving the visible index without leaking layout controls.

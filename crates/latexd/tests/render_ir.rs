@@ -7917,7 +7917,7 @@ fn math_style_and_limit_controls_use_normalized_text_in_ir_and_display_list() {
 
 #[test]
 fn math_spacing_controls_do_not_leak_to_ir_and_display_list() {
-    let source = r"\begin{document}Spacing \(A\mskip5mu B\mkern-2mu C\kern1pt D\).\end{document}";
+    let source = r"\begin{document}Spacing \(A\mskip5mu B\mkern-2mu C\kern1pt D\mspace{6mu}E\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
     let math_event = capture
         .events
@@ -7939,10 +7939,12 @@ fn math_spacing_controls_do_not_leak_to_ir_and_display_list() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert_eq!(math_event.raw_source, "ABCD");
-    assert!(extracted_text.contains("Spacing ABCD"));
-    assert!(display_list_text.contains("ABCD"));
-    for hidden in [r"\mskip", r"\mkern", r"\kern", "5mu", "-2mu", "1pt"] {
+    assert_eq!(math_event.raw_source, "ABCDE");
+    assert!(extracted_text.contains("Spacing ABCDE"));
+    assert!(display_list_text.contains("ABCDE"));
+    for hidden in [
+        r"\mskip", r"\mkern", r"\kern", r"\mspace", "5mu", "-2mu", "1pt", "6mu",
+    ] {
         assert!(!extracted_text.contains(hidden), "{extracted_text}");
         assert!(!display_list_text.contains(hidden), "{display_list_text}");
     }
