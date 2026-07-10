@@ -24068,6 +24068,21 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token!("vdots");
                         index = after_argument;
                     }
+                    "hdotsfor" => {
+                        let mut argument_index = skip_ascii_whitespace(source, command_index);
+                        if let Some((_, _, _, after_option)) =
+                            read_bracket_source_argument(source, argument_index)
+                        {
+                            argument_index = skip_ascii_whitespace(source, after_option);
+                        }
+                        let Some((_, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        push_token!("...");
+                        index = after_argument;
+                    }
                     command if is_latex_layout_spacing_command(command) || command == "tag" => {
                         index = skip_latex_layout_spacing_command(source, command_index);
                     }
@@ -37531,6 +37546,29 @@ Fallback text.
                 if math.raw_source == r"\bordermatrix{&x&y\cr r&a&b\cr s&c&d}"
                     && math.normalized_text.as_deref()
                         == Some("bordermatrix(x, y; r, a, b; s, c, d)")
+        ));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_matrix_hdotsfor_command() {
+        let source = r"\begin{document}Dots \(\begin{matrix}a&b\\\hdotsfor[1.5]{2}\\c&d\end{matrix}\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math)
+                if math.raw_source == r"\begin{matrix}a&b\\\hdotsfor[1.5]{2}\\c&d\end{matrix}"
+                    && math.normalized_text.as_deref()
+                        == Some("matrix(a, b; ...; c, d)")
         ));
     }
 

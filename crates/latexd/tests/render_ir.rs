@@ -8624,6 +8624,54 @@ fn plain_tex_bordermatrix_command_uses_normalized_text_in_ir_and_display_list() 
 }
 
 #[test]
+fn matrix_hdotsfor_command_uses_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Dots \(\begin{matrix}a&b\\\hdotsfor[1.5]{2}\\c&d\end{matrix}\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "matrix(a, b; ...; c, d)";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source == r"\begin{matrix}a&b\\\hdotsfor[1.5]{2}\\c&d\end{matrix}"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let normalized_display_list_text = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    assert!(
+        normalized_display_list_text.contains(expected),
+        "{display_list_text}"
+    );
+    assert!(!display_list_text.contains(r"\hdotsfor"));
+    assert!(!display_list_text.contains("[1.5]"));
+}
+
+#[test]
 fn plain_tex_alignment_commands_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Align \(\eqalign{a&=b\cr c&=d}+\displaylines{x=y\cr z=w}+\eqalignno{p&=q&(1)\cr r&=s&(2)}\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
