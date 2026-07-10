@@ -24654,6 +24654,42 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!(&format!("{wrapper}({})", rows.join("; ")));
                         index = after_body;
                     }
+                    "eqalign" | "displaylines" | "eqalignno" | "leqalignno" => {
+                        let body_index = skip_ascii_whitespace(source, command_index);
+                        let Some((body, _, _, after_body)) =
+                            read_braced_source_argument(source, body_index)
+                        else {
+                            return None;
+                        };
+                        let mut rows = Vec::new();
+                        for row in body.split("\\cr") {
+                            let row = row.trim();
+                            if row.is_empty() || row == "cr" {
+                                continue;
+                            }
+                            let cells = row
+                                .split('&')
+                                .filter_map(|cell| {
+                                    let cell = cell.trim();
+                                    if cell.is_empty() {
+                                        return None;
+                                    }
+                                    Some(
+                                        normalize_latex_math_text(cell)
+                                            .unwrap_or_else(|| normalize_latex_math_source(cell)),
+                                    )
+                                })
+                                .collect::<Vec<_>>();
+                            if !cells.is_empty() {
+                                rows.push(cells.join(" "));
+                            }
+                        }
+                        if rows.is_empty() {
+                            return None;
+                        }
+                        push_token!(&format!("{command}({})", rows.join("; ")));
+                        index = after_body;
+                    }
                     "begin" => {
                         let environment_index = skip_ascii_whitespace(source, command_index);
                         let Some((environment, _, _, after_environment)) =
@@ -37470,6 +37506,32 @@ Fallback text.
                     && math.normalized_text.as_deref()
                         == Some(
                             "matrix(a, b; c, d) + matrix(x, y; z, w) + cases(u, n > 0; 0, n = 0)"
+                        )
+        ));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_plain_tex_alignment_commands() {
+        let source = r"\begin{document}Align \(\eqalign{a&=b\cr c&=d}+\displaylines{x=y\cr z=w}+\eqalignno{p&=q&(1)\cr r&=s&(2)}\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math)
+                if math.raw_source
+                    == r"\eqalign{a&=b\cr c&=d}+\displaylines{x=y\cr z=w}+\eqalignno{p&=q&(1)\cr r&=s&(2)}"
+                    && math.normalized_text.as_deref()
+                        == Some(
+                            "eqalign(a = b; c = d) + displaylines(x = y; z = w) + eqalignno(p = q (1); r = s (2))"
                         )
         ));
     }
