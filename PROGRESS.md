@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-10` note: Math no-op and line-break hint commands `\allowbreak` and `\relax` now stay hidden from raw and normalized math text, including IR and PageDisplayList text extraction.
 - `2026-07-10` note: Math spacing control `\mspace{...}` now follows the existing `\mskip`/`\mkern`/`\kern` layout-spacing cleanup path, hiding spacing dimensions from raw and normalized math text.
 - `2026-07-10` note: Amsmath `\raisetag{...}` now stays hidden in normalized display math text, preserving visible operators without leaking equation-tag positioning dimensions.
 - `2026-07-10` note: Group annotation wrappers `\overgroup` and `\undergroup` now normalize like brace/bracket annotations, preserving visible grouped content and scripts instead of forcing raw fallback.

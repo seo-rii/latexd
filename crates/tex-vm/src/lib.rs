@@ -23881,6 +23881,12 @@ fn normalize_latex_math_source(source: &str) -> String {
             chunk_start = index;
             continue;
         }
+        if matches!(command, "allowbreak" | "relax") {
+            text.push_str(&source[chunk_start..command_start]);
+            index = skip_ascii_whitespace(source, command_index);
+            chunk_start = index;
+            continue;
+        }
         index = command_index;
     }
     text.push_str(&source[chunk_start..]);
@@ -24026,6 +24032,9 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     }
                     "nonumber" | "notag" | "adjustlimits" | "mathstrut" | "strut" => {
                         index = command_index;
+                    }
+                    "allowbreak" | "relax" => {
+                        index = skip_ascii_whitespace(source, command_index);
                     }
                     "MoveEqLeft" => {
                         let option_index = skip_ascii_whitespace(source, command_index);
