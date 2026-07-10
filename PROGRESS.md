@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-10` note: Plain TeX `\bordermatrix` math now normalizes to readable row/cell text instead of forcing raw math fallback.
 - `2026-07-10` note: Plain TeX command-style `\eqalign`, `\displaylines`, `\eqalignno`, and `\leqalignno` math now normalize to readable row/cell text instead of forcing raw math fallback.
 - `2026-07-10` note: Plain TeX command-style `\matrix`, `\pmatrix`, and `\cases` math now normalize to readable row/cell text instead of forcing raw math fallback.
 - `2026-07-10` note: Plain TeX `\buildrel ... \over ...` math relations now normalize to readable stack-relation text, including simple declaration-style annotations such as `\rm def`.

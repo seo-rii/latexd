@@ -24610,7 +24610,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!(&format!("substack({})", rows.join("; ")));
                         index = after_body;
                     }
-                    "matrix" | "pmatrix" | "cases" => {
+                    "matrix" | "pmatrix" | "cases" | "bordermatrix" => {
                         let body_index = skip_ascii_whitespace(source, command_index);
                         let Some((body, _, _, after_body)) =
                             read_braced_source_argument(source, body_index)
@@ -24646,10 +24646,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         if rows.is_empty() {
                             return None;
                         }
-                        let wrapper = if command == "cases" {
-                            "cases"
-                        } else {
-                            "matrix"
+                        let wrapper = match command {
+                            "cases" => "cases",
+                            "bordermatrix" => "bordermatrix",
+                            _ => "matrix",
                         };
                         push_token!(&format!("{wrapper}({})", rows.join("; ")));
                         index = after_body;
@@ -37507,6 +37507,30 @@ Fallback text.
                         == Some(
                             "matrix(a, b; c, d) + matrix(x, y; z, w) + cases(u, n > 0; 0, n = 0)"
                         )
+        ));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_plain_tex_bordermatrix_command() {
+        let source =
+            r"\begin{document}Border \(\bordermatrix{&x&y\cr r&a&b\cr s&c&d}\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math)
+                if math.raw_source == r"\bordermatrix{&x&y\cr r&a&b\cr s&c&d}"
+                    && math.normalized_text.as_deref()
+                        == Some("bordermatrix(x, y; r, a, b; s, c, d)")
         ));
     }
 
