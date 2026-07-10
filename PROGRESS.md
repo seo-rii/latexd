@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-10` note: Plain TeX infix `\choose` and `\atop` math commands now normalize to readable operator text instead of forcing raw math fallback.
 - `2026-07-10` note: Plain TeX infix `\over` fractions now normalize to readable slash fractions in IR/display-list text instead of forcing raw math fallback.
 - `2026-07-10` note: Plain TeX `\root ... \of{...}` math syntax now normalizes to readable `root[index](radicand)` text for IR/display-list output while preserving raw math source.
 - `2026-07-10` note: Math spacing aliases `\enspace` and `\enskip` now normalize as visible spacing in IR/display-list text without forcing raw math fallback.

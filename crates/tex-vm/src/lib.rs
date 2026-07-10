@@ -24075,6 +24075,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!("/");
                         index = skip_ascii_whitespace(source, command_index);
                     }
+                    "choose" | "atop" => {
+                        push_operator!(command);
+                        index = skip_ascii_whitespace(source, command_index);
+                    }
                     "frac" | "dfrac" | "tfrac" | "nicefrac" | "sfrac" | "xfrac" | "cfrac" => {
                         let mut numerator_index = skip_ascii_whitespace(source, command_index);
                         if command == "cfrac"
