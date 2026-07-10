@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-10` note: Math `\mathstrut` and `\strut` now stay hidden in normalized math text, preserving adjacent visible symbols without forcing raw fallback.
 - `2026-07-10` note: Mathtools `\adjustlimits` now behaves as a layout-only helper in math normalization, hiding the command while preserving the following limit operators and scripts.
 - `2026-07-10` note: Mathtools `\MoveEqLeft` now consumes its optional alignment offset and stays hidden from normalized IR/display-list text while preserving the following visible row content.
 - `2026-07-10` note: Mathtools `\vdotswithin{...}` now consumes its alignment reference argument and emits readable `vdots` text instead of forcing raw fallback or leaking the helper command.

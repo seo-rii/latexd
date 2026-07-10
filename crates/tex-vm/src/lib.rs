@@ -24023,7 +24023,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                             return None;
                         }
                     }
-                    "nonumber" | "notag" | "adjustlimits" => {
+                    "nonumber" | "notag" | "adjustlimits" | "mathstrut" | "strut" => {
                         index = command_index;
                     }
                     "MoveEqLeft" => {
