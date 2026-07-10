@@ -25441,7 +25441,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_space!();
                         index = command_index;
                     }
-                    "thinspace" | "medspace" | "thickspace" => {
+                    "thinspace" | "medspace" | "thickspace" | "enspace" | "enskip" => {
                         push_space!();
                         index = skip_ascii_whitespace(source, command_index);
                     }
