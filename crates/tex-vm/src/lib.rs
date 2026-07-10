@@ -14129,8 +14129,17 @@ impl<'i> Vm<'i> {
                             kind: VmDiagnosticKind::UndefinedControlSequence,
                             detail: control_sequence.clone(),
                         });
+                        let math_control_word = self.legacy_math_output_active
+                            && !control_sequence.is_empty()
+                            && control_sequence.chars().all(|ch| ch.is_ascii_alphabetic());
+                        if math_control_word {
+                            self.push_legacy_math_word_boundary();
+                        }
                         self.output.push('\\');
                         self.output.push_str(&control_sequence);
+                        if math_control_word {
+                            self.push_legacy_math_word_boundary();
+                        }
                     }
                 }
             }
@@ -30722,6 +30731,32 @@ mod tests {
             outcome.output
         );
         for glued in ["DeepCDCLframework", "DeepCDCLon", "DeepCDCLin"] {
+            assert!(
+                !outcome.output.contains(glued),
+                "{glued} leaked into {:?}",
+                outcome.output
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_math_output_separates_unknown_control_words_from_adjacent_atoms() {
+        let source = r"\def\floor#1{\left\lfloor #1 \right\rfloor}\begin{document}$O^*(1/\delta\sqrt{2^n/Z})$ and $\floor{t/(a+1)}$\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(source);
+
+        assert!(
+            outcome.output.contains(r"\delta \sqrt 2^n/Z"),
+            "unknown math control words were not separated in {:?}",
+            outcome.output
+        );
+        assert!(
+            outcome.output.contains(r"\lfloor t/(a+1)"),
+            "floor delimiter command was not separated in {:?}",
+            outcome.output
+        );
+        for glued in [r"\delta\sqrt", r"\sqrt2", r"\lfloort"] {
             assert!(
                 !outcome.output.contains(glued),
                 "{glued} leaked into {:?}",

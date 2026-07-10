@@ -3,6 +3,7 @@
 ## Current Status
 
 - `2026-07-10` note: Old-style math font declarations such as `{\rm d}` and `f_{\rm quad}` now hide the declaration command while preserving readable visible tokens in RenderEvent, Document IR, and PageDisplayList text.
+- `2026-07-10` note: The legacy PDF scaffold now preserves math word boundaries around undefined alphabetic control words and the mini-kernel `\sqrt` / floor-delimiter shims, preventing source-backed fallback text such as `\delta\sqrt{...}` or `\lfloor t` from collapsing into fused extracted tokens like `delta2` or `floort`.
 - `2026-07-10` note: Paper-local math commands `\clock{...}` and `\indicator` now normalize to readable clock/indicator notation in RenderEvent, Document IR, and PageDisplayList text instead of leaking raw macro names.
 - `2026-07-10` note: Math `\sqrt` / Plain TeX `\root` wrappers now preserve token boundaries after adjacent atoms, avoiding fused normalized text such as `deltasqrt` or `2sqrt`.
 - `2026-07-10` note: Low-level math box position primitives `\raise` and `\lower` now hide layout dimensions while preserving following visible box content instead of forcing raw math fallback.

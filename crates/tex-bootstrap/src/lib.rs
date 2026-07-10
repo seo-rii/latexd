@@ -291,10 +291,10 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\colon{:}
 \def\perp{perp}
 \def\triangleright{>}
-\def\lceil{ceil}
-\def\rceil{ceil}
-\def\lfloor{floor}
-\def\rfloor{floor}
+\def\lceil{ ceil }
+\def\rceil{ ceil }
+\def\lfloor{ floor }
+\def\rfloor{ floor }
 \def\displaystyle{}
 \def\quad{ }
 \def\qquad{ }
@@ -353,7 +353,7 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\operatorname#1{#1}
 \def\text#1{#1}
 \def\frac#1#2{#1/#2}
-\newcommand{\sqrt}[2][]{#2}
+\newcommand{\sqrt}[2][]{ #2 }
 \def\multirow#1#2#3{#3}
 \def\multicolumn#1#2#3{#3}
 \def\shortstack#1{#1}
@@ -1576,6 +1576,40 @@ mod tests {
             );
         }
         for hidden in ["ivarphi", "infinityH", "omega_ellomega", "N_kN_k"] {
+            assert!(
+                !result.output.contains(hidden),
+                "{hidden} leaked into {:?}",
+                result.output
+            );
+        }
+    }
+
+    #[test]
+    fn mini_kernel_separates_math_symbol_and_delimiter_words_from_following_atoms() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            r"\def\floor#1{\left\lfloor #1 \right\rfloor}\begin{document}$O^*(1/\delta\sqrt{2^n/Z})$ and $\floor{t/(a+1)}$.\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        for visible in ["delta 2^n/Z", "floor t/(a+1) floor"] {
+            assert!(
+                result.output.contains(visible),
+                "{visible} missing from {:?}",
+                result.output
+            );
+        }
+        for hidden in ["delta2", "floort", "sqrt2"] {
             assert!(
                 !result.output.contains(hidden),
                 "{hidden} leaked into {:?}",
