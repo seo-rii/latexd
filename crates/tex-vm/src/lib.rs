@@ -25435,7 +25435,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         index = command_index;
                     }
                     "displaystyle" | "textstyle" | "scriptstyle" | "scriptscriptstyle"
-                    | "limits" | "nolimits" => {
+                    | "limits" | "nolimits" | "displaylimits" => {
                         index = command_index;
                     }
                     "le" | "leq" | "leqslant" | "leqq" => {
@@ -26224,7 +26224,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                             }
                             if matches!(
                                 &source[limit_command_start..limit_command_index],
-                                "limits" | "nolimits"
+                                "limits" | "nolimits" | "displaylimits"
                             ) {
                                 script_index = skip_ascii_whitespace(source, limit_command_index);
                             }

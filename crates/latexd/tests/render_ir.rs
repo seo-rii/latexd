@@ -7794,7 +7794,7 @@ fn ensuremath_wrapper_emits_inline_math_through_ir_and_display_list() {
 
 #[test]
 fn math_style_and_limit_controls_use_normalized_text_in_ir_and_display_list() {
-    let source = r"\begin{document}Controls \(\displaystyle\sum\limits_{i=1}^{n} x_i + \textstyle\int\nolimits_{0}^{1} f(x)\,dx + \scriptstyle a + \scriptscriptstyle b\).\end{document}";
+    let source = r"\begin{document}Controls \(\displaystyle\sum\limits_{i=1}^{n} x_i + \textstyle\int\nolimits_{0}^{1} f(x)\,dx + \prod\displaylimits_{j=1}^{m} y_j + \scriptstyle a + \scriptscriptstyle b\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
     let paragraph = capture
         .document_ir
@@ -7814,9 +7814,9 @@ fn math_style_and_limit_controls_use_normalized_text_in_ir_and_display_list() {
                 normalized_text,
                 ..
             } if raw_source
-                == r"\displaystyle\sum\limits_{i=1}^{n} x_i + \textstyle\int\nolimits_{0}^{1} f(x)\,dx + \scriptstyle a + \scriptscriptstyle b"
+                == r"\displaystyle\sum\limits_{i=1}^{n} x_i + \textstyle\int\nolimits_{0}^{1} f(x)\,dx + \prod\displaylimits_{j=1}^{m} y_j + \scriptstyle a + \scriptscriptstyle b"
                 && normalized_text.as_deref()
-                    == Some("sum_{i = 1}^{n} x_i + int_{0}^{1} f(x) dx + a + b")
+                    == Some("sum_{i = 1}^{n} x_i + int_{0}^{1} f(x) dx + prod_{j = 1}^{m} y_j + a + b")
         )
     }));
 
@@ -7829,12 +7829,18 @@ fn math_style_and_limit_controls_use_normalized_text_in_ir_and_display_list() {
         })
         .collect::<Vec<_>>()
         .join("\n");
+    let compact_display_list_text = display_list_text.split_whitespace().collect::<String>();
     assert!(display_list_text.contains("sum_{i = 1}^{n} x_i"));
     assert!(display_list_text.contains("int_{0}^{1} f(x) dx"));
+    assert!(
+        compact_display_list_text.contains("prod_{j=1}^{m}y_j"),
+        "{display_list_text}"
+    );
     assert!(display_list_text.contains("a + b"));
     assert!(!display_list_text.contains(r"\displaystyle"));
     assert!(!display_list_text.contains(r"\limits"));
     assert!(!display_list_text.contains(r"\nolimits"));
+    assert!(!display_list_text.contains(r"\displaylimits"));
 }
 
 #[test]
