@@ -12195,6 +12195,44 @@ fn matrix_math_environment_uses_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn mathtools_starred_matrix_environments_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}\[\begin{pmatrix*}[r] a & b \\ c & d \end{pmatrix*}+\begin{smallmatrix*}[l] x & y \end{smallmatrix*}\]\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let expected = "matrix(a, b; c, d) + matrix(x, y)";
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::DisplayMath(display)
+                if display.raw_source
+                    == r"\begin{pmatrix*}[r] a & b \\ c & d \end{pmatrix*}+\begin{smallmatrix*}[l] x & y \end{smallmatrix*}"
+                    && display.normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in [
+        r"\begin{pmatrix*}",
+        r"\end{pmatrix*}",
+        r"\begin{smallmatrix*}",
+        r"\end{smallmatrix*}",
+        "[r]",
+        "[l]",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn cases_math_environment_uses_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}\[\begin{cases} x & x>0 \\ -x & x<0 \end{cases}\]\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

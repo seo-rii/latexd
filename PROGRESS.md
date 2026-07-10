@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-10` note: Mathtools starred matrix environments such as `pmatrix*` and `smallmatrix*` now consume optional alignment arguments and normalize to readable `matrix(...)` text instead of raw fallback.
 - `2026-07-10` note: Mathtools cases variants such as `dcases`, `rcases`, and their starred/delimited forms now reuse the `cases(...)` math environment normalizer instead of forcing raw math fallback.
 - `2026-07-10` note: Text box wrappers inside math, including `\mbox`, `\hbox`, `\fbox`, `\framebox`, `\makebox`, and `\raisebox`, now preserve visible body text while hiding layout dimensions and alignment options from IR/display-list text.
 - `2026-07-10` note: Mathtools `\mathmakebox` now consumes optional width/alignment arguments and preserves only visible math content instead of forcing raw math fallback or leaking box options into IR/display-list text.

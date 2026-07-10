@@ -24308,12 +24308,19 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         if !matches!(
                             environment,
                             "matrix"
+                                | "matrix*"
                                 | "pmatrix"
+                                | "pmatrix*"
                                 | "bmatrix"
+                                | "bmatrix*"
                                 | "Bmatrix"
+                                | "Bmatrix*"
                                 | "vmatrix"
+                                | "vmatrix*"
                                 | "Vmatrix"
+                                | "Vmatrix*"
                                 | "smallmatrix"
+                                | "smallmatrix*"
                                 | "cases"
                                 | "cases*"
                                 | "dcases"
@@ -24333,7 +24340,20 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         }
                         let end_tag = format!("\\end{{{environment}}}");
                         let mut body_start = after_environment;
-                        if matches!(environment, "aligned" | "gathered" | "alignedat" | "array") {
+                        if matches!(
+                            environment,
+                            "aligned"
+                                | "gathered"
+                                | "alignedat"
+                                | "array"
+                                | "matrix*"
+                                | "pmatrix*"
+                                | "bmatrix*"
+                                | "Bmatrix*"
+                                | "vmatrix*"
+                                | "Vmatrix*"
+                                | "smallmatrix*"
+                        ) {
                             let option_index = skip_ascii_whitespace(source, body_start);
                             if let Some((_, _, _, after_option)) =
                                 read_bracket_source_argument(source, option_index)
