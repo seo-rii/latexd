@@ -24610,6 +24610,50 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!(&format!("substack({})", rows.join("; ")));
                         index = after_body;
                     }
+                    "matrix" | "pmatrix" | "cases" => {
+                        let body_index = skip_ascii_whitespace(source, command_index);
+                        let Some((body, _, _, after_body)) =
+                            read_braced_source_argument(source, body_index)
+                        else {
+                            return None;
+                        };
+                        let mut rows = Vec::new();
+                        for row in body.split("\\cr") {
+                            let row = row.trim();
+                            if row.is_empty() || row == "cr" {
+                                continue;
+                            }
+                            let cells = row
+                                .split('&')
+                                .filter_map(|cell| {
+                                    let mut cell = cell.trim();
+                                    if command == "cases" {
+                                        cell = cell.trim_end_matches(',').trim_end();
+                                    }
+                                    if cell.is_empty() {
+                                        return None;
+                                    }
+                                    Some(
+                                        normalize_latex_math_text(cell)
+                                            .unwrap_or_else(|| normalize_latex_math_source(cell)),
+                                    )
+                                })
+                                .collect::<Vec<_>>();
+                            if !cells.is_empty() {
+                                rows.push(cells.join(", "));
+                            }
+                        }
+                        if rows.is_empty() {
+                            return None;
+                        }
+                        let wrapper = if command == "cases" {
+                            "cases"
+                        } else {
+                            "matrix"
+                        };
+                        push_token!(&format!("{wrapper}({})", rows.join("; ")));
+                        index = after_body;
+                    }
                     "begin" => {
                         let environment_index = skip_ascii_whitespace(source, command_index);
                         let Some((environment, _, _, after_environment)) =
@@ -37401,6 +37445,32 @@ Fallback text.
                 if math.raw_source == r"\begin{cases} x & x>0 \\ -x & x<0 \end{cases}"
                     && math.normalized_text.as_deref()
                         == Some("cases(x, x > 0; - x, x < 0)")
+        ));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_plain_tex_matrix_commands() {
+        let source = r"\begin{document}Arrays \(\matrix{a&b\cr c&d}+\pmatrix{x&y\cr z&w}+\cases{u,&n>0\cr0,&n=0}\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math)
+                if math.raw_source
+                    == r"\matrix{a&b\cr c&d}+\pmatrix{x&y\cr z&w}+\cases{u,&n>0\cr0,&n=0}"
+                    && math.normalized_text.as_deref()
+                        == Some(
+                            "matrix(a, b; c, d) + matrix(x, y; z, w) + cases(u, n > 0; 0, n = 0)"
+                        )
         ));
     }
 
