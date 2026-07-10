@@ -7963,6 +7963,63 @@ fn math_spacing_controls_do_not_leak_to_ir_and_display_list() {
 }
 
 #[test]
+fn math_named_spacing_aliases_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Named \(f(x)\thinspace dx + g(x)\medspace dy + h(x)\thickspace dz + p\negthinspace q\negmedspace r\negthickspace s\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let inline_math = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => paragraph.content.iter().find_map(|node| match node {
+                InlineNode::InlineMath {
+                    raw_source,
+                    normalized_text,
+                    ..
+                } => Some((raw_source, normalized_text)),
+                _ => None,
+            }),
+            _ => None,
+        })
+        .expect("inline math");
+
+    assert_eq!(
+        inline_math.0,
+        r"f(x)\thinspace dx + g(x)\medspace dy + h(x)\thickspace dz + p\negthinspace q\negmedspace r\negthickspace s"
+    );
+    assert_eq!(
+        inline_math.1.as_deref(),
+        Some("f(x) dx + g(x) dy + h(x) dz + pqrs")
+    );
+
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    for expected in ["f(x) dx", "g(x) dy", "h(x) dz", "pqrs"] {
+        assert!(extracted_text.contains(expected), "{extracted_text}");
+        assert!(display_list_text.contains(expected), "{display_list_text}");
+    }
+    for hidden in [
+        r"\thinspace",
+        r"\medspace",
+        r"\thickspace",
+        r"\negthinspace",
+        r"\negmedspace",
+        r"\negthickspace",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_operators_and_scripts_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Series \(\sum_{i=1}^{n} x_i + \int_{0}^{1} f(x)\,dx + \sin \theta\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-10` note: Named math spacing aliases `\thinspace`, `\medspace`, `\thickspace`, and their negative variants now produce normalized IR/display-list text without leaking spacing commands.
 - `2026-07-10` note: Math line-break penalty hints `\nobreak` and `\penalty...` now reuse the layout-spacing cleanup path, hiding penalty controls while preserving adjacent visible symbols.
 - `2026-07-10` note: Math no-op and line-break hint commands `\allowbreak` and `\relax` now stay hidden from raw and normalized math text, including IR and PageDisplayList text extraction.
 - `2026-07-10` note: Math spacing control `\mspace{...}` now follows the existing `\mskip`/`\mkern`/`\kern` layout-spacing cleanup path, hiding spacing dimensions from raw and normalized math text.

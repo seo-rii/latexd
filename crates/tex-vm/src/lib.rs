@@ -25441,6 +25441,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_space!();
                         index = command_index;
                     }
+                    "thinspace" | "medspace" | "thickspace" => {
+                        push_space!();
+                        index = skip_ascii_whitespace(source, command_index);
+                    }
                     "\\" => {
                         if !text.is_empty() && !text.ends_with([' ', ';', '(', '[']) {
                             text.push(';');
@@ -25457,6 +25461,9 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     }
                     "!" => {
                         index = command_index;
+                    }
+                    "negthinspace" | "negmedspace" | "negthickspace" => {
+                        index = skip_ascii_whitespace(source, command_index);
                     }
                     "displaystyle" | "textstyle" | "scriptstyle" | "scriptscriptstyle"
                     | "limits" | "nolimits" | "displaylimits" => {
