@@ -1097,6 +1097,41 @@ fn plain_tex_over_fraction_normalizes_through_display_list() {
 }
 
 #[test]
+fn plain_tex_above_fraction_normalizes_through_display_list() {
+    let source = r"\begin{document}Ratio ${a\above0pt b}+{c+d\above 1pt e_f}$ now.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let expected = "a/b + c + d/e_f";
+
+    assert_eq!(math_event.raw_source, r"{a\above0pt b}+{c+d\above 1pt e_f}");
+    assert_eq!(math_event.normalized_text.as_deref(), Some(expected));
+    assert!(extracted_text.contains("Ratio a/b + c + d/e_f now."));
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in [r"\above", "0pt", "1pt"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn plain_tex_choose_and_atop_normalize_through_display_list() {
     let source = r"\begin{document}Stack ${n\choose k}+{a\atop b}$ now.\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

@@ -24075,6 +24075,10 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_token!("/");
                         index = skip_ascii_whitespace(source, command_index);
                     }
+                    "above" => {
+                        push_token!("/");
+                        index = skip_latex_layout_spacing_command(source, command_index);
+                    }
                     "choose" | "atop" => {
                         push_operator!(command);
                         index = skip_ascii_whitespace(source, command_index);
