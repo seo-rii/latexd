@@ -24656,6 +24656,66 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token!(&argument);
                         index = after_argument;
                     }
+                    "mbox" | "hbox" | "fbox" => {
+                        let argument_index = skip_ascii_whitespace(source, command_index);
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_text(argument));
+                        push_command_token!(&argument);
+                        index = after_argument;
+                    }
+                    "framebox" | "makebox" => {
+                        let mut argument_index = skip_ascii_whitespace(source, command_index);
+                        for _ in 0..2 {
+                            if let Some((_, _, _, after_option)) =
+                                read_bracket_source_argument(source, argument_index)
+                            {
+                                argument_index = skip_ascii_whitespace(source, after_option);
+                            } else {
+                                break;
+                            }
+                        }
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_text(argument));
+                        push_command_token!(&argument);
+                        index = after_argument;
+                    }
+                    "raisebox" => {
+                        let raise_index = skip_ascii_whitespace(source, command_index);
+                        let Some((_, _, _, after_raise)) =
+                            read_braced_source_argument(source, raise_index)
+                        else {
+                            return None;
+                        };
+                        let mut argument_index = skip_ascii_whitespace(source, after_raise);
+                        for _ in 0..2 {
+                            if let Some((_, _, _, after_option)) =
+                                read_bracket_source_argument(source, argument_index)
+                            {
+                                argument_index = skip_ascii_whitespace(source, after_option);
+                            } else {
+                                break;
+                            }
+                        }
+                        let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        let argument = normalize_latex_math_text(argument)
+                            .unwrap_or_else(|| normalize_latex_text(argument));
+                        push_command_token!(&argument);
+                        index = after_argument;
+                    }
                     "red" | "blue" | "green" | "cyan" | "magenta" | "yellow" | "black"
                     | "white" | "gray" | "grey" | "orange" | "purple" | "brown" | "pink" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);

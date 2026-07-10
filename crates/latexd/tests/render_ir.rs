@@ -1238,6 +1238,57 @@ fn mathmakebox_wrapper_normalizes_visible_content_through_display_list() {
 }
 
 #[test]
+fn math_text_box_wrappers_normalize_visible_content_through_display_list() {
+    let source = r"\begin{document}State $x+\mbox{where}+\hbox{fixed}+\fbox{boxed}+\framebox[1em][c]{framed}+\makebox[0pt][l]{aligned}+\raisebox{0.5ex}[1ex][0ex]{raised}+y$ now.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let expected = "x + where + fixed + boxed + framed + aligned + raised + y";
+
+    assert_eq!(
+        math_event.raw_source,
+        r"x+\mbox{where}+\hbox{fixed}+\fbox{boxed}+\framebox[1em][c]{framed}+\makebox[0pt][l]{aligned}+\raisebox{0.5ex}[1ex][0ex]{raised}+y"
+    );
+    assert_eq!(math_event.normalized_text.as_deref(), Some(expected));
+    assert!(
+        extracted_text
+            .contains("State x + where + fixed + boxed + framed + aligned + raised + y now.")
+    );
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in [
+        r"\mbox",
+        r"\hbox",
+        r"\fbox",
+        r"\framebox",
+        r"\makebox",
+        r"\raisebox",
+        "[1em]",
+        "[0pt]",
+        "0.5ex",
+    ] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn smashoperator_wrapper_normalizes_visible_operator_through_display_list() {
     let source =
         r"\begin{document}State $\smashoperator[r]{\sum_{i=1}^{n}} x_i$ now.\end{document}";
