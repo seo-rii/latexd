@@ -7917,7 +7917,7 @@ fn math_style_and_limit_controls_use_normalized_text_in_ir_and_display_list() {
 
 #[test]
 fn math_spacing_controls_do_not_leak_to_ir_and_display_list() {
-    let source = r"\begin{document}Spacing \(A\mskip5mu B\mkern-2mu C\kern1pt D\mspace{6mu}E\allowbreak F\relax G\).\end{document}";
+    let source = r"\begin{document}Spacing \(A\mskip5mu B\mkern-2mu C\kern1pt D\mspace{6mu}E\allowbreak F\relax G\nobreak H\penalty100 I\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
     let math_event = capture
         .events
@@ -7939,9 +7939,9 @@ fn math_spacing_controls_do_not_leak_to_ir_and_display_list() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    assert_eq!(math_event.raw_source, "ABCDEFG");
-    assert!(extracted_text.contains("Spacing ABCDEFG"));
-    assert!(display_list_text.contains("ABCDEFG"));
+    assert_eq!(math_event.raw_source, "ABCDEFGHI");
+    assert!(extracted_text.contains("Spacing ABCDEFGHI"));
+    assert!(display_list_text.contains("ABCDEFGHI"));
     for hidden in [
         r"\mskip",
         r"\mkern",
@@ -7949,10 +7949,13 @@ fn math_spacing_controls_do_not_leak_to_ir_and_display_list() {
         r"\mspace",
         r"\allowbreak",
         r"\relax",
+        r"\nobreak",
+        r"\penalty",
         "5mu",
         "-2mu",
         "1pt",
         "6mu",
+        "100",
     ] {
         assert!(!extracted_text.contains(hidden), "{extracted_text}");
         assert!(!display_list_text.contains(hidden), "{display_list_text}");

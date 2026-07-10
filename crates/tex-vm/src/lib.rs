@@ -20850,6 +20850,9 @@ fn is_latex_layout_spacing_command(command: &str) -> bool {
             | "nopagebreak"
             | "linebreak"
             | "nolinebreak"
+            | "allowbreak"
+            | "nobreak"
+            | "penalty"
             | "vfill"
             | "hfill"
     )
