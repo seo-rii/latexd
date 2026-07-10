@@ -24315,6 +24315,13 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                                 | "Vmatrix"
                                 | "smallmatrix"
                                 | "cases"
+                                | "cases*"
+                                | "dcases"
+                                | "dcases*"
+                                | "rcases"
+                                | "rcases*"
+                                | "drcases"
+                                | "drcases*"
                                 | "aligned"
                                 | "split"
                                 | "gathered"
@@ -24379,7 +24386,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                             return None;
                         }
                         let wrapper = match environment {
-                            "cases" => "cases",
+                            "cases" | "cases*" | "dcases" | "dcases*" | "rcases" | "rcases*"
+                            | "drcases" | "drcases*" => "cases",
                             "aligned" => "aligned",
                             "split" => "split",
                             "gathered" => "gathered",

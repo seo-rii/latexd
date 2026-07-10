@@ -8122,6 +8122,54 @@ fn math_subarray_scripts_use_normalized_text_in_ir_and_display_list() {
 }
 
 #[test]
+fn mathtools_cases_variants_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}Piecewise \(\begin{dcases}x&n>0\\0&n=0\end{dcases}+\begin{rcases}a&b\\c&d\end{rcases}\).\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let paragraph = capture
+        .document_ir
+        .blocks
+        .iter()
+        .find_map(|block| match block {
+            IrBlock::Paragraph(paragraph) => Some(paragraph),
+            _ => None,
+        })
+        .expect("paragraph");
+    let expected = "cases(x, n > 0; 0, n = 0) + cases(a, b; c, d)";
+
+    assert!(paragraph.content.iter().any(|node| {
+        matches!(
+            node,
+            InlineNode::InlineMath {
+                raw_source,
+                normalized_text,
+                ..
+            } if raw_source
+                == r"\begin{dcases}x&n>0\\0&n=0\end{dcases}+\begin{rcases}a&b\\c&d\end{rcases}"
+                && normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in [
+        r"\begin{dcases}",
+        r"\end{dcases}",
+        r"\begin{rcases}",
+        r"\end{rcases}",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn math_stack_relation_wrappers_use_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}Limits \(\overset{p}{\to} X + \underset{n\to\infty}{\lim} a_n + \stackrel{d}{=} Y\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
