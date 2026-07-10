@@ -1546,6 +1546,44 @@ fn math_vertical_box_wrappers_normalize_visible_content_through_display_list() {
 }
 
 #[test]
+fn math_raise_lower_primitives_normalize_visible_box_content_through_display_list() {
+    let source = r"\begin{document}State $x+\raise1pt\hbox{high}+\lower 2pt\vbox{\hbox{low}}+y$ now.\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let math_event = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::InlineMath(math) => Some(math),
+            _ => None,
+        })
+        .expect("inline math event");
+    let extracted_text = capture.document_ir.extracted_text();
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let expected = "x + high + low + y";
+
+    assert_eq!(
+        math_event.raw_source,
+        r"x+\raise1pt\hbox{high}+\lower 2pt\vbox{\hbox{low}}+y"
+    );
+    assert_eq!(math_event.normalized_text.as_deref(), Some(expected));
+    assert!(extracted_text.contains("State x + high + low + y now."));
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in [r"\raise", r"\lower", r"\hbox", r"\vbox", "1pt", "2pt"] {
+        assert!(!extracted_text.contains(hidden), "{extracted_text}");
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn smashoperator_wrapper_normalizes_visible_operator_through_display_list() {
     let source =
         r"\begin{document}State $\smashoperator[r]{\sum_{i=1}^{n}} x_i$ now.\end{document}";

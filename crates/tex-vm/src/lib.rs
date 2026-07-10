@@ -25106,6 +25106,61 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_command_token!(&argument);
                         index = after_argument;
                     }
+                    "raise" | "lower" => {
+                        let mut body_index =
+                            skip_latex_layout_spacing_command(source, command_index);
+                        body_index = skip_ascii_whitespace(source, body_index);
+                        if body_index >= bytes.len() {
+                            return None;
+                        }
+                        let (body, after_body) = if bytes[body_index] == b'\\' {
+                            let mut box_command_end = body_index + 1;
+                            if box_command_end >= bytes.len() {
+                                return None;
+                            }
+                            let box_command_start = box_command_end;
+                            if bytes[box_command_end].is_ascii_alphabetic()
+                                || bytes[box_command_end] == b'@'
+                            {
+                                while box_command_end < bytes.len()
+                                    && (bytes[box_command_end].is_ascii_alphabetic()
+                                        || bytes[box_command_end] == b'@')
+                                {
+                                    box_command_end += 1;
+                                }
+                            } else {
+                                let command_char = source[box_command_end..]
+                                    .chars()
+                                    .next()
+                                    .expect("raise/lower box command symbol");
+                                box_command_end += command_char.len_utf8();
+                            }
+                            let box_command = &source[box_command_start..box_command_end];
+                            if !matches!(
+                                box_command,
+                                "hbox" | "vbox" | "vtop" | "vcenter" | "mbox" | "fbox"
+                            ) {
+                                return None;
+                            }
+                            let argument_index = skip_ascii_whitespace(source, box_command_end);
+                            let Some((argument, _, _, after_argument)) =
+                                read_braced_source_argument(source, argument_index)
+                            else {
+                                return None;
+                            };
+                            (argument, after_argument)
+                        } else if let Some((argument, _, _, after_argument)) =
+                            read_braced_source_argument(source, body_index)
+                        {
+                            (argument, after_argument)
+                        } else {
+                            return None;
+                        };
+                        let body = normalize_latex_math_text(body)
+                            .unwrap_or_else(|| normalize_latex_text(body));
+                        push_command_token!(&body);
+                        index = after_body;
+                    }
                     "mbox" | "hbox" | "fbox" | "vcenter" | "vbox" | "vtop" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);
                         let Some((argument, _, _, after_argument)) =
@@ -36861,6 +36916,29 @@ Fallback text.
                     == r"x+\vcenter{\hbox{centered}}+\vbox{\hbox{stacked}}+\vtop{\hbox{top}}+y"
                     && math.normalized_text.as_deref()
                         == Some("x + centered + stacked + top + y")
+        ));
+    }
+
+    #[test]
+    fn render_event_capture_normalizes_math_raise_lower_box_primitives() {
+        let source = r"\begin{document}State \(x+\raise1pt\hbox{high}+\lower 2pt\vbox{\hbox{low}}+y\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math)
+                if math.raw_source
+                    == r"x+\raise1pt\hbox{high}+\lower 2pt\vbox{\hbox{low}}+y"
+                    && math.normalized_text.as_deref() == Some("x + high + low + y")
         ));
     }
 

@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-10` note: Low-level math box position primitives `\raise` and `\lower` now hide layout dimensions while preserving following visible box content instead of forcing raw math fallback.
 - `2026-07-10` note: Math vertical box wrappers `\vcenter`, `\vbox`, and `\vtop` now preserve visible braced content instead of forcing raw math fallback.
 - `2026-07-10` note: Matrix `\hdotsfor` commands now consume optional spacing/count arguments and normalize to readable ellipsis text instead of forcing raw math fallback.
 - `2026-07-10` note: Plain TeX `\bordermatrix` math now normalizes to readable row/cell text instead of forcing raw math fallback.
