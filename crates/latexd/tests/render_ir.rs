@@ -8576,7 +8576,7 @@ fn mathtools_cases_variants_use_normalized_text_in_ir_and_display_list() {
 
 #[test]
 fn math_stack_relation_wrappers_use_normalized_text_in_ir_and_display_list() {
-    let source = r"\begin{document}Limits \(\overset{p}{\to} X + \underset{n\to\infty}{\lim} a_n + \stackrel{d}{=} Y\).\end{document}";
+    let source = r"\begin{document}Limits \(\overset{p}{\to} X + \underset{n\to\infty}{\lim} a_n + \stackrel{d}{=} Y + \buildrel{\rm def}\over= Z\).\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
     let paragraph = capture
         .document_ir
@@ -8595,10 +8595,10 @@ fn math_stack_relation_wrappers_use_normalized_text_in_ir_and_display_list() {
                 raw_source,
                 normalized_text,
                 ..
-            } if raw_source
-                == r"\overset{p}{\to} X + \underset{n\to\infty}{\lim} a_n + \stackrel{d}{=} Y"
-                && normalized_text.as_deref()
-                    == Some("overset(p, ->) X + underset(n -> infinity, lim) a_n + stackrel(d, =) Y")
+            } if raw_source == r"\overset{p}{\to} X + \underset{n\to\infty}{\lim} a_n + \stackrel{d}{=} Y + \buildrel{\rm def}\over= Z"
+                && normalized_text.as_deref() == Some(
+                    "overset(p, ->) X + underset(n -> infinity, lim) a_n + stackrel(d, =) Y + buildrel(def, =) Z"
+                )
         )
     }));
 
@@ -8617,12 +8617,13 @@ fn math_stack_relation_wrappers_use_normalized_text_in_ir_and_display_list() {
         .join(" ");
     assert!(
         normalized_display_list_text
-            .contains("overset(p, ->) X + underset(n -> infinity, lim) a_n + stackrel(d, =) Y"),
+            .contains("overset(p, ->) X + underset(n -> infinity, lim) a_n + stackrel(d, =) Y + buildrel(def, =) Z"),
         "{display_list_text}"
     );
     assert!(!display_list_text.contains(r"\overset"));
     assert!(!display_list_text.contains(r"\underset"));
     assert!(!display_list_text.contains(r"\stackrel"));
+    assert!(!display_list_text.contains(r"\buildrel"));
 }
 
 #[test]

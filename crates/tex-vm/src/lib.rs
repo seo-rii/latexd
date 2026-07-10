@@ -24130,6 +24130,148 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         push_operator!(command);
                         index = skip_ascii_whitespace(source, command_index);
                     }
+                    "buildrel" => {
+                        let mut scan_index = skip_ascii_whitespace(source, command_index);
+                        let annotation_start = scan_index;
+                        let mut brace_depth = 0usize;
+                        let mut over_command = None;
+                        while scan_index < bytes.len() {
+                            match bytes[scan_index] {
+                                b'\\' => {
+                                    let command_start = scan_index;
+                                    scan_index += 1;
+                                    if scan_index >= bytes.len() {
+                                        return None;
+                                    }
+                                    let command_name_start = scan_index;
+                                    if bytes[scan_index].is_ascii_alphabetic()
+                                        || bytes[scan_index] == b'@'
+                                    {
+                                        while scan_index < bytes.len()
+                                            && (bytes[scan_index].is_ascii_alphabetic()
+                                                || bytes[scan_index] == b'@')
+                                        {
+                                            scan_index += 1;
+                                        }
+                                    } else {
+                                        let command_char = source[scan_index..]
+                                            .chars()
+                                            .next()
+                                            .expect("buildrel control symbol");
+                                        scan_index += command_char.len_utf8();
+                                    }
+                                    if brace_depth == 0
+                                        && &source[command_name_start..scan_index] == "over"
+                                    {
+                                        over_command = Some((command_start, scan_index));
+                                        break;
+                                    }
+                                }
+                                b'{' => {
+                                    brace_depth += 1;
+                                    scan_index += 1;
+                                }
+                                b'}' => {
+                                    if brace_depth == 0 {
+                                        return None;
+                                    }
+                                    brace_depth -= 1;
+                                    scan_index += 1;
+                                }
+                                _ => {
+                                    let ch = source[scan_index..]
+                                        .chars()
+                                        .next()
+                                        .expect("buildrel source character");
+                                    scan_index += ch.len_utf8();
+                                }
+                            }
+                        }
+                        let Some((over_start, over_end)) = over_command else {
+                            return None;
+                        };
+                        let mut annotation = source[annotation_start..over_start].trim();
+                        if annotation.is_empty() {
+                            return None;
+                        }
+                        if let Some((braced_annotation, _, _, after_annotation)) =
+                            read_braced_source_argument(annotation, 0)
+                            && skip_ascii_whitespace(annotation, after_annotation)
+                                == annotation.len()
+                        {
+                            annotation = braced_annotation;
+                        }
+                        loop {
+                            annotation = annotation.trim_start();
+                            if !annotation.starts_with('\\') {
+                                break;
+                            }
+                            let annotation_bytes = annotation.as_bytes();
+                            let mut declaration_end = 1usize;
+                            if declaration_end >= annotation_bytes.len()
+                                || !annotation_bytes[declaration_end].is_ascii_alphabetic()
+                            {
+                                break;
+                            }
+                            while declaration_end < annotation_bytes.len()
+                                && annotation_bytes[declaration_end].is_ascii_alphabetic()
+                            {
+                                declaration_end += 1;
+                            }
+                            if matches!(
+                                &annotation[1..declaration_end],
+                                "rm" | "bf" | "it" | "sl" | "sf" | "tt" | "cal" | "mit"
+                            ) {
+                                annotation = &annotation[declaration_end..];
+                            } else {
+                                break;
+                            }
+                        }
+                        let base_index = skip_ascii_whitespace(source, over_end);
+                        let (base, after_base) = if let Some((base, _, _, after_base)) =
+                            read_braced_source_argument(source, base_index)
+                        {
+                            (base, after_base)
+                        } else if base_index < bytes.len() && bytes[base_index] == b'\\' {
+                            let base_start = base_index;
+                            let mut base_end = base_index + 1;
+                            if base_end >= bytes.len() {
+                                return None;
+                            }
+                            if bytes[base_end].is_ascii_alphabetic() || bytes[base_end] == b'@' {
+                                while base_end < bytes.len()
+                                    && (bytes[base_end].is_ascii_alphabetic()
+                                        || bytes[base_end] == b'@')
+                                {
+                                    base_end += 1;
+                                }
+                            } else {
+                                let base_char = source[base_end..]
+                                    .chars()
+                                    .next()
+                                    .expect("buildrel base control symbol");
+                                base_end += base_char.len_utf8();
+                            }
+                            (&source[base_start..base_end], base_end)
+                        } else if base_index < bytes.len() {
+                            let base_char = source[base_index..]
+                                .chars()
+                                .next()
+                                .expect("buildrel base character");
+                            (
+                                &source[base_index..base_index + base_char.len_utf8()],
+                                base_index + base_char.len_utf8(),
+                            )
+                        } else {
+                            return None;
+                        };
+                        let annotation = normalize_latex_math_text(annotation)
+                            .unwrap_or_else(|| normalize_latex_math_source(annotation));
+                        let base = normalize_latex_math_text(base)
+                            .unwrap_or_else(|| normalize_latex_math_source(base));
+                        push_token!(&format!("buildrel({annotation}, {base})"));
+                        index = after_base;
+                    }
                     "frac" | "dfrac" | "tfrac" | "nicefrac" | "sfrac" | "xfrac" | "cfrac" => {
                         let mut numerator_index = skip_ascii_whitespace(source, command_index);
                         if command == "cfrac"
@@ -36633,7 +36775,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_normalizes_math_stack_relation_wrappers() {
-        let source = r"\begin{document}Limits \(\overset{p}{\to} X + \underset{n\to\infty}{\lim} a_n + \stackrel{d}{=} Y\).\end{document}";
+        let source = r"\begin{document}Limits \(\overset{p}{\to} X + \underset{n\to\infty}{\lim} a_n + \stackrel{d}{=} Y + \buildrel{\rm def}\over= Z\).\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -36649,9 +36791,9 @@ Fallback text.
             &inline_math.event,
             RenderEvent::InlineMath(math)
                 if math.raw_source
-                    == r"\overset{p}{\to} X + \underset{n\to\infty}{\lim} a_n + \stackrel{d}{=} Y"
+                    == r"\overset{p}{\to} X + \underset{n\to\infty}{\lim} a_n + \stackrel{d}{=} Y + \buildrel{\rm def}\over= Z"
                     && math.normalized_text.as_deref()
-                        == Some("overset(p, ->) X + underset(n -> infinity, lim) a_n + stackrel(d, =) Y")
+                        == Some("overset(p, ->) X + underset(n -> infinity, lim) a_n + stackrel(d, =) Y + buildrel(def, =) Z")
         ));
     }
 
