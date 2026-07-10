@@ -14926,7 +14926,13 @@ impl<'i> Vm<'i> {
                 }
                 if matches!(
                     environment,
-                    "algorithm"
+                    "enumerate"
+                        | "enumerate*"
+                        | "itemize"
+                        | "itemize*"
+                        | "description"
+                        | "description*"
+                        | "algorithm"
                         | "algorithm*"
                         | "algorithmic"
                         | "algorithmic*"
@@ -41758,6 +41764,11 @@ Fallback text.
             assert!(
                 !captured_text.contains(hidden),
                 "{hidden} leaked in {captured_text}"
+            );
+            assert!(
+                !outcome.output.contains(hidden),
+                "{hidden} leaked in legacy output {:?}",
+                outcome.output
             );
         }
 
