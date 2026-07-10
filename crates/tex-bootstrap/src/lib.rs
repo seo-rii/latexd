@@ -109,13 +109,13 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\sloppy{}
 \def\fussy{}
 \def\label#1{}
-\def\ref#1{#1}
-\def\pageref#1{#1}
-\def\eqref#1{(#1)}
-\def\autoref#1{#1}
-\def\nameref#1{#1}
-\def\cref#1{#1}
-\def\Cref#1{#1}
+\def\ref#1{[?]}
+\def\pageref#1{[?]}
+\def\eqref#1{(?)}
+\def\autoref#1{[?]}
+\def\nameref#1{[?]}
+\def\cref#1{[?]}
+\def\Cref#1{[?]}
 \newcommand{\cite}[2][]{#2}
 \newcommand{\citep}[2][]{#2}
 \newcommand{\citet}[2][]{#2}
@@ -1786,6 +1786,43 @@ mod tests {
             assert!(
                 result.output.contains(visible),
                 "{visible} missing from {:?}",
+                result.output
+            );
+        }
+    }
+
+    #[test]
+    fn mini_kernel_redacts_unresolved_reference_keys() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            r"\begin{document}See \ref{sec:intro}, \pageref{page:key}, \eqref{eq:main}, \autoref{fig:plot}, \nameref{sec:name}, \cref{thm:one}, and \Cref{thm:two}.\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        assert!(result.output.contains("[?]"), "{:?}", result.output);
+        assert!(result.output.contains("(?)"), "{:?}", result.output);
+        for key in [
+            "sec:intro",
+            "page:key",
+            "eq:main",
+            "fig:plot",
+            "sec:name",
+            "thm:one",
+            "thm:two",
+        ] {
+            assert!(
+                !result.output.contains(key),
+                "reference key {key} leaked into {:?}",
                 result.output
             );
         }
