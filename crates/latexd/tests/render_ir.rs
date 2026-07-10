@@ -12233,6 +12233,44 @@ fn mathtools_starred_matrix_environments_use_normalized_text_in_ir_and_display_l
 }
 
 #[test]
+fn mathtools_gathered_variants_use_normalized_text_in_ir_and_display_list() {
+    let source = r"\begin{document}\[\begin{lgathered}[t] a\\b \end{lgathered}+\begin{rgathered}[b] c\\d \end{rgathered}\]\end{document}";
+    let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());
+    let expected = "gathered(a; b) + gathered(c; d)";
+
+    assert!(capture.document_ir.blocks.iter().any(|block| {
+        matches!(
+            block,
+            IrBlock::DisplayMath(display)
+                if display.raw_source
+                    == r"\begin{lgathered}[t] a\\b \end{lgathered}+\begin{rgathered}[b] c\\d \end{rgathered}"
+                    && display.normalized_text.as_deref() == Some(expected)
+        )
+    }));
+
+    let display_list_text = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .filter_map(|op| match op {
+            DrawOp::TextRun(run) => Some(run.text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert!(display_list_text.contains(expected), "{display_list_text}");
+    for hidden in [
+        r"\begin{lgathered}",
+        r"\end{lgathered}",
+        r"\begin{rgathered}",
+        r"\end{rgathered}",
+        "[t]",
+        "[b]",
+    ] {
+        assert!(!display_list_text.contains(hidden), "{display_list_text}");
+    }
+}
+
+#[test]
 fn cases_math_environment_uses_normalized_text_in_ir_and_display_list() {
     let source = r"\begin{document}\[\begin{cases} x & x>0 \\ -x & x<0 \end{cases}\]\end{document}";
     let capture = capture_internal_render_ir("main.tex", source, &SemanticAux::default());

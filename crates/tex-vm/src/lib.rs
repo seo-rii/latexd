@@ -24332,6 +24332,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                                 | "aligned"
                                 | "split"
                                 | "gathered"
+                                | "lgathered"
+                                | "rgathered"
                                 | "alignedat"
                                 | "array"
                                 | "subarray"
@@ -24344,6 +24346,8 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                             environment,
                             "aligned"
                                 | "gathered"
+                                | "lgathered"
+                                | "rgathered"
                                 | "alignedat"
                                 | "array"
                                 | "matrix*"
@@ -24410,7 +24414,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                             | "drcases" | "drcases*" => "cases",
                             "aligned" => "aligned",
                             "split" => "split",
-                            "gathered" => "gathered",
+                            "gathered" | "lgathered" | "rgathered" => "gathered",
                             "alignedat" => "alignedat",
                             "array" => "array",
                             "subarray" => "subarray",
