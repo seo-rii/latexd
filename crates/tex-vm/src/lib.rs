@@ -24308,6 +24308,75 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         }
                         index = after_radicand;
                     }
+                    "root" => {
+                        let mut scan_index = skip_ascii_whitespace(source, command_index);
+                        let root_start = scan_index;
+                        let mut brace_depth = 0usize;
+                        let mut of_command = None;
+                        while scan_index < bytes.len() {
+                            match bytes[scan_index] {
+                                b'\\' => {
+                                    let command_start = scan_index;
+                                    scan_index += 1;
+                                    if scan_index >= bytes.len() {
+                                        return None;
+                                    }
+                                    let command_name_start = scan_index;
+                                    if bytes[scan_index].is_ascii_alphabetic()
+                                        || bytes[scan_index] == b'@'
+                                    {
+                                        while scan_index < bytes.len()
+                                            && (bytes[scan_index].is_ascii_alphabetic()
+                                                || bytes[scan_index] == b'@')
+                                        {
+                                            scan_index += 1;
+                                        }
+                                    } else {
+                                        scan_index += 1;
+                                    }
+                                    if brace_depth == 0
+                                        && &source[command_name_start..scan_index] == "of"
+                                    {
+                                        of_command = Some((command_start, scan_index));
+                                        break;
+                                    }
+                                }
+                                b'{' => {
+                                    brace_depth += 1;
+                                    scan_index += 1;
+                                }
+                                b'}' => {
+                                    if brace_depth == 0 {
+                                        return None;
+                                    }
+                                    brace_depth -= 1;
+                                    scan_index += 1;
+                                }
+                                _ => {
+                                    scan_index += 1;
+                                }
+                            }
+                        }
+                        let Some((of_start, of_end)) = of_command else {
+                            return None;
+                        };
+                        let root = source[root_start..of_start].trim();
+                        if root.is_empty() {
+                            return None;
+                        }
+                        let radicand_index = skip_ascii_whitespace(source, of_end);
+                        let Some((radicand, _, _, after_radicand)) =
+                            read_braced_source_argument(source, radicand_index)
+                        else {
+                            return None;
+                        };
+                        let root = normalize_latex_math_text(root)
+                            .unwrap_or_else(|| normalize_latex_math_source(root));
+                        let radicand = normalize_latex_math_text(radicand)
+                            .unwrap_or_else(|| normalize_latex_math_source(radicand));
+                        push_token!(&format!("root[{root}]({radicand})"));
+                        index = after_radicand;
+                    }
                     "substack" => {
                         let body_index = skip_ascii_whitespace(source, command_index);
                         let Some((body, _, _, after_body)) =

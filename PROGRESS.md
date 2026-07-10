@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-10` note: Plain TeX `\root ... \of{...}` math syntax now normalizes to readable `root[index](radicand)` text for IR/display-list output while preserving raw math source.
 - `2026-07-10` note: Math spacing aliases `\enspace` and `\enskip` now normalize as visible spacing in IR/display-list text without forcing raw math fallback.
 - `2026-07-10` note: Named math spacing aliases `\thinspace`, `\medspace`, `\thickspace`, and their negative variants now produce normalized IR/display-list text without leaking spacing commands.
 - `2026-07-10` note: Math line-break penalty hints `\nobreak` and `\penalty...` now reuse the layout-spacing cleanup path, hiding penalty controls while preserving adjacent visible symbols.
