@@ -24026,6 +24026,16 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                     "nonumber" | "notag" => {
                         index = command_index;
                     }
+                    "MoveEqLeft" => {
+                        let option_index = skip_ascii_whitespace(source, command_index);
+                        if let Some((_, _, _, after_option)) =
+                            read_bracket_source_argument(source, option_index)
+                        {
+                            index = after_option;
+                        } else {
+                            index = command_index;
+                        }
+                    }
                     "vdotswithin" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);
                         let Some((_, _, _, after_argument)) =
