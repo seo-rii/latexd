@@ -14926,6 +14926,17 @@ impl<'i> Vm<'i> {
                 }
                 if matches!(
                     environment,
+                    "array" | "tabular" | "longtable" | "longtable*"
+                ) {
+                    let _ = self.read_optional_bracket_tokens(queue);
+                    let _ = self.read_macro_argument(queue);
+                } else if matches!(environment, "tabular*" | "tabularx") {
+                    let _ = self.read_macro_argument(queue);
+                    let _ = self.read_optional_bracket_tokens(queue);
+                    let _ = self.read_macro_argument(queue);
+                }
+                if matches!(
+                    environment,
                     "enumerate"
                         | "enumerate*"
                         | "itemize"

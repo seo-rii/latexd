@@ -155,9 +155,9 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \newcommand{\footnotemark}[1][]{}
 \def\hline{}
 \def\cline#1{}
-\def\toprule{}
-\def\midrule{}
-\def\bottomrule{}
+\newcommand{\toprule}[1][]{}
+\newcommand{\midrule}[1][]{}
+\newcommand{\bottomrule}[1][]{}
 \def\cmidrule#1{}
 \def\checkmark{x}
 \providecommand{\subfigure}[2][]{#2}
@@ -1823,6 +1823,40 @@ mod tests {
             assert!(
                 !result.output.contains(key),
                 "reference key {key} leaked into {:?}",
+                result.output
+            );
+        }
+    }
+
+    #[test]
+    fn mini_kernel_hides_table_column_and_rule_layout_arguments() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            r"\begin{document}\begin{tabular}[t]{cccccc}\toprule[1pt] A & B \midrule[.5pt] C & D \bottomrule[1pt]\end{tabular}$\begin{array}[b]{cccc}a & b\end{array}$\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        for visible in ["A", "B", "C", "D", "a", "b"] {
+            assert!(
+                result.output.contains(visible),
+                "{visible} missing from {:?}",
+                result.output
+            );
+        }
+        for hidden in ["[t]", "[b]", "cccccc", "cccc", "[1pt]", "[.5pt]"] {
+            assert!(
+                !result.output.contains(hidden),
+                "{hidden} leaked into {:?}",
                 result.output
             );
         }
