@@ -24518,9 +24518,9 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                         let radicand = normalize_latex_math_text(radicand)
                             .unwrap_or_else(|| normalize_latex_math_source(radicand));
                         if let Some(root) = root {
-                            push_token!(&format!("root[{root}]({radicand})"));
+                            push_command_token!(&format!("root[{root}]({radicand})"));
                         } else {
-                            push_token!(&format!("sqrt({radicand})"));
+                            push_command_token!(&format!("sqrt({radicand})"));
                         }
                         index = after_radicand;
                     }
@@ -24590,7 +24590,7 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                             .unwrap_or_else(|| normalize_latex_math_source(root));
                         let radicand = normalize_latex_math_text(radicand)
                             .unwrap_or_else(|| normalize_latex_math_source(radicand));
-                        push_token!(&format!("root[{root}]({radicand})"));
+                        push_command_token!(&format!("root[{root}]({radicand})"));
                         index = after_radicand;
                     }
                     "substack" => {
@@ -36788,6 +36788,29 @@ Fallback text.
             RenderEvent::InlineMath(math)
                 if math.raw_source == r"\alpha + \frac{x}{y} + \sqrt{z}"
                     && math.normalized_text.as_deref() == Some("alpha + x/y + sqrt(z)")
+        ));
+    }
+
+    #[test]
+    fn render_event_capture_preserves_sqrt_token_boundaries() {
+        let source = r"\begin{document}Value \(\frac{1}{\delta}\sqrt{x}+2\sqrt{m}\).\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let inline_math = outcome
+            .render_events
+            .iter()
+            .find(|event| matches!(&event.event, RenderEvent::InlineMath(_)))
+            .expect("inline math event");
+
+        assert!(matches!(
+            &inline_math.event,
+            RenderEvent::InlineMath(math)
+                if math.raw_source == r"\frac{1}{\delta}\sqrt{x}+2\sqrt{m}"
+                    && math.normalized_text.as_deref()
+                        == Some("1/delta sqrt(x) + 2 sqrt(m)")
         ));
     }
 
