@@ -1675,6 +1675,78 @@ mod tests {
     }
 
     #[test]
+    fn mini_kernel_preserves_math_boundaries_nested_in_text_wrappers() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            r"\begin{document}$\textit{Hamiltonian $\mathcal{H}=\sum_{k}q_k\varphi_k-\mathcal{L}$}$\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        assert!(
+            result.output.contains("q_k varphi_k"),
+            "nested math boundaries missing from {:?}",
+            result.output
+        );
+        assert!(
+            !result.output.contains("q_kvarphi"),
+            "nested math atom leaked into {:?}",
+            result.output
+        );
+    }
+
+    #[test]
+    fn replay_checkpoint_restores_math_mode_after_text_wrapper_input() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("child.tex"), "circuit").expect("child");
+        fs::write(
+            root.join("paper.tex"),
+            r"\begin{document}$\textit{Hamiltonian \input{child}:$q_k\varphi_k$}\varphi_k$\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let full = run_project(&world).expect("full run");
+        let child_exit = full
+            .module_checkpoints
+            .iter()
+            .find(|checkpoint| {
+                checkpoint.kind == tex_vm::VmModuleCheckpointKind::Exit
+                    && checkpoint.module_path == Utf8PathBuf::from("child.tex")
+            })
+            .expect("child exit checkpoint");
+        let replayed = run_project_from_checkpoint(
+            &world,
+            &super::ProjectReplayCheckpoint {
+                snapshot: child_exit.snapshot.clone(),
+                resume_path: child_exit.resume_path.clone().expect("resume path"),
+                source_offset_utf8: child_exit.source_offset_utf8,
+                continuation_stack: child_exit.continuation_stack.clone(),
+            },
+            &full.output[..child_exit.output_start_utf8 as usize],
+        )
+        .expect("replayed run");
+
+        assert_eq!(replayed.output, full.output);
+        assert!(full.output.contains("q_k varphi_k"), "{:?}", full.output);
+    }
+
+    #[test]
     fn mini_kernel_spaces_set_and_logical_math_in_legacy_output() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");

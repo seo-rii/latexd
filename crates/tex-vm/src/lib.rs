@@ -794,6 +794,8 @@ pub struct VmSnapshot {
     pub legacy_math_output_active: bool,
     #[serde(default)]
     pub legacy_math_pending_word_boundary: bool,
+    #[serde(default)]
+    pub legacy_math_text_wrapper_restore_scope_depth: Option<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1061,6 +1063,7 @@ pub struct Vm<'i> {
     global_prefix: bool,
     legacy_math_output_active: bool,
     legacy_math_pending_word_boundary: bool,
+    legacy_math_text_wrapper_restore_scope_depth: Option<usize>,
 }
 
 impl<'i> Vm<'i> {
@@ -1114,6 +1117,7 @@ impl<'i> Vm<'i> {
             global_prefix: false,
             legacy_math_output_active: false,
             legacy_math_pending_word_boundary: false,
+            legacy_math_text_wrapper_restore_scope_depth: None,
         };
         vm.define(
             "@empty".to_string(),
@@ -13937,6 +13941,8 @@ impl<'i> Vm<'i> {
             read_stream_eof: self.read_stream_eof.clone(),
             legacy_math_output_active: self.legacy_math_output_active,
             legacy_math_pending_word_boundary: self.legacy_math_pending_word_boundary,
+            legacy_math_text_wrapper_restore_scope_depth: self
+                .legacy_math_text_wrapper_restore_scope_depth,
         }
     }
 
@@ -14024,6 +14030,8 @@ impl<'i> Vm<'i> {
         vm.read_stream_eof = snapshot.read_stream_eof.clone();
         vm.legacy_math_output_active = snapshot.legacy_math_output_active;
         vm.legacy_math_pending_word_boundary = snapshot.legacy_math_pending_word_boundary;
+        vm.legacy_math_text_wrapper_restore_scope_depth =
+            snapshot.legacy_math_text_wrapper_restore_scope_depth;
         vm
     }
 
@@ -14114,6 +14122,13 @@ impl<'i> Vm<'i> {
                                 self.push_token_front(queue, token);
                             }
                         }
+                    }
+                    if self.legacy_math_text_wrapper_restore_scope_depth == Some(self.scopes.len())
+                    {
+                        self.legacy_math_text_wrapper_restore_scope_depth = None;
+                        self.legacy_math_output_active = true;
+                        self.legacy_math_pending_word_boundary = false;
+                        self.push_legacy_output_char(' ');
                     }
                 }
                 CatCode::Space | CatCode::Letter | CatCode::Other | CatCode::Active => {
@@ -14717,11 +14732,24 @@ impl<'i> Vm<'i> {
             Primitive::TextWrapper => {
                 if let Some(argument) = self.read_macro_argument(queue) {
                     self.push_legacy_math_word_boundary();
-                    if self.legacy_math_output_active {
-                        self.push_token_front(queue, Token::character(' ', CatCode::Space, 0, 0));
+                    let suspend_math_mode = self.legacy_math_output_active;
+                    if suspend_math_mode {
+                        self.push_token_front(
+                            queue,
+                            Token::character('}', CatCode::EndGroup, 0, 0),
+                        );
+                        self.legacy_math_text_wrapper_restore_scope_depth = Some(self.scopes.len());
+                        self.legacy_math_output_active = false;
+                        self.legacy_math_pending_word_boundary = false;
                     }
                     for token in argument.into_iter().rev() {
                         self.push_token_front(queue, token);
+                    }
+                    if suspend_math_mode {
+                        self.push_token_front(
+                            queue,
+                            Token::character('{', CatCode::BeginGroup, 0, 0),
+                        );
                     }
                 }
             }
@@ -30813,6 +30841,31 @@ mod tests {
             assert!(
                 !outcome.output.contains(hidden),
                 "{hidden} leaked into {:?}",
+                outcome.output
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_math_output_suspends_math_mode_inside_text_wrappers() {
+        let source = r"\def\varphi{\latexdmathwordboundary varphi\latexdmathwordboundary}\begin{document}$\textit{Hamiltonian $q_k\varphi_k$}\varphi_k$\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(source);
+
+        assert!(
+            outcome.output.contains("q_k varphi_k"),
+            "nested math did not regain math-mode boundaries in {:?}",
+            outcome.output
+        );
+        assert!(
+            !vm.legacy_math_output_active,
+            "outer math mode was not closed after the text wrapper"
+        );
+        for glued in ["q_kvarphi", "varphi_kvarphi"] {
+            assert!(
+                !outcome.output.contains(glued),
+                "{glued} leaked into {:?}",
                 outcome.output
             );
         }

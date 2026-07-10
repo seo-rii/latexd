@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-10` note: Legacy text wrappers entered from math mode now suspend that outer mode while processing visible text and restore it afterward, so nested `$...$` fragments regain math word-boundary handling. The restore scope is snapshot-backed, keeping input-exit checkpoint replay byte-identical. In the CC0 `2302.01837` oracle, the affected expression now extracts as `q_k varphi_k` and the spurious `kvarphi` extra token is gone; all six corpus cases still pass with no metric findings.
 - `2026-07-10` note: Old-style math font declarations such as `{\rm d}` and `f_{\rm quad}` now hide the declaration command while preserving readable visible tokens in RenderEvent, Document IR, and PageDisplayList text.
 - `2026-07-10` note: The legacy PDF scaffold now preserves math word boundaries around undefined alphabetic control words and the mini-kernel `\sqrt` / floor-delimiter shims, preventing source-backed fallback text such as `\delta\sqrt{...}` or `\lfloor t` from collapsing into fused extracted tokens like `delta2` or `floort`.
 - `2026-07-10` note: The mini-kernel now uses a pending legacy math word-boundary primitive for word-like symbols, separating cases such as `\beta H`, `\delta E`, `\ell e`, and `10\hbar` while preserving script forms such as `\ell_1`, `\beta^2`, and `\omega_{\ell'}`.
