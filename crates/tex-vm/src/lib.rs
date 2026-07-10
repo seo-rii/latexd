@@ -524,6 +524,7 @@ struct MacroDefinition {
 enum Primitive {
     Relax,
     LegacyMathWordBoundary,
+    LegacyTextScriptBoundary,
     Def,
     GlobalDef,
     ExpandedDef,
@@ -800,6 +801,8 @@ pub struct VmSnapshot {
     pub legacy_math_script_boundary_scope_depths: Vec<usize>,
     #[serde(default)]
     pub legacy_output_last_char: Option<char>,
+    #[serde(default)]
+    pub legacy_text_script_boundary_pending: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1070,6 +1073,7 @@ pub struct Vm<'i> {
     legacy_math_text_wrapper_restore_scope_depth: Option<usize>,
     legacy_math_script_boundary_scope_depths: Vec<usize>,
     legacy_output_last_char: Option<char>,
+    legacy_text_script_boundary_pending: bool,
 }
 
 impl<'i> Vm<'i> {
@@ -1126,6 +1130,7 @@ impl<'i> Vm<'i> {
             legacy_math_text_wrapper_restore_scope_depth: None,
             legacy_math_script_boundary_scope_depths: Vec::new(),
             legacy_output_last_char: None,
+            legacy_text_script_boundary_pending: false,
         };
         vm.define(
             "@empty".to_string(),
@@ -13964,6 +13969,7 @@ impl<'i> Vm<'i> {
                 .chars()
                 .next_back()
                 .or(self.legacy_output_last_char),
+            legacy_text_script_boundary_pending: self.legacy_text_script_boundary_pending,
         }
     }
 
@@ -14056,6 +14062,7 @@ impl<'i> Vm<'i> {
         vm.legacy_math_script_boundary_scope_depths =
             snapshot.legacy_math_script_boundary_scope_depths.clone();
         vm.legacy_output_last_char = snapshot.legacy_output_last_char;
+        vm.legacy_text_script_boundary_pending = snapshot.legacy_text_script_boundary_pending;
         vm
     }
 
@@ -14067,6 +14074,16 @@ impl<'i> Vm<'i> {
     }
 
     fn push_legacy_output_char(&mut self, ch: char) {
+        let pending_text_script_boundary = mem::take(&mut self.legacy_text_script_boundary_pending);
+        if pending_text_script_boundary
+            && ch.is_ascii_alphanumeric()
+            && self
+                .last_legacy_output_char()
+                .is_some_and(|last| !last.is_whitespace() && last != '$')
+        {
+            self.output.push(' ');
+            self.legacy_output_last_char = Some(' ');
+        }
         let pending_word_boundary = mem::take(&mut self.legacy_math_pending_word_boundary);
         if pending_word_boundary && self.legacy_math_output_active && ch.is_ascii_alphanumeric() {
             if !self
@@ -14259,6 +14276,9 @@ impl<'i> Vm<'i> {
             Primitive::Relax | Primitive::Immediate | Primitive::Protect => {}
             Primitive::LegacyMathWordBoundary => {
                 self.legacy_math_pending_word_boundary = self.legacy_math_output_active;
+            }
+            Primitive::LegacyTextScriptBoundary => {
+                self.legacy_text_script_boundary_pending = true;
             }
             Primitive::Citation => {
                 self.skip_optional_spaces(queue);
@@ -20504,6 +20524,7 @@ fn builtin_primitive(name: &str) -> Option<Primitive> {
     match name {
         "relax" => Some(Primitive::Relax),
         "latexdmathwordboundary" => Some(Primitive::LegacyMathWordBoundary),
+        "latexdtextscriptboundary" => Some(Primitive::LegacyTextScriptBoundary),
         "def" => Some(Primitive::Def),
         "gdef" => Some(Primitive::GlobalDef),
         "edef" => Some(Primitive::ExpandedDef),
@@ -20739,6 +20760,7 @@ fn primitive_name(primitive: Primitive) -> &'static str {
     match primitive {
         Primitive::Relax => "relax",
         Primitive::LegacyMathWordBoundary => "latexdmathwordboundary",
+        Primitive::LegacyTextScriptBoundary => "latexdtextscriptboundary",
         Primitive::Def => "def",
         Primitive::GlobalDef => "gdef",
         Primitive::ExpandedDef => "edef",
@@ -30955,6 +30977,36 @@ mod tests {
                 outcome.output
             );
         }
+    }
+
+    #[test]
+    fn legacy_text_script_boundary_separates_words_but_not_punctuation() {
+        let source = r"\def\textsuperscript#1{#1\latexdtextscriptboundary}\def\textsubscript#1{#1\latexdtextscriptboundary}\begin{document}\textsuperscript{1}Calculated \textsubscript{2}The Edition\textsuperscript{3}.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(source);
+
+        for visible in ["1 Calculated", "2 The", "Edition3."] {
+            assert!(
+                outcome.output.contains(visible),
+                "{visible} missing from {:?}",
+                outcome.output
+            );
+        }
+        for hidden in ["1Calculated", "2The", "Edition3 ."] {
+            assert!(
+                !outcome.output.contains(hidden),
+                "{hidden} leaked into {:?}",
+                outcome.output
+            );
+        }
+
+        vm.run_plain(r"\textsuperscript{4}");
+        let snapshot = vm.snapshot();
+        drop(vm);
+        let mut restored = Vm::restore(&mut interner, &snapshot);
+        let resumed = restored.run_plain("Continued");
+        assert_eq!(resumed.output, " Continued");
     }
 
     #[test]

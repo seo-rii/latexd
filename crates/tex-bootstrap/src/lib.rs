@@ -49,8 +49,8 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\phantomsection{}
 \def\addcontentsline#1#2#3{}
 \def\addtocontents#1#2{}
-\def\textsuperscript#1{#1}
-\def\textsubscript#1{#1}
+\def\textsuperscript#1{#1\latexdtextscriptboundary}
+\def\textsubscript#1{#1\latexdtextscriptboundary}
 \newcommand{\textcolor}[3][]{#3}
 \def\color#1{}
 \def\ensuremath#1{#1}
@@ -1755,6 +1755,40 @@ mod tests {
         );
         assert!(full.output.contains("x_circuit q"), "{:?}", full.output);
         assert!(full.output.contains("q_k varphi_k"), "{:?}", full.output);
+    }
+
+    #[test]
+    fn mini_kernel_separates_text_script_markers_from_following_words() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            r"\begin{document}\textsuperscript{1}Calculated. \textsuperscript{2}The result. \textsuperscript{1}Layers. \textsuperscript{1}CB. \textsuperscript{2}MHSA. Edition\textsuperscript{3}.\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        for visible in [
+            "1 Calculated",
+            "2 The",
+            "1 Layers",
+            "1 CB",
+            "2 MHSA",
+            "Edition3.",
+        ] {
+            assert!(
+                result.output.contains(visible),
+                "{visible} missing from {:?}",
+                result.output
+            );
+        }
     }
 
     #[test]
