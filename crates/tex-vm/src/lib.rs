@@ -24036,6 +24036,15 @@ fn normalize_latex_math_text(source: &str) -> Option<String> {
                             index = command_index;
                         }
                     }
+                    "leftroot" | "uproot" => {
+                        let argument_index = skip_ascii_whitespace(source, command_index);
+                        let Some((_, _, _, after_argument)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            return None;
+                        };
+                        index = after_argument;
+                    }
                     "vdotswithin" => {
                         let argument_index = skip_ascii_whitespace(source, command_index);
                         let Some((_, _, _, after_argument)) =
