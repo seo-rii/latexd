@@ -2,6 +2,7 @@
 
 ## Current Status
 
+- `2026-07-10` note: Equation-like display environments `flalign*`, `alignat*`, and `eqnarray*` now have IR assertions pinning normalized text alongside existing display-list readability checks.
 - `2026-07-10` note: Amsmath `multline` and `multline*` display environments now have render-IR coverage pinning readable row-separator normalized text in IR/display-list output.
 - `2026-07-10` note: Plain TeX infix `\choose` and `\atop` math commands now normalize to readable operator text instead of forcing raw math fallback.
 - `2026-07-10` note: Plain TeX infix `\over` fractions now normalize to readable slash fractions in IR/display-list text instead of forcing raw math fallback.

@@ -12981,19 +12981,25 @@ fn math_environment_capture_survives_ir_and_display_list() {
     assert!(capture.document_ir.blocks.iter().any(|block| {
         matches!(
             block,
-            IrBlock::DisplayMath(display) if display.raw_source == r"a&=b"
+            IrBlock::DisplayMath(display)
+                if display.raw_source == r"a&=b"
+                    && display.normalized_text.as_deref() == Some("a = b")
         )
     }));
     assert!(capture.document_ir.blocks.iter().any(|block| {
         matches!(
             block,
-            IrBlock::DisplayMath(display) if display.raw_source == r"x&=y"
+            IrBlock::DisplayMath(display)
+                if display.raw_source == r"x&=y"
+                    && display.normalized_text.as_deref() == Some("x = y")
         )
     }));
     assert!(capture.document_ir.blocks.iter().any(|block| {
         matches!(
             block,
-            IrBlock::DisplayMath(display) if display.raw_source == r"u&=&v"
+            IrBlock::DisplayMath(display)
+                if display.raw_source == r"u&=&v"
+                    && display.normalized_text.as_deref() == Some("u = v")
         )
     }));
     assert!(!capture.document_ir.blocks.iter().any(|block| {
