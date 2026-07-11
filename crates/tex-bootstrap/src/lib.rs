@@ -260,9 +260,9 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\dots{...}
 \def\times{ x }
 \def\pm{ +- }
-\def\circ{o}
-\def\bigcirc{o}
-\def\bigcircop{o}
+\def\circ{ o }
+\def\bigcirc{ o }
+\def\bigcircop{ o }
 \def\ast{*}
 \def\star{*}
 \def\dag{ dag }
@@ -1485,7 +1485,7 @@ mod tests {
         .expect("manifest");
         fs::write(
             root.join("paper.tex"),
-            r"\newcommand{\ketbra}[2]{|#1><#2|}\begin{document}$q_{\ell}=-2e\sum\ketbra{N}{N}$ and $\sin\theta+\log n$.\end{document}",
+            r"\newcommand{\ketbra}[2]{|#1><#2|}\begin{document}$q_{\ell}=-2e\sum\ketbra{N}{N}$ and $\sin\theta+\log n$ and $f\circ h\circ g\circ x$.\end{document}",
         )
         .expect("paper");
 
@@ -1502,7 +1502,12 @@ mod tests {
             "named math functions did not keep readable boundaries in {:?}",
             result.output
         );
-        for hidden in ["2esum", "sintheta", "logn"] {
+        assert!(
+            result.output.contains("f o h o g o x"),
+            "composition operators did not keep readable boundaries in {:?}",
+            result.output
+        );
+        for hidden in ["2esum", "sintheta", "logn", "fohogox"] {
             assert!(
                 !result.output.contains(hidden),
                 "{hidden} leaked into {:?}",
