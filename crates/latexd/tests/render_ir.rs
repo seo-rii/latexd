@@ -27808,6 +27808,7 @@ fn algorithmic_environment_capture_survives_ir_and_display_list() {
 
     let extracted_text = capture.document_ir.extracted_text();
     assert!(extracted_text.contains("Step one."));
+    assert!(extracted_text.contains("Visible note."));
     assert!(extracted_text.contains("Wide step."));
 
     let display_list_text = capture.page_display_lists[0]
@@ -27820,6 +27821,7 @@ fn algorithmic_environment_capture_survives_ir_and_display_list() {
         .collect::<Vec<_>>()
         .join("");
     assert!(display_list_text.contains("Step one."));
+    assert!(display_list_text.contains("Visible note."));
     assert!(display_list_text.contains("Wide step."));
 }
 
@@ -29606,7 +29608,7 @@ const SUBFLOAT_BODY_LABEL_SOURCE: &str = r"\begin{document}\begin{figure}\subflo
 
 const ALGORITHM_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{algorithm}\caption{Procedure.}\label{alg:first}Step text.\end{algorithm}\begin{algorithm*}Wide step.\end{algorithm*}\end{document}";
 
-const ALGORITHMIC_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{algorithmic}\State Step one.\end{algorithmic}\begin{algorithmic*}Wide step.\end{algorithmic*}\end{document}";
+const ALGORITHMIC_ENVIRONMENT_SOURCE: &str = r"\begin{document}\begin{algorithmic}\State Step one.\Comment{Visible note.}\end{algorithmic}\begin{algorithmic*}Wide step.\end{algorithmic*}\end{document}";
 
 const SUBEQUATIONS_WRAPPER_SOURCE: &str = r"\begin{document}\begin{subequations}\label{eq:group}\begin{align}x&=y\end{align}\end{subequations}\end{document}";
 

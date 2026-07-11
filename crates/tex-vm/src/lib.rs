@@ -8868,6 +8868,41 @@ impl<'i> Vm<'i> {
                     );
                     index = linebreak_end;
                 }
+                "Comment" if in_document => {
+                    let argument_index = skip_ascii_whitespace(source, index);
+                    if let Some((argument, content_start, content_end, after)) =
+                        read_braced_source_argument(source, argument_index)
+                    {
+                        let invocation = ProvenanceSpan::File(SourceSpan {
+                            path: source_path.to_owned(),
+                            start_utf8: command_start as u32,
+                            end_utf8: after as u32,
+                        });
+                        self.emit_render_event(
+                            RenderEvent::Space(SpaceEvent {
+                                kind: SpaceKind::Explicit,
+                            }),
+                            SourceProvenance::file(
+                                source_path.to_owned(),
+                                command_start as u32,
+                                index as u32,
+                            ),
+                        );
+                        let text = normalize_latex_text_with_inline_placeholders(argument);
+                        if !text.is_empty() {
+                            self.emit_render_event(
+                                RenderEvent::Text(TextEvent { text }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    content_start as u32,
+                                    content_end as u32,
+                                )
+                                .with_related(SourceSpanRole::Invocation, invocation),
+                            );
+                        }
+                        index = after;
+                    }
+                }
                 "State" | "Statex" | "For" | "ForAll" | "If" | "ElsIf" | "Else" | "While"
                 | "Repeat" | "Until" | "Loop" | "Function" | "Procedure" | "Require" | "Ensure"
                 | "Return" | "EndFor" | "EndIf" | "EndWhile" | "EndLoop" | "EndFunction"
@@ -43564,7 +43599,7 @@ Fallback text.
 
     #[test]
     fn render_event_capture_records_algorithmic_environment_blocks_without_fallback() {
-        let source = r"\begin{document}\begin{algorithmic}\State Step one.\end{algorithmic}\begin{algorithmic*}Wide step.\end{algorithmic*}\end{document}";
+        let source = r"\begin{document}\begin{algorithmic}\State Step one.\Comment{Visible note.}\end{algorithmic}\begin{algorithmic*}Wide step.\end{algorithmic*}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -43598,6 +43633,33 @@ Fallback text.
                 &event.event,
                 RenderEvent::Text(text) if text.text == "Step"
             )
+        }));
+        let comment_event = outcome
+            .render_events
+            .iter()
+            .find(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::Text(text) if text.text == "Visible note."
+                )
+            })
+            .expect("algorithmic comment text event");
+        assert!(matches!(
+            &comment_event.meta.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == "Visible note."
+        ));
+        assert!(comment_event.meta.source.related.iter().any(|related| {
+            related.role == SourceSpanRole::Invocation
+                && matches!(
+                    &related.span,
+                    tex_render_model::ProvenanceSpan::File(span)
+                        if span.path == Utf8PathBuf::from("main.tex")
+                            && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                                == r"\Comment{Visible note.}"
+                )
         }));
         assert!(!outcome.render_events.iter().any(|event| matches!(
             &event.event,

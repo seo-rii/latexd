@@ -361,7 +361,7 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\parbox#1#2{#2}
 \def\scalebox#1#2{#2}
 \def\State{}
-\def\Comment#1{}
+\def\Comment#1{ #1 }
 \def\For#1{#1}
 \def\EndFor{}
 \def\If#1{#1}
@@ -1490,6 +1490,38 @@ mod tests {
                 result.output
             );
         }
+    }
+
+    #[test]
+    fn mini_kernel_preserves_algorithmic_comment_bodies_in_legacy_output() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            r"\begin{document}\begin{algorithmic}\State Search\Comment{Keep visible explanation}\end{algorithmic}\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+        let normalized_output = result
+            .output
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        assert!(
+            normalized_output.contains("Search Keep visible explanation"),
+            "algorithmic comment body was not preserved in {:?}",
+            result.output
+        );
+        assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+        assert!(!result.output.contains("Comment"), "{:?}", result.output);
     }
 
     #[test]
