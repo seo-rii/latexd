@@ -8,11 +8,11 @@ use serde::{Deserialize, Serialize};
 use tex_lexer::{CatCodeTable, Lexer, lex_plain};
 use tex_render_model::{
     BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint,
-    EndBlockEvent, EventId, ExpansionFrame, FallbackReason, FlushTitleBlockEvent,
-    GraphicAssetDensity, GraphicAssetDensityUnit, GraphicAssetFormat, GraphicPageSelection,
-    GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent,
-    LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent, ListKind,
-    MathSourceEvent, MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason,
+    DocumentClassEvent, EndBlockEvent, EventId, ExpansionFrame, FallbackReason,
+    FlushTitleBlockEvent, GraphicAssetDensity, GraphicAssetDensityUnit, GraphicAssetFormat,
+    GraphicPageSelection, GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent,
+    InlineReferenceEvent, LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent,
+    ListKind, MathSourceEvent, MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason,
     ProvenanceSpan, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
     SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
     TableCellSpanEvent, TableColumnAlignment, TableColumnSpec, TableRuleEvent, TableRulePosition,
@@ -5456,11 +5456,15 @@ impl<'i> Vm<'i> {
                 "documentclass" | "LoadClass" | "LoadClassWithOptions" => {
                     let mut class_index = skip_ascii_whitespace(source, index);
                     let mut class_graphic_options = Vec::new();
+                    let mut document_class_options = Vec::new();
                     if command != "LoadClassWithOptions"
                         && let Some((options, _, _, after_options)) =
                             read_bracket_source_argument(source, class_index)
                     {
                         for option in options.split(',').map(str::trim) {
+                            if command == "documentclass" && !option.is_empty() {
+                                document_class_options.push(option.to_string());
+                            }
                             if matches!(option, "draft" | "final")
                                 && !class_graphic_options.contains(&option)
                             {
@@ -5479,6 +5483,19 @@ impl<'i> Vm<'i> {
                     if let Some((class_name, _, _, after_class)) =
                         read_braced_source_argument(source, class_index)
                     {
+                        if command == "documentclass" && include_depth == 0 {
+                            self.emit_render_event(
+                                RenderEvent::DocumentClass(DocumentClassEvent {
+                                    name: class_name.trim().to_string(),
+                                    options: document_class_options,
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    command_start as u32,
+                                    after_class as u32,
+                                ),
+                            );
+                        }
                         let mut class_path =
                             normalize_relative_path(Utf8Path::new(class_name.trim()))
                                 .ok()
@@ -44530,6 +44547,38 @@ Fallback text.
                             == definition_text
             ));
         }
+    }
+
+    #[test]
+    fn render_event_capture_records_document_class_layout_intent() {
+        let source = "%\\documentclass{ignored}\n\\documentclass[10pt, twocolumn]{article}\\begin{document}Body.\\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let document_class = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::DocumentClass(document_class) => Some((document_class, &event.meta)),
+                _ => None,
+            })
+            .expect("document class event");
+
+        assert_eq!(document_class.0.name, "article");
+        assert_eq!(
+            document_class.0.options,
+            vec!["10pt".to_string(), "twocolumn".to_string()]
+        );
+        assert_eq!(document_class.1.mode_hint, ModeHint::Preamble);
+        assert!(matches!(
+            &document_class.1.source.primary,
+            tex_render_model::ProvenanceSpan::File(span)
+                if span.path == Utf8PathBuf::from("main.tex")
+                    && &source[span.start_utf8 as usize..span.end_utf8 as usize]
+                        == r"\documentclass[10pt, twocolumn]{article}"
+        ));
     }
 
     #[test]

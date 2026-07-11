@@ -15,12 +15,12 @@ pub use display_list::{
     TextCluster,
 };
 pub use events::{
-    BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, EndBlockEvent, EventId,
-    EventMeta, EventProducer, FallbackReason, FlushTitleBlockEvent, GraphicAssetDensity,
-    GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat, GraphicPageSelection,
-    GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent,
-    LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent, ListKind,
-    MathSourceEvent, MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason,
+    BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, DocumentClassEvent,
+    EndBlockEvent, EventId, EventMeta, EventProducer, FallbackReason, FlushTitleBlockEvent,
+    GraphicAssetDensity, GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat,
+    GraphicPageSelection, GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent,
+    InlineReferenceEvent, LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent,
+    ListKind, MathSourceEvent, MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason,
     RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
     SemanticConfidence, SetDocumentMetadataEvent, SpaceEvent, SpaceKind, TableCellSpanEvent,
     TableColumnAlignment, TableColumnSpec, TableRuleEvent, TableRulePosition, TableRuleSpan,
@@ -29,7 +29,7 @@ pub use events::{
 pub use golden::{from_pretty_json, to_pretty_json, to_semantic_pretty_json};
 pub use ir::{
     AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, DisplayMathBlock,
-    DocumentIr, EnvironmentBlock, GraphicBlock, HeadingBlock, InlineNode, IrBlock,
+    DocumentClassIr, DocumentIr, EnvironmentBlock, GraphicBlock, HeadingBlock, InlineNode, IrBlock,
     LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ParagraphBlock, RawFallbackIr,
     ReferenceInline, TableBlock, TableCell, TableRow, TitleBlock,
 };

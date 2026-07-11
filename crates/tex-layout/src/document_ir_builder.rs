@@ -1,10 +1,10 @@
 use tex_render_model::{
     AbstractBlock, AuxView, BibliographyBlock, BibliographyItemIr, CitationInline,
-    CitationStyleHint, DocumentIr, EnvironmentBlock, GraphicBlock, HeadingBlock, InlineNode,
-    IrBlock, LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind, MetadataField,
-    ParagraphBlock, ReferenceInline, RenderEvent, RenderEventEnvelope, RenderEventStream,
-    SourceProvenance, SourceSpanRole, TableBlock, TableCell, TableRow, TableRulePosition,
-    TitleBlock,
+    CitationStyleHint, DocumentClassIr, DocumentIr, EnvironmentBlock, GraphicBlock, HeadingBlock,
+    InlineNode, IrBlock, LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind,
+    MetadataField, ParagraphBlock, ReferenceInline, RenderEvent, RenderEventEnvelope,
+    RenderEventStream, SourceProvenance, SourceSpanRole, TableBlock, TableCell, TableRow,
+    TableRulePosition, TitleBlock,
 };
 
 pub fn build_document_ir(stream: &RenderEventStream, aux: &impl AuxView) -> DocumentIr {
@@ -24,6 +24,7 @@ pub struct DocumentIrBuilder<'a, A: AuxView> {
     list_item: Option<(Vec<InlineNode>, SourceProvenance, Option<String>)>,
     float_stack: Vec<tex_render_model::BlockKind>,
     pending_table_caption: Option<(String, SourceProvenance)>,
+    document_class: Option<DocumentClassIr>,
     title: Option<(String, SourceProvenance)>,
     authors: Vec<(String, SourceProvenance)>,
     date: Option<(String, SourceProvenance)>,
@@ -47,6 +48,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             list_item: None,
             float_stack: Vec::new(),
             pending_table_caption: None,
+            document_class: None,
             title: None,
             authors: Vec::new(),
             date: None,
@@ -59,6 +61,13 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
     pub fn build(mut self, stream: &RenderEventStream) -> DocumentIr {
         for envelope in &stream.events {
             match &envelope.event {
+                RenderEvent::DocumentClass(event) => {
+                    self.document_class = Some(DocumentClassIr {
+                        name: event.name.clone(),
+                        options: event.options.clone(),
+                        source: envelope.meta.source.clone(),
+                    });
+                }
                 RenderEvent::SetDocumentMetadata(event) => match event.field {
                     MetadataField::Title => {
                         self.title = Some((event.value.clone(), envelope.meta.source.clone()));
@@ -651,7 +660,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                 source,
             }));
         }
-        DocumentIr::with_labels(self.blocks, self.labels)
+        DocumentIr::with_document_class_and_labels(self.blocks, self.document_class, self.labels)
     }
 
     fn push_inline(&mut self, node: InlineNode, envelope: &RenderEventEnvelope) {
@@ -715,12 +724,12 @@ mod tests {
 
     use tex_render_model::{
         BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationLabel,
-        CitationStyleHint, EndBlockEvent, FlushTitleBlockEvent, GraphicAssetDimensions,
-        GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent,
-        IrBlock, LabelDefinitionEvent, LabelTargetView, MathSourceEvent, MetadataField,
-        ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RenderEvent,
-        RenderEventEnvelope, RenderEventStream, SetDocumentMetadataEvent, SourceProvenance,
-        TextEvent,
+        CitationStyleHint, DocumentClassEvent, EndBlockEvent, FlushTitleBlockEvent,
+        GraphicAssetDimensions, GraphicRefEvent, HeadingEvent, InlineCitationEvent,
+        InlineLinkEvent, InlineReferenceEvent, IrBlock, LabelDefinitionEvent, LabelTargetView,
+        MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason,
+        RawFallbackEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
+        SetDocumentMetadataEvent, SourceProvenance, TextEvent,
     };
 
     use super::build_document_ir;
@@ -751,6 +760,38 @@ mod tests {
                 page: None,
             })
         }
+    }
+
+    #[test]
+    fn preserves_document_class_layout_intent() {
+        let source = SourceProvenance::file("main.tex", 0, 43);
+        let stream = RenderEventStream::new(
+            Some("document-class".to_string()),
+            vec![RenderEventEnvelope::new(
+                1,
+                RenderEvent::DocumentClass(DocumentClassEvent {
+                    name: "article".to_string(),
+                    options: vec!["10pt".to_string(), "twocolumn".to_string()],
+                }),
+                source.clone(),
+            )],
+        );
+
+        let ir = build_document_ir(
+            &stream,
+            &Labels {
+                labels: BTreeMap::new(),
+                targets: BTreeMap::new(),
+            },
+        );
+        let document_class = ir.document_class.expect("document class");
+
+        assert_eq!(document_class.name, "article");
+        assert_eq!(
+            document_class.options,
+            vec!["10pt".to_string(), "twocolumn".to_string()]
+        );
+        assert_eq!(document_class.source, source);
     }
 
     #[test]

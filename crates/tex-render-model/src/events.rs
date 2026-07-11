@@ -106,6 +106,7 @@ pub enum RenderEvent {
     Space(SpaceEvent),
     LineBreak(LineBreakEvent),
     ParagraphBreak(ParagraphBreakEvent),
+    DocumentClass(DocumentClassEvent),
     SetDocumentMetadata(SetDocumentMetadataEvent),
     FlushTitleBlock(FlushTitleBlockEvent),
     BeginBlock(BeginBlockEvent),
@@ -131,7 +132,7 @@ impl RenderEvent {
             Self::Text(_) | Self::Space(_) => ModeHint::Horizontal,
             Self::LineBreak(_) => ModeHint::Horizontal,
             Self::ParagraphBreak(_) => ModeHint::Vertical,
-            Self::SetDocumentMetadata(_) => ModeHint::Preamble,
+            Self::DocumentClass(_) | Self::SetDocumentMetadata(_) => ModeHint::Preamble,
             Self::FlushTitleBlock(_) => ModeHint::Vertical,
             Self::BeginBlock(_) | Self::EndBlock(_) => ModeHint::Vertical,
             Self::Heading(_) => ModeHint::Vertical,
@@ -189,6 +190,12 @@ pub enum ParagraphBreakReason {
     ParCommand,
     EndBlock,
     StructuralCommand,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DocumentClassEvent {
+    pub name: String,
+    pub options: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
