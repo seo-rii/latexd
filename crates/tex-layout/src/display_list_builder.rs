@@ -1718,7 +1718,44 @@ pub fn build_page_display_lists(
                             }
                             let remaining_line_chars =
                                 max_chars_per_line.saturating_sub(*current_len);
-                            let take_chars = remaining_line_chars.max(1).min(text.chars().count());
+                            let text_char_count = text.chars().count();
+                            let mut take_chars = remaining_line_chars.max(1).min(text_char_count);
+                            let mut wrap_after_chunk = false;
+                            let can_wrap_at_words = !logical.preserve_leading_whitespace
+                                && !table_rule
+                                && table_vertical_rule_offsets.is_empty();
+                            if can_wrap_at_words
+                                && remaining_line_chars > 0
+                                && text_char_count > remaining_line_chars
+                            {
+                                let first_word_chars =
+                                    text.chars().take_while(|ch| !ch.is_whitespace()).count();
+                                let line_ends_with_whitespace = current_line
+                                    .last()
+                                    .and_then(|segment| segment.text.chars().last())
+                                    .is_some_and(char::is_whitespace);
+                                if *current_len > 0
+                                    && line_ends_with_whitespace
+                                    && first_word_chars > remaining_line_chars
+                                    && first_word_chars <= max_chars_per_line
+                                {
+                                    wrapped_lines.push(std::mem::take(current_line));
+                                    *current_len = 0;
+                                    continue;
+                                }
+                                if let Some(word_end) = text
+                                    .chars()
+                                    .take(remaining_line_chars)
+                                    .enumerate()
+                                    .filter_map(|(index, ch)| {
+                                        (index > 0 && ch.is_whitespace()).then_some(index)
+                                    })
+                                    .last()
+                                {
+                                    take_chars = word_end + 1;
+                                    wrap_after_chunk = true;
+                                }
+                            }
                             let split_byte = if take_chars == text.chars().count() {
                                 text.len()
                             } else {
@@ -1758,7 +1795,7 @@ pub fn build_page_display_lists(
                             }
                             consumed_chars += take_chars;
                             text = &text[split_byte..];
-                            if *current_len >= max_chars_per_line {
+                            if wrap_after_chunk || *current_len >= max_chars_per_line {
                                 wrapped_lines.push(std::mem::take(current_line));
                                 *current_len = 0;
                             }
@@ -5414,6 +5451,42 @@ mod tests {
     }
 
     #[test]
+    fn wrapped_lines_prefer_word_boundaries() {
+        let source = SourceProvenance::file("main.tex", 0, 10);
+        let options = PageDisplayListOptions {
+            max_chars_per_line: 8,
+            ..PageDisplayListOptions::default()
+        };
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: "alpha beta".to_string(),
+                    source: source.clone(),
+                }],
+                source,
+            })]),
+            options.clone(),
+        );
+
+        let text_runs = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some((run.text.as_str(), run.origin.x)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            text_runs,
+            vec![
+                ("alpha ", options.margin_left_pt),
+                ("beta", options.margin_left_pt),
+            ]
+        );
+    }
+
+    #[test]
     fn wraps_heading_text_by_approximate_available_width() {
         let source = SourceProvenance::file("main.tex", 0, 70);
         let options = PageDisplayListOptions::default();
@@ -6593,7 +6666,7 @@ mod tests {
         );
 
         let continuation = display_lists[0].ops.iter().find_map(|op| match op {
-            DrawOp::TextRun(run) if run.text == "cdefgh" => Some(run),
+            DrawOp::TextRun(run) if run.text == "abcdef" => Some(run),
             _ => None,
         });
         assert_eq!(

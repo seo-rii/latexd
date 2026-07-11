@@ -193,9 +193,9 @@
         {
           "clusters": [
             {
-              "glyph_end": 3,
+              "glyph_end": 6,
               "glyph_start": 0,
-              "text_end_utf8": 3,
+              "text_end_utf8": 6,
               "text_start_utf8": 0
             }
           ],
@@ -221,40 +221,7 @@
               }
             ]
           },
-          "text": "\\fo"
-        },
-        {
-          "clusters": [
-            {
-              "glyph_end": 3,
-              "glyph_start": 0,
-              "text_end_utf8": 3,
-              "text_start_utf8": 0
-            }
-          ],
-          "source": {
-            "expansion_stack": [],
-            "expansion_stack_truncated": false,
-            "generated_by": "source",
-            "primary": {
-              "end_utf8": 155,
-              "kind": "file",
-              "path": "main.tex",
-              "start_utf8": 149
-            },
-            "related": [
-              {
-                "role": "invocation",
-                "span": {
-                  "end_utf8": 156,
-                  "kind": "file",
-                  "path": "main.tex",
-                  "start_utf8": 137
-                }
-              }
-            ]
-          },
-          "text": "o+*"
+          "text": "\\foo+*"
         }
       ],
       "event": {

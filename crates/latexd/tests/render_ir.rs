@@ -2378,7 +2378,7 @@ fn arrow_math_accents_normalize_inner_math_through_display_list() {
             _ => None,
         })
         .collect::<Vec<_>>()
-        .join(" ");
+        .join("");
 
     assert_eq!(
         math_event.raw_source,
@@ -8563,7 +8563,10 @@ fn math_minmax_supinf_scripts_use_normalized_text_in_ir_and_display_list() {
         })
         .collect::<Vec<_>>()
         .join("\n");
-    let display_list_flat = display_list_text.replace('\n', " ");
+    let display_list_flat = display_list_text
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
     assert!(display_list_flat.contains(expected), "{display_list_text}");
     for hidden in [r"\max", r"\min", r"\sup", r"\inf"] {
         assert!(!display_list_text.contains(hidden), "{display_list_text}");

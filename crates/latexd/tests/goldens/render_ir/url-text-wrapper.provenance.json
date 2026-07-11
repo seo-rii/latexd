@@ -193,9 +193,9 @@
         {
           "clusters": [
             {
-              "glyph_end": 5,
+              "glyph_end": 12,
               "glyph_start": 0,
-              "text_end_utf8": 5,
+              "text_end_utf8": 12,
               "text_start_utf8": 0
             }
           ],
@@ -221,40 +221,7 @@
               }
             ]
           },
-          "text": "/tmp/"
-        },
-        {
-          "clusters": [
-            {
-              "glyph_end": 7,
-              "glyph_start": 0,
-              "text_end_utf8": 7,
-              "text_start_utf8": 0
-            }
-          ],
-          "source": {
-            "expansion_stack": [],
-            "expansion_stack_truncated": false,
-            "generated_by": "source",
-            "primary": {
-              "end_utf8": 125,
-              "kind": "file",
-              "path": "main.tex",
-              "start_utf8": 113
-            },
-            "related": [
-              {
-                "role": "invocation",
-                "span": {
-                  "end_utf8": 126,
-                  "kind": "file",
-                  "path": "main.tex",
-                  "start_utf8": 107
-                }
-              }
-            ]
-          },
-          "text": "archive"
+          "text": "/tmp/archive"
         }
       ],
       "event": {

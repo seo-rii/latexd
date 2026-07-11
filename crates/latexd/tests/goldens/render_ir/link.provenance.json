@@ -233,9 +233,9 @@
         {
           "clusters": [
             {
-              "glyph_end": 25,
+              "glyph_end": 30,
               "glyph_start": 0,
-              "text_end_utf8": 25,
+              "text_end_utf8": 30,
               "text_start_utf8": 0
             }
           ],
@@ -261,40 +261,7 @@
               }
             ]
           },
-          "text": "https://example.test/deli"
-        },
-        {
-          "clusters": [
-            {
-              "glyph_end": 5,
-              "glyph_start": 0,
-              "text_end_utf8": 5,
-              "text_start_utf8": 0
-            }
-          ],
-          "source": {
-            "expansion_stack": [],
-            "expansion_stack_truncated": false,
-            "generated_by": "source",
-            "primary": {
-              "end_utf8": 139,
-              "kind": "file",
-              "path": "main.tex",
-              "start_utf8": 109
-            },
-            "related": [
-              {
-                "role": "invocation",
-                "span": {
-                  "end_utf8": 140,
-                  "kind": "file",
-                  "path": "main.tex",
-                  "start_utf8": 104
-                }
-              }
-            ]
-          },
-          "text": "mited"
+          "text": "https://example.test/delimited"
         }
       ],
       "event": {
