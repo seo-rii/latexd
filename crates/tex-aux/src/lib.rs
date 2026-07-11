@@ -10,6 +10,7 @@ use tex_render_model::{
     AuxView, BibliographyRecordView, CitationLabel, CitationStyleHint, LabelTargetView,
 };
 use tex_world::normalize_relative_path;
+use unicode_normalization::UnicodeNormalization;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct SemanticAux {
@@ -6282,6 +6283,57 @@ fn clean_bibliography_text(source: &str) -> String {
                 } else {
                     command_end
                 };
+                let combining_mark = match command_name.as_str() {
+                    "'" => Some('\u{0301}'),
+                    "`" => Some('\u{0300}'),
+                    "\"" => Some('\u{0308}'),
+                    "^" => Some('\u{0302}'),
+                    "~" => Some('\u{0303}'),
+                    "=" => Some('\u{0304}'),
+                    "." => Some('\u{0307}'),
+                    "c" => Some('\u{0327}'),
+                    "v" => Some('\u{030c}'),
+                    "u" => Some('\u{0306}'),
+                    "H" => Some('\u{030b}'),
+                    "k" => Some('\u{0328}'),
+                    "r" => Some('\u{030a}'),
+                    "b" => Some('\u{0331}'),
+                    "d" => Some('\u{0323}'),
+                    _ => None,
+                };
+                if let Some(combining_mark) = combining_mark {
+                    let argument_start =
+                        if command_name.chars().next().is_some_and(char::is_alphabetic) {
+                            skip_whitespace(&source, command_end)
+                        } else {
+                            command_end
+                        };
+                    let argument = if let Some((argument_end, argument)) =
+                        read_braced_argument(&source, argument_start)
+                    {
+                        Some((argument_end, clean_bibliography_text(&argument)))
+                    } else if source[argument_start..].starts_with('\\') {
+                        read_command_name(&source, argument_start).and_then(
+                            |(argument_end, argument_command)| {
+                                matches!(argument_command.as_str(), "i" | "j")
+                                    .then_some((argument_end, argument_command))
+                            },
+                        )
+                    } else {
+                        source[argument_start..].chars().next().map(|argument| {
+                            (argument_start + argument.len_utf8(), argument.to_string())
+                        })
+                    };
+                    if let Some((argument_end, argument)) = argument {
+                        let mut argument_chars = argument.chars();
+                        if let Some(base) = argument_chars.next() {
+                            text.extend([base, combining_mark].into_iter().nfc());
+                            text.extend(argument_chars);
+                        }
+                        index = argument_end;
+                        continue;
+                    }
+                }
                 if matches!(command_name.as_str(), "bibinfo" | "bibfield") {
                     if let Some((field_end, _)) = read_braced_argument(&source, command_end) {
                         if let Some((value_end, value)) = read_braced_argument(&source, field_end) {
@@ -10594,6 +10646,34 @@ mod tests {
         assert_eq!(bibliography, "[1] ---. https://example.test/paper.");
         assert!(!main.contains("\\urlprefix"));
         assert!(!main.contains("\\bibnamedash"));
+    }
+
+    #[test]
+    fn materialized_bibliography_composes_tex_accent_control_symbols() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        fs::write(root.join("main.tex"), "\\bibliography{refs}").expect("write main");
+        fs::write(
+            root.join("refs.bbl"),
+            r#"\begin{thebibliography}{1}\bibitem{alpha}P{\'e}rez, Szepesv\'ari, Universit{\"a}t M{\"u}nchen, Fran\c{c}ois, Dvo\v{r}ak, M\'{\i}ra.\end{thebibliography}"#,
+        )
+        .expect("write bbl");
+
+        let materialized = materialize_project(
+            &root,
+            &Utf8PathBuf::from("main.tex"),
+            &SemanticAux::default(),
+        )
+        .expect("materialize");
+        let bibliography = materialized
+            .files
+            .get(&Utf8PathBuf::from("refs.bbl"))
+            .expect("materialized bibliography");
+
+        assert_eq!(
+            bibliography,
+            "[1] P\u{00e9}rez, Szepesv\u{00e1}ri, Universit\u{00e4}t M\u{00fc}nchen, Fran\u{00e7}ois, Dvo\u{0159}ak, M\u{00ed}ra."
+        );
     }
 
     #[test]

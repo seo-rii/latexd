@@ -1286,6 +1286,7 @@ dependencies = [
  "tempfile",
  "tex-render-model",
  "tex-world",
+ "unicode-normalization",
 ]
 
 [[package]]

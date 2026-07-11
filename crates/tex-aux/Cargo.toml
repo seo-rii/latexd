@@ -12,3 +12,4 @@ serde_json.workspace = true
 tex-render-model = { path = "../tex-render-model" }
 tex-world = { path = "../tex-world" }
 tempfile.workspace = true
+unicode-normalization.workspace = true
