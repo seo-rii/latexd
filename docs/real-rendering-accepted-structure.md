@@ -619,10 +619,18 @@ The next implementation step has started with a narrow display-list spike:
 - display-list page construction now flows text and images down each column
   before opening a new page, while adjacent graphics with explicit width hints
   may share a row when they fit in the current column;
-- nested layout containers remain an explicit limitation: structured
-  `minipage` capture currently hides its setup arguments but does not retain
-  container width or sibling grouping in IR, so graphics sized relative to a
-  minipage still use the enclosing page/column width during layout;
+- `minipage`, `subfigure`, and `subtable` now emit typed begin/end layout
+  container events carrying declared width, alignment, optional height, inner
+  alignment, and provenance; the IR builder retains their ordered child blocks
+  recursively without moving layout policy into the VM;
+- the display-list builder renders a container's children through the same
+  renderer-neutral layout path at the local width, translates text, rules,
+  images, links, clips, and destinations into parent coordinates, and preserves
+  child source spans during that translation;
+- adjacent containers share a row when their declared widths fit the current
+  column, honor top/center/bottom alignment, and wrap as a unit when they do not;
+  nested relative widths resolve against the nearest container rather than the
+  outer page;
 - `PageDisplayList` text placement now applies continuation-line indentation
   for wrapped list items and bibliography entries, while keeping first-line
   markers/labels at the normal text margin;
