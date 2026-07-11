@@ -1194,6 +1194,7 @@ fn layout_options_for_profile(profile: &ProjectLayoutProfile) -> LayoutOptions {
         ProjectLayoutProfile::IeeeTran => LayoutOptions {
             chars_per_line: 96,
             lines_per_page: 60,
+            font_size_pt: 10.0,
             ..LayoutOptions::default()
         },
         ProjectLayoutProfile::Revtex => LayoutOptions {
@@ -1376,8 +1377,8 @@ mod tests {
 
     use super::{
         LayoutOptions, ProjectLayoutProfile, build_project_pdf, capture_page_checkpoints,
-        compile_mini_kernel_snapshot, layout_profile_from_source, run_project,
-        run_project_from_checkpoint, run_project_with_snapshot,
+        compile_mini_kernel_snapshot, layout_options_for_profile, layout_profile_from_source,
+        run_project, run_project_from_checkpoint, run_project_with_snapshot,
     };
 
     #[test]
@@ -2044,6 +2045,14 @@ mod tests {
             layout_profile_from_source(source),
             ProjectLayoutProfile::Llncs
         );
+    }
+
+    #[test]
+    fn ieee_layout_profile_uses_dense_legacy_font_size() {
+        let options = layout_options_for_profile(&ProjectLayoutProfile::IeeeTran);
+
+        assert_eq!(options.chars_per_line, 96);
+        assert_eq!(options.font_size_pt, 10.0);
     }
 
     #[test]

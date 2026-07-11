@@ -12,6 +12,7 @@ pub struct LayoutOptions {
     pub lines_per_page: usize,
     pub page_width_pt: f32,
     pub page_height_pt: f32,
+    pub font_size_pt: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,6 +45,7 @@ impl Default for LayoutOptions {
             lines_per_page: 48,
             page_width_pt: 612.0,
             page_height_pt: 792.0,
+            font_size_pt: 12.0,
         }
     }
 }
@@ -91,8 +93,12 @@ pub fn layout_text(text: &str, options: LayoutOptions) -> DocumentLayout {
         let occurrence = content_occurrences.entry(content_hash.clone()).or_default();
         let page_id = blake3::hash(
             format!(
-                "{}:{}:{}:{}",
-                content_hash, options.page_width_pt, options.page_height_pt, *occurrence
+                "{}:{}:{}:{}:{}",
+                content_hash,
+                options.page_width_pt,
+                options.page_height_pt,
+                options.font_size_pt,
+                *occurrence
             )
             .as_bytes(),
         )
@@ -196,6 +202,27 @@ mod tests {
 
         assert_ne!(narrow.pages[0].page_id, wide.pages[0].page_id);
         assert_eq!(narrow.pages[0].content_hash, wide.pages[0].content_hash);
+    }
+
+    #[test]
+    fn page_id_changes_when_font_size_changes() {
+        let small = layout_text(
+            "hello world",
+            LayoutOptions {
+                font_size_pt: 10.0,
+                ..LayoutOptions::default()
+            },
+        );
+        let large = layout_text(
+            "hello world",
+            LayoutOptions {
+                font_size_pt: 12.0,
+                ..LayoutOptions::default()
+            },
+        );
+
+        assert_ne!(small.pages[0].page_id, large.pages[0].page_id);
+        assert_eq!(small.pages[0].content_hash, large.pages[0].content_hash);
     }
 
     #[test]

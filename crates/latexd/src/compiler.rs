@@ -27,8 +27,8 @@ use tex_checkpoint::{
     select_reusable_preamble,
 };
 use tex_pdf::{
-    ConvertedImageAsset, PAGE_FONT_SIZE_PT, PAGE_LINE_HEIGHT_PT, PAGE_TEXT_LEFT_PT,
-    PAGE_TEXT_TOP_PT, render_display_list_pdf, render_display_list_pdf_with_converted_assets,
+    ConvertedImageAsset, PAGE_LINE_HEIGHT_PT, PAGE_TEXT_LEFT_PT, PAGE_TEXT_TOP_PT,
+    render_display_list_pdf, render_display_list_pdf_with_converted_assets,
     render_display_list_svg, render_display_list_svg_with_converted_assets, render_page_svg,
     render_single_page_pdf,
 };
@@ -1633,7 +1633,7 @@ impl CompilerDriver {
                                 let line_end_utf8 = line_start_utf8 + line_len_utf8;
                                 let line_top = (PAGE_TEXT_TOP_PT
                                     + PAGE_LINE_HEIGHT_PT * line_index as f32
-                                    - PAGE_FONT_SIZE_PT)
+                                    - build.layout.options.font_size_pt)
                                     .max(0.0);
                                 let line_bottom =
                                     (line_top + PAGE_LINE_HEIGHT_PT).min(page.height_pt as f32);

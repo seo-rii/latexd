@@ -36,7 +36,11 @@ pub fn render_pdf(layout: &DocumentLayout) -> Vec<u8> {
     for (index, page) in layout.pages.iter().enumerate() {
         let content_id = content_object_id(index);
         let page_id = page_object_id(index);
-        let stream = build_page_stream(page, layout.options.page_height_pt);
+        let stream = build_page_stream(
+            page,
+            layout.options.page_height_pt,
+            layout.options.font_size_pt,
+        );
         objects.push(format!(
             "{content_id} 0 obj << /Length {} >> stream\n{}\nendstream\nendobj\n",
             stream.len(),
@@ -12170,7 +12174,7 @@ pub fn render_page_svg(page: &PageLayout, options: &LayoutOptions) -> String {
         body.push_str(&format!(
             "<text x=\"{}\" y=\"{y}\" font-family=\"Iowan Old Style, Palatino, serif\" font-size=\"{}\">{}</text>",
             PAGE_TEXT_LEFT_PT,
-            PAGE_FONT_SIZE_PT,
+            options.font_size_pt,
             escape_xml_text(line)
         ));
     }
@@ -12185,11 +12189,11 @@ pub fn render_page_svg(page: &PageLayout, options: &LayoutOptions) -> String {
     )
 }
 
-fn build_page_stream(page: &PageLayout, page_height_pt: f32) -> String {
+fn build_page_stream(page: &PageLayout, page_height_pt: f32, font_size_pt: f32) -> String {
     let mut stream = String::new();
     stream.push_str(&format!(
         "BT /F1 {} Tf {} TL ",
-        PAGE_FONT_SIZE_PT, PAGE_LINE_HEIGHT_PT
+        font_size_pt, PAGE_LINE_HEIGHT_PT
     ));
     stream.push_str(&format!(
         "{} {} Td ",
@@ -12438,6 +12442,23 @@ mod tests {
         assert!(text.starts_with("%PDF-1.4"));
         assert!(text.contains("trailer << /Size "));
         assert!(text.contains("/Type /Page"));
+    }
+
+    #[test]
+    fn legacy_pdf_and_svg_use_layout_font_size() {
+        let layout = layout_text(
+            "hello pdf",
+            LayoutOptions {
+                font_size_pt: 10.0,
+                ..LayoutOptions::default()
+            },
+        );
+        let pdf = render_pdf(&layout);
+        let pdf_text = String::from_utf8_lossy(&pdf);
+        let svg = render_page_svg(&layout.pages[0], &layout.options);
+
+        assert!(pdf_text.contains("BT /F1 10 Tf"), "{pdf_text}");
+        assert!(svg.contains("font-size=\"10\""), "{svg}");
     }
 
     #[test]
