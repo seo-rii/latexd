@@ -13,6 +13,8 @@ pub struct PageDisplayListOptions {
     pub margin_left_pt: f32,
     pub margin_top_pt: f32,
     pub margin_bottom_pt: f32,
+    pub column_count: usize,
+    pub column_gap_pt: f32,
     pub abstract_indent_pt: f32,
     pub list_continuation_indent_pt: f32,
     pub bibliography_continuation_indent_pt: f32,
@@ -32,6 +34,8 @@ impl Default for PageDisplayListOptions {
             margin_left_pt: 72.0,
             margin_top_pt: 72.0,
             margin_bottom_pt: 72.0,
+            column_count: 1,
+            column_gap_pt: 18.0,
             abstract_indent_pt: 18.0,
             list_continuation_indent_pt: 18.0,
             bibliography_continuation_indent_pt: 24.0,
@@ -196,6 +200,16 @@ pub fn build_page_display_lists(
     document_ir: &DocumentIr,
     options: PageDisplayListOptions,
 ) -> Vec<PageDisplayList> {
+    let column_count = options.column_count.max(1);
+    let column_gap_pt = if options.column_gap_pt.is_finite() {
+        options.column_gap_pt.max(0.0)
+    } else {
+        0.0
+    };
+    let page_content_width_pt = (options.page_width_pt - options.margin_left_pt * 2.0).max(1.0);
+    let total_column_gap_pt = column_gap_pt * column_count.saturating_sub(1) as f32;
+    let column_width_pt =
+        ((page_content_width_pt - total_column_gap_pt).max(1.0) / column_count as f32).max(1.0);
     let body_font = FontRequest {
         family: FontFamilyRequest::Serif,
         series: FontSeries::Regular,
@@ -943,14 +957,12 @@ pub fn build_page_display_lists(
                 let mut separator_extra_widths =
                     vec![0usize; column_widths.len().saturating_sub(1)];
                 if let Some(width_spec) = block.width_spec.as_deref() {
-                    let content_width_pt =
-                        (options.page_width_pt - options.margin_left_pt * 2.0).max(1.0);
                     if let Some(table_width_pt) =
-                        parse_table_width_spec_pt(width_spec, content_width_pt, &options)
+                        parse_table_width_spec_pt(width_spec, column_width_pt, &options)
                         && !column_widths.is_empty()
                     {
                         let line_char_budget = options.max_chars_per_line.max(1).min(
-                            ((content_width_pt / table_glyph_width_pt).floor() as usize).max(1),
+                            ((column_width_pt / table_glyph_width_pt).floor() as usize).max(1),
                         );
                         let current_chars = column_widths.iter().sum::<usize>()
                             + base_spanned_separator_width(0, column_widths.len());
@@ -1486,7 +1498,6 @@ pub fn build_page_display_lists(
         text: String::new(),
         hash_input: format!("options:{options:?}:font-metrics:basic-v1"),
     };
-    let content_width_pt = (options.page_width_pt - options.margin_left_pt * 2.0).max(1.0);
     let content_height_pt =
         (options.page_height_pt - options.margin_top_pt - options.margin_bottom_pt).max(1.0);
     let parse_graphic_dimension_pt = |raw_value: &str, allow_zero: bool| -> Option<f32> {
@@ -1504,10 +1515,10 @@ pub fn build_page_display_lists(
         }
 
         let reference_dimensions = [
-            ("\\hsize", content_width_pt),
-            ("\\linewidth", content_width_pt),
-            ("\\textwidth", content_width_pt),
-            ("\\columnwidth", content_width_pt),
+            ("\\hsize", column_width_pt),
+            ("\\linewidth", column_width_pt),
+            ("\\textwidth", column_width_pt),
+            ("\\columnwidth", column_width_pt),
             ("\\paperwidth", options.page_width_pt),
             ("\\pagewidth", options.page_width_pt),
             ("\\vsize", content_height_pt),
@@ -1616,6 +1627,7 @@ pub fn build_page_display_lists(
         ])
     };
     let mut pending = new_pending_page();
+    let mut column_index = 0usize;
     let mut y = options.margin_top_pt;
     let record_source_spans = |source: &SourceProvenance, source_spans: &mut Vec<SourceSpan>| {
         if let ProvenanceSpan::File(span) = &source.primary {
@@ -1686,8 +1698,7 @@ pub fn build_page_display_lists(
                 let average_glyph_width_pt =
                     text_advance_pt("n", &logical.font, logical.size_pt).max(0.1);
                 let available_width_pt =
-                    (options.page_width_pt - options.margin_left_pt * 2.0 - widest_indent)
-                        .max(average_glyph_width_pt);
+                    (column_width_pt - widest_indent).max(average_glyph_width_pt);
                 let width_limited_chars =
                     (available_width_pt / average_glyph_width_pt).floor() as usize;
                 let max_chars_per_line = options
@@ -1879,20 +1890,27 @@ pub fn build_page_display_lists(
                 });
 
                 for (line_index, line_segments) in wrapped_lines.into_iter().enumerate() {
-                    let line_x = options.margin_left_pt
+                    if y + options.line_height_pt
+                        > options.page_height_pt - options.margin_bottom_pt
+                        && !pending.ops.is_empty()
+                    {
+                        if column_index + 1 < column_count {
+                            column_index += 1;
+                        } else {
+                            finish_page(&mut pages, pending);
+                            pending = new_pending_page();
+                            column_index = 0;
+                        }
+                        y = options.margin_top_pt;
+                    }
+                    let column_left_pt = options.margin_left_pt
+                        + column_index as f32 * (column_width_pt + column_gap_pt);
+                    let line_x = column_left_pt
                         + if line_index == 0 {
                             logical.first_line_indent_pt
                         } else {
                             logical.continuation_indent_pt
                         };
-                    if y + options.line_height_pt
-                        > options.page_height_pt - options.margin_bottom_pt
-                        && !pending.ops.is_empty()
-                    {
-                        finish_page(&mut pages, pending);
-                        pending = new_pending_page();
-                        y = options.margin_top_pt;
-                    }
 
                     let destination_source = line_segments
                         .first()
@@ -2176,10 +2194,10 @@ pub fn build_page_display_lists(
                     {
                         (natural_width, natural_height)
                     } else {
-                        (content_width_pt, options.line_height_pt * 6.0)
+                        (column_width_pt, options.line_height_pt * 6.0)
                     }
                 } else {
-                    (content_width_pt, options.line_height_pt * 6.0)
+                    (column_width_pt, options.line_height_pt * 6.0)
                 };
                 let mut width_hint_pt = None;
                 let mut height_hint_pt = None;
@@ -2423,7 +2441,7 @@ pub fn build_page_display_lists(
                 } else {
                     (natural_image_width, natural_image_height)
                 };
-                let fit_scale = (content_width_pt / source_image_width).min(1.0);
+                let fit_scale = (column_width_pt / source_image_width).min(1.0);
                 let (default_image_width, default_image_height) = (
                     source_image_width * fit_scale,
                     source_image_height * fit_scale,
@@ -2465,23 +2483,23 @@ pub fn build_page_display_lists(
                 if y + required_height > options.page_height_pt - options.margin_bottom_pt
                     && !pending.ops.is_empty()
                 {
-                    finish_page(&mut pages, pending);
-                    pending = new_pending_page();
+                    if column_index + 1 < column_count {
+                        column_index += 1;
+                    } else {
+                        finish_page(&mut pages, pending);
+                        pending = new_pending_page();
+                        column_index = 0;
+                    }
                     y = options.margin_top_pt;
                 }
+                let image_x = options.margin_left_pt
+                    + column_index as f32 * (column_width_pt + column_gap_pt);
 
                 if !pending.text.is_empty() {
                     pending.text.push('\n');
                     pending.hash_input.push('\n');
                 }
-                emit_due_destinations(
-                    &logical.source,
-                    Point {
-                        x: options.margin_left_pt,
-                        y,
-                    },
-                    &mut pending,
-                );
+                emit_due_destinations(&logical.source, Point { x: image_x, y }, &mut pending);
                 let image_text = format!("[image: {}]", logical.path);
                 pending.text.push_str(&image_text);
                 pending.hash_input.push_str(&image_text);
@@ -2543,12 +2561,12 @@ pub fn build_page_display_lists(
                 pending.hash_input.push('\u{1f}');
                 pending.hash_input.push_str(&format!(
                     "image-rect:{:.3}:{:.3}:{image_width:.3}:{image_height:.3}",
-                    options.margin_left_pt, y
+                    image_x, y
                 ));
                 record_source_spans(&logical.source, &mut pending.source_spans);
                 pending.ops.push(DrawOp::Image(PositionedImage {
                     rect: Rect {
-                        x: options.margin_left_pt,
+                        x: image_x,
                         y,
                         width: image_width,
                         height: image_height,
@@ -2583,14 +2601,11 @@ pub fn build_page_display_lists(
                     pending.hash_input.push('\u{1f}');
                     pending.hash_input.push_str(&format!(
                         "text_segment:{:.3}:{caption_advance:.3}:{}",
-                        options.margin_left_pt, caption
+                        image_x, caption
                     ));
                     record_source_spans(&caption_source, &mut pending.source_spans);
                     pending.ops.push(DrawOp::TextRun(PositionedTextRun {
-                        origin: Point {
-                            x: options.margin_left_pt,
-                            y,
-                        },
+                        origin: Point { x: image_x, y },
                         text: caption.clone(),
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
@@ -2611,10 +2626,12 @@ pub fn build_page_display_lists(
         pending.hash_input.push('\u{1f}');
         pending.hash_input.push_str("dest:");
         pending.hash_input.push_str(&label.key);
+        let column_left_pt =
+            options.margin_left_pt + column_index as f32 * (column_width_pt + column_gap_pt);
         pending.ops.push(DrawOp::NamedDestination(Destination {
             name: label.key,
             point: Point {
-                x: options.margin_left_pt,
+                x: column_left_pt,
                 y,
             },
             source: label.source,
@@ -2712,7 +2729,7 @@ mod tests {
         DisplayMathBlock, DocumentIr, DrawOp, GraphicAssetDensity, GraphicAssetDensityUnit,
         GraphicAssetDimensions, GraphicAssetFormat, GraphicBlock, HeadingBlock, ImageCrop,
         ImageRotation, ImageScale, ImageTrim, ImageViewport, InlineNode, IrBlock,
-        LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind, ParagraphBlock,
+        LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind, ParagraphBlock, Point,
         ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan, TableBlock, TableCell,
         TableColumnAlignment, TableColumnSpec, TableRow, TableRuleSpan, TextCluster, TitleBlock,
     };
@@ -5866,6 +5883,100 @@ mod tests {
         );
 
         assert_eq!(display_lists.len(), 2);
+    }
+
+    #[test]
+    fn fills_columns_before_starting_a_new_page() {
+        let source = SourceProvenance::file("main.tex", 0, 33);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: "one\ntwo\nthree\nfour\nfive\nsix\nseven".to_string(),
+                    source: source.clone(),
+                }],
+                source,
+            })]),
+            PageDisplayListOptions {
+                page_width_pt: 200.0,
+                page_height_pt: 50.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                column_count: 2,
+                column_gap_pt: 20.0,
+                max_chars_per_line: 100,
+                line_height_pt: 10.0,
+                block_gap_pt: 0.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+
+        assert_eq!(display_lists.len(), 2);
+        let second_column = display_lists[0].ops.iter().find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "four" => Some(run.origin),
+            _ => None,
+        });
+        let next_page = display_lists[1].ops.iter().find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "seven" => Some(run.origin),
+            _ => None,
+        });
+
+        assert_eq!(second_column, Some(Point { x: 110.0, y: 10.0 }));
+        assert_eq!(next_page, Some(Point { x: 10.0, y: 10.0 }));
+    }
+
+    #[test]
+    fn moves_images_to_the_next_column() {
+        let source = SourceProvenance::file("main.tex", 0, 24);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![
+                IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "one\ntwo\nthree".to_string(),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                }),
+                IrBlock::Graphic(GraphicBlock {
+                    path: "figures/plot.png".to_string(),
+                    options: None,
+                    page_selection: None,
+                    asset_format: Some(GraphicAssetFormat::Png),
+                    asset_hash: None,
+                    asset_dimensions: Some(GraphicAssetDimensions {
+                        width_px: 20,
+                        height_px: 10,
+                        density: None,
+                        natural_width_pt_milli: None,
+                        natural_height_pt_milli: None,
+                    }),
+                    caption: None,
+                    caption_source: None,
+                    source,
+                }),
+            ]),
+            PageDisplayListOptions {
+                page_width_pt: 200.0,
+                page_height_pt: 50.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                column_count: 2,
+                column_gap_pt: 20.0,
+                max_chars_per_line: 100,
+                line_height_pt: 10.0,
+                block_gap_pt: 0.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let image = display_lists[0].ops.iter().find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/plot.png" => Some(image),
+            _ => None,
+        });
+
+        assert_eq!(display_lists.len(), 1);
+        assert_eq!(image.map(|image| image.rect.x), Some(110.0));
+        assert_eq!(image.map(|image| image.rect.y), Some(10.0));
     }
 
     #[test]
