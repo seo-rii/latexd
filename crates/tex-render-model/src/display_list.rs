@@ -124,6 +124,82 @@ pub struct PositionedImage {
     pub source: SourceProvenance,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct GraphicAssetRequest {
+    pub asset_ref: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_format: Option<GraphicAssetFormat>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_selection: Option<GraphicPageSelection>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asset_hash: Option<String>,
+}
+
+impl GraphicAssetRequest {
+    pub fn for_embedded_asset(asset_ref: impl Into<String>) -> Self {
+        let asset_ref = asset_ref.into();
+        Self {
+            source_format: GraphicAssetFormat::from_path(&asset_ref),
+            asset_ref,
+            page_selection: None,
+            asset_hash: None,
+        }
+    }
+}
+
+impl From<&PositionedImage> for GraphicAssetRequest {
+    fn from(image: &PositionedImage) -> Self {
+        Self {
+            asset_ref: image.asset_ref.clone(),
+            source_format: image
+                .asset_format
+                .or_else(|| GraphicAssetFormat::from_path(&image.asset_ref)),
+            page_selection: image.page_selection.clone(),
+            asset_hash: image.asset_hash.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MaterializedGraphicAsset {
+    pub bytes: Vec<u8>,
+    pub source_format: Option<GraphicAssetFormat>,
+    pub format: GraphicAssetFormat,
+    pub asset_hash: Option<String>,
+}
+
+impl MaterializedGraphicAsset {
+    pub fn from_source(request: &GraphicAssetRequest, bytes: Vec<u8>) -> Option<Self> {
+        let format = request
+            .source_format
+            .or_else(|| GraphicAssetFormat::from_bytes(&bytes))?;
+        Some(Self {
+            bytes,
+            source_format: Some(format),
+            format,
+            asset_hash: request.asset_hash.clone(),
+        })
+    }
+
+    pub fn converted(
+        request: &GraphicAssetRequest,
+        bytes: Vec<u8>,
+        format: GraphicAssetFormat,
+    ) -> Self {
+        Self {
+            bytes,
+            source_format: request.source_format,
+            format,
+            asset_hash: request.asset_hash.clone(),
+        }
+    }
+
+    pub fn is_converted(&self) -> bool {
+        self.source_format
+            .is_some_and(|source| source != self.format)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ImageCrop {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -221,7 +297,10 @@ pub enum FontRole {
 
 #[cfg(test)]
 mod tests {
-    use crate::{Destination, DrawOp, Point, Rect, SourceProvenance};
+    use crate::{
+        Destination, DrawOp, GraphicAssetFormat, GraphicAssetRequest, GraphicPageSelection,
+        MaterializedGraphicAsset, Point, PositionedImage, Rect, SourceProvenance,
+    };
 
     #[test]
     fn draw_ops_translate_renderer_geometry() {
@@ -255,5 +334,65 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    #[test]
+    fn graphic_asset_requests_preserve_renderer_neutral_selection_and_identity() {
+        let image = PositionedImage {
+            rect: Rect {
+                x: 1.0,
+                y: 2.0,
+                width: 3.0,
+                height: 4.0,
+            },
+            asset_ref: "figures/paper.pdf".to_string(),
+            asset_format: Some(GraphicAssetFormat::Pdf),
+            page_selection: Some(GraphicPageSelection {
+                page: Some(2),
+                pagebox: Some("cropbox".to_string()),
+            }),
+            asset_hash: Some("blake3:asset".to_string()),
+            natural_width_pt: None,
+            natural_height_pt: None,
+            crop: None,
+            scale: None,
+            rotation: None,
+            diagnostic: None,
+            source: SourceProvenance::generated("graphic", "test graphic"),
+        };
+
+        let request = GraphicAssetRequest::from(&image);
+
+        assert_eq!(request.asset_ref, "figures/paper.pdf");
+        assert_eq!(request.source_format, Some(GraphicAssetFormat::Pdf));
+        assert_eq!(request.page_selection, image.page_selection);
+        assert_eq!(request.asset_hash.as_deref(), Some("blake3:asset"));
+
+        let mut other_page = request.clone();
+        other_page
+            .page_selection
+            .as_mut()
+            .expect("page selection")
+            .page = Some(3);
+        let keys = std::collections::BTreeSet::from([request, other_page]);
+        assert_eq!(keys.len(), 2);
+    }
+
+    #[test]
+    fn materialized_graphic_assets_distinguish_source_and_render_formats() {
+        let request = GraphicAssetRequest {
+            asset_ref: "figures/paper.pdf".to_string(),
+            source_format: Some(GraphicAssetFormat::Pdf),
+            page_selection: None,
+            asset_hash: Some("blake3:asset".to_string()),
+        };
+
+        let materialized =
+            MaterializedGraphicAsset::converted(&request, vec![1, 2, 3], GraphicAssetFormat::Png);
+
+        assert_eq!(materialized.source_format, Some(GraphicAssetFormat::Pdf));
+        assert_eq!(materialized.format, GraphicAssetFormat::Png);
+        assert_eq!(materialized.asset_hash, request.asset_hash);
+        assert!(materialized.is_converted());
     }
 }

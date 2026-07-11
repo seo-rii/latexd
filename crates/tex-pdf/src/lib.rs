@@ -1,7 +1,7 @@
 use tex_layout::{DocumentLayout, LayoutOptions, PageLayout};
 use tex_render_model::{
-    DrawOp, FontFamilyRequest, FontSeries, FontShape, GraphicAssetFormat, ImageCrop,
-    PageDisplayList, Point, PositionedImage, Rect,
+    DrawOp, FontFamilyRequest, FontSeries, FontShape, GraphicAssetFormat, GraphicAssetRequest,
+    ImageCrop, MaterializedGraphicAsset, PageDisplayList, Point, PositionedImage, Rect,
 };
 
 pub const PAGE_TEXT_LEFT_PT: f32 = 72.0;
@@ -88,20 +88,40 @@ pub fn render_single_page_pdf(page: &PageLayout, options: &LayoutOptions) -> Vec
 }
 
 pub fn render_display_list_pdf(pages: &[PageDisplayList]) -> Vec<u8> {
-    render_display_list_pdf_with_assets(pages, |_| None)
+    render_display_list_pdf_with_materialized_assets(pages, |_| None)
 }
 
 pub fn render_display_list_pdf_with_assets(
     pages: &[PageDisplayList],
-    resolve_asset: impl FnMut(&str) -> Option<Vec<u8>>,
+    mut resolve_asset: impl FnMut(&str) -> Option<Vec<u8>>,
 ) -> Vec<u8> {
-    render_display_list_pdf_with_converted_assets(pages, resolve_asset, |_, _| None)
+    render_display_list_pdf_with_materialized_assets(pages, |request| {
+        let bytes = resolve_asset(&request.asset_ref)?;
+        MaterializedGraphicAsset::from_source(request, bytes)
+    })
 }
 
 pub fn render_display_list_pdf_with_converted_assets(
     pages: &[PageDisplayList],
     mut resolve_asset: impl FnMut(&str) -> Option<Vec<u8>>,
-    mut convert_asset: impl FnMut(&PositionedImage, &[u8]) -> Option<ConvertedImageAsset>,
+    mut convert_asset: impl FnMut(&GraphicAssetRequest, &[u8]) -> Option<ConvertedImageAsset>,
+) -> Vec<u8> {
+    render_display_list_pdf_with_materialized_assets(pages, |request| {
+        let bytes = resolve_asset(&request.asset_ref)?;
+        if let Some(converted) = convert_asset(request, &bytes) {
+            return Some(MaterializedGraphicAsset::converted(
+                request,
+                converted.bytes,
+                converted.format,
+            ));
+        }
+        MaterializedGraphicAsset::from_source(request, bytes)
+    })
+}
+
+pub fn render_display_list_pdf_with_materialized_assets(
+    pages: &[PageDisplayList],
+    mut materialize_asset: impl FnMut(&GraphicAssetRequest) -> Option<MaterializedGraphicAsset>,
 ) -> Vec<u8> {
     let mut objects = Vec::<Vec<u8>>::new();
     let mut destination_entries = Vec::new();
@@ -403,14 +423,23 @@ pub fn render_display_list_pdf_with_converted_assets(
                             image,
                             placeholder_status,
                         );
-                    } else if let Some(bytes) = resolve_asset(&image.asset_ref) {
+                    } else if let Some(materialized) =
+                        materialize_asset(&GraphicAssetRequest::from(image))
+                    {
+                        let asset_format = materialized.format;
+                        let bytes = materialized.bytes;
                         let mut rendered_svg_vector = false;
-                        if image.asset_format == Some(GraphicAssetFormat::Svg)
+                        if asset_format == GraphicAssetFormat::Svg
                             && let Ok(svg_text) = std::str::from_utf8(&bytes)
                             && let Some(svg) =
                                 parse_simple_svg_asset_with_embedded_assets(svg_text, &mut |href| {
                                     resolve_svg_embedded_asset_ref(&image.asset_ref, href)
-                                        .and_then(|asset_ref| resolve_asset(&asset_ref))
+                                        .and_then(|asset_ref| {
+                                            materialize_asset(
+                                                &GraphicAssetRequest::for_embedded_asset(asset_ref),
+                                            )
+                                        })
+                                        .map(|asset| asset.bytes)
                                 })
                             && (!svg.rects.is_empty()
                                 || !svg.lines.is_empty()
@@ -1514,16 +1543,7 @@ pub fn render_display_list_pdf_with_converted_assets(
                         if rendered_svg_vector {
                             continue;
                         }
-                        let decoded = decode_pdf_image(&bytes).or_else(|| {
-                            convert_asset(image, &bytes).and_then(|converted| {
-                                match converted.format {
-                                    GraphicAssetFormat::Png | GraphicAssetFormat::Jpeg => {
-                                        decode_pdf_image(&converted.bytes)
-                                    }
-                                    _ => None,
-                                }
-                            })
-                        });
+                        let decoded = decode_pdf_image(&bytes);
                         if let Some(decoded) = decoded {
                             let (natural_width, natural_height) = image_natural_size_or_fallback(
                                 image,
@@ -11425,20 +11445,40 @@ fn push_image_placeholder(
 }
 
 pub fn render_display_list_svg(page: &PageDisplayList) -> String {
-    render_display_list_svg_with_assets(page, |_| None)
+    render_display_list_svg_with_materialized_assets(page, |_| None)
 }
 
 pub fn render_display_list_svg_with_assets(
     page: &PageDisplayList,
-    resolve_asset: impl FnMut(&str) -> Option<Vec<u8>>,
+    mut resolve_asset: impl FnMut(&str) -> Option<Vec<u8>>,
 ) -> String {
-    render_display_list_svg_with_converted_assets(page, resolve_asset, |_, _| None)
+    render_display_list_svg_with_materialized_assets(page, |request| {
+        let bytes = resolve_asset(&request.asset_ref)?;
+        MaterializedGraphicAsset::from_source(request, bytes)
+    })
 }
 
 pub fn render_display_list_svg_with_converted_assets(
     page: &PageDisplayList,
     mut resolve_asset: impl FnMut(&str) -> Option<Vec<u8>>,
-    mut convert_asset: impl FnMut(&PositionedImage, &[u8]) -> Option<ConvertedImageAsset>,
+    mut convert_asset: impl FnMut(&GraphicAssetRequest, &[u8]) -> Option<ConvertedImageAsset>,
+) -> String {
+    render_display_list_svg_with_materialized_assets(page, |request| {
+        let bytes = resolve_asset(&request.asset_ref)?;
+        if let Some(converted) = convert_asset(request, &bytes) {
+            return Some(MaterializedGraphicAsset::converted(
+                request,
+                converted.bytes,
+                converted.format,
+            ));
+        }
+        MaterializedGraphicAsset::from_source(request, bytes)
+    })
+}
+
+pub fn render_display_list_svg_with_materialized_assets(
+    page: &PageDisplayList,
+    mut materialize_asset: impl FnMut(&GraphicAssetRequest) -> Option<MaterializedGraphicAsset>,
 ) -> String {
     let mut body = String::new();
     let mut clip_index = 0usize;
@@ -11750,10 +11790,12 @@ pub fn render_display_list_svg_with_converted_assets(
                 let placeholder_status = ImagePlaceholderStatus::from_image(image);
                 let mut embedded_decode_failure = false;
                 let embedded_image = if placeholder_status == ImagePlaceholderStatus::Generic {
-                    resolve_asset(&image.asset_ref).and_then(|bytes| {
-                        let mut converted_format = None;
-                        let (media_type, natural_size, data_bytes) = match image.asset_format {
-                            Some(GraphicAssetFormat::Svg) => {
+                    materialize_asset(&GraphicAssetRequest::from(image)).and_then(|materialized| {
+                        let converted_format =
+                            materialized.is_converted().then_some(materialized.format);
+                        let bytes = materialized.bytes;
+                        let (media_type, natural_size, data_bytes) = match materialized.format {
+                            GraphicAssetFormat::Svg => {
                                 let svg_text = match std::str::from_utf8(&bytes) {
                                     Ok(svg_text) => svg_text,
                                     Err(_) => {
@@ -11884,22 +11926,32 @@ pub fn render_display_list_svg_with_converted_assets(
                                             &decoded_href,
                                         )
                                         .and_then(|asset_ref| {
-                                            resolve_asset(&asset_ref).and_then(|asset_bytes| {
-                                                let lower = asset_ref.to_ascii_lowercase();
-                                                let media_type = if lower.ends_with(".png")
-                                                    || asset_bytes.starts_with(b"\x89PNG\r\n\x1a\n")
-                                                {
-                                                    Some("image/png")
-                                                } else if lower.ends_with(".jpg")
-                                                    || lower.ends_with(".jpeg")
-                                                    || asset_bytes.starts_with(&[0xff, 0xd8, 0xff])
-                                                {
-                                                    Some("image/jpeg")
-                                                } else {
-                                                    None
-                                                }?;
-                                                Some(encode_data_uri(media_type, &asset_bytes))
-                                            })
+                                            materialize_asset(
+                                                &GraphicAssetRequest::for_embedded_asset(
+                                                    asset_ref.clone(),
+                                                ),
+                                            )
+                                            .and_then(
+                                                |asset| {
+                                                    let asset_bytes = asset.bytes;
+                                                    let lower = asset_ref.to_ascii_lowercase();
+                                                    let media_type = if lower.ends_with(".png")
+                                                        || asset_bytes
+                                                            .starts_with(b"\x89PNG\r\n\x1a\n")
+                                                    {
+                                                        Some("image/png")
+                                                    } else if lower.ends_with(".jpg")
+                                                        || lower.ends_with(".jpeg")
+                                                        || asset_bytes
+                                                            .starts_with(&[0xff, 0xd8, 0xff])
+                                                    {
+                                                        Some("image/jpeg")
+                                                    } else {
+                                                        None
+                                                    }?;
+                                                    Some(encode_data_uri(media_type, &asset_bytes))
+                                                },
+                                            )
                                         })
                                         .or_else(|| {
                                             let trimmed_href = decoded_href.trim();
@@ -11945,7 +11997,7 @@ pub fn render_display_list_svg_with_converted_assets(
                                     rewritten_svg.into_bytes(),
                                 )
                             }
-                            Some(GraphicAssetFormat::Png) => {
+                            GraphicAssetFormat::Png => {
                                 let Some(decoded_image) = image::load_from_memory(&bytes).ok()
                                 else {
                                     embedded_decode_failure = true;
@@ -11958,7 +12010,7 @@ pub fn render_display_list_svg_with_converted_assets(
                                 );
                                 ("image/png", Some(natural_size), bytes)
                             }
-                            Some(GraphicAssetFormat::Jpeg) => {
+                            GraphicAssetFormat::Jpeg => {
                                 let Some(decoded_image) = image::load_from_memory(&bytes).ok()
                                 else {
                                     embedded_decode_failure = true;
@@ -11970,47 +12022,6 @@ pub fn render_display_list_svg_with_converted_assets(
                                     decoded_image.height() as f32,
                                 );
                                 ("image/jpeg", Some(natural_size), bytes)
-                            }
-                            Some(GraphicAssetFormat::Pdf | GraphicAssetFormat::Eps) => {
-                                let Some(converted) = convert_asset(image, &bytes) else {
-                                    embedded_decode_failure = true;
-                                    return None;
-                                };
-                                converted_format = Some(converted.format);
-                                match converted.format {
-                                    GraphicAssetFormat::Png => {
-                                        let Some(decoded_image) =
-                                            image::load_from_memory(&converted.bytes).ok()
-                                        else {
-                                            embedded_decode_failure = true;
-                                            return None;
-                                        };
-                                        let natural_size = image_natural_size_or_fallback(
-                                            image,
-                                            decoded_image.width() as f32,
-                                            decoded_image.height() as f32,
-                                        );
-                                        ("image/png", Some(natural_size), converted.bytes)
-                                    }
-                                    GraphicAssetFormat::Jpeg => {
-                                        let Some(decoded_image) =
-                                            image::load_from_memory(&converted.bytes).ok()
-                                        else {
-                                            embedded_decode_failure = true;
-                                            return None;
-                                        };
-                                        let natural_size = image_natural_size_or_fallback(
-                                            image,
-                                            decoded_image.width() as f32,
-                                            decoded_image.height() as f32,
-                                        );
-                                        ("image/jpeg", Some(natural_size), converted.bytes)
-                                    }
-                                    _ => {
-                                        embedded_decode_failure = true;
-                                        return None;
-                                    }
-                                }
                             }
                             _ => {
                                 embedded_decode_failure = true;
@@ -12391,16 +12402,18 @@ mod tests {
     use tex_render_model::{
         Destination, DrawOp, ExpansionFrame, FontFamilyRequest, FontRequest, FontRole, FontSeries,
         FontShape, GraphicAssetFormat, GraphicPageSelection, ImageCrop, ImageRotation, ImageScale,
-        ImageTrim, ImageViewport, LinkAnnotation, PageDisplayList, Point, PositionedImage,
-        PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan, SourceSpanRole,
-        TextCluster,
+        ImageTrim, ImageViewport, LinkAnnotation, MaterializedGraphicAsset, PageDisplayList, Point,
+        PositionedImage, PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan,
+        SourceSpanRole, TextCluster,
     };
 
     use super::{
         ConvertedImageAsset, render_display_list_pdf, render_display_list_pdf_with_assets,
-        render_display_list_pdf_with_converted_assets, render_display_list_svg,
+        render_display_list_pdf_with_converted_assets,
+        render_display_list_pdf_with_materialized_assets, render_display_list_svg,
         render_display_list_svg_with_assets, render_display_list_svg_with_converted_assets,
-        render_page_svg, render_pdf, render_single_page_pdf,
+        render_display_list_svg_with_materialized_assets, render_page_svg, render_pdf,
+        render_single_page_pdf,
     };
 
     fn tiny_png_bytes() -> Vec<u8> {
@@ -35253,6 +35266,74 @@ mod tests {
     }
 
     #[test]
+    fn materialized_asset_boundary_preserves_source_identity_and_render_format() {
+        let selection = GraphicPageSelection {
+            page: Some(2),
+            pagebox: Some("cropbox".to_string()),
+        };
+        let page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: "figures/vector.pdf".to_string(),
+                asset_format: Some(GraphicAssetFormat::Pdf),
+                page_selection: Some(selection.clone()),
+                asset_hash: Some("blake3:vector-pdf".to_string()),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: None,
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+
+        let mut pdf_request = None;
+        let pdf = render_display_list_pdf_with_materialized_assets(&[page.clone()], |request| {
+            pdf_request = Some(request.clone());
+            Some(MaterializedGraphicAsset::converted(
+                request,
+                tiny_png_bytes(),
+                GraphicAssetFormat::Png,
+            ))
+        });
+        let mut svg_request = None;
+        let svg = render_display_list_svg_with_materialized_assets(&page, |request| {
+            svg_request = Some(request.clone());
+            Some(MaterializedGraphicAsset::converted(
+                request,
+                tiny_png_bytes(),
+                GraphicAssetFormat::Png,
+            ))
+        });
+
+        for request in [pdf_request, svg_request] {
+            let request = request.expect("materialization request");
+            assert_eq!(request.asset_ref, "figures/vector.pdf");
+            assert_eq!(request.source_format, Some(GraphicAssetFormat::Pdf));
+            assert_eq!(request.page_selection.as_ref(), Some(&selection));
+            assert_eq!(request.asset_hash.as_deref(), Some("blake3:vector-pdf"));
+        }
+        let pdf_text = String::from_utf8_lossy(&pdf);
+        assert!(pdf_text.contains("/Subtype /Image"));
+        assert!(!pdf_text.contains("[unsupported image: figures/vector.pdf]"));
+        assert!(svg.contains("data-image-asset-format=\"pdf\""));
+        assert!(svg.contains("data-image-converted-format=\"png\""));
+        assert!(svg.contains("data-image-page=\"2\""));
+        assert!(svg.contains("data-image-pagebox=\"cropbox\""));
+    }
+
+    #[test]
     fn renders_converted_pdf_assets_as_pdf_and_svg_images() {
         let source = SourceProvenance::file("main.tex", 0, 10);
         let page = PageDisplayList {
@@ -35394,7 +35475,7 @@ mod tests {
     }
 
     #[test]
-    fn converted_pdf_asset_callbacks_receive_crop_metadata() {
+    fn converted_pdf_asset_crop_stays_in_renderer_placement() {
         let source = SourceProvenance::file("main.tex", 0, 10);
         let expected_crop = ImageCrop {
             trim: Some(ImageTrim {
@@ -35438,39 +35519,33 @@ mod tests {
             content_hash: "hash".to_string(),
         };
 
-        let mut pdf_seen_crop = None;
         let pdf = render_display_list_pdf_with_converted_assets(
             &[page.clone()],
             |asset_ref| (asset_ref == "figures/vector.pdf").then(|| b"%PDF-1.4".to_vec()),
-            |image, bytes| {
-                pdf_seen_crop = image.crop;
-                (image.asset_ref == "figures/vector.pdf" && bytes.starts_with(b"%PDF")).then(|| {
-                    ConvertedImageAsset {
+            |request, bytes| {
+                (request.asset_ref == "figures/vector.pdf" && bytes.starts_with(b"%PDF")).then(
+                    || ConvertedImageAsset {
                         bytes: tiny_png_bytes(),
                         format: GraphicAssetFormat::Png,
-                    }
-                })
+                    },
+                )
             },
         );
         let pdf_text = String::from_utf8_lossy(&pdf);
 
-        let mut svg_seen_crop = None;
         let svg = render_display_list_svg_with_converted_assets(
             &page,
             |asset_ref| (asset_ref == "figures/vector.pdf").then(|| b"%PDF-1.4".to_vec()),
-            |image, bytes| {
-                svg_seen_crop = image.crop;
-                (image.asset_ref == "figures/vector.pdf" && bytes.starts_with(b"%PDF")).then(|| {
-                    ConvertedImageAsset {
+            |request, bytes| {
+                (request.asset_ref == "figures/vector.pdf" && bytes.starts_with(b"%PDF")).then(
+                    || ConvertedImageAsset {
                         bytes: tiny_png_bytes(),
                         format: GraphicAssetFormat::Png,
-                    }
-                })
+                    },
+                )
             },
         );
 
-        assert_eq!(pdf_seen_crop, Some(expected_crop));
-        assert_eq!(svg_seen_crop, Some(expected_crop));
         assert!(pdf_text.contains("/Subtype /Image"));
         assert!(svg.contains("data-image-crop-clip=\"true\""));
         assert!(svg.contains("data-image-crop-trim=\"1,2,3,4\""));

@@ -340,7 +340,7 @@ pub struct GraphicRefEvent {
     pub asset_dimensions: Option<GraphicAssetDimensions>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct GraphicPageSelection {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page: Option<u32>,
@@ -375,7 +375,7 @@ pub enum GraphicAssetDensityUnit {
     PixelsPerMeter,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GraphicAssetFormat {
     Pdf,
@@ -408,6 +408,29 @@ impl GraphicAssetFormat {
             "jpg" | "jpeg" => Some(Self::Jpeg),
             _ => None,
         }
+    }
+
+    pub fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+            return Some(Self::Png);
+        }
+        if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+            return Some(Self::Jpeg);
+        }
+        if bytes.starts_with(b"%PDF-") {
+            return Some(Self::Pdf);
+        }
+        if bytes.starts_with(b"%!PS") {
+            return Some(Self::Eps);
+        }
+
+        let prefix = &bytes[..bytes.len().min(1024)];
+        let text = std::str::from_utf8(prefix).ok()?;
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text).trim_start();
+        if text.contains("<svg") {
+            return Some(Self::Svg);
+        }
+        None
     }
 }
 
@@ -915,5 +938,30 @@ mod tests {
             Some(GraphicAssetFormat::Jpeg)
         );
         assert_eq!(GraphicAssetFormat::from_path("figures/plot"), None);
+    }
+
+    #[test]
+    fn graphic_asset_format_is_detected_from_renderer_input_bytes() {
+        assert_eq!(
+            GraphicAssetFormat::from_bytes(b"\x89PNG\r\n\x1a\nrest"),
+            Some(GraphicAssetFormat::Png)
+        );
+        assert_eq!(
+            GraphicAssetFormat::from_bytes(&[0xff, 0xd8, 0xff, 0xe0]),
+            Some(GraphicAssetFormat::Jpeg)
+        );
+        assert_eq!(
+            GraphicAssetFormat::from_bytes(b"%PDF-1.7\n\xff\x00"),
+            Some(GraphicAssetFormat::Pdf)
+        );
+        assert_eq!(
+            GraphicAssetFormat::from_bytes(b"%!PS-Adobe-3.0 EPSF-3.0\n"),
+            Some(GraphicAssetFormat::Eps)
+        );
+        assert_eq!(
+            GraphicAssetFormat::from_bytes(b"<?xml version=\"1.0\"?>\n<svg/>"),
+            Some(GraphicAssetFormat::Svg)
+        );
+        assert_eq!(GraphicAssetFormat::from_bytes(b"not an asset"), None);
     }
 }

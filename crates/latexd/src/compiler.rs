@@ -27,13 +27,13 @@ use tex_checkpoint::{
     select_reusable_preamble,
 };
 use tex_pdf::{
-    ConvertedImageAsset, PAGE_TEXT_LEFT_PT, PAGE_TEXT_TOP_PT, render_display_list_pdf,
-    render_display_list_pdf_with_converted_assets, render_display_list_svg,
-    render_display_list_svg_with_converted_assets, render_page_svg, render_single_page_pdf,
+    PAGE_TEXT_LEFT_PT, PAGE_TEXT_TOP_PT, render_display_list_pdf,
+    render_display_list_pdf_with_materialized_assets, render_display_list_svg,
+    render_display_list_svg_with_materialized_assets, render_page_svg, render_single_page_pdf,
 };
 use tex_render_model::{
-    AuxView, DocumentIr, DrawOp, GraphicAssetFormat, PageDisplayList, PositionedImage,
-    ProvenanceSpan, RenderEvent, RenderEventStream, to_pretty_json,
+    AuxView, DocumentIr, DrawOp, GraphicAssetFormat, GraphicAssetRequest, MaterializedGraphicAsset,
+    PageDisplayList, ProvenanceSpan, RenderEvent, RenderEventStream, to_pretty_json,
 };
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{VmModuleCheckpointKind, VmReplayFrame};
@@ -175,11 +175,9 @@ impl InternalRenderIrCapture {
         .with_context(|| format!("failed to write {}", paths.page_display_list))?;
         for (page, path) in self.page_display_lists.iter().zip(&paths.display_list_svgs) {
             let svg = if let Some(root) = &self.asset_root {
-                render_display_list_svg_with_converted_assets(
-                    page,
-                    |asset_ref| read_display_list_asset(root, asset_ref),
-                    convert_external_display_list_asset,
-                )
+                render_display_list_svg_with_materialized_assets(page, |request| {
+                    materialize_display_list_asset(root, request)
+                })
             } else {
                 render_display_list_svg(page)
             };
@@ -288,11 +286,9 @@ fn capture_internal_render_ir_with_options(
         tex_layout::build_page_display_lists(&document_ir, display_list_options);
     annotate_display_list_image_diagnostics(&events, &mut page_display_lists);
     let display_list_pdf = if let Some(root) = file_root {
-        render_display_list_pdf_with_converted_assets(
-            &page_display_lists,
-            |asset_ref| read_display_list_asset(root, asset_ref),
-            convert_external_display_list_asset,
-        )
+        render_display_list_pdf_with_materialized_assets(&page_display_lists, |request| {
+            materialize_display_list_asset(root, request)
+        })
     } else {
         render_display_list_pdf(&page_display_lists)
     };
@@ -375,38 +371,35 @@ fn annotate_display_list_image_diagnostics(
     }
 }
 
-fn read_display_list_asset(root: &Utf8Path, asset_ref: &str) -> Option<Vec<u8>> {
-    let asset_path = Utf8Path::new(asset_ref);
+fn materialize_display_list_asset(
+    root: &Utf8Path,
+    request: &GraphicAssetRequest,
+) -> Option<MaterializedGraphicAsset> {
+    let asset_path = Utf8Path::new(&request.asset_ref);
     let resolved_path = if asset_path.is_absolute() {
         asset_path.to_path_buf()
     } else {
         root.join(asset_path)
     };
-    fs::read(resolved_path.as_std_path()).ok()
-}
-
-fn convert_external_display_list_asset(
-    image: &PositionedImage,
-    bytes: &[u8],
-) -> Option<ConvertedImageAsset> {
+    let bytes = fs::read(resolved_path.as_std_path()).ok()?;
     if !matches!(
-        image.asset_format,
+        request.source_format,
         Some(GraphicAssetFormat::Pdf | GraphicAssetFormat::Eps)
     ) {
-        return None;
+        return MaterializedGraphicAsset::from_source(request, bytes);
     }
     let converted = which::which("gs")
         .ok()
         .and_then(|program| {
             tex_render_gs::convert_pdf_or_eps_asset_to_png_with_cli(
                 program.to_string_lossy().as_ref(),
-                &image.asset_ref,
-                bytes,
-                image
+                &request.asset_ref,
+                &bytes,
+                request
                     .page_selection
                     .as_ref()
                     .and_then(|selection| selection.page),
-                image
+                request
                     .page_selection
                     .as_ref()
                     .and_then(|selection| selection.pagebox.as_deref()),
@@ -414,29 +407,33 @@ fn convert_external_display_list_asset(
             .ok()
         })
         .or_else(|| {
-            if image.asset_format != Some(GraphicAssetFormat::Pdf) {
+            if request.source_format != Some(GraphicAssetFormat::Pdf) {
                 return None;
             }
             let program = which::which("pdftoppm").ok()?;
             tex_render_gs::convert_pdf_asset_to_png_with_pdftoppm(
                 program.to_string_lossy().as_ref(),
-                &image.asset_ref,
-                bytes,
-                image
+                &request.asset_ref,
+                &bytes,
+                request
                     .page_selection
                     .as_ref()
                     .and_then(|selection| selection.page),
-                image
+                request
                     .page_selection
                     .as_ref()
                     .and_then(|selection| selection.pagebox.as_deref()),
             )
             .ok()
-        })?;
-    Some(ConvertedImageAsset {
-        bytes: converted,
-        format: GraphicAssetFormat::Png,
-    })
+        });
+    if let Some(converted) = converted {
+        return Some(MaterializedGraphicAsset::converted(
+            request,
+            converted,
+            GraphicAssetFormat::Png,
+        ));
+    }
+    MaterializedGraphicAsset::from_source(request, bytes)
 }
 
 impl Display for CompileFailure {
