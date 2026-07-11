@@ -49,6 +49,49 @@ impl Default for PageDisplayListOptions {
     }
 }
 
+impl PageDisplayListOptions {
+    pub fn for_document_ir(document_ir: &DocumentIr) -> Self {
+        let mut options = Self::default();
+        let Some(document_class) = &document_ir.document_class else {
+            return options;
+        };
+        let class_name = document_class.name.trim().to_ascii_lowercase();
+        let explicitly_one_column = document_class
+            .options
+            .iter()
+            .any(|option| option.trim().eq_ignore_ascii_case("onecolumn"));
+        let explicitly_two_column = document_class
+            .options
+            .iter()
+            .any(|option| option.trim().eq_ignore_ascii_case("twocolumn"));
+        let class_defaults_to_two_columns = matches!(class_name.as_str(), "ieeetran");
+        if explicitly_one_column || (!explicitly_two_column && !class_defaults_to_two_columns) {
+            return options;
+        }
+
+        options.column_count = 2;
+        options.column_gap_pt = 18.0;
+        options.margin_top_pt = 54.0;
+        options.margin_bottom_pt = 54.0;
+        options.block_gap_pt = 5.0;
+        options.abstract_indent_pt = 9.0;
+        options.list_continuation_indent_pt = 12.0;
+        options.bibliography_continuation_indent_pt = 18.0;
+        options.heading_font_size_pt = 12.5;
+        options.title_font_size_pt = 16.0;
+        if class_name == "ieeetran" {
+            options.margin_left_pt = 49.5;
+            options.body_font_size_pt = 9.0;
+            options.line_height_pt = 10.0;
+        } else {
+            options.margin_left_pt = 54.0;
+            options.body_font_size_pt = 9.5;
+            options.line_height_pt = 10.5;
+        }
+        options
+    }
+}
+
 fn parse_table_width_spec_pt(
     width_spec: &str,
     content_width_pt: f32,
@@ -154,6 +197,14 @@ struct PendingPage {
     source_spans: Vec<SourceSpan>,
     text: String,
     hash_input: String,
+}
+
+struct PendingImageRow {
+    y: f32,
+    used_width_pt: f32,
+    height_pt: f32,
+    gap_after_pt: f32,
+    packable: bool,
 }
 
 #[derive(Clone)]
@@ -1627,6 +1678,7 @@ pub fn build_page_display_lists(
         ])
     };
     let mut pending = new_pending_page();
+    let mut pending_image_row: Option<PendingImageRow> = None;
     let mut column_index = 0usize;
     let mut y = options.margin_top_pt;
     let record_source_spans = |source: &SourceProvenance, source_spans: &mut Vec<SourceSpan>| {
@@ -1689,6 +1741,9 @@ pub fn build_page_display_lists(
     for logical in logical_items {
         match logical {
             LogicalItem::Text(logical) => {
+                if let Some(row) = pending_image_row.take() {
+                    y = row.y + row.height_pt + row.gap_after_pt;
+                }
                 let mut wrapped_lines = Vec::new();
                 let mut current_line = Vec::new();
                 let mut current_len = 0usize;
@@ -2480,26 +2535,66 @@ pub fn build_page_display_lists(
                     } else {
                         0.0
                     };
-                if y + required_height > options.page_height_pt - options.margin_bottom_pt
-                    && !pending.ops.is_empty()
-                {
-                    if column_index + 1 < column_count {
-                        column_index += 1;
-                    } else {
-                        finish_page(&mut pages, pending);
-                        pending = new_pending_page();
-                        column_index = 0;
+                let row_gap_pt = 4.0;
+                let image_is_packable =
+                    width_hint_pt.is_some() && image_width + row_gap_pt < column_width_pt;
+                let can_join_pending_row = pending_image_row.as_ref().is_some_and(|row| {
+                    row.packable
+                        && image_is_packable
+                        && row.used_width_pt + row_gap_pt + image_width <= column_width_pt + 0.01
+                        && row.y + required_height
+                            <= options.page_height_pt - options.margin_bottom_pt
+                });
+                let (image_x, image_y) = if can_join_pending_row {
+                    let row = pending_image_row.as_mut().expect("pending image row");
+                    let image_x = options.margin_left_pt
+                        + column_index as f32 * (column_width_pt + column_gap_pt)
+                        + row.used_width_pt
+                        + row_gap_pt;
+                    row.used_width_pt += row_gap_pt + image_width;
+                    row.height_pt = row.height_pt.max(required_height);
+                    row.gap_after_pt = row.gap_after_pt.max(logical.gap_after_pt);
+                    (image_x, row.y)
+                } else {
+                    if let Some(row) = pending_image_row.take() {
+                        y = row.y + row.height_pt + row.gap_after_pt;
                     }
-                    y = options.margin_top_pt;
-                }
-                let image_x = options.margin_left_pt
-                    + column_index as f32 * (column_width_pt + column_gap_pt);
+                    if y + required_height > options.page_height_pt - options.margin_bottom_pt
+                        && !pending.ops.is_empty()
+                    {
+                        if column_index + 1 < column_count {
+                            column_index += 1;
+                        } else {
+                            finish_page(&mut pages, pending);
+                            pending = new_pending_page();
+                            column_index = 0;
+                        }
+                        y = options.margin_top_pt;
+                    }
+                    let image_x = options.margin_left_pt
+                        + column_index as f32 * (column_width_pt + column_gap_pt);
+                    pending_image_row = Some(PendingImageRow {
+                        y,
+                        used_width_pt: image_width,
+                        height_pt: required_height,
+                        gap_after_pt: logical.gap_after_pt,
+                        packable: image_is_packable,
+                    });
+                    (image_x, y)
+                };
 
                 if !pending.text.is_empty() {
                     pending.text.push('\n');
                     pending.hash_input.push('\n');
                 }
-                emit_due_destinations(&logical.source, Point { x: image_x, y }, &mut pending);
+                emit_due_destinations(
+                    &logical.source,
+                    Point {
+                        x: image_x,
+                        y: image_y,
+                    },
+                    &mut pending,
+                );
                 let image_text = format!("[image: {}]", logical.path);
                 pending.text.push_str(&image_text);
                 pending.hash_input.push_str(&image_text);
@@ -2561,13 +2656,13 @@ pub fn build_page_display_lists(
                 pending.hash_input.push('\u{1f}');
                 pending.hash_input.push_str(&format!(
                     "image-rect:{:.3}:{:.3}:{image_width:.3}:{image_height:.3}",
-                    image_x, y
+                    image_x, image_y
                 ));
                 record_source_spans(&logical.source, &mut pending.source_spans);
                 pending.ops.push(DrawOp::Image(PositionedImage {
                     rect: Rect {
                         x: image_x,
-                        y,
+                        y: image_y,
                         width: image_width,
                         height: image_height,
                     },
@@ -2583,7 +2678,6 @@ pub fn build_page_display_lists(
                     diagnostic: image_diagnostic,
                     source: logical.source.clone(),
                 }));
-                y += image_height;
 
                 if let Some(caption) = &logical.caption {
                     if !pending.text.is_empty() {
@@ -2605,7 +2699,10 @@ pub fn build_page_display_lists(
                     ));
                     record_source_spans(&caption_source, &mut pending.source_spans);
                     pending.ops.push(DrawOp::TextRun(PositionedTextRun {
-                        origin: Point { x: image_x, y },
+                        origin: Point {
+                            x: image_x,
+                            y: image_y + image_height,
+                        },
                         text: caption.clone(),
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
@@ -2614,11 +2711,12 @@ pub fn build_page_display_lists(
                         clusters: None,
                         source: caption_source,
                     }));
-                    y += options.line_height_pt;
                 }
-                y += logical.gap_after_pt;
             }
         }
+    }
+    if let Some(row) = pending_image_row.take() {
+        y = row.y + row.height_pt + row.gap_after_pt;
     }
     drop(emit_due_destinations);
     for label in pending_labels.drain(..) {
@@ -2726,12 +2824,13 @@ fn approximate_text_clusters(text: &str) -> Option<Vec<TextCluster>> {
 mod tests {
     use tex_render_model::{
         AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint,
-        DisplayMathBlock, DocumentIr, DrawOp, GraphicAssetDensity, GraphicAssetDensityUnit,
-        GraphicAssetDimensions, GraphicAssetFormat, GraphicBlock, HeadingBlock, ImageCrop,
-        ImageRotation, ImageScale, ImageTrim, ImageViewport, InlineNode, IrBlock,
-        LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind, ParagraphBlock, Point,
-        ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan, TableBlock, TableCell,
-        TableColumnAlignment, TableColumnSpec, TableRow, TableRuleSpan, TextCluster, TitleBlock,
+        DisplayMathBlock, DocumentClassIr, DocumentIr, DrawOp, GraphicAssetDensity,
+        GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat, GraphicBlock,
+        HeadingBlock, ImageCrop, ImageRotation, ImageScale, ImageTrim, ImageViewport, InlineNode,
+        IrBlock, LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind, ParagraphBlock,
+        Point, ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan, TableBlock,
+        TableCell, TableColumnAlignment, TableColumnSpec, TableRow, TableRuleSpan, TextCluster,
+        TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists, parse_table_width_spec_pt};
@@ -5926,6 +6025,52 @@ mod tests {
     }
 
     #[test]
+    fn infers_two_column_profiles_from_document_class_intent() {
+        let source = SourceProvenance::file("main.tex", 0, 43);
+        let article = DocumentIr::with_document_class_and_labels(
+            Vec::new(),
+            Some(DocumentClassIr {
+                name: "article".to_string(),
+                options: vec!["10pt".to_string(), "twocolumn".to_string()],
+                source: source.clone(),
+            }),
+            Vec::new(),
+        );
+        let ieee = DocumentIr::with_document_class_and_labels(
+            Vec::new(),
+            Some(DocumentClassIr {
+                name: "IEEEtran".to_string(),
+                options: vec!["journal".to_string()],
+                source: source.clone(),
+            }),
+            Vec::new(),
+        );
+        let explicit_one_column = DocumentIr::with_document_class_and_labels(
+            Vec::new(),
+            Some(DocumentClassIr {
+                name: "IEEEtran".to_string(),
+                options: vec!["journal".to_string(), "onecolumn".to_string()],
+                source,
+            }),
+            Vec::new(),
+        );
+
+        let article_options = PageDisplayListOptions::for_document_ir(&article);
+        let ieee_options = PageDisplayListOptions::for_document_ir(&ieee);
+
+        assert_eq!(article_options.column_count, 2);
+        assert_eq!(article_options.body_font_size_pt, 9.5);
+        assert_eq!(article_options.line_height_pt, 10.5);
+        assert_eq!(ieee_options.column_count, 2);
+        assert_eq!(ieee_options.margin_left_pt, 49.5);
+        assert_eq!(ieee_options.body_font_size_pt, 9.0);
+        assert_eq!(
+            PageDisplayListOptions::for_document_ir(&explicit_one_column),
+            PageDisplayListOptions::default()
+        );
+    }
+
+    #[test]
     fn moves_images_to_the_next_column() {
         let source = SourceProvenance::file("main.tex", 0, 24);
         let display_lists = build_page_display_lists(
@@ -5977,6 +6122,92 @@ mod tests {
         assert_eq!(display_lists.len(), 1);
         assert_eq!(image.map(|image| image.rect.x), Some(110.0));
         assert_eq!(image.map(|image| image.rect.y), Some(10.0));
+    }
+
+    #[test]
+    fn packs_only_adjacent_explicitly_sized_images() {
+        let source = SourceProvenance::file("main.tex", 0, 24);
+        let blocks = (0..3)
+            .map(|index| {
+                IrBlock::Graphic(GraphicBlock {
+                    path: format!("figures/plot-{index}.png"),
+                    options: Some("width=0.48\\linewidth".to_string()),
+                    page_selection: None,
+                    asset_format: Some(GraphicAssetFormat::Png),
+                    asset_hash: None,
+                    asset_dimensions: Some(GraphicAssetDimensions {
+                        width_px: 100,
+                        height_px: 100,
+                        density: None,
+                        natural_width_pt_milli: None,
+                        natural_height_pt_milli: None,
+                    }),
+                    caption: None,
+                    caption_source: None,
+                    source: source.clone(),
+                })
+            })
+            .collect::<Vec<_>>();
+        let options = PageDisplayListOptions {
+            page_width_pt: 200.0,
+            page_height_pt: 300.0,
+            margin_left_pt: 10.0,
+            margin_top_pt: 10.0,
+            margin_bottom_pt: 10.0,
+            block_gap_pt: 0.0,
+            ..PageDisplayListOptions::default()
+        };
+        let packed = build_page_display_lists(&DocumentIr::new(blocks), options.clone());
+        let packed_rects = packed[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Image(image) => Some(image.rect),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let natural = build_page_display_lists(
+            &DocumentIr::new(
+                (0..2)
+                    .map(|index| {
+                        IrBlock::Graphic(GraphicBlock {
+                            path: format!("figures/icon-{index}.png"),
+                            options: None,
+                            page_selection: None,
+                            asset_format: Some(GraphicAssetFormat::Png),
+                            asset_hash: None,
+                            asset_dimensions: Some(GraphicAssetDimensions {
+                                width_px: 20,
+                                height_px: 10,
+                                density: None,
+                                natural_width_pt_milli: None,
+                                natural_height_pt_milli: None,
+                            }),
+                            caption: None,
+                            caption_source: None,
+                            source: source.clone(),
+                        })
+                    })
+                    .collect(),
+            ),
+            options.clone(),
+        );
+        let natural_rects = natural[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::Image(image) => Some(image.rect),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(packed_rects.len(), 3);
+        assert_eq!(packed_rects[0].y, packed_rects[1].y);
+        assert!(packed_rects[1].x > packed_rects[0].x);
+        assert_eq!(packed_rects[2].x, options.margin_left_pt);
+        assert!(packed_rects[2].y > packed_rects[0].y);
+        assert_eq!(natural_rects[0].x, natural_rects[1].x);
+        assert!(natural_rects[1].y > natural_rects[0].y);
     }
 
     #[test]

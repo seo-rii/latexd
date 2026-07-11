@@ -204,6 +204,36 @@ fn compact_render_ir_capture_matches_goldens() {
 }
 
 #[test]
+fn document_class_layout_intent_drives_display_list_columns() {
+    let body = (0..70)
+        .map(|index| format!("line{index}\\\\"))
+        .collect::<String>();
+    let source = format!(
+        "\\documentclass[10pt,twocolumn]{{article}}\\begin{{document}}{body}\\end{{document}}"
+    );
+    let capture = capture_internal_render_ir("main.tex", &source, &SemanticAux::default());
+    let document_class = capture
+        .document_ir
+        .document_class
+        .as_ref()
+        .expect("document class");
+
+    assert_eq!(document_class.name, "article");
+    assert_eq!(
+        document_class.options,
+        vec!["10pt".to_string(), "twocolumn".to_string()]
+    );
+    assert_eq!(capture.page_display_lists.len(), 1);
+    assert!(capture.page_display_lists[0].ops.iter().any(|op| {
+        matches!(
+            op,
+            DrawOp::TextRun(run)
+                if run.text == "line65" && run.origin.x > 306.0 && run.origin.y == 54.0
+        )
+    }));
+}
+
+#[test]
 fn compact_display_list_pdf_text_is_extractable_when_pdftotext_is_available() {
     let pdftotext = match which::which("pdftotext") {
         Ok(path) => path,

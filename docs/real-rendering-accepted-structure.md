@@ -609,6 +609,20 @@ The next implementation step has started with a narrow display-list spike:
 - display-list SVG image placeholders, link hit boxes, and destination markers
   now also expose primary source attributes, so non-text renderer operations
   are inspectable by source-sync tooling;
+- top-level `\\documentclass` declarations now emit typed `DocumentClass`
+  events and survive as optional Document IR metadata, preserving class names,
+  options, and provenance without making the VM select layout policy;
+- `PageDisplayListOptions::for_document_ir` maps that class intent to an
+  initial renderer-facing profile, including explicit `twocolumn`, IEEEtran's
+  default two-column mode, explicit `onecolumn` override, and class-appropriate
+  approximate margins, font sizes, and leading;
+- display-list page construction now flows text and images down each column
+  before opening a new page, while adjacent graphics with explicit width hints
+  may share a row when they fit in the current column;
+- nested layout containers remain an explicit limitation: structured
+  `minipage` capture currently hides its setup arguments but does not retain
+  container width or sibling grouping in IR, so graphics sized relative to a
+  minipage still use the enclosing page/column width during layout;
 - `PageDisplayList` text placement now applies continuation-line indentation
   for wrapped list items and bibliography entries, while keeping first-line
   markers/labels at the normal text margin;

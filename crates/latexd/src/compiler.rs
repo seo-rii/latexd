@@ -283,10 +283,9 @@ fn capture_internal_render_ir_with_options(
     let outcome = vm.run_plain(source);
     let events = RenderEventStream::new(Some(source_path.to_string()), outcome.render_events);
     let document_ir = tex_layout::build_document_ir(&events, aux);
-    let mut page_display_lists = tex_layout::build_page_display_lists(
-        &document_ir,
-        tex_layout::PageDisplayListOptions::default(),
-    );
+    let display_list_options = tex_layout::PageDisplayListOptions::for_document_ir(&document_ir);
+    let mut page_display_lists =
+        tex_layout::build_page_display_lists(&document_ir, display_list_options);
     annotate_display_list_image_diagnostics(&events, &mut page_display_lists);
     let display_list_pdf = if let Some(root) = file_root {
         render_display_list_pdf_with_converted_assets(
