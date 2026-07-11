@@ -13,6 +13,7 @@ pub struct LayoutOptions {
     pub page_width_pt: f32,
     pub page_height_pt: f32,
     pub font_size_pt: f32,
+    pub line_height_pt: f32,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,6 +47,7 @@ impl Default for LayoutOptions {
             page_width_pt: 612.0,
             page_height_pt: 792.0,
             font_size_pt: 12.0,
+            line_height_pt: 14.0,
         }
     }
 }
@@ -93,11 +95,12 @@ pub fn layout_text(text: &str, options: LayoutOptions) -> DocumentLayout {
         let occurrence = content_occurrences.entry(content_hash.clone()).or_default();
         let page_id = blake3::hash(
             format!(
-                "{}:{}:{}:{}:{}",
+                "{}:{}:{}:{}:{}:{}",
                 content_hash,
                 options.page_width_pt,
                 options.page_height_pt,
                 options.font_size_pt,
+                options.line_height_pt,
                 *occurrence
             )
             .as_bytes(),
@@ -223,6 +226,27 @@ mod tests {
 
         assert_ne!(small.pages[0].page_id, large.pages[0].page_id);
         assert_eq!(small.pages[0].content_hash, large.pages[0].content_hash);
+    }
+
+    #[test]
+    fn page_id_changes_when_line_height_changes() {
+        let compact = layout_text(
+            "hello world",
+            LayoutOptions {
+                line_height_pt: 10.0,
+                ..LayoutOptions::default()
+            },
+        );
+        let loose = layout_text(
+            "hello world",
+            LayoutOptions {
+                line_height_pt: 14.0,
+                ..LayoutOptions::default()
+            },
+        );
+
+        assert_ne!(compact.pages[0].page_id, loose.pages[0].page_id);
+        assert_eq!(compact.pages[0].content_hash, loose.pages[0].content_hash);
     }
 
     #[test]

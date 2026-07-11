@@ -1195,10 +1195,13 @@ fn layout_options_for_profile(profile: &ProjectLayoutProfile) -> LayoutOptions {
             chars_per_line: 96,
             lines_per_page: 60,
             font_size_pt: 10.0,
+            line_height_pt: 11.0,
             ..LayoutOptions::default()
         },
         ProjectLayoutProfile::Revtex => LayoutOptions {
             lines_per_page: 66,
+            font_size_pt: 10.0,
+            line_height_pt: 10.0,
             ..LayoutOptions::default()
         },
     }
@@ -2053,6 +2056,16 @@ mod tests {
 
         assert_eq!(options.chars_per_line, 96);
         assert_eq!(options.font_size_pt, 10.0);
+        assert_eq!(options.line_height_pt, 11.0);
+    }
+
+    #[test]
+    fn revtex_layout_profile_uses_dense_legacy_text_metrics() {
+        let options = layout_options_for_profile(&ProjectLayoutProfile::Revtex);
+
+        assert_eq!(options.lines_per_page, 66);
+        assert_eq!(options.font_size_pt, 10.0);
+        assert_eq!(options.line_height_pt, 10.0);
     }
 
     #[test]

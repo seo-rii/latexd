@@ -40,6 +40,7 @@ pub fn render_pdf(layout: &DocumentLayout) -> Vec<u8> {
             page,
             layout.options.page_height_pt,
             layout.options.font_size_pt,
+            layout.options.line_height_pt,
         );
         objects.push(format!(
             "{content_id} 0 obj << /Length {} >> stream\n{}\nendstream\nendobj\n",
@@ -12170,7 +12171,7 @@ pub fn render_display_list_svg_with_converted_assets(
 pub fn render_page_svg(page: &PageLayout, options: &LayoutOptions) -> String {
     let mut body = String::new();
     for (index, line) in page.lines.iter().enumerate() {
-        let y = PAGE_TEXT_TOP_PT + PAGE_LINE_HEIGHT_PT * index as f32;
+        let y = PAGE_TEXT_TOP_PT + options.line_height_pt * index as f32;
         body.push_str(&format!(
             "<text x=\"{}\" y=\"{y}\" font-family=\"Iowan Old Style, Palatino, serif\" font-size=\"{}\">{}</text>",
             PAGE_TEXT_LEFT_PT,
@@ -12189,11 +12190,16 @@ pub fn render_page_svg(page: &PageLayout, options: &LayoutOptions) -> String {
     )
 }
 
-fn build_page_stream(page: &PageLayout, page_height_pt: f32, font_size_pt: f32) -> String {
+fn build_page_stream(
+    page: &PageLayout,
+    page_height_pt: f32,
+    font_size_pt: f32,
+    line_height_pt: f32,
+) -> String {
     let mut stream = String::new();
     stream.push_str(&format!(
         "BT /F1 {} Tf {} TL ",
-        font_size_pt, PAGE_LINE_HEIGHT_PT
+        font_size_pt, line_height_pt
     ));
     stream.push_str(&format!(
         "{} {} Td ",
@@ -12445,11 +12451,12 @@ mod tests {
     }
 
     #[test]
-    fn legacy_pdf_and_svg_use_layout_font_size() {
+    fn legacy_pdf_and_svg_use_layout_text_metrics() {
         let layout = layout_text(
-            "hello pdf",
+            "hello\npdf",
             LayoutOptions {
                 font_size_pt: 10.0,
+                line_height_pt: 11.0,
                 ..LayoutOptions::default()
             },
         );
@@ -12457,8 +12464,9 @@ mod tests {
         let pdf_text = String::from_utf8_lossy(&pdf);
         let svg = render_page_svg(&layout.pages[0], &layout.options);
 
-        assert!(pdf_text.contains("BT /F1 10 Tf"), "{pdf_text}");
+        assert!(pdf_text.contains("BT /F1 10 Tf 11 TL"), "{pdf_text}");
         assert!(svg.contains("font-size=\"10\""), "{svg}");
+        assert!(svg.contains("y=\"83\""), "{svg}");
     }
 
     #[test]
