@@ -151,7 +151,8 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\nonumber{}
 \def\notag{}
 \def\tag#1{}
-\newcommand{\footnote}[2][]{}
+\newcommand{\footnote}[2][]{ #2 }
+\newcommand{\footnotetext}[2][]{ #2 }
 \newcommand{\footnotemark}[1][]{}
 \def\hline{}
 \def\cline#1{}
@@ -1451,6 +1452,44 @@ mod tests {
                 "def \\packmark #0",
             ]
         );
+    }
+
+    #[test]
+    fn mini_kernel_preserves_footnote_bodies_in_legacy_output() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            r"\begin{document}Prefix\footnote{Visible note.} suffix\footnotetext[7]{Loose note.}\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root.clone()).expect("world");
+        let result = run_project(&world).expect("project run");
+        let normalized_output = result
+            .output
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        assert!(
+            normalized_output.contains("Prefix Visible note. suffix Loose note."),
+            "footnote bodies were not preserved in {:?}",
+            result.output
+        );
+        assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+        for hidden in ["footnote", "footnotetext", "7"] {
+            assert!(
+                !result.output.contains(hidden),
+                "{hidden}: {:?}",
+                result.output
+            );
+        }
     }
 
     #[test]
