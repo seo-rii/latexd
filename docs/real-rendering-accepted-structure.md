@@ -124,6 +124,21 @@ The next implementation step has started with a narrow display-list spike:
   from `GraphicRef` through IR into display-list `Image` operations, and image
   page hashes include that value so tile/render caches invalidate when an
   external asset changes without a path change;
+- renderer execution now resolves each `PositionedImage` through a shared
+  `GraphicAssetRequest` containing the asset reference, source format,
+  page/pagebox selection, and source hash. The request is ordered/hashable so
+  decoded/conversion caches can use the same renderer-neutral identity;
+- `MaterializedGraphicAsset` separates the source format from the actual bytes
+  format consumed by a backend. `latexd` owns PDF/EPS tool discovery and
+  Ghostscript/Poppler raster materialization before invoking either `tex-pdf`
+  PDF or debug-SVG rendering, rather than exposing converter callbacks that
+  receive renderer placement state;
+- crop, viewport, scaling, and rotation remain `PositionedImage` placement
+  concerns. PDF page/pagebox selection remains part of the materialization
+  request because it changes the selected source asset itself;
+- a present PDF/EPS asset whose conversion fails remains materialized with its
+  original bytes and format, allowing every backend to distinguish unsupported
+  input from a missing asset and emit the same bounded placeholder policy;
 - image page hashes also include the resolved graphic asset format, so a
   same-path asset that switches PDF/SVG/EPS/bitmap rendering paths cannot reuse
   a stale page/display-list cache entry;
@@ -1631,9 +1646,13 @@ approximate.
   `stop-color` / `stop-opacity` cascade, including root/paint-server `color`
   CSS rules, declaration order, specificity, presentation-attribute override,
   and inline-style priority coverage.
-- External PDF/EPS/SVG asset handling is still a placeholder path. Ghostscript
-  or Poppler-backed conversion/embedding policy remains out of scope for this
-  batch.
+- External PDF/EPS raster fallback now crosses the shared materialization seam
+  and is covered through Ghostscript/Poppler-backed project tests. SVG source
+  still enters the private simple-SVG interpreter in `tex-pdf`; moving that
+  interpreter to a renderer-neutral vector-scene builder, defining sanitized
+  vector payload/cache identity, and adding direct PDF page inclusion remain
+  the next asset-boundary work. Until then, direct PDF/EPS vector embedding is
+  not a supported backend shortcut.
 - Default CI covers unit/golden/reduced fixtures. Full arXiv oracle, raster
   smoke/diff, Skia, and performance/cache sweeps should stay ignored or move to
   scheduled/manual jobs until their dependencies and tolerances are stable.
