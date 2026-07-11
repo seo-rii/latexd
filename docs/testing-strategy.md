@@ -41,7 +41,13 @@ triaged without manually diffing the full text artifact. Slice reports also
 record how many internal-only extra tokens are backed by the corresponding IR
 source spans. This distinguishes likely `pdftotext` extraction blind spots, such
 as dense table cells, from internal renderer hallucinations; it is diagnostic
-metadata, not a strict pass/fail gate. Each CC0 case can configure
+metadata, not a strict pass/fail gate. Successful builds also copy the
+render-IR `display-list.pdf` artifact and its extracted text into the report
+directory, rasterize its first page, and populate a nested `display_list_render`
+object with raw/normalized overlap, page-count tolerance, raster gross status,
+and raster diff metrics. This renderer-facing baseline is observational while
+line breaking and page density are still being calibrated; strict mode continues
+to gate the legacy internal PDF path. Each CC0 case can configure
 `max_page_count_delta` and `min_first_page_ink_ratio`; the report records
 `page_count_within_tolerance` and `first_page_raster_gross` so Phase 2 page-count
 and missing-major-text-block regressions are visible without manual artifact

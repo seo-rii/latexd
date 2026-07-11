@@ -84,6 +84,7 @@ struct OracleCaseReport {
     internal_text: Option<Utf8PathBuf>,
     internal_pdf: Option<Utf8PathBuf>,
     internal_document_ir: Option<Utf8PathBuf>,
+    display_list_render: Option<OracleRenderPathReport>,
     internal_page_count: Option<usize>,
     page_count_delta: Option<i64>,
     page_count_within_tolerance: Option<bool>,
@@ -94,6 +95,32 @@ struct OracleCaseReport {
     first_page_raster_diff_metrics: Option<RasterDiffReport>,
     internal_build_failure: Option<String>,
     internal_diagnostics: Vec<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+struct OracleRenderPathReport {
+    pdf: Utf8PathBuf,
+    text: Utf8PathBuf,
+    token_count: usize,
+    unique_token_count: usize,
+    common_unique_token_count: usize,
+    common_unique_token_ratio: f64,
+    normalized_token_count: usize,
+    normalized_unique_token_count: usize,
+    normalized_common_unique_token_count: usize,
+    normalized_common_unique_token_ratio: f64,
+    missing_token_sample: Vec<String>,
+    extra_token_sample: Vec<String>,
+    normalized_missing_token_sample: Vec<String>,
+    normalized_extra_token_sample: Vec<String>,
+    page_count: usize,
+    page_count_delta: i64,
+    page_count_within_tolerance: bool,
+    first_page_raster: Utf8PathBuf,
+    first_page_raster_smoke: RasterSmokeReport,
+    first_page_raster_gross: RasterGrossReport,
+    first_page_raster_diff: Utf8PathBuf,
+    first_page_raster_diff_metrics: RasterDiffReport,
 }
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -354,6 +381,7 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             internal_text: None,
             internal_pdf: None,
             internal_document_ir: None,
+            display_list_render: None,
             internal_page_count: None,
             page_count_delta: None,
             page_count_within_tolerance: None,
@@ -432,6 +460,150 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
                     );
                     report.internal_document_ir = Some(internal_document_ir_path);
                 }
+                let display_list_pdf_artifact = render_ir_display_list_pdf_path(&build_root, rev);
+                assert!(
+                    display_list_pdf_artifact.exists(),
+                    "{} display-list PDF artifact was not written",
+                    case.arxiv_id
+                );
+                let display_list_pdf_path = oracle_case_artifact_path(
+                    &report_dir,
+                    &case.arxiv_id,
+                    &case.version,
+                    "display-list.pdf",
+                );
+                fs::copy(
+                    display_list_pdf_artifact.as_std_path(),
+                    display_list_pdf_path.as_std_path(),
+                )
+                .unwrap_or_else(|error| {
+                    panic!("{} copy display-list PDF failed: {error}", case.arxiv_id)
+                });
+                let display_list_text = extract_pdf_text(&pdftotext, &display_list_pdf_artifact)
+                    .unwrap_or_else(|error| {
+                        panic!("{} display-list pdftotext failed: {error}", case.arxiv_id)
+                    });
+                let display_list_text_path = oracle_case_artifact_path(
+                    &report_dir,
+                    &case.arxiv_id,
+                    &case.version,
+                    "display-list.txt",
+                );
+                fs::write(display_list_text_path.as_std_path(), &display_list_text).unwrap_or_else(
+                    |error| panic!("{} write display-list text failed: {error}", case.arxiv_id),
+                );
+                let display_list_page_count =
+                    extract_pdf_page_count(&pdfinfo, &display_list_pdf_artifact).unwrap_or_else(
+                        |error| panic!("{} display-list pdfinfo failed: {error}", case.arxiv_id),
+                    );
+                let display_list_raster_prefix = oracle_case_first_page_raster_prefix(
+                    &report_dir,
+                    &case.arxiv_id,
+                    &case.version,
+                    "display-list",
+                );
+                let display_list_first_page_raster = rasterize_pdf_first_page(
+                    &pdftoppm,
+                    &display_list_pdf_artifact,
+                    &display_list_raster_prefix,
+                )
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "{} display-list first-page raster failed: {error}",
+                        case.arxiv_id
+                    )
+                });
+                let display_list_first_page_raster_smoke =
+                    extract_raster_smoke(&display_list_first_page_raster).unwrap_or_else(|error| {
+                        panic!(
+                            "{} display-list raster smoke failed: {error}",
+                            case.arxiv_id
+                        )
+                    });
+                let display_list_first_page_raster_diff = oracle_case_artifact_path(
+                    &report_dir,
+                    &case.arxiv_id,
+                    &case.version,
+                    "display-list-first-page-raster-diff.png",
+                );
+                let display_list_first_page_raster_diff_metrics = write_raster_diff_image(
+                    &report.oracle_first_page_raster,
+                    &display_list_first_page_raster,
+                    &display_list_first_page_raster_diff,
+                )
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "{} write display-list first-page raster diff failed: {error}",
+                        case.arxiv_id
+                    )
+                });
+                let display_list_tokens = tokenize(&display_list_text);
+                let display_list_normalized_tokens = tokenize_normalized(&display_list_text);
+                let display_list_unique = unique_tokens(&display_list_tokens);
+                let display_list_normalized_unique = unique_tokens(&display_list_normalized_tokens);
+                let display_list_common = oracle_unique
+                    .intersection(&display_list_unique)
+                    .cloned()
+                    .collect::<BTreeSet<_>>();
+                let display_list_common_ratio =
+                    display_list_common.len() as f64 / oracle_unique.len().max(1) as f64;
+                let display_list_normalized_common = oracle_normalized_unique
+                    .intersection(&display_list_normalized_unique)
+                    .cloned()
+                    .collect::<BTreeSet<_>>();
+                let display_list_normalized_common_ratio = display_list_normalized_common.len()
+                    as f64
+                    / oracle_normalized_unique.len().max(1) as f64;
+                let display_list_page_count_delta =
+                    display_list_page_count as i64 - oracle_page_count as i64;
+                report.display_list_render = Some(OracleRenderPathReport {
+                    pdf: display_list_pdf_path,
+                    text: display_list_text_path,
+                    token_count: display_list_tokens.len(),
+                    unique_token_count: display_list_unique.len(),
+                    common_unique_token_count: display_list_common.len(),
+                    common_unique_token_ratio: display_list_common_ratio,
+                    normalized_token_count: display_list_normalized_tokens.len(),
+                    normalized_unique_token_count: display_list_normalized_unique.len(),
+                    normalized_common_unique_token_count: display_list_normalized_common.len(),
+                    normalized_common_unique_token_ratio: display_list_normalized_common_ratio,
+                    missing_token_sample: ordered_difference_sample(
+                        &oracle_tokens,
+                        &display_list_common,
+                        80,
+                    ),
+                    extra_token_sample: ordered_difference_sample(
+                        &display_list_tokens,
+                        &oracle_unique,
+                        80,
+                    ),
+                    normalized_missing_token_sample: ordered_difference_sample(
+                        &oracle_normalized_tokens,
+                        &display_list_normalized_common,
+                        80,
+                    ),
+                    normalized_extra_token_sample: ordered_difference_sample(
+                        &display_list_normalized_tokens,
+                        &oracle_normalized_unique,
+                        80,
+                    ),
+                    page_count: display_list_page_count,
+                    page_count_delta: display_list_page_count_delta,
+                    page_count_within_tolerance: page_count_within_tolerance(
+                        oracle_page_count,
+                        display_list_page_count,
+                        case.max_page_count_delta,
+                    ),
+                    first_page_raster: display_list_first_page_raster,
+                    first_page_raster_gross: compare_raster_smoke(
+                        &report.oracle_first_page_raster_smoke,
+                        &display_list_first_page_raster_smoke,
+                        case.min_first_page_ink_ratio,
+                    ),
+                    first_page_raster_smoke: display_list_first_page_raster_smoke,
+                    first_page_raster_diff: display_list_first_page_raster_diff,
+                    first_page_raster_diff_metrics: display_list_first_page_raster_diff_metrics,
+                });
                 let internal_page_count = extract_pdf_page_count(&pdfinfo, &outcome.pdf_path)
                     .unwrap_or_else(|error| {
                         panic!("{} internal pdfinfo failed: {error}", case.arxiv_id)
@@ -645,6 +817,10 @@ fn locate_case_files(
 
 fn render_ir_document_path(build_root: &Utf8Path, rev: u64) -> Utf8PathBuf {
     build_root.join(format!("rev-{rev}/render-ir/document-ir.json"))
+}
+
+fn render_ir_display_list_pdf_path(build_root: &Utf8Path, rev: u64) -> Utf8PathBuf {
+    build_root.join(format!("rev-{rev}/render-ir/display-list.pdf"))
 }
 
 fn read_document_ir(path: &Utf8Path) -> anyhow::Result<DocumentIr> {
@@ -1721,6 +1897,7 @@ fn arxiv_oracle_report_serializes_first_page_raster_diff_path() {
         internal_text: Some(Utf8PathBuf::from("/tmp/internal.txt")),
         internal_pdf: Some(Utf8PathBuf::from("/tmp/internal.pdf")),
         internal_document_ir: Some(Utf8PathBuf::from("/tmp/internal-document-ir.json")),
+        display_list_render: None,
         internal_page_count: Some(1),
         page_count_delta: Some(0),
         page_count_within_tolerance: Some(true),
@@ -1964,6 +2141,14 @@ fn arxiv_oracle_render_ir_document_path_uses_revision_artifact_layout() {
     assert_eq!(
         render_ir_document_path(&Utf8PathBuf::from("/tmp/build"), 7),
         Utf8PathBuf::from("/tmp/build/rev-7/render-ir/document-ir.json")
+    );
+}
+
+#[test]
+fn arxiv_oracle_render_ir_display_list_pdf_path_uses_revision_artifact_layout() {
+    assert_eq!(
+        render_ir_display_list_pdf_path(&Utf8PathBuf::from("/tmp/build"), 7),
+        Utf8PathBuf::from("/tmp/build/rev-7/render-ir/display-list.pdf")
     );
 }
 

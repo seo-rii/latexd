@@ -130,10 +130,14 @@ dimension/non-white-bbox/pixel-count fields, first-page raster diff bbox/pixel
 metrics split into overlapping, oracle-only, and internal-only differences,
 `cc0-smoke-report.json`, and per-case `*-oracle.txt`,
 `*-internal.txt`, `*-internal.pdf`, `*-oracle-page-1.png`,
-`*-internal-page-1.png`, and
-`*-first-page-raster-diff.png` artifacts under
+`*-internal-page-1.png`, `*-first-page-raster-diff.png`,
+`*-display-list.txt`, `*-display-list.pdf`, `*-display-list-page-1.png`, and
+`*-display-list-first-page-raster-diff.png` artifacts under
 `$LATEXD_ARXIV_CC0_CORPUS/reports` by default; override this with
-`LATEXD_ARXIV_ORACLE_REPORT_DIR`.
+`LATEXD_ARXIV_ORACLE_REPORT_DIR`. The report's nested `display_list_render`
+object records the same text, page-count, and first-page raster measurements for
+the renderer-facing PDF. These measurements are observational and are not yet
+part of strict pass/fail gating.
 
 ## Documentation
 
