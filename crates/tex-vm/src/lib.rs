@@ -7,13 +7,14 @@ use camino::{Utf8Path, Utf8PathBuf};
 use serde::{Deserialize, Serialize};
 use tex_lexer::{CatCodeTable, Lexer, lex_plain};
 use tex_render_model::{
-    BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationStyleHint,
-    DocumentClassEvent, EndBlockEvent, EventId, ExpansionFrame, FallbackReason,
-    FlushTitleBlockEvent, GraphicAssetDensity, GraphicAssetDensityUnit, GraphicAssetFormat,
-    GraphicPageSelection, GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent,
-    InlineReferenceEvent, LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent,
-    ListKind, MathSourceEvent, MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason,
-    ProvenanceSpan, RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
+    BeginBlockEvent, BeginLayoutContainerEvent, BibliographyItemEvent, BlockKind, CaptionEvent,
+    CitationStyleHint, DocumentClassEvent, EndBlockEvent, EndLayoutContainerEvent, EventId,
+    ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GraphicAssetDensity,
+    GraphicAssetDensityUnit, GraphicAssetFormat, GraphicPageSelection, GraphicRefEvent,
+    HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
+    LayoutAlignment, LineBreakEvent, LineBreakReason, ListItemEvent, ListKind, MathSourceEvent,
+    MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan,
+    RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
     SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
     TableCellSpanEvent, TableColumnAlignment, TableColumnSpec, TableRuleEvent, TableRulePosition,
     TableRuleSpan, TextEvent,
@@ -2814,6 +2815,7 @@ impl<'i> Vm<'i> {
                                 if in_document
                                     && scan_state.structured_environments.contains(other) =>
                             {
+                                let mut layout_container = None;
                                 if matches!(
                                     other,
                                     "minipage"
@@ -2823,19 +2825,38 @@ impl<'i> Vm<'i> {
                                         | "subtable*"
                                 ) {
                                     let mut argument_index = skip_ascii_whitespace(source, index);
+                                    let mut optional_arguments = Vec::new();
                                     for _ in 0..3 {
-                                        if let Some((_, _, _, after_argument)) =
+                                        let Some((value, _, _, after_argument)) =
                                             read_bracket_source_argument(source, argument_index)
-                                        {
-                                            argument_index =
-                                                skip_ascii_whitespace(source, after_argument);
-                                        } else {
+                                        else {
                                             break;
-                                        }
+                                        };
+                                        optional_arguments.push(value.trim().to_string());
+                                        argument_index =
+                                            skip_ascii_whitespace(source, after_argument);
                                     }
-                                    if let Some((_, _, _, after_width)) =
+                                    if let Some((width, _, _, after_width)) =
                                         read_braced_source_argument(source, argument_index)
                                     {
+                                        let parse_alignment = |value: Option<&String>| {
+                                            value.and_then(|value| match value.trim() {
+                                                "t" => Some(LayoutAlignment::Top),
+                                                "c" => Some(LayoutAlignment::Center),
+                                                "b" => Some(LayoutAlignment::Bottom),
+                                                "s" => Some(LayoutAlignment::Stretch),
+                                                _ => None,
+                                            })
+                                        };
+                                        layout_container = Some(BeginLayoutContainerEvent {
+                                            name: other.to_string(),
+                                            width_spec: width.trim().to_string(),
+                                            alignment: parse_alignment(optional_arguments.first()),
+                                            height_spec: optional_arguments.get(1).cloned(),
+                                            inner_alignment: parse_alignment(
+                                                optional_arguments.get(2),
+                                            ),
+                                        });
                                         index = after_width;
                                     } else {
                                         index = argument_index;
@@ -2943,18 +2964,26 @@ impl<'i> Vm<'i> {
                                     }
                                     index = argument_index;
                                 }
-                                self.emit_render_event(
-                                    RenderEvent::BeginBlock(BeginBlockEvent {
-                                        block: BlockKind::Environment {
-                                            name: other.to_string(),
-                                        },
-                                    }),
-                                    SourceProvenance::file(
-                                        source_path.to_owned(),
-                                        command_start as u32,
-                                        index as u32,
-                                    ),
+                                let event_source = SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    command_start as u32,
+                                    index as u32,
                                 );
+                                if let Some(layout_container) = layout_container {
+                                    self.emit_render_event(
+                                        RenderEvent::BeginLayoutContainer(layout_container),
+                                        event_source,
+                                    );
+                                } else {
+                                    self.emit_render_event(
+                                        RenderEvent::BeginBlock(BeginBlockEvent {
+                                            block: BlockKind::Environment {
+                                                name: other.to_string(),
+                                            },
+                                        }),
+                                        event_source,
+                                    );
+                                }
                                 if other == "NoHyper" {
                                     scan_state.no_hyper_depth += 1;
                                 }
@@ -3429,6 +3458,7 @@ impl<'i> Vm<'i> {
                                     let body_end = index + relative_end;
                                     let raw_end = body_end + end_marker.len();
                                     let mut body_index = body_start;
+                                    let mut layout_container_depth = 0usize;
                                     while body_index < body_end {
                                         let Some(relative_command) =
                                             source[body_index..body_end].find('\\')
@@ -3436,6 +3466,35 @@ impl<'i> Vm<'i> {
                                             break;
                                         };
                                         let body_command_start = body_index + relative_command;
+                                        if layout_container_depth > 0
+                                            && body_command_start > body_index
+                                        {
+                                            let visible_text =
+                                                normalize_latex_text_with_inline_placeholders(
+                                                    &source[body_index..body_command_start],
+                                                );
+                                            if !visible_text.is_empty() {
+                                                self.emit_render_event(
+                                                    RenderEvent::Text(TextEvent {
+                                                        text: visible_text,
+                                                    }),
+                                                    SourceProvenance::file(
+                                                        source_path.to_owned(),
+                                                        body_index as u32,
+                                                        body_command_start as u32,
+                                                    ),
+                                                );
+                                            }
+                                        }
+                                        if is_commented_source_index(source, body_command_start) {
+                                            body_index = source[body_command_start..body_end]
+                                                .find('\n')
+                                                .map(|relative_end| {
+                                                    body_command_start + relative_end + 1
+                                                })
+                                                .unwrap_or(body_end);
+                                            continue;
+                                        }
                                         let mut body_command_index = body_command_start + 1;
                                         if body_command_index >= body_end {
                                             break;
@@ -3661,6 +3720,100 @@ impl<'i> Vm<'i> {
                                                         nested_environment.trim();
                                                     if matches!(
                                                         nested_environment,
+                                                        "minipage"
+                                                            | "subfigure"
+                                                            | "subfigure*"
+                                                            | "subtable"
+                                                            | "subtable*"
+                                                    ) {
+                                                        let mut argument_index =
+                                                            skip_ascii_whitespace(
+                                                                source,
+                                                                after_environment,
+                                                            );
+                                                        let mut optional_arguments = Vec::new();
+                                                        for _ in 0..3 {
+                                                            let Some((value, _, _, after_argument)) =
+                                                                read_bracket_source_argument(
+                                                                    source,
+                                                                    argument_index,
+                                                                )
+                                                            else {
+                                                                break;
+                                                            };
+                                                            if after_argument > body_end {
+                                                                break;
+                                                            }
+                                                            optional_arguments
+                                                                .push(value.trim().to_string());
+                                                            argument_index = skip_ascii_whitespace(
+                                                                source,
+                                                                after_argument,
+                                                            );
+                                                        }
+                                                        if let Some((width, _, _, after_width)) =
+                                                            read_braced_source_argument(
+                                                                source,
+                                                                argument_index,
+                                                            )
+                                                            && after_width <= body_end
+                                                        {
+                                                            let parse_alignment =
+                                                                |value: Option<&String>| {
+                                                                    value.and_then(|value| {
+                                                                        match value.trim() {
+                                                                            "t" => Some(
+                                                                                LayoutAlignment::Top,
+                                                                            ),
+                                                                            "c" => Some(
+                                                                                LayoutAlignment::Center,
+                                                                            ),
+                                                                            "b" => Some(
+                                                                                LayoutAlignment::Bottom,
+                                                                            ),
+                                                                            "s" => Some(
+                                                                                LayoutAlignment::Stretch,
+                                                                            ),
+                                                                            _ => None,
+                                                                        }
+                                                                    })
+                                                                };
+                                                            self.emit_render_event(
+                                                                RenderEvent::BeginLayoutContainer(
+                                                                    BeginLayoutContainerEvent {
+                                                                        name: nested_environment
+                                                                            .to_string(),
+                                                                        width_spec: width
+                                                                            .trim()
+                                                                            .to_string(),
+                                                                        alignment: parse_alignment(
+                                                                            optional_arguments
+                                                                                .first(),
+                                                                        ),
+                                                                        height_spec:
+                                                                            optional_arguments
+                                                                                .get(1)
+                                                                                .cloned(),
+                                                                        inner_alignment:
+                                                                            parse_alignment(
+                                                                                optional_arguments
+                                                                                    .get(2),
+                                                                            ),
+                                                                    },
+                                                                ),
+                                                                SourceProvenance::file(
+                                                                    source_path.to_owned(),
+                                                                    body_command_start as u32,
+                                                                    after_width as u32,
+                                                                ),
+                                                            );
+                                                            layout_container_depth += 1;
+                                                            body_index = after_width;
+                                                            continue;
+                                                        }
+                                                    }
+                                                    if matches!(
+                                                        nested_environment,
                                                         "overpic" | "overpic*"
                                                     ) && let Some(after) = self
                                                         .capture_overpic_environment_event(
@@ -3718,6 +3871,60 @@ impl<'i> Vm<'i> {
                                                             }
                                                         }
                                                     }
+                                                }
+                                            }
+                                            "end" => {
+                                                if let Some((
+                                                    nested_environment,
+                                                    _,
+                                                    _,
+                                                    after_environment,
+                                                )) = read_braced_source_argument(
+                                                    source,
+                                                    body_command_index,
+                                                ) {
+                                                    let nested_environment =
+                                                        nested_environment.trim();
+                                                    if matches!(
+                                                        nested_environment,
+                                                        "minipage"
+                                                            | "subfigure"
+                                                            | "subfigure*"
+                                                            | "subtable"
+                                                            | "subtable*"
+                                                    ) && after_environment <= body_end
+                                                    {
+                                                        self.emit_render_event(
+                                                            RenderEvent::EndLayoutContainer(
+                                                                EndLayoutContainerEvent {
+                                                                    name: nested_environment
+                                                                        .to_string(),
+                                                                },
+                                                            ),
+                                                            SourceProvenance::file(
+                                                                source_path.to_owned(),
+                                                                body_command_start as u32,
+                                                                after_environment as u32,
+                                                            ),
+                                                        );
+                                                        layout_container_depth =
+                                                            layout_container_depth
+                                                                .saturating_sub(1);
+                                                        body_index = after_environment;
+                                                        continue;
+                                                    }
+                                                }
+                                            }
+                                            "captionof" => {
+                                                if let Some(after) = self.capture_captionof_event(
+                                                    source_path,
+                                                    source,
+                                                    body_command_start,
+                                                    body_command_index,
+                                                    body_end,
+                                                ) {
+                                                    body_index = after;
+                                                    continue;
                                                 }
                                             }
                                             "caption" | "subcaption" | "captionabove"
@@ -4939,18 +5146,35 @@ impl<'i> Vm<'i> {
                                 if in_document
                                     && scan_state.structured_environments.contains(other) =>
                             {
-                                self.emit_render_event(
-                                    RenderEvent::EndBlock(EndBlockEvent {
-                                        block: BlockKind::Environment {
-                                            name: other.to_string(),
-                                        },
-                                    }),
-                                    SourceProvenance::file(
-                                        source_path.to_owned(),
-                                        command_start as u32,
-                                        index as u32,
-                                    ),
+                                let event_source = SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    command_start as u32,
+                                    index as u32,
                                 );
+                                if matches!(
+                                    other,
+                                    "minipage"
+                                        | "subfigure"
+                                        | "subfigure*"
+                                        | "subtable"
+                                        | "subtable*"
+                                ) {
+                                    self.emit_render_event(
+                                        RenderEvent::EndLayoutContainer(EndLayoutContainerEvent {
+                                            name: other.to_string(),
+                                        }),
+                                        event_source,
+                                    );
+                                } else {
+                                    self.emit_render_event(
+                                        RenderEvent::EndBlock(EndBlockEvent {
+                                            block: BlockKind::Environment {
+                                                name: other.to_string(),
+                                            },
+                                        }),
+                                        event_source,
+                                    );
+                                }
                                 if other == "NoHyper" {
                                     scan_state.no_hyper_depth =
                                         scan_state.no_hyper_depth.saturating_sub(1);
@@ -27296,9 +27520,10 @@ mod tests {
     use camino::{Utf8Path, Utf8PathBuf};
     use serde_json::json;
     use tex_render_model::{
-        BeginBlockEvent, BlockKind, CitationStyleHint, EndBlockEvent, EventProducer, GeneratedBy,
-        GraphicAssetDensity, GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat,
-        HeadingEvent, ListKind, MetadataField, ModeHint, RenderEvent, SemanticConfidence,
+        BeginBlockEvent, BeginLayoutContainerEvent, BlockKind, CitationStyleHint, EndBlockEvent,
+        EndLayoutContainerEvent, EventProducer, GeneratedBy, GraphicAssetDensity,
+        GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat, HeadingEvent,
+        LayoutAlignment, ListKind, MetadataField, ModeHint, RenderEvent, SemanticConfidence,
         SourceSpanRole, SpaceKind, TableCellSpanEvent, TableColumnAlignment, TableColumnSpec,
         TableRuleEvent, TableRulePosition, TableRuleSpan,
     };
@@ -35961,13 +36186,25 @@ Fallback text.
                 .loaded_modules
                 .contains(&Utf8PathBuf::from("subcaption.sty"))
         );
-        for environment in ["subfigure", "subtable"] {
+        for (environment, width_spec) in [
+            ("subfigure", "0.45\\textwidth"),
+            ("subtable", "0.4\\textwidth"),
+        ] {
             assert!(outcome.render_events.iter().any(|event| {
                 matches!(
                     &event.event,
-                    RenderEvent::BeginBlock(BeginBlockEvent {
-                        block: BlockKind::Environment { name },
-                    }) if name == environment
+                    RenderEvent::BeginLayoutContainer(BeginLayoutContainerEvent {
+                        name,
+                        width_spec: captured_width,
+                        ..
+                    }) if name == environment && captured_width == width_spec
+                )
+            }));
+            assert!(outcome.render_events.iter().any(|event| {
+                matches!(
+                    &event.event,
+                    RenderEvent::EndLayoutContainer(EndLayoutContainerEvent { name })
+                        if name == environment
                 )
             }));
         }
@@ -43474,8 +43711,8 @@ Fallback text.
     }
 
     #[test]
-    fn render_event_capture_records_minipage_without_layout_arguments() {
-        let source = r"\begin{document}\begin{minipage}[t]{0.5\textwidth}Box text.\end{minipage}\end{document}";
+    fn render_event_capture_records_minipage_layout_without_visible_arguments() {
+        let source = r"\begin{document}\begin{minipage}[b][12pt][t]{0.5\textwidth}Box text.\end{minipage}\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
@@ -43485,9 +43722,22 @@ Fallback text.
         assert!(outcome.render_events.iter().any(|event| {
             matches!(
                 &event.event,
-                RenderEvent::BeginBlock(BeginBlockEvent {
-                    block: BlockKind::Environment { name },
+                RenderEvent::BeginLayoutContainer(BeginLayoutContainerEvent {
+                    name,
+                    width_spec,
+                    alignment: Some(LayoutAlignment::Bottom),
+                    height_spec: Some(height_spec),
+                    inner_alignment: Some(LayoutAlignment::Top),
                 }) if name == "minipage"
+                    && width_spec == "0.5\\textwidth"
+                    && height_spec == "12pt"
+            )
+        }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::EndLayoutContainer(EndLayoutContainerEvent { name })
+                    if name == "minipage"
             )
         }));
         assert!(outcome.render_events.iter().any(|event| {
@@ -43502,12 +43752,68 @@ Fallback text.
                 .iter()
                 .any(|event| match &event.event {
                     RenderEvent::Text(text) =>
-                        text.text.contains("0.5") || text.text.contains("textwidth"),
+                        text.text.contains("0.5")
+                            || text.text.contains("textwidth")
+                            || text.text.contains("12pt"),
                     RenderEvent::RawFallback(fallback) =>
                         fallback.environment.as_deref() == Some("minipage"),
                     _ => false,
                 })
         );
+    }
+
+    #[test]
+    fn render_event_capture_keeps_layout_containers_inside_figures() {
+        let source = r"\begin{document}\begin{figure}\begin{minipage}[t]{0.55\textwidth}Visible prose.
+% \includegraphics{hidden.pdf}
+\includegraphics[width=0.5\textwidth]{panel.pdf}\captionof{figure}{Panel caption.}\end{minipage}\end{figure}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::BeginLayoutContainer(BeginLayoutContainerEvent {
+                    name,
+                    width_spec,
+                    alignment: Some(LayoutAlignment::Top),
+                    ..
+                }) if name == "minipage" && width_spec == "0.55\\textwidth"
+            )
+        }));
+        assert!(!outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::GraphicRef(graphic) if graphic.path == "hidden.pdf"
+            )
+        }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::Caption(caption) if caption.text == "Panel caption."
+            )
+        }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(&event.event, RenderEvent::Text(text) if text.text == "Visible prose.")
+        }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::GraphicRef(graphic)
+                    if graphic.path == "panel.pdf"
+                        && graphic.options.as_deref() == Some("width=0.5\\textwidth")
+            )
+        }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::EndLayoutContainer(EndLayoutContainerEvent { name })
+                    if name == "minipage"
+            )
+        }));
     }
 
     #[test]

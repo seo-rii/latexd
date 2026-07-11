@@ -1105,7 +1105,8 @@ fn collect_structure_slice_texts(
             entry.sources.extend(sources);
         };
 
-    for block in &document_ir.blocks {
+    let mut pending_blocks = document_ir.blocks.iter().rev().collect::<Vec<_>>();
+    while let Some(block) = pending_blocks.pop() {
         match block {
             IrBlock::TitleBlock(block) => {
                 let mut sources = vec![block.source.clone()];
@@ -1158,6 +1159,9 @@ fn collect_structure_slice_texts(
                     inline_nodes_text(content),
                     vec![source.clone()],
                 );
+            }
+            IrBlock::LayoutContainer(block) => {
+                pending_blocks.extend(block.children.iter().rev());
             }
             IrBlock::List(block) => {
                 append_slice(

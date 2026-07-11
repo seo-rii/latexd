@@ -28,6 +28,34 @@ pub enum DrawOp {
     NamedDestination(Destination),
 }
 
+impl DrawOp {
+    pub fn translate(&mut self, dx: f32, dy: f32) {
+        match self {
+            Self::Save | Self::Restore => {}
+            Self::ClipRect(rect) | Self::Rule(rect) => {
+                rect.x += dx;
+                rect.y += dy;
+            }
+            Self::TextRun(run) => {
+                run.origin.x += dx;
+                run.origin.y += dy;
+            }
+            Self::Image(image) => {
+                image.rect.x += dx;
+                image.rect.y += dy;
+            }
+            Self::LinkAnnotation(link) => {
+                link.rect.x += dx;
+                link.rect.y += dy;
+            }
+            Self::NamedDestination(destination) => {
+                destination.point.x += dx;
+                destination.point.y += dy;
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Point {
     pub x: f32,
@@ -189,4 +217,43 @@ pub enum FontRole {
     Heading,
     Math,
     Mono,
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{Destination, DrawOp, Point, Rect, SourceProvenance};
+
+    #[test]
+    fn draw_ops_translate_renderer_geometry() {
+        let mut rule = DrawOp::Rule(Rect {
+            x: 1.0,
+            y: 2.0,
+            width: 3.0,
+            height: 4.0,
+        });
+        let mut destination = DrawOp::NamedDestination(Destination {
+            name: "target".to_string(),
+            point: Point { x: 5.0, y: 6.0 },
+            source: SourceProvenance::generated("target", "test target"),
+        });
+
+        rule.translate(10.0, 20.0);
+        destination.translate(10.0, 20.0);
+
+        assert!(matches!(
+            rule,
+            DrawOp::Rule(Rect {
+                x: 11.0,
+                y: 22.0,
+                ..
+            })
+        ));
+        assert!(matches!(
+            destination,
+            DrawOp::NamedDestination(Destination {
+                point: Point { x: 15.0, y: 26.0 },
+                ..
+            })
+        ));
+    }
 }

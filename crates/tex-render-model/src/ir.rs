@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CitationStyleHint, GraphicAssetDimensions, GraphicAssetFormat, GraphicPageSelection, ListKind,
-    RawFallbackEvent, SourceProvenance, TableColumnAlignment, TableColumnSpec, TableRuleSpan,
+    CitationStyleHint, GraphicAssetDimensions, GraphicAssetFormat, GraphicPageSelection,
+    LayoutAlignment, ListKind, RawFallbackEvent, SourceProvenance, TableColumnAlignment,
+    TableColumnSpec, TableRuleSpan,
 };
 
 pub const DOCUMENT_IR_SCHEMA_VERSION: u32 = 1;
@@ -48,7 +49,12 @@ impl DocumentIr {
 
     pub fn extracted_text(&self) -> String {
         let mut text = String::new();
-        for block in &self.blocks {
+        let mut pending_blocks = self.blocks.iter().rev().collect::<Vec<_>>();
+        while let Some(block) = pending_blocks.pop() {
+            if let IrBlock::LayoutContainer(container) = block {
+                pending_blocks.extend(container.children.iter().rev());
+                continue;
+            }
             if !text.is_empty() {
                 text.push('\n');
             }
@@ -190,6 +196,7 @@ impl DocumentIr {
                         }
                     }
                 }
+                IrBlock::LayoutContainer(_) => unreachable!("layout containers are flattened"),
                 IrBlock::List(block) => {
                     for (index, item) in block.items.iter().enumerate() {
                         if index > 0 {
@@ -268,6 +275,7 @@ pub enum IrBlock {
     Heading(HeadingBlock),
     Paragraph(ParagraphBlock),
     Environment(EnvironmentBlock),
+    LayoutContainer(LayoutContainerBlock),
     List(ListBlock),
     DisplayMath(DisplayMathBlock),
     Bibliography(BibliographyBlock),
@@ -326,6 +334,20 @@ pub struct ParagraphBlock {
 pub struct EnvironmentBlock {
     pub name: String,
     pub content: Vec<InlineNode>,
+    pub source: SourceProvenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LayoutContainerBlock {
+    pub name: String,
+    pub width_spec: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alignment: Option<LayoutAlignment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height_spec: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inner_alignment: Option<LayoutAlignment>,
+    pub children: Vec<IrBlock>,
     pub source: SourceProvenance,
 }
 

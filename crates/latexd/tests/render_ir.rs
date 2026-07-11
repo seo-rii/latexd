@@ -9,8 +9,8 @@ use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{
     BlockKind, CitationStyleHint, DrawOp, EventProducer, GeneratedBy, GraphicAssetDensity,
     GraphicAssetDensityUnit, GraphicAssetFormat, ImageCrop, ImageRotation, ImageScale, ImageTrim,
-    ImageViewport, ListKind, MetadataField, ModeHint, RenderEvent, SemanticConfidence, SpaceKind,
-    TableColumnAlignment, to_pretty_json, to_semantic_pretty_json,
+    ImageViewport, LayoutAlignment, ListKind, MetadataField, ModeHint, RenderEvent,
+    SemanticConfidence, SpaceKind, TableColumnAlignment, to_pretty_json, to_semantic_pretty_json,
 };
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole, TableRuleSpan};
 
@@ -27054,28 +27054,31 @@ fn appendices_environment_capture_preserves_nested_headings() {
 }
 
 #[test]
-fn minipage_environment_capture_hides_layout_arguments() {
+fn minipage_capture_preserves_layout_container_without_visible_arguments() {
     let capture = capture_internal_render_ir(
         "main.tex",
         MINIPAGE_ENVIRONMENT_SOURCE,
         &SemanticAux::default(),
     );
-    let environment = capture
+    let container = capture
         .document_ir
         .blocks
         .iter()
         .find_map(|block| match block {
-            IrBlock::Environment(environment) if environment.name == "minipage" => {
-                Some(environment)
-            }
+            IrBlock::LayoutContainer(container) if container.name == "minipage" => Some(container),
             _ => None,
         })
-        .expect("minipage environment");
+        .expect("minipage layout container");
 
-    assert!(environment.content.iter().any(|node| {
+    assert_eq!(container.width_spec, "0.5\\textwidth");
+    assert_eq!(container.alignment, Some(LayoutAlignment::Top));
+    assert!(container.children.iter().any(|block| {
         matches!(
-            node,
-            InlineNode::Text { text, .. } if text == "Box"
+            block,
+            IrBlock::Paragraph(paragraph)
+                if paragraph.content.iter().any(|node| {
+                    matches!(node, InlineNode::Text { text, .. } if text == "Box")
+                })
         )
     }));
     assert!(!capture.document_ir.blocks.iter().any(|block| {
@@ -27367,17 +27370,21 @@ fn subcaption_wrappers_capture_hides_layout_arguments() {
         SUBCAPTION_WRAPPER_SOURCE,
         &SemanticAux::default(),
     );
-    let environment_names = capture
+    let containers = capture
         .document_ir
         .blocks
         .iter()
         .filter_map(|block| match block {
-            IrBlock::Environment(environment) => Some(environment.name.as_str()),
+            IrBlock::LayoutContainer(container) => Some(container),
             _ => None,
         })
         .collect::<Vec<_>>();
-    assert!(environment_names.contains(&"subfigure"));
-    assert!(environment_names.contains(&"subtable"));
+    assert!(containers.iter().any(|container| {
+        container.name == "subfigure" && container.width_spec == "0.45\\textwidth"
+    }));
+    assert!(containers.iter().any(|container| {
+        container.name == "subtable" && container.width_spec == "0.4\\textwidth"
+    }));
     assert!(!capture.document_ir.blocks.iter().any(|block| {
         matches!(
             block,
@@ -27385,14 +27392,16 @@ fn subcaption_wrappers_capture_hides_layout_arguments() {
                 if matches!(fallback.environment.as_deref(), Some("subfigure" | "subtable"))
         )
     }));
-    assert!(capture.document_ir.blocks.iter().any(|block| {
-        matches!(
-            block,
-            IrBlock::Graphic(graphic)
-                if graphic.path == "figures/panel-a.pdf"
-                    && graphic.options.as_deref() == Some("width=4cm")
-                    && graphic.caption.as_deref() == Some("Panel [?].")
-        )
+    assert!(containers.iter().any(|container| {
+        container.children.iter().any(|block| {
+            matches!(
+                block,
+                IrBlock::Graphic(graphic)
+                    if graphic.path == "figures/panel-a.pdf"
+                        && graphic.options.as_deref() == Some("width=4cm")
+                        && graphic.caption.as_deref() == Some("Panel [?].")
+            )
+        })
     }));
 
     let extracted_text = capture.document_ir.extracted_text();

@@ -1,9 +1,9 @@
 use tex_render_model::{
     BibliographyBlock, Destination, DocumentIr, DrawOp, FontFamilyRequest, FontRequest, FontRole,
     FontSeries, FontShape, GraphicAssetDensityUnit, ImageCrop, ImageRotation, ImageScale,
-    ImageTrim, ImageViewport, InlineNode, IrBlock, LinkAnnotation, PageDisplayList, Point,
-    PositionedImage, PositionedTextRun, ProvenanceSpan, Rect, SourceProvenance, SourceSpan,
-    TableColumnAlignment, TableRow, TableRuleSpan, TextCluster,
+    ImageTrim, ImageViewport, InlineNode, IrBlock, LayoutAlignment, LinkAnnotation,
+    PageDisplayList, Point, PositionedImage, PositionedTextRun, ProvenanceSpan, Rect,
+    SourceProvenance, SourceSpan, TableColumnAlignment, TableRow, TableRuleSpan, TextCluster,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -242,9 +242,22 @@ struct LogicalImage {
     gap_after_pt: f32,
 }
 
+struct LogicalContainer {
+    name: String,
+    width_pt: f32,
+    height_pt: f32,
+    alignment: Option<LayoutAlignment>,
+    ops: Vec<DrawOp>,
+    source_spans: Vec<SourceSpan>,
+    source: SourceProvenance,
+    content_hash: String,
+}
+
 enum LogicalItem {
     Text(LogicalTextRun),
     Image(LogicalImage),
+    Container(LogicalContainer),
+    ContainerRow(Vec<LogicalContainer>),
 }
 
 pub fn build_page_display_lists(
@@ -622,6 +635,99 @@ pub fn build_page_display_lists(
                     first_line_indent_pt: 0.0,
                     continuation_indent_pt: 0.0,
                     preserve_leading_whitespace: false,
+                }));
+            }
+            IrBlock::LayoutContainer(block) => {
+                let width_pt =
+                    parse_table_width_spec_pt(&block.width_spec, column_width_pt, &options)
+                        .unwrap_or(column_width_pt)
+                        .clamp(1.0, column_width_pt);
+                let declared_height_pt = block.height_spec.as_deref().and_then(|height_spec| {
+                    parse_table_width_spec_pt(
+                        height_spec,
+                        (options.page_height_pt - options.margin_top_pt - options.margin_bottom_pt)
+                            .max(1.0),
+                        &options,
+                    )
+                });
+                let nested_options = PageDisplayListOptions {
+                    page_width_pt: width_pt,
+                    page_height_pt: 100_000.0,
+                    margin_left_pt: 0.0,
+                    margin_top_pt: 0.0,
+                    margin_bottom_pt: 0.0,
+                    column_count: 1,
+                    column_gap_pt: 0.0,
+                    ..options.clone()
+                };
+                let nested_pages = build_page_display_lists(
+                    &DocumentIr::new(block.children.clone()),
+                    nested_options,
+                );
+                let mut ops = Vec::new();
+                let mut source_spans = Vec::new();
+                let mut content_height = 0.0_f32;
+                let mut hash_input = format!(
+                    "layout-container:{}:{}:{:?}:{:?}:{:?}",
+                    block.name,
+                    block.width_spec,
+                    block.alignment,
+                    block.height_spec,
+                    block.inner_alignment
+                );
+                for page in nested_pages {
+                    let page_height = page.ops.iter().fold(0.0_f32, |height, op| {
+                        let bottom = match op {
+                            DrawOp::Save | DrawOp::Restore => 0.0,
+                            DrawOp::ClipRect(rect) | DrawOp::Rule(rect) => rect.y + rect.height,
+                            DrawOp::TextRun(run) => run.origin.y + options.line_height_pt,
+                            DrawOp::Image(image) => image.rect.y + image.rect.height,
+                            DrawOp::LinkAnnotation(link) => link.rect.y + link.rect.height,
+                            DrawOp::NamedDestination(destination) => destination.point.y,
+                        };
+                        height.max(bottom)
+                    });
+                    for mut op in page.ops {
+                        op.translate(0.0, content_height);
+                        ops.push(op);
+                    }
+                    for span in page.source_spans {
+                        if !source_spans.contains(&span) {
+                            source_spans.push(span);
+                        }
+                    }
+                    hash_input.push('\u{1f}');
+                    hash_input.push_str(&page.content_hash);
+                    if page_height > 0.0 {
+                        content_height += page_height + options.block_gap_pt;
+                    }
+                }
+                if content_height > 0.0 {
+                    content_height -= options.block_gap_pt;
+                }
+                let height_pt = declared_height_pt
+                    .unwrap_or(content_height)
+                    .max(content_height)
+                    .max(options.line_height_pt);
+                let inner_offset_y = match block.inner_alignment {
+                    Some(LayoutAlignment::Bottom) => height_pt - content_height,
+                    Some(LayoutAlignment::Center) => (height_pt - content_height) / 2.0,
+                    Some(LayoutAlignment::Top | LayoutAlignment::Stretch) | None => 0.0,
+                };
+                if inner_offset_y > 0.0 {
+                    for op in &mut ops {
+                        op.translate(0.0, inner_offset_y);
+                    }
+                }
+                logical_items.push(LogicalItem::Container(LogicalContainer {
+                    name: block.name.clone(),
+                    width_pt,
+                    height_pt,
+                    alignment: block.alignment,
+                    ops,
+                    source_spans,
+                    source: block.source.clone(),
+                    content_hash: blake3::hash(hash_input.as_bytes()).to_hex().to_string(),
                 }));
             }
             IrBlock::List(block) => {
@@ -1501,6 +1607,46 @@ pub fn build_page_display_lists(
         }
     }
 
+    let container_gap_pt = 4.0;
+    let mut grouped_logical_items = Vec::new();
+    let mut container_row = Vec::new();
+    let mut container_row_width = 0.0_f32;
+    for logical in logical_items {
+        match logical {
+            LogicalItem::Container(container) => {
+                let next_width = if container_row.is_empty() {
+                    container.width_pt
+                } else {
+                    container_row_width + container_gap_pt + container.width_pt
+                };
+                if !container_row.is_empty() && next_width > column_width_pt + 0.01 {
+                    grouped_logical_items.push(LogicalItem::ContainerRow(std::mem::take(
+                        &mut container_row,
+                    )));
+                    container_row_width = 0.0;
+                }
+                if !container_row.is_empty() {
+                    container_row_width += container_gap_pt;
+                }
+                container_row_width += container.width_pt;
+                container_row.push(container);
+            }
+            logical => {
+                if !container_row.is_empty() {
+                    grouped_logical_items.push(LogicalItem::ContainerRow(std::mem::take(
+                        &mut container_row,
+                    )));
+                    container_row_width = 0.0;
+                }
+                grouped_logical_items.push(logical);
+            }
+        }
+    }
+    if !container_row.is_empty() {
+        grouped_logical_items.push(LogicalItem::ContainerRow(container_row));
+    }
+    let logical_items = grouped_logical_items;
+
     let mut pages = Vec::new();
     let mut pending_labels = document_ir.labels.clone();
     pending_labels.sort_by(
@@ -2194,6 +2340,101 @@ pub fn build_page_display_lists(
                 }
                 y += logical.gap_after_pt;
             }
+            LogicalItem::ContainerRow(containers) => {
+                if let Some(row) = pending_image_row.take() {
+                    y = row.y + row.height_pt + row.gap_after_pt;
+                }
+                let row_height_pt = containers
+                    .iter()
+                    .map(|container| container.height_pt)
+                    .fold(options.line_height_pt, f32::max);
+                if y + row_height_pt > options.page_height_pt - options.margin_bottom_pt
+                    && !pending.ops.is_empty()
+                {
+                    if column_index + 1 < column_count {
+                        column_index += 1;
+                    } else {
+                        finish_page(&mut pages, pending);
+                        pending = new_pending_page();
+                        column_index = 0;
+                    }
+                    y = options.margin_top_pt;
+                }
+                let mut container_x = options.margin_left_pt
+                    + column_index as f32 * (column_width_pt + column_gap_pt);
+                for container in containers {
+                    let alignment_offset_y = match container.alignment {
+                        Some(LayoutAlignment::Top | LayoutAlignment::Stretch) => 0.0,
+                        Some(LayoutAlignment::Bottom) => row_height_pt - container.height_pt,
+                        Some(LayoutAlignment::Center) | None => {
+                            (row_height_pt - container.height_pt) / 2.0
+                        }
+                    };
+                    let container_y = y + alignment_offset_y;
+                    emit_due_destinations(
+                        &container.source,
+                        Point {
+                            x: container_x,
+                            y: container_y,
+                        },
+                        &mut pending,
+                    );
+                    if !pending.text.is_empty() {
+                        pending.text.push('\n');
+                    }
+                    pending.text.push_str("[layout container]");
+                    pending.hash_input.push('\u{1f}');
+                    pending.hash_input.push_str(&format!(
+                        "layout-container:{}:{:.3}:{:.3}:{:.3}:{:.3}:{}",
+                        container.name,
+                        container_x,
+                        container_y,
+                        container.width_pt,
+                        container.height_pt,
+                        container.content_hash
+                    ));
+                    record_source_spans(&container.source, &mut pending.source_spans);
+                    for span in container.source_spans {
+                        if !pending.source_spans.contains(&span) {
+                            pending.source_spans.push(span);
+                        }
+                    }
+                    for mut op in container.ops {
+                        op.translate(container_x, container_y);
+                        let source_and_point = match &op {
+                            DrawOp::TextRun(run) => Some((&run.source, run.origin)),
+                            DrawOp::Image(image) => Some((
+                                &image.source,
+                                Point {
+                                    x: image.rect.x,
+                                    y: image.rect.y,
+                                },
+                            )),
+                            DrawOp::LinkAnnotation(link) => Some((
+                                &link.source,
+                                Point {
+                                    x: link.rect.x,
+                                    y: link.rect.y,
+                                },
+                            )),
+                            DrawOp::Save
+                            | DrawOp::Restore
+                            | DrawOp::ClipRect(_)
+                            | DrawOp::Rule(_)
+                            | DrawOp::NamedDestination(_) => None,
+                        };
+                        if let Some((source, point)) = source_and_point {
+                            emit_due_destinations(source, point, &mut pending);
+                        }
+                        pending.ops.push(op);
+                    }
+                    container_x += container.width_pt + container_gap_pt;
+                }
+                y += row_height_pt + options.block_gap_pt;
+            }
+            LogicalItem::Container(_) => {
+                unreachable!("layout containers must be grouped before page placement")
+            }
             LogicalItem::Image(logical) => {
                 let (mut natural_image_width, mut natural_image_height) = if let Some(dimensions) =
                     logical.asset_dimensions
@@ -2827,10 +3068,10 @@ mod tests {
         DisplayMathBlock, DocumentClassIr, DocumentIr, DrawOp, GraphicAssetDensity,
         GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat, GraphicBlock,
         HeadingBlock, ImageCrop, ImageRotation, ImageScale, ImageTrim, ImageViewport, InlineNode,
-        IrBlock, LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind, ParagraphBlock,
-        Point, ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan, TableBlock,
-        TableCell, TableColumnAlignment, TableColumnSpec, TableRow, TableRuleSpan, TextCluster,
-        TitleBlock,
+        IrBlock, LabelDefinitionIr, LayoutAlignment, LayoutContainerBlock, LinkInline, ListBlock,
+        ListItemIr, ListKind, ParagraphBlock, Point, ProvenanceSpan, ReferenceInline,
+        SourceProvenance, SourceSpan, TableBlock, TableCell, TableColumnAlignment, TableColumnSpec,
+        TableRow, TableRuleSpan, TextCluster, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists, parse_table_width_spec_pt};
@@ -6122,6 +6363,224 @@ mod tests {
         assert_eq!(display_lists.len(), 1);
         assert_eq!(image.map(|image| image.rect.x), Some(110.0));
         assert_eq!(image.map(|image| image.rect.y), Some(10.0));
+    }
+
+    #[test]
+    fn lays_out_sibling_containers_with_local_text_and_graphic_widths() {
+        let container_source = SourceProvenance::file("main.tex", 0, 10);
+        let source = SourceProvenance::file("main.tex", 30, 120);
+        let expected_source = source.clone();
+        let left = IrBlock::LayoutContainer(LayoutContainerBlock {
+            name: "minipage".to_string(),
+            width_spec: "0.55\\linewidth".to_string(),
+            alignment: Some(LayoutAlignment::Top),
+            height_spec: None,
+            inner_alignment: None,
+            children: vec![
+                IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "left".to_string(),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                }),
+                IrBlock::Graphic(GraphicBlock {
+                    path: "figures/left.png".to_string(),
+                    options: Some("width=0.5\\linewidth".to_string()),
+                    page_selection: None,
+                    asset_format: Some(GraphicAssetFormat::Png),
+                    asset_hash: None,
+                    asset_dimensions: Some(GraphicAssetDimensions {
+                        width_px: 100,
+                        height_px: 100,
+                        density: None,
+                        natural_width_pt_milli: None,
+                        natural_height_pt_milli: None,
+                    }),
+                    caption: None,
+                    caption_source: None,
+                    source: source.clone(),
+                }),
+            ],
+            source: container_source.clone(),
+        });
+        let right = IrBlock::LayoutContainer(LayoutContainerBlock {
+            name: "minipage".to_string(),
+            width_spec: "0.4\\linewidth".to_string(),
+            alignment: Some(LayoutAlignment::Top),
+            height_spec: None,
+            inner_alignment: None,
+            children: vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Link(LinkInline {
+                    target: "https://example.test/right".to_string(),
+                    display_text: "right".to_string(),
+                    source: source.clone(),
+                })],
+                source: source.clone(),
+            })],
+            source: container_source,
+        });
+        let pages = build_page_display_lists(
+            &DocumentIr::with_labels(
+                vec![left, right],
+                vec![LabelDefinitionIr {
+                    key: "fig:inside".to_string(),
+                    source: SourceProvenance::file("main.tex", 20, 29),
+                }],
+            ),
+            PageDisplayListOptions {
+                page_width_pt: 200.0,
+                page_height_pt: 300.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                line_height_pt: 10.0,
+                block_gap_pt: 0.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let left_text = pages[0].ops.iter().find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "left" => Some(run.origin),
+            _ => None,
+        });
+        let right_text = pages[0].ops.iter().find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "right" => Some(run.origin),
+            _ => None,
+        });
+        let image = pages[0].ops.iter().find_map(|op| match op {
+            DrawOp::Image(image) => Some(image.rect),
+            _ => None,
+        });
+        let link = pages[0].ops.iter().find_map(|op| match op {
+            DrawOp::LinkAnnotation(link) if link.target == "https://example.test/right" => {
+                Some(link)
+            }
+            _ => None,
+        });
+        let destination = pages[0].ops.iter().find_map(|op| match op {
+            DrawOp::NamedDestination(destination) if destination.name == "fig:inside" => {
+                Some(destination.point)
+            }
+            _ => None,
+        });
+
+        assert_eq!(left_text, Some(Point { x: 10.0, y: 10.0 }));
+        assert_eq!(right_text, Some(Point { x: 113.0, y: 10.0 }));
+        assert_eq!(image.map(|rect| rect.x), Some(10.0));
+        assert_eq!(image.map(|rect| rect.width), Some(49.5));
+        assert!(image.is_some_and(|rect| rect.y > 10.0));
+        assert!(
+            link.is_some_and(|link| { link.rect.x == 113.0 && link.source == expected_source })
+        );
+        assert_eq!(destination, Some(Point { x: 10.0, y: 10.0 }));
+    }
+
+    #[test]
+    fn resolves_nested_container_widths_against_the_nearest_parent() {
+        let source = SourceProvenance::file("main.tex", 0, 100);
+        let document = DocumentIr::new(vec![IrBlock::LayoutContainer(LayoutContainerBlock {
+            name: "minipage".to_string(),
+            width_spec: "0.5\\linewidth".to_string(),
+            alignment: Some(LayoutAlignment::Top),
+            height_spec: None,
+            inner_alignment: None,
+            children: vec![IrBlock::LayoutContainer(LayoutContainerBlock {
+                name: "minipage".to_string(),
+                width_spec: "0.5\\linewidth".to_string(),
+                alignment: Some(LayoutAlignment::Top),
+                height_spec: None,
+                inner_alignment: None,
+                children: vec![IrBlock::Graphic(GraphicBlock {
+                    path: "figures/nested.png".to_string(),
+                    options: Some("width=\\linewidth".to_string()),
+                    page_selection: None,
+                    asset_format: Some(GraphicAssetFormat::Png),
+                    asset_hash: None,
+                    asset_dimensions: Some(GraphicAssetDimensions {
+                        width_px: 100,
+                        height_px: 100,
+                        density: None,
+                        natural_width_pt_milli: None,
+                        natural_height_pt_milli: None,
+                    }),
+                    caption: None,
+                    caption_source: None,
+                    source: source.clone(),
+                })],
+                source: source.clone(),
+            })],
+            source,
+        })]);
+        let pages = build_page_display_lists(
+            &document,
+            PageDisplayListOptions {
+                page_width_pt: 200.0,
+                page_height_pt: 300.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                block_gap_pt: 0.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let image = pages[0].ops.iter().find_map(|op| match op {
+            DrawOp::Image(image) => Some(image.rect),
+            _ => None,
+        });
+
+        assert_eq!(image.map(|rect| rect.x), Some(10.0));
+        assert_eq!(image.map(|rect| rect.width), Some(45.0));
+    }
+
+    #[test]
+    fn wraps_overflowing_sibling_containers_to_the_next_row() {
+        let source = SourceProvenance::file("main.tex", 0, 100);
+        let blocks = (0..3)
+            .map(|index| {
+                IrBlock::LayoutContainer(LayoutContainerBlock {
+                    name: "minipage".to_string(),
+                    width_spec: "0.48\\linewidth".to_string(),
+                    alignment: Some(LayoutAlignment::Top),
+                    height_spec: None,
+                    inner_alignment: None,
+                    children: vec![IrBlock::Paragraph(ParagraphBlock {
+                        content: vec![InlineNode::Text {
+                            text: format!("box-{index}"),
+                            source: source.clone(),
+                        }],
+                        source: source.clone(),
+                    })],
+                    source: source.clone(),
+                })
+            })
+            .collect();
+        let pages = build_page_display_lists(
+            &DocumentIr::new(blocks),
+            PageDisplayListOptions {
+                page_width_pt: 200.0,
+                page_height_pt: 300.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                line_height_pt: 10.0,
+                block_gap_pt: 0.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let origins = pages[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if run.text.starts_with("box-") => Some(run.origin),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(origins.len(), 3);
+        assert_eq!(origins[0].y, origins[1].y);
+        assert!(origins[1].x > origins[0].x);
+        assert_eq!(origins[2].x, 10.0);
+        assert!(origins[2].y > origins[0].y);
     }
 
     #[test]

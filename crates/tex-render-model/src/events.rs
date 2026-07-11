@@ -111,6 +111,8 @@ pub enum RenderEvent {
     FlushTitleBlock(FlushTitleBlockEvent),
     BeginBlock(BeginBlockEvent),
     EndBlock(EndBlockEvent),
+    BeginLayoutContainer(BeginLayoutContainerEvent),
+    EndLayoutContainer(EndLayoutContainerEvent),
     Heading(HeadingEvent),
     InlineCitation(InlineCitationEvent),
     InlineReference(InlineReferenceEvent),
@@ -134,7 +136,10 @@ impl RenderEvent {
             Self::ParagraphBreak(_) => ModeHint::Vertical,
             Self::DocumentClass(_) | Self::SetDocumentMetadata(_) => ModeHint::Preamble,
             Self::FlushTitleBlock(_) => ModeHint::Vertical,
-            Self::BeginBlock(_) | Self::EndBlock(_) => ModeHint::Vertical,
+            Self::BeginBlock(_)
+            | Self::EndBlock(_)
+            | Self::BeginLayoutContainer(_)
+            | Self::EndLayoutContainer(_) => ModeHint::Vertical,
             Self::Heading(_) => ModeHint::Vertical,
             Self::ListItem(_) => ModeHint::Vertical,
             Self::InlineCitation(_) => ModeHint::Horizontal,
@@ -225,6 +230,32 @@ pub struct BeginBlockEvent {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EndBlockEvent {
     pub block: BlockKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BeginLayoutContainerEvent {
+    pub name: String,
+    pub width_spec: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alignment: Option<LayoutAlignment>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub height_spec: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inner_alignment: Option<LayoutAlignment>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EndLayoutContainerEvent {
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LayoutAlignment {
+    Top,
+    Center,
+    Bottom,
+    Stretch,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

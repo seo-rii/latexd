@@ -1,10 +1,10 @@
 use tex_render_model::{
     AbstractBlock, AuxView, BibliographyBlock, BibliographyItemIr, CitationInline,
     CitationStyleHint, DocumentClassIr, DocumentIr, EnvironmentBlock, GraphicBlock, HeadingBlock,
-    InlineNode, IrBlock, LabelDefinitionIr, LinkInline, ListBlock, ListItemIr, ListKind,
-    MetadataField, ParagraphBlock, ReferenceInline, RenderEvent, RenderEventEnvelope,
-    RenderEventStream, SourceProvenance, SourceSpanRole, TableBlock, TableCell, TableRow,
-    TableRulePosition, TitleBlock,
+    InlineNode, IrBlock, LabelDefinitionIr, LayoutContainerBlock, LinkInline, ListBlock,
+    ListItemIr, ListKind, MetadataField, ParagraphBlock, ReferenceInline, RenderEvent,
+    RenderEventEnvelope, RenderEventStream, SourceProvenance, SourceSpanRole, TableBlock,
+    TableCell, TableRow, TableRulePosition, TitleBlock,
 };
 
 pub fn build_document_ir(stream: &RenderEventStream, aux: &impl AuxView) -> DocumentIr {
@@ -14,6 +14,7 @@ pub fn build_document_ir(stream: &RenderEventStream, aux: &impl AuxView) -> Docu
 pub struct DocumentIrBuilder<'a, A: AuxView> {
     aux: &'a A,
     blocks: Vec<IrBlock>,
+    layout_container_stack: Vec<LayoutContainerBlock>,
     labels: Vec<LabelDefinitionIr>,
     paragraph: Vec<InlineNode>,
     paragraph_source: Option<SourceProvenance>,
@@ -38,6 +39,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
         Self {
             aux,
             blocks: Vec::new(),
+            layout_container_stack: Vec::new(),
             labels: Vec::new(),
             paragraph: Vec::new(),
             paragraph_source: None,
@@ -142,7 +144,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                 .with_related(SourceSpanRole::EmitSite, emit_span.clone())
                         })
                         .collect::<Vec<_>>();
-                    self.blocks.push(IrBlock::TitleBlock(TitleBlock {
+                    self.push_block(IrBlock::TitleBlock(TitleBlock {
                         title: title.map(|(value, _)| value),
                         title_source,
                         authors: authors.into_iter().map(|(value, _)| value).collect(),
@@ -178,7 +180,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         }
                         tex_render_model::BlockKind::Environment { name } => {
                             if let Some((name, content, source)) = self.environment_content.take() {
-                                self.blocks.push(IrBlock::Environment(EnvironmentBlock {
+                                self.push_block(IrBlock::Environment(EnvironmentBlock {
                                     name,
                                     content,
                                     source,
@@ -192,20 +194,21 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                 RenderEvent::EndBlock(event) => match &event.block {
                     tex_render_model::BlockKind::Abstract => {
                         if let Some((content, source)) = self.abstract_content.take() {
-                            self.blocks
-                                .push(IrBlock::Abstract(AbstractBlock { content, source }));
+                            self.push_block(IrBlock::Abstract(AbstractBlock { content, source }));
                         }
                     }
                     tex_render_model::BlockKind::Bibliography => {
                         if let Some((items, source)) = self.bibliography_items.take() {
-                            self.blocks
-                                .push(IrBlock::Bibliography(BibliographyBlock { items, source }));
+                            self.push_block(IrBlock::Bibliography(BibliographyBlock {
+                                items,
+                                source,
+                            }));
                         }
                     }
                     tex_render_model::BlockKind::List { .. } => {
                         self.flush_list_item();
                         if let Some((kind, items, source)) = self.list.take() {
-                            self.blocks.push(IrBlock::List(ListBlock {
+                            self.push_block(IrBlock::List(ListBlock {
                                 kind,
                                 items,
                                 source,
@@ -215,7 +218,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     tex_render_model::BlockKind::Environment { name } => {
                         if let Some((open_name, content, source)) = self.environment_content.take()
                         {
-                            self.blocks.push(IrBlock::Environment(EnvironmentBlock {
+                            self.push_block(IrBlock::Environment(EnvironmentBlock {
                                 name: if open_name == *name {
                                     open_name
                                 } else {
@@ -240,7 +243,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             && let Some((caption, caption_source)) =
                                 self.pending_table_caption.take()
                         {
-                            self.blocks.push(IrBlock::Table(TableBlock {
+                            self.push_block(IrBlock::Table(TableBlock {
                                 environment: "table".to_string(),
                                 width_spec: None,
                                 columns: Vec::new(),
@@ -252,9 +255,46 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         }
                     }
                 },
+                RenderEvent::BeginLayoutContainer(event) => {
+                    self.flush_paragraph();
+                    self.layout_container_stack.push(LayoutContainerBlock {
+                        name: event.name.clone(),
+                        width_spec: event.width_spec.clone(),
+                        alignment: event.alignment,
+                        height_spec: event.height_spec.clone(),
+                        inner_alignment: event.inner_alignment,
+                        children: Vec::new(),
+                        source: envelope.meta.source.clone(),
+                    });
+                }
+                RenderEvent::EndLayoutContainer(event) => {
+                    self.flush_paragraph();
+                    if let Some(position) = self
+                        .layout_container_stack
+                        .iter()
+                        .rposition(|container| container.name == event.name)
+                    {
+                        while self.layout_container_stack.len() > position + 1 {
+                            let child = self
+                                .layout_container_stack
+                                .pop()
+                                .expect("nested layout container");
+                            self.layout_container_stack
+                                .last_mut()
+                                .expect("parent layout container")
+                                .children
+                                .push(IrBlock::LayoutContainer(child));
+                        }
+                        let container = self
+                            .layout_container_stack
+                            .pop()
+                            .expect("matching layout container");
+                        self.push_block(IrBlock::LayoutContainer(container));
+                    }
+                }
                 RenderEvent::Heading(event) => {
                     self.flush_paragraph();
-                    self.blocks.push(IrBlock::Heading(HeadingBlock {
+                    self.push_block(IrBlock::Heading(HeadingBlock {
                         level: event.level,
                         number: event.number.clone(),
                         content: vec![InlineNode::Text {
@@ -428,7 +468,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         items.push(item);
                     } else {
                         self.flush_paragraph();
-                        self.blocks.push(IrBlock::Bibliography(BibliographyBlock {
+                        self.push_block(IrBlock::Bibliography(BibliographyBlock {
                             items: vec![item],
                             source: envelope.meta.source.clone(),
                         }));
@@ -566,7 +606,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                 }
                             }
                         }
-                        self.blocks.push(IrBlock::Table(TableBlock {
+                        self.push_block(IrBlock::Table(TableBlock {
                             environment: event
                                 .environment
                                 .clone()
@@ -579,7 +619,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             source: envelope.meta.source.clone(),
                         }));
                     } else {
-                        self.blocks.push(IrBlock::RawFallback(
+                        self.push_block(IrBlock::RawFallback(
                             tex_render_model::RawFallbackIr::from_event(
                                 event,
                                 envelope.meta.source.clone(),
@@ -589,7 +629,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                 }
                 RenderEvent::GraphicRef(event) => {
                     self.flush_paragraph();
-                    self.blocks.push(IrBlock::Graphic(GraphicBlock {
+                    self.push_block(IrBlock::Graphic(GraphicBlock {
                         path: event.path.clone(),
                         options: event.options.clone(),
                         page_selection: event.page_selection.clone(),
@@ -602,18 +642,23 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     }));
                 }
                 RenderEvent::Caption(event) => {
-                    if !matches!(
+                    let table_float_open = matches!(
                         self.float_stack.last(),
                         Some(tex_render_model::BlockKind::Table)
-                    ) && let Some(IrBlock::Graphic(block)) = self.blocks.last_mut()
+                    );
+                    let target_blocks =
+                        if let Some(container) = self.layout_container_stack.last_mut() {
+                            &mut container.children
+                        } else {
+                            &mut self.blocks
+                        };
+                    if !table_float_open
+                        && let Some(IrBlock::Graphic(block)) = target_blocks.last_mut()
                     {
                         block.caption = Some(event.text.clone());
                         block.caption_source = Some(envelope.meta.source.clone());
-                    } else if matches!(
-                        self.float_stack.last(),
-                        Some(tex_render_model::BlockKind::Table)
-                    ) {
-                        if let Some(IrBlock::Table(block)) = self.blocks.last_mut()
+                    } else if table_float_open {
+                        if let Some(IrBlock::Table(block)) = target_blocks.last_mut()
                             && block.caption.is_none()
                         {
                             block.caption = Some(event.text.clone());
@@ -624,7 +669,7 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         }
                     } else {
                         self.flush_paragraph();
-                        self.blocks.push(IrBlock::Paragraph(ParagraphBlock {
+                        self.push_block(IrBlock::Paragraph(ParagraphBlock {
                             content: vec![InlineNode::Text {
                                 text: event.text.clone(),
                                 source: envelope.meta.source.clone(),
@@ -638,29 +683,38 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
         }
         self.flush_paragraph();
         if let Some((content, source)) = self.abstract_content.take() {
-            self.blocks
-                .push(IrBlock::Abstract(AbstractBlock { content, source }));
+            self.push_block(IrBlock::Abstract(AbstractBlock { content, source }));
         }
         if let Some((name, content, source)) = self.environment_content.take() {
-            self.blocks.push(IrBlock::Environment(EnvironmentBlock {
+            self.push_block(IrBlock::Environment(EnvironmentBlock {
                 name,
                 content,
                 source,
             }));
         }
         if let Some((items, source)) = self.bibliography_items.take() {
-            self.blocks
-                .push(IrBlock::Bibliography(BibliographyBlock { items, source }));
+            self.push_block(IrBlock::Bibliography(BibliographyBlock { items, source }));
         }
         self.flush_list_item();
         if let Some((kind, items, source)) = self.list.take() {
-            self.blocks.push(IrBlock::List(ListBlock {
+            self.push_block(IrBlock::List(ListBlock {
                 kind,
                 items,
                 source,
             }));
         }
+        while let Some(container) = self.layout_container_stack.pop() {
+            self.push_block(IrBlock::LayoutContainer(container));
+        }
         DocumentIr::with_document_class_and_labels(self.blocks, self.document_class, self.labels)
+    }
+
+    fn push_block(&mut self, block: IrBlock) {
+        if let Some(container) = self.layout_container_stack.last_mut() {
+            container.children.push(block);
+        } else {
+            self.blocks.push(block);
+        }
     }
 
     fn push_inline(&mut self, node: InlineNode, envelope: &RenderEventEnvelope) {
@@ -711,10 +765,8 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             .paragraph_source
             .take()
             .unwrap_or_else(|| SourceProvenance::generated("paragraph", "paragraph builder"));
-        self.blocks.push(IrBlock::Paragraph(ParagraphBlock {
-            content: std::mem::take(&mut self.paragraph),
-            source,
-        }));
+        let content = std::mem::take(&mut self.paragraph);
+        self.push_block(IrBlock::Paragraph(ParagraphBlock { content, source }));
     }
 }
 
