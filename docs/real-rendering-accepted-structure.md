@@ -133,6 +133,15 @@ The next implementation step has started with a narrow display-list spike:
   Ghostscript/Poppler raster materialization before invoking either `tex-pdf`
   PDF or debug-SVG rendering, rather than exposing converter callbacks that
   receive renderer placement state;
+- materialized assets carry a versioned content hash over their request,
+  selected PDF page/pagebox, source and actual formats, materialized bytes,
+  parsed vector scene, and sanitized SVG payload. Renderer caches must include
+  this prepared identity because a referenced SVG's embedded image can change
+  without changing the display-list page hash or top-level asset request;
+- an internal render capture materializes each distinct `GraphicAssetRequest`
+  once and retains the prepared values as an immutable snapshot shared by PDF
+  generation and debug-SVG artifact writes. This cache is deliberately scoped
+  to one capture; cross-revision and on-disk persistence are not implemented;
 - crop, viewport, scaling, and rotation remain `PositionedImage` placement
   concerns. PDF page/pagebox selection remains part of the materialization
   request because it changes the selected source asset itself;
@@ -1658,9 +1667,12 @@ approximate.
   `tex-render-assets`, producing serializable shared `VectorScene` data.
   `MaterializedGraphicAsset` carries the parsed scene and sanitized payload, so
   canonical PDF/debug-SVG backends consume prepared assets and reject raw SVG
-  rather than interpreting it themselves. Persisted vector-scene cache
-  identity and direct PDF page/XObject inclusion remain the next asset-boundary
-  work; direct PDF/EPS vector embedding is not yet a supported backend shortcut.
+  rather than interpreting it themselves. A versioned prepared-content hash and
+  capture-local reuse now provide stable vector-scene cache identity and
+  reproducible artifact snapshots. Persisting those prepared values across
+  revisions/processes and direct PDF page/XObject inclusion remain the next
+  asset-boundary work; direct PDF/EPS vector embedding is not yet a supported
+  backend shortcut.
 - Default CI covers unit/golden/reduced fixtures. Full arXiv oracle, raster
   smoke/diff, Skia, and performance/cache sweeps should stay ignored or move to
   scheduled/manual jobs until their dependencies and tolerances are stable.
