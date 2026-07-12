@@ -714,6 +714,7 @@ dependencies = [
  "tex-checkpoint",
  "tex-layout",
  "tex-pdf",
+ "tex-render-assets",
  "tex-render-gs",
  "tex-render-model",
  "tex-tokens",
@@ -1339,6 +1340,15 @@ version = "0.1.0"
 dependencies = [
  "image",
  "tex-layout",
+ "tex-render-assets",
+ "tex-render-model",
+]
+
+[[package]]
+name = "tex-render-assets"
+version = "0.1.0"
+dependencies = [
+ "image",
  "tex-render-model",
 ]
 

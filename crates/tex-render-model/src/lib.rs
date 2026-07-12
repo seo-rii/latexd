@@ -4,6 +4,7 @@ pub mod events;
 pub mod golden;
 pub mod ir;
 pub mod provenance;
+pub mod vector;
 
 pub use aux_view::{
     AuxView, BibliographyRecordView, CitationLabel, CitationStyleHint, LabelTargetView,
@@ -36,4 +37,11 @@ pub use ir::{
 pub use provenance::{
     ExpansionFrame, GeneratedBy, GeneratedSpan, MAX_EXPANSION_FRAMES_IN_EVENT, ProvenanceSpan,
     RelatedSourceSpan, SourceProvenance, SourceSpan, SourceSpanRole,
+};
+pub use vector::{
+    EmbeddedRasterImage, VectorAspectAlign, VectorAspectScale, VectorClipRect, VectorDashArray,
+    VectorEllipse, VectorEmbeddedImage, VectorFillRule, VectorFontFamily, VectorLine, VectorPaint,
+    VectorPaintOrder, VectorPath, VectorPathOp, VectorPoly, VectorPreserveAspectRatio, VectorRect,
+    VectorScene, VectorStrokeLineCap, VectorStrokeLineJoin, VectorStrokeStyle, VectorText,
+    VectorTextAnchor, VectorTextBaseline, VectorTextDecoration, VectorTextDecorationStyle,
 };

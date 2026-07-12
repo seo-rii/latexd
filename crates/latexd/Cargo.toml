@@ -20,6 +20,7 @@ tex-bootstrap = { path = "../tex-bootstrap" }
 tex-checkpoint = { path = "../tex-checkpoint" }
 tex-layout = { path = "../tex-layout" }
 tex-pdf = { path = "../tex-pdf" }
+tex-render-assets = { path = "../tex-render-assets" }
 tex-render-gs = { path = "../tex-render-gs" }
 tex-render-model = { path = "../tex-render-model" }
 tex-tokens = { path = "../tex-tokens" }

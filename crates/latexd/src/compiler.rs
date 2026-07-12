@@ -31,6 +31,7 @@ use tex_pdf::{
     render_display_list_pdf_with_materialized_assets, render_display_list_svg,
     render_display_list_svg_with_materialized_assets, render_page_svg, render_single_page_pdf,
 };
+use tex_render_assets::prepare_svg_materialization;
 use tex_render_model::{
     AuxView, DocumentIr, DrawOp, GraphicAssetFormat, GraphicAssetRequest, MaterializedGraphicAsset,
     PageDisplayList, ProvenanceSpan, RenderEvent, RenderEventStream, to_pretty_json,
@@ -386,7 +387,23 @@ fn materialize_display_list_asset(
         request.source_format,
         Some(GraphicAssetFormat::Pdf | GraphicAssetFormat::Eps)
     ) {
-        return MaterializedGraphicAsset::from_source(request, bytes);
+        let materialized = MaterializedGraphicAsset::from_source(request, bytes)?;
+        if materialized.format != GraphicAssetFormat::Svg {
+            return Some(materialized);
+        }
+        return Some(prepare_svg_materialization(
+            request,
+            materialized,
+            |asset_ref| {
+                let asset_path = Utf8Path::new(asset_ref);
+                let resolved_path = if asset_path.is_absolute() {
+                    asset_path.to_path_buf()
+                } else {
+                    root.join(asset_path)
+                };
+                fs::read(resolved_path.as_std_path()).ok()
+            },
+        ));
     }
     let converted = which::which("gs")
         .ok()

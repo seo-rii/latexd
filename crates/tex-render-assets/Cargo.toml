@@ -1,11 +1,9 @@
 [package]
-name = "tex-pdf"
+name = "tex-render-assets"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [dependencies]
 image.workspace = true
-tex-layout = { path = "../tex-layout" }
-tex-render-assets = { path = "../tex-render-assets" }
 tex-render-model = { path = "../tex-render-model" }

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{GraphicAssetFormat, GraphicPageSelection, SourceProvenance, SourceSpan};
+use crate::{GraphicAssetFormat, GraphicPageSelection, SourceProvenance, SourceSpan, VectorScene};
 
 pub type PageId = String;
 
@@ -160,12 +160,14 @@ impl From<&PositionedImage> for GraphicAssetRequest {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MaterializedGraphicAsset {
     pub bytes: Vec<u8>,
     pub source_format: Option<GraphicAssetFormat>,
     pub format: GraphicAssetFormat,
     pub asset_hash: Option<String>,
+    pub vector_scene: Option<VectorScene>,
+    pub embeddable_svg: Option<String>,
 }
 
 impl MaterializedGraphicAsset {
@@ -178,6 +180,8 @@ impl MaterializedGraphicAsset {
             source_format: Some(format),
             format,
             asset_hash: request.asset_hash.clone(),
+            vector_scene: None,
+            embeddable_svg: None,
         })
     }
 
@@ -191,7 +195,15 @@ impl MaterializedGraphicAsset {
             source_format: request.source_format,
             format,
             asset_hash: request.asset_hash.clone(),
+            vector_scene: None,
+            embeddable_svg: None,
         }
+    }
+
+    pub fn with_vector_scene(mut self, scene: VectorScene, embeddable_svg: String) -> Self {
+        self.vector_scene = Some(scene);
+        self.embeddable_svg = Some(embeddable_svg);
+        self
     }
 
     pub fn is_converted(&self) -> bool {
