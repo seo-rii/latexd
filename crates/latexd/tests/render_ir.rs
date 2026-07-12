@@ -3,7 +3,9 @@ use std::{env, fs, path::Path, process::Command};
 use camino::Utf8PathBuf;
 use latexd::compiler::{
     InternalRenderIrCapture, capture_internal_render_ir,
-    capture_internal_render_ir_from_project_root, capture_internal_render_ir_with_mounted_files,
+    capture_internal_render_ir_from_project_root,
+    capture_internal_render_ir_from_project_root_with_asset_cache,
+    capture_internal_render_ir_with_mounted_files,
 };
 use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{
@@ -4664,6 +4666,171 @@ fn project_root_render_ir_capture_reuses_and_invalidates_prepared_svg_assets() {
     let source_changed_pdf_text = String::from_utf8_lossy(&source_changed.display_list_pdf);
     assert!(source_changed_pdf_text.contains("(ChangedVector) Tj"));
     assert!(!source_changed_pdf_text.contains("(CapturedVector) Tj"));
+}
+
+#[test]
+fn project_root_render_ir_persists_prepared_svg_assets_across_captures() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
+    let cache_root = root.join(".latexd/build/render-asset-cache");
+    fs::create_dir_all(root.join("figures/nested").as_std_path()).expect("create figures dir");
+    fs::write(
+        root.join("main.tex").as_std_path(),
+        r"\begin{document}\includegraphics{figures/vector.svg}\includegraphics{figures/vector.svg}\end{document}",
+    )
+    .expect("write source");
+    fs::write(
+        root.join("figures/vector.svg").as_std_path(),
+        br#"<svg width="2in" height="1in" viewBox="0 0 200 100"><text x="10" y="30">PersistentVector</text><image href="nested/pixel.png" x="10" y="40" width="20" height="20"/></svg>"#,
+    )
+    .expect("write svg");
+    fs::write(
+        root.join("figures/nested/pixel.png").as_std_path(),
+        tiny_png_bytes(),
+    )
+    .expect("write png");
+
+    let first = capture_internal_render_ir_from_project_root_with_asset_cache(
+        &root,
+        "main.tex",
+        &SemanticAux::default(),
+        &cache_root,
+    )
+    .expect("first cached capture");
+    assert_eq!(first.materialized_assets.len(), 1);
+    assert_eq!(first.prepared_asset_cache_stats.hits, 0);
+    assert_eq!(first.prepared_asset_cache_stats.misses, 1);
+    assert_eq!(first.prepared_asset_cache_stats.writes, 1);
+    let first_hash = first
+        .materialized_assets
+        .first_key_value()
+        .expect("first prepared asset")
+        .1
+        .content_hash
+        .clone();
+
+    let restarted = capture_internal_render_ir_from_project_root_with_asset_cache(
+        &root,
+        "main.tex",
+        &SemanticAux::default(),
+        &cache_root,
+    )
+    .expect("restarted cached capture");
+    assert_eq!(restarted.prepared_asset_cache_stats.hits, 1);
+    assert_eq!(restarted.prepared_asset_cache_stats.misses, 0);
+    assert_eq!(restarted.prepared_asset_cache_stats.writes, 0);
+    assert_eq!(
+        restarted
+            .materialized_assets
+            .first_key_value()
+            .expect("restarted prepared asset")
+            .1
+            .content_hash,
+        first_hash
+    );
+
+    fs::write(
+        root.join("figures/nested/pixel.png").as_std_path(),
+        tiny_png_bytes_with_first_red(64),
+    )
+    .expect("change embedded png");
+    let embedded_changed = capture_internal_render_ir_from_project_root_with_asset_cache(
+        &root,
+        "main.tex",
+        &SemanticAux::default(),
+        &cache_root,
+    )
+    .expect("embedded-change cached capture");
+    assert_eq!(embedded_changed.prepared_asset_cache_stats.hits, 0);
+    assert_eq!(embedded_changed.prepared_asset_cache_stats.misses, 1);
+    assert_eq!(embedded_changed.prepared_asset_cache_stats.writes, 1);
+    let changed_hash = embedded_changed
+        .materialized_assets
+        .first_key_value()
+        .expect("changed prepared asset")
+        .1
+        .content_hash
+        .clone();
+    assert_ne!(changed_hash, first_hash);
+    assert_eq!(
+        embedded_changed.page_display_lists[0].content_hash,
+        first.page_display_lists[0].content_hash
+    );
+
+    fs::remove_file(root.join("figures/nested/pixel.png").as_std_path())
+        .expect("remove embedded png");
+    let embedded_missing = capture_internal_render_ir_from_project_root_with_asset_cache(
+        &root,
+        "main.tex",
+        &SemanticAux::default(),
+        &cache_root,
+    )
+    .expect("missing-embedded cached capture");
+    assert_eq!(embedded_missing.prepared_asset_cache_stats.misses, 1);
+    assert_eq!(embedded_missing.prepared_asset_cache_stats.writes, 1);
+    assert_eq!(
+        embedded_missing
+            .materialized_assets
+            .first_key_value()
+            .expect("missing-embedded prepared asset")
+            .1
+            .vector_scene
+            .as_ref()
+            .map(|scene| scene.embedded_images.len()),
+        Some(0)
+    );
+
+    fs::write(
+        root.join("figures/nested/pixel.png").as_std_path(),
+        tiny_png_bytes_with_first_red(64),
+    )
+    .expect("restore embedded png");
+    let restored = capture_internal_render_ir_from_project_root_with_asset_cache(
+        &root,
+        "main.tex",
+        &SemanticAux::default(),
+        &cache_root,
+    )
+    .expect("restored cached capture");
+    assert_eq!(restored.prepared_asset_cache_stats.hits, 1);
+    assert_eq!(
+        restored
+            .materialized_assets
+            .first_key_value()
+            .expect("restored prepared asset")
+            .1
+            .content_hash,
+        changed_hash
+    );
+
+    let object_hash = changed_hash
+        .strip_prefix("blake3:")
+        .expect("blake3 prepared hash");
+    let object_path = cache_root
+        .join("v1/objects/blake3")
+        .join(&object_hash[..2])
+        .join(format!("{object_hash}.json"));
+    fs::write(object_path.as_std_path(), b"not json").expect("corrupt cached object");
+    let recovered = capture_internal_render_ir_from_project_root_with_asset_cache(
+        &root,
+        "main.tex",
+        &SemanticAux::default(),
+        &cache_root,
+    )
+    .expect("recover corrupt cached capture");
+    assert_eq!(recovered.prepared_asset_cache_stats.hits, 0);
+    assert_eq!(recovered.prepared_asset_cache_stats.misses, 1);
+    assert_eq!(recovered.prepared_asset_cache_stats.read_errors, 1);
+    assert_eq!(recovered.prepared_asset_cache_stats.writes, 1);
+    assert_eq!(
+        recovered
+            .materialized_assets
+            .first_key_value()
+            .expect("recovered prepared asset")
+            .1
+            .content_hash,
+        changed_hash
+    );
 }
 
 #[test]

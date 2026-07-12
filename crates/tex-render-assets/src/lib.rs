@@ -346,6 +346,15 @@ pub fn prepare_svg_materialization(
     materialized.with_vector_scene(scene, embeddable_svg)
 }
 
+pub fn svg_embedded_asset_refs(text: &str, svg_asset_ref: &str) -> Vec<String> {
+    let mut asset_refs = std::collections::BTreeSet::new();
+    let _ = rewrite_svg_for_embedding(text, svg_asset_ref, |asset_ref| {
+        asset_refs.insert(asset_ref.to_string());
+        None
+    });
+    asset_refs.into_iter().collect()
+}
+
 pub fn parse_svg_with_embedded_assets(
     text: &str,
     resolve_embedded_asset: &mut dyn FnMut(&str) -> Option<Vec<u8>>,
@@ -9376,7 +9385,7 @@ mod tests {
 
     use super::{
         parse_svg, parse_svg_with_embedded_assets, prepare_svg_materialization,
-        rewrite_svg_for_embedding,
+        rewrite_svg_for_embedding, svg_embedded_asset_refs,
     };
 
     fn tiny_png_bytes() -> Vec<u8> {
@@ -9491,5 +9500,15 @@ mod tests {
             (asset_ref == "figures/pixel.png").then(|| changed_png.clone())
         });
         assert_ne!(changed.content_hash, prepared.content_hash);
+    }
+
+    #[test]
+    fn collects_unique_normalized_external_svg_asset_refs() {
+        let refs = svg_embedded_asset_refs(
+            r##"<svg><image href="nested/pixel.png"/><image href="nested/../nested/pixel.png"/><image href="data:image/png,abc"/><use href="#shape"/><image href="https://example.test/remote.png"/></svg>"##,
+            "figures/vector.svg",
+        );
+
+        assert_eq!(refs, vec!["figures/nested/pixel.png"]);
     }
 }

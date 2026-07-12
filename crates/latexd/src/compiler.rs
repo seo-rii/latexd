@@ -30,7 +30,7 @@ use tex_pdf::{
     PAGE_TEXT_LEFT_PT, PAGE_TEXT_TOP_PT, render_display_list_pdf_with_materialized_assets,
     render_display_list_svg_with_materialized_assets, render_page_svg, render_single_page_pdf,
 };
-use tex_render_assets::prepare_svg_materialization;
+use tex_render_assets::{prepare_svg_materialization, svg_embedded_asset_refs};
 use tex_render_model::{
     AuxView, DocumentIr, DrawOp, GraphicAssetFormat, GraphicAssetRequest, MaterializedGraphicAsset,
     PageDisplayList, ProvenanceSpan, RenderEvent, RenderEventStream, to_pretty_json,
@@ -39,7 +39,7 @@ use tex_tokens::ControlSequenceInterner;
 use tex_vm::{VmModuleCheckpointKind, VmReplayFrame};
 use tex_world::{CompilerMode, ProjectManifest, normalize_relative_path};
 
-use crate::viewer_prefixed_path;
+use crate::{prepared_asset_cache::PreparedAssetCache, viewer_prefixed_path};
 
 #[derive(Debug, Clone)]
 pub struct CompilerDriver {
@@ -85,6 +85,41 @@ pub struct InternalRenderIrCapture {
     pub display_list_pdf: Vec<u8>,
     pub source_files: BTreeMap<Utf8PathBuf, String>,
     pub materialized_assets: BTreeMap<GraphicAssetRequest, MaterializedGraphicAsset>,
+    pub prepared_asset_cache_stats: PreparedAssetCacheStats,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PreparedAssetCacheStats {
+    pub hits: usize,
+    pub misses: usize,
+    pub writes: usize,
+    pub read_errors: usize,
+    pub write_errors: usize,
+}
+
+#[derive(Debug, Clone)]
+enum ResolvedGraphicAssetMaterializer {
+    Source,
+    Svg,
+    External {
+        ghostscript: Option<ResolvedGraphicConverter>,
+        pdftoppm: Option<ResolvedGraphicConverter>,
+    },
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedGraphicConverter {
+    program: std::path::PathBuf,
+}
+
+impl ResolvedGraphicAssetMaterializer {
+    fn persistent_cache_identity(&self) -> Option<&str> {
+        match self {
+            Self::Source => Some("source"),
+            Self::Svg => Some("svg"),
+            Self::External { .. } => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,6 +128,7 @@ pub struct InternalRenderArtifactPaths {
     pub events: Utf8PathBuf,
     pub document_ir: Utf8PathBuf,
     pub page_display_list: Utf8PathBuf,
+    pub prepared_asset_cache: Utf8PathBuf,
     pub display_list_svgs: Vec<Utf8PathBuf>,
     pub display_list_pdf: Utf8PathBuf,
     pub fallback_sources: Vec<Utf8PathBuf>,
@@ -145,6 +181,7 @@ impl InternalRenderIrCapture {
             events: output_dir.join("events.json"),
             document_ir: output_dir.join("document-ir.json"),
             page_display_list: output_dir.join("page-display-list.json"),
+            prepared_asset_cache: output_dir.join("prepared-asset-cache.json"),
             display_list_svgs: self
                 .page_display_lists
                 .iter()
@@ -173,6 +210,12 @@ impl InternalRenderIrCapture {
                 .context("failed to serialize page display-list artifact")?,
         )
         .with_context(|| format!("failed to write {}", paths.page_display_list))?;
+        fs::write(
+            paths.prepared_asset_cache.as_std_path(),
+            to_pretty_json(&self.prepared_asset_cache_stats)
+                .context("failed to serialize prepared asset cache stats artifact")?,
+        )
+        .with_context(|| format!("failed to write {}", paths.prepared_asset_cache))?;
         for (page, path) in self.page_display_lists.iter().zip(&paths.display_list_svgs) {
             let svg = render_display_list_svg_with_materialized_assets(page, |request| {
                 self.materialized_assets.get(request).cloned()
@@ -223,7 +266,7 @@ pub fn capture_internal_render_ir(
     source: &str,
     aux: &impl AuxView,
 ) -> InternalRenderIrCapture {
-    capture_internal_render_ir_with_options(source_path.into(), source, aux, &[], None)
+    capture_internal_render_ir_with_options(source_path.into(), source, aux, &[], None, None)
 }
 
 pub fn capture_internal_render_ir_with_mounted_files(
@@ -232,7 +275,14 @@ pub fn capture_internal_render_ir_with_mounted_files(
     aux: &impl AuxView,
     mounted_files: &[(&str, &str)],
 ) -> InternalRenderIrCapture {
-    capture_internal_render_ir_with_options(source_path.into(), source, aux, mounted_files, None)
+    capture_internal_render_ir_with_options(
+        source_path.into(),
+        source,
+        aux,
+        mounted_files,
+        None,
+        None,
+    )
 }
 
 pub fn capture_internal_render_ir_from_project_root(
@@ -242,19 +292,39 @@ pub fn capture_internal_render_ir_from_project_root(
 ) -> anyhow::Result<InternalRenderIrCapture> {
     let root = root.as_ref();
     let source_path = source_path.into();
-    let source = fs::read_to_string(root.join(&source_path).as_std_path()).with_context(|| {
-        format!(
-            "failed to read render IR source {}",
-            root.join(&source_path)
-        )
-    })?;
+    let source = read_render_ir_source(root, &source_path)?;
     Ok(capture_internal_render_ir_with_options(
         source_path,
         &source,
         aux,
         &[],
         Some(root),
+        None,
     ))
+}
+
+pub fn capture_internal_render_ir_from_project_root_with_asset_cache(
+    root: impl AsRef<Utf8Path>,
+    source_path: impl Into<Utf8PathBuf>,
+    aux: &impl AuxView,
+    prepared_asset_cache_root: impl AsRef<Utf8Path>,
+) -> anyhow::Result<InternalRenderIrCapture> {
+    let root = root.as_ref();
+    let source_path = source_path.into();
+    let source = read_render_ir_source(root, &source_path)?;
+    Ok(capture_internal_render_ir_with_options(
+        source_path,
+        &source,
+        aux,
+        &[],
+        Some(root),
+        Some(prepared_asset_cache_root.as_ref()),
+    ))
+}
+
+fn read_render_ir_source(root: &Utf8Path, source_path: &Utf8Path) -> anyhow::Result<String> {
+    fs::read_to_string(root.join(source_path).as_std_path())
+        .with_context(|| format!("failed to read render IR source {}", root.join(source_path)))
 }
 
 fn capture_internal_render_ir_with_options(
@@ -263,6 +333,7 @@ fn capture_internal_render_ir_with_options(
     aux: &impl AuxView,
     mounted_files: &[(&str, &str)],
     file_root: Option<&Utf8Path>,
+    prepared_asset_cache_root: Option<&Utf8Path>,
 ) -> InternalRenderIrCapture {
     let mut interner = ControlSequenceInterner::new();
     let mut vm = tex_vm::Vm::new(&mut interner);
@@ -282,6 +353,10 @@ fn capture_internal_render_ir_with_options(
         tex_layout::build_page_display_lists(&document_ir, display_list_options);
     annotate_display_list_image_diagnostics(&events, &mut page_display_lists);
     let mut materialized_assets = BTreeMap::new();
+    let mut prepared_asset_cache_stats = PreparedAssetCacheStats::default();
+    let prepared_asset_cache = prepared_asset_cache_root
+        .map(|cache_root| PreparedAssetCache::new(cache_root.to_path_buf()));
+    let mut resolved_materializers = BTreeMap::new();
     if let Some(root) = file_root {
         let asset_requests = page_display_lists
             .iter()
@@ -292,9 +367,65 @@ fn capture_internal_render_ir_with_options(
             })
             .collect::<BTreeSet<_>>();
         for request in asset_requests {
-            if let Some(materialized) = materialize_display_list_asset(root, &request) {
-                materialized_assets.insert(request, materialized);
+            let Some(source_bytes) = read_graphic_asset(root, &request.asset_ref) else {
+                continue;
+            };
+            let detected_format = GraphicAssetFormat::from_bytes(&source_bytes);
+            let materializer = resolved_materializers
+                .entry((request.source_format, detected_format))
+                .or_insert_with(|| resolve_graphic_asset_materializer(&request, detected_format))
+                .clone();
+            let embedded_assets = if matches!(&materializer, ResolvedGraphicAssetMaterializer::Svg)
+            {
+                std::str::from_utf8(&source_bytes)
+                    .ok()
+                    .map(|svg_text| {
+                        svg_embedded_asset_refs(svg_text, &request.asset_ref)
+                            .into_iter()
+                            .map(|asset_ref| {
+                                let bytes = read_graphic_asset(root, &asset_ref);
+                                (asset_ref, bytes)
+                            })
+                            .collect::<BTreeMap<_, _>>()
+                    })
+                    .unwrap_or_default()
+            } else {
+                BTreeMap::new()
+            };
+            let lookup_hash = materializer.persistent_cache_identity().map(|identity| {
+                PreparedAssetCache::lookup_hash(&request, &source_bytes, &embedded_assets, identity)
+            });
+            if let (Some(cache), Some(lookup_hash)) = (&prepared_asset_cache, &lookup_hash) {
+                match cache.load(&lookup_hash, &request) {
+                    Ok(Some(materialized)) => {
+                        prepared_asset_cache_stats.hits += 1;
+                        materialized_assets.insert(request, materialized);
+                        continue;
+                    }
+                    Ok(None) => prepared_asset_cache_stats.misses += 1,
+                    Err(_) => {
+                        prepared_asset_cache_stats.misses += 1;
+                        prepared_asset_cache_stats.read_errors += 1;
+                    }
+                }
             }
+            let Some((materialized, cacheable)) = materialize_display_list_asset(
+                &request,
+                source_bytes,
+                &embedded_assets,
+                &materializer,
+            ) else {
+                continue;
+            };
+            if cacheable
+                && let (Some(cache), Some(lookup_hash)) = (&prepared_asset_cache, &lookup_hash)
+            {
+                match cache.store(&lookup_hash, &request, &materialized) {
+                    Ok(()) => prepared_asset_cache_stats.writes += 1,
+                    Err(_) => prepared_asset_cache_stats.write_errors += 1,
+                }
+            }
+            materialized_assets.insert(request, materialized);
         }
     }
     let display_list_pdf =
@@ -315,6 +446,7 @@ fn capture_internal_render_ir_with_options(
         display_list_pdf,
         source_files,
         materialized_assets,
+        prepared_asset_cache_stats,
     }
 }
 
@@ -380,85 +512,111 @@ fn annotate_display_list_image_diagnostics(
     }
 }
 
-fn materialize_display_list_asset(
-    root: &Utf8Path,
-    request: &GraphicAssetRequest,
-) -> Option<MaterializedGraphicAsset> {
-    let asset_path = Utf8Path::new(&request.asset_ref);
+fn read_graphic_asset(root: &Utf8Path, asset_ref: &str) -> Option<Vec<u8>> {
+    let asset_path = Utf8Path::new(asset_ref);
     let resolved_path = if asset_path.is_absolute() {
         asset_path.to_path_buf()
     } else {
         root.join(asset_path)
     };
-    let bytes = fs::read(resolved_path.as_std_path()).ok()?;
-    if !matches!(
-        request.source_format,
-        Some(GraphicAssetFormat::Pdf | GraphicAssetFormat::Eps)
-    ) {
-        let materialized = MaterializedGraphicAsset::from_source(request, bytes)?;
-        if materialized.format != GraphicAssetFormat::Svg {
-            return Some(materialized);
-        }
-        return Some(prepare_svg_materialization(
-            request,
-            materialized,
-            |asset_ref| {
-                let asset_path = Utf8Path::new(asset_ref);
-                let resolved_path = if asset_path.is_absolute() {
-                    asset_path.to_path_buf()
-                } else {
-                    root.join(asset_path)
-                };
-                fs::read(resolved_path.as_std_path()).ok()
-            },
-        ));
-    }
-    let converted = which::which("gs")
-        .ok()
-        .and_then(|program| {
-            tex_render_gs::convert_pdf_or_eps_asset_to_png_with_cli(
-                program.to_string_lossy().as_ref(),
-                &request.asset_ref,
-                &bytes,
-                request
-                    .page_selection
-                    .as_ref()
-                    .and_then(|selection| selection.page),
-                request
-                    .page_selection
-                    .as_ref()
-                    .and_then(|selection| selection.pagebox.as_deref()),
-            )
-            .ok()
-        })
-        .or_else(|| {
-            if request.source_format != Some(GraphicAssetFormat::Pdf) {
-                return None;
+    fs::read(resolved_path.as_std_path()).ok()
+}
+
+fn resolve_graphic_asset_materializer(
+    request: &GraphicAssetRequest,
+    detected_format: Option<GraphicAssetFormat>,
+) -> ResolvedGraphicAssetMaterializer {
+    match request.source_format {
+        Some(GraphicAssetFormat::Pdf | GraphicAssetFormat::Eps) => {
+            let ghostscript = which::which("gs")
+                .ok()
+                .map(|program| ResolvedGraphicConverter { program });
+            let pdftoppm = (request.source_format == Some(GraphicAssetFormat::Pdf))
+                .then(|| which::which("pdftoppm").ok())
+                .flatten()
+                .map(|program| ResolvedGraphicConverter { program });
+            if ghostscript.is_none() && pdftoppm.is_none() {
+                return ResolvedGraphicAssetMaterializer::Source;
             }
-            let program = which::which("pdftoppm").ok()?;
-            tex_render_gs::convert_pdf_asset_to_png_with_pdftoppm(
-                program.to_string_lossy().as_ref(),
-                &request.asset_ref,
-                &bytes,
-                request
-                    .page_selection
-                    .as_ref()
-                    .and_then(|selection| selection.page),
-                request
-                    .page_selection
-                    .as_ref()
-                    .and_then(|selection| selection.pagebox.as_deref()),
-            )
-            .ok()
-        });
-    if let Some(converted) = converted {
-        return Some(MaterializedGraphicAsset::converted(
-            request,
-            converted,
-            GraphicAssetFormat::Png,
-        ));
+            ResolvedGraphicAssetMaterializer::External {
+                ghostscript,
+                pdftoppm,
+            }
+        }
+        Some(GraphicAssetFormat::Svg) => ResolvedGraphicAssetMaterializer::Svg,
+        None if detected_format == Some(GraphicAssetFormat::Svg) => {
+            ResolvedGraphicAssetMaterializer::Svg
+        }
+        _ => ResolvedGraphicAssetMaterializer::Source,
     }
-    MaterializedGraphicAsset::from_source(request, bytes)
+}
+
+fn materialize_display_list_asset(
+    request: &GraphicAssetRequest,
+    source_bytes: Vec<u8>,
+    embedded_assets: &BTreeMap<String, Option<Vec<u8>>>,
+    materializer: &ResolvedGraphicAssetMaterializer,
+) -> Option<(MaterializedGraphicAsset, bool)> {
+    match materializer {
+        ResolvedGraphicAssetMaterializer::Svg => {
+            let materialized = MaterializedGraphicAsset::from_source(request, source_bytes)?;
+            Some((
+                prepare_svg_materialization(request, materialized, |asset_ref| {
+                    embedded_assets.get(asset_ref).cloned().flatten()
+                }),
+                true,
+            ))
+        }
+        ResolvedGraphicAssetMaterializer::External {
+            ghostscript,
+            pdftoppm,
+            ..
+        } => {
+            let page = request
+                .page_selection
+                .as_ref()
+                .and_then(|selection| selection.page);
+            let pagebox = request
+                .page_selection
+                .as_ref()
+                .and_then(|selection| selection.pagebox.as_deref());
+            let converted = ghostscript
+                .as_ref()
+                .and_then(|converter| {
+                    tex_render_gs::convert_pdf_or_eps_asset_to_png_with_cli(
+                        converter.program.to_string_lossy().as_ref(),
+                        &request.asset_ref,
+                        &source_bytes,
+                        page,
+                        pagebox,
+                    )
+                    .ok()
+                })
+                .or_else(|| {
+                    let converter = pdftoppm.as_ref()?;
+                    tex_render_gs::convert_pdf_asset_to_png_with_pdftoppm(
+                        converter.program.to_string_lossy().as_ref(),
+                        &request.asset_ref,
+                        &source_bytes,
+                        page,
+                        pagebox,
+                    )
+                    .ok()
+                });
+            match converted {
+                Some(bytes) => Some((
+                    MaterializedGraphicAsset::converted(request, bytes, GraphicAssetFormat::Png),
+                    false,
+                )),
+                None => MaterializedGraphicAsset::from_source(request, source_bytes)
+                    .map(|materialized| (materialized, false)),
+            }
+        }
+        ResolvedGraphicAssetMaterializer::Source => {
+            MaterializedGraphicAsset::from_source(request, source_bytes)
+                .map(|materialized| (materialized, true))
+        }
+    }
 }
 
 impl Display for CompileFailure {
@@ -1310,13 +1468,20 @@ impl CompilerDriver {
                 });
             }
             let render_ir_artifact_dir = rev_dir.join("render-ir");
+            let prepared_asset_cache_root = request.build_root.join("render-asset-cache");
             let render_ir_capture = if let Some(aux) = semantic_aux.as_ref() {
-                capture_internal_render_ir_from_project_root(&request.root, &request.toplevel, aux)
+                capture_internal_render_ir_from_project_root_with_asset_cache(
+                    &request.root,
+                    &request.toplevel,
+                    aux,
+                    &prepared_asset_cache_root,
+                )
             } else {
-                capture_internal_render_ir_from_project_root(
+                capture_internal_render_ir_from_project_root_with_asset_cache(
                     &request.root,
                     &request.toplevel,
                     &SemanticAux::default(),
+                    &prepared_asset_cache_root,
                 )
             }
             .map_err(|error| CompileFailure {
@@ -3642,21 +3807,25 @@ mod tests {
     };
     use tex_layout::TextSpan;
     use tex_render_model::{
-        DrawOp, PageDisplayList, PositionedImage, Rect, RenderDiagnosticEvent, RenderEvent,
-        RenderEventEnvelope, RenderEventStream, SourceProvenance,
+        DrawOp, GraphicAssetFormat, GraphicAssetRequest, PageDisplayList, PositionedImage, Rect,
+        RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
+        SourceProvenance,
     };
     use tex_tokens::ControlSequenceInterner;
     use tex_vm::{VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot};
 
     use super::{
         ArtifactSourceSpan, CheckpointPage, CompileRequest, CompilerDriver, DepTrace,
-        PageArtifactMeta, PreviousInternalBuild, SemanticAux, StoredModuleCheckpoint,
-        StoredModuleTrace, UnchangedTail, annotate_display_list_image_diagnostics,
-        capture_internal_render_ir, earliest_changed_offset, earliest_changed_rewrite_span_offset,
+        PageArtifactMeta, PreparedAssetCacheStats, PreviousInternalBuild,
+        ResolvedGraphicAssetMaterializer, ResolvedGraphicConverter, SemanticAux,
+        StoredModuleCheckpoint, StoredModuleTrace, UnchangedTail,
+        annotate_display_list_image_diagnostics, capture_internal_render_ir,
+        earliest_changed_offset, earliest_changed_rewrite_span_offset,
         earliest_changed_rewrite_span_source_offset, load_latest_previous_internal_build,
-        parse_depfile, parse_fls, plan_page_patches, rebase_reused_shipout_checkpoint,
-        rebase_shipout_path_offset, render_ir_display_list_svg_file_name,
-        replay_checkpoint_from_stored, save_source_texts, select_shipout_replay_plan,
+        materialize_display_list_asset, parse_depfile, parse_fls, plan_page_patches,
+        rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
+        render_ir_display_list_svg_file_name, replay_checkpoint_from_stored,
+        resolve_graphic_asset_materializer, save_source_texts, select_shipout_replay_plan,
         select_shipout_replay_plan_with_spans, shift_shipout_source_offset,
     };
 
@@ -3670,6 +3839,95 @@ mod tests {
             render_ir_display_list_svg_file_name("abc-XYZ_09"),
             "display-list-page-abc-XYZ_09.svg"
         );
+    }
+
+    #[test]
+    fn failed_external_conversion_remains_visible_but_is_not_persistently_cacheable() {
+        let request = GraphicAssetRequest {
+            asset_ref: "figures/broken.pdf".to_string(),
+            source_format: Some(GraphicAssetFormat::Pdf),
+            page_selection: None,
+            asset_hash: Some("blake3:broken".to_string()),
+        };
+        let source_bytes = b"%PDF-broken".to_vec();
+        let materializer = ResolvedGraphicAssetMaterializer::External {
+            ghostscript: Some(ResolvedGraphicConverter {
+                program: std::path::PathBuf::from("/definitely/missing/ghostscript"),
+            }),
+            pdftoppm: None,
+        };
+
+        let (materialized, cacheable) = materialize_display_list_asset(
+            &request,
+            source_bytes.clone(),
+            &BTreeMap::new(),
+            &materializer,
+        )
+        .expect("fallback materialization");
+
+        assert_eq!(materialized.bytes, source_bytes);
+        assert_eq!(materialized.format, GraphicAssetFormat::Pdf);
+        assert!(!cacheable);
+    }
+
+    #[test]
+    fn failed_ghostscript_conversion_falls_back_to_pdftoppm_when_available() {
+        let Ok(pdftoppm) = which::which("pdftoppm") else {
+            return;
+        };
+        let request = GraphicAssetRequest {
+            asset_ref: "figures/vector.pdf".to_string(),
+            source_format: Some(GraphicAssetFormat::Pdf),
+            page_selection: None,
+            asset_hash: Some("blake3:pdf".to_string()),
+        };
+        let source_bytes = tex_pdf::render_display_list_pdf(&[PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 144.0,
+            height_pt: 72.0,
+            ops: Vec::new(),
+            source_spans: Vec::new(),
+            content_hash: "page-hash".to_string(),
+        }]);
+        let materializer = ResolvedGraphicAssetMaterializer::External {
+            ghostscript: Some(ResolvedGraphicConverter {
+                program: std::path::PathBuf::from("/definitely/missing/ghostscript"),
+            }),
+            pdftoppm: Some(ResolvedGraphicConverter { program: pdftoppm }),
+        };
+
+        let (materialized, cacheable) =
+            materialize_display_list_asset(&request, source_bytes, &BTreeMap::new(), &materializer)
+                .expect("pdftoppm fallback materialization");
+
+        assert_eq!(materialized.format, GraphicAssetFormat::Png);
+        assert!(!cacheable);
+    }
+
+    #[test]
+    fn byte_detected_svg_still_uses_the_vector_materializer() {
+        let request = GraphicAssetRequest {
+            asset_ref: "figures/extensionless".to_string(),
+            source_format: None,
+            page_selection: None,
+            asset_hash: Some("blake3:extensionless".to_string()),
+        };
+        let source_bytes =
+            br#"<svg width="20" height="10"><text x="1" y="5">Detected</text></svg>"#.to_vec();
+        let materializer = resolve_graphic_asset_materializer(
+            &request,
+            GraphicAssetFormat::from_bytes(&source_bytes),
+        );
+        assert!(matches!(
+            materializer,
+            ResolvedGraphicAssetMaterializer::Svg
+        ));
+
+        let (materialized, cacheable) =
+            materialize_display_list_asset(&request, source_bytes, &BTreeMap::new(), &materializer)
+                .expect("extensionless SVG materialization");
+        assert!(materialized.vector_scene.is_some());
+        assert!(cacheable);
     }
 
     #[test]
@@ -3879,6 +4137,81 @@ mod tests {
                 .join(&first_display_list_svg)
                 .exists()
         );
+    }
+
+    #[tokio::test]
+    async fn internal_compiler_reuses_prepared_assets_without_checkpoint_coupling() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::create_dir_all(root.join("figures")).expect("figures dir");
+        fs::write(
+            root.join("main.tex"),
+            r"\begin{document}\includegraphics{figures/vector.svg}\end{document}",
+        )
+        .expect("main tex");
+        fs::write(
+            root.join("figures/vector.svg"),
+            br#"<svg width="2in" height="1in" viewBox="0 0 200 100"><text x="10" y="30">PersistentVector</text></svg>"#,
+        )
+        .expect("vector svg");
+
+        let build_root = root.join(".latexd/build");
+        let manifest = tex_world::ProjectManifest::discover(&root).expect("manifest");
+        let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+        driver
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest: manifest.clone(),
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 1,
+                build_root: build_root.clone(),
+                changed_files: vec![
+                    Utf8PathBuf::from("main.tex"),
+                    Utf8PathBuf::from("figures/vector.svg"),
+                ],
+            })
+            .await
+            .expect("first internal compile");
+        let first_stats = serde_json::from_slice::<PreparedAssetCacheStats>(
+            &fs::read(build_root.join("rev-1/render-ir/prepared-asset-cache.json"))
+                .expect("first cache stats"),
+        )
+        .expect("parse first cache stats");
+        assert_eq!(first_stats.hits, 0);
+        assert_eq!(first_stats.misses, 1);
+        assert_eq!(first_stats.writes, 1);
+
+        driver
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest,
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 2,
+                build_root: build_root.clone(),
+                changed_files: Vec::new(),
+            })
+            .await
+            .expect("second internal compile");
+        let second_stats = serde_json::from_slice::<PreparedAssetCacheStats>(
+            &fs::read(build_root.join("rev-2/render-ir/prepared-asset-cache.json"))
+                .expect("second cache stats"),
+        )
+        .expect("parse second cache stats");
+        assert_eq!(second_stats.hits, 1);
+        assert_eq!(second_stats.misses, 0);
+        assert_eq!(second_stats.writes, 0);
+        assert!(build_root.join("render-asset-cache/v1/lookups").exists());
+        assert!(
+            build_root
+                .join("render-asset-cache/v1/objects/blake3")
+                .exists()
+        );
+
+        let checkpoints = fs::read_to_string(build_root.join("rev-2/checkpoints.json"))
+            .expect("read second checkpoints");
+        assert!(!checkpoints.contains("PersistentVector"));
+        assert!(!checkpoints.contains("materialized_assets"));
+        assert!(!checkpoints.contains("prepared_asset_cache"));
     }
 
     #[tokio::test]

@@ -12,8 +12,9 @@ pub use aux_view::{
 pub use display_list::{
     Destination, DrawOp, FontFamilyRequest, FontRequest, FontRole, FontSeries, FontShape,
     GraphicAssetRequest, ImageCrop, ImageRotation, ImageScale, ImageTrim, ImageViewport,
-    LinkAnnotation, MaterializedGraphicAsset, PageDisplayList, PageId, Point, PositionedGlyph,
-    PositionedImage, PositionedTextRun, Rect, TextCluster,
+    LinkAnnotation, MATERIALIZED_GRAPHIC_ASSET_HASH_VERSION, MaterializedGraphicAsset,
+    PageDisplayList, PageId, Point, PositionedGlyph, PositionedImage, PositionedTextRun, Rect,
+    TextCluster,
 };
 pub use events::{
     BeginBlockEvent, BeginLayoutContainerEvent, BibliographyItemEvent, BlockKind, CaptionEvent,

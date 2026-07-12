@@ -1,4 +1,5 @@
 pub mod compiler;
+mod prepared_asset_cache;
 
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},

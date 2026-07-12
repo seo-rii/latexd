@@ -5,7 +5,7 @@ use camino::Utf8PathBuf;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use latexd::{
     EditorBridgeConfig, ServeArgs, TileRendererConfig,
-    compiler::capture_internal_render_ir_from_project_root, serve,
+    compiler::capture_internal_render_ir_from_project_root_with_asset_cache, serve,
 };
 use std::sync::Arc;
 use tex_aux::SemanticAux;
@@ -144,10 +144,12 @@ async fn main() -> Result<()> {
         Command::RenderIr(command) => {
             let root = Utf8PathBuf::from(command.root);
             let output_dir = Utf8PathBuf::from(command.output_dir);
-            let capture = capture_internal_render_ir_from_project_root(
+            let prepared_asset_cache_root = root.join(".latexd/build/render-asset-cache");
+            let capture = capture_internal_render_ir_from_project_root_with_asset_cache(
                 &root,
                 &command.input,
                 &SemanticAux::default(),
+                &prepared_asset_cache_root,
             )?;
             let paths = capture.write_debug_artifacts(&output_dir)?;
 
@@ -155,6 +157,7 @@ async fn main() -> Result<()> {
             println!("events: {}", paths.events);
             println!("document IR: {}", paths.document_ir);
             println!("display-list JSON: {}", paths.page_display_list);
+            println!("prepared asset cache: {}", paths.prepared_asset_cache);
             println!("display-list PDF: {}", paths.display_list_pdf);
             for svg in paths.display_list_svgs {
                 println!("display-list SVG: {svg}");

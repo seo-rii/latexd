@@ -161,7 +161,7 @@ impl From<&PositionedImage> for GraphicAssetRequest {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MaterializedGraphicAsset {
     pub bytes: Vec<u8>,
     pub source_format: Option<GraphicAssetFormat>,
@@ -215,6 +215,23 @@ impl MaterializedGraphicAsset {
         format!("blake3:{}", hasher.finalize().to_hex())
     }
 
+    fn vector_content_hash(
+        base_content_hash: &str,
+        scene: &VectorScene,
+        embeddable_svg: &str,
+    ) -> Option<String> {
+        let scene_bytes = serde_json::to_vec(scene).ok()?;
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"materialized-vector-scene");
+        hasher.update(&MATERIALIZED_GRAPHIC_ASSET_HASH_VERSION.to_le_bytes());
+        hasher.update(base_content_hash.as_bytes());
+        hasher.update(&(scene_bytes.len() as u64).to_le_bytes());
+        hasher.update(&scene_bytes);
+        hasher.update(&(embeddable_svg.len() as u64).to_le_bytes());
+        hasher.update(embeddable_svg.as_bytes());
+        Some(format!("blake3:{}", hasher.finalize().to_hex()))
+    }
+
     pub fn from_source(request: &GraphicAssetRequest, bytes: Vec<u8>) -> Option<Self> {
         let format = request
             .source_format
@@ -249,19 +266,33 @@ impl MaterializedGraphicAsset {
     }
 
     pub fn with_vector_scene(mut self, scene: VectorScene, embeddable_svg: String) -> Self {
-        let scene_bytes = serde_json::to_vec(&scene).expect("vector scene must serialize");
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(b"materialized-vector-scene");
-        hasher.update(&MATERIALIZED_GRAPHIC_ASSET_HASH_VERSION.to_le_bytes());
-        hasher.update(self.content_hash.as_bytes());
-        hasher.update(&(scene_bytes.len() as u64).to_le_bytes());
-        hasher.update(&scene_bytes);
-        hasher.update(&(embeddable_svg.len() as u64).to_le_bytes());
-        hasher.update(embeddable_svg.as_bytes());
-        self.content_hash = format!("blake3:{}", hasher.finalize().to_hex());
+        self.content_hash = Self::vector_content_hash(&self.content_hash, &scene, &embeddable_svg)
+            .expect("vector scene must serialize");
         self.vector_scene = Some(scene);
         self.embeddable_svg = Some(embeddable_svg);
         self
+    }
+
+    pub fn has_valid_content_hash(&self, request: &GraphicAssetRequest) -> bool {
+        if self.asset_hash != request.asset_hash
+            || match request.source_format {
+                Some(source_format) => self.source_format != Some(source_format),
+                None => self
+                    .source_format
+                    .is_some_and(|source| source != self.format),
+            }
+        {
+            return false;
+        }
+        let base_content_hash = Self::base_content_hash(request, &self.bytes, self.format);
+        match (&self.vector_scene, &self.embeddable_svg) {
+            (None, None) => self.content_hash == base_content_hash,
+            (Some(scene), Some(embeddable_svg)) => {
+                Self::vector_content_hash(&base_content_hash, scene, embeddable_svg)
+                    .is_some_and(|content_hash| self.content_hash == content_hash)
+            }
+            _ => false,
+        }
     }
 
     pub fn is_converted(&self) -> bool {
@@ -370,6 +401,7 @@ mod tests {
     use crate::{
         Destination, DrawOp, GraphicAssetFormat, GraphicAssetRequest, GraphicPageSelection,
         MaterializedGraphicAsset, Point, PositionedImage, Rect, SourceProvenance,
+        VectorAspectAlign, VectorAspectScale, VectorPreserveAspectRatio, VectorScene,
     };
 
     #[test]
@@ -484,5 +516,97 @@ mod tests {
         assert_eq!(same.content_hash, materialized.content_hash);
         assert_ne!(changed_bytes.content_hash, materialized.content_hash);
         assert_ne!(changed_page.content_hash, materialized.content_hash);
+    }
+
+    #[test]
+    fn materialized_graphic_asset_roundtrips_with_a_valid_content_hash() {
+        let request = GraphicAssetRequest {
+            asset_ref: "figures/vector.svg".to_string(),
+            source_format: Some(GraphicAssetFormat::Svg),
+            page_selection: None,
+            asset_hash: Some("blake3:asset".to_string()),
+        };
+        let scene = VectorScene {
+            natural_width_pt: 100.0,
+            natural_height_pt: 50.0,
+            view_box_aspect_ratio: 2.0,
+            preserve_aspect_ratio: VectorPreserveAspectRatio {
+                x_align: VectorAspectAlign::Mid,
+                y_align: VectorAspectAlign::Mid,
+                scale: VectorAspectScale::Meet,
+            },
+            rects: Vec::new(),
+            lines: Vec::new(),
+            ellipses: Vec::new(),
+            polys: Vec::new(),
+            paths: Vec::new(),
+            texts: Vec::new(),
+            embedded_images: Vec::new(),
+        };
+        let materialized = MaterializedGraphicAsset::from_source(
+            &request,
+            br#"<svg viewBox="0 0 100 50"/>"#.to_vec(),
+        )
+        .expect("materialize SVG")
+        .with_vector_scene(scene, "<svg viewBox=\"0 0 100 50\"/>".to_string());
+
+        let json = serde_json::to_vec(&materialized).expect("serialize materialized asset");
+        let decoded: MaterializedGraphicAsset =
+            serde_json::from_slice(&json).expect("deserialize materialized asset");
+
+        assert_eq!(decoded, materialized);
+        assert!(decoded.has_valid_content_hash(&request));
+    }
+
+    #[test]
+    fn materialized_graphic_asset_rejects_tampered_bytes_or_content_hash() {
+        let request = GraphicAssetRequest::for_embedded_asset("figures/image.png");
+        let materialized =
+            MaterializedGraphicAsset::converted(&request, vec![1, 2, 3], GraphicAssetFormat::Png);
+        assert!(materialized.has_valid_content_hash(&request));
+
+        let mut changed_bytes = materialized.clone();
+        changed_bytes.bytes.push(4);
+        assert!(!changed_bytes.has_valid_content_hash(&request));
+
+        let mut changed_hash = materialized;
+        changed_hash.content_hash.push('0');
+        assert!(!changed_hash.has_valid_content_hash(&request));
+
+        let mut changed_metadata = changed_hash;
+        changed_metadata.content_hash.pop();
+        changed_metadata.asset_hash = Some("blake3:wrong".to_string());
+        assert!(!changed_metadata.has_valid_content_hash(&request));
+    }
+
+    #[test]
+    fn materialized_graphic_asset_rejects_incomplete_vector_payloads() {
+        let request = GraphicAssetRequest::for_embedded_asset("figures/vector.svg");
+        let mut materialized = MaterializedGraphicAsset::from_source(
+            &request,
+            br#"<svg viewBox="0 0 100 50"/>"#.to_vec(),
+        )
+        .expect("materialize SVG");
+        let scene: VectorScene = serde_json::from_value(serde_json::json!({
+            "natural_width_pt": 100.0,
+            "natural_height_pt": 50.0,
+            "view_box_aspect_ratio": 2.0,
+            "preserve_aspect_ratio": { "x_align": "mid", "y_align": "mid", "scale": "meet" },
+            "rects": [],
+            "lines": [],
+            "ellipses": [],
+            "polys": [],
+            "paths": [],
+            "texts": [],
+            "embedded_images": []
+        }))
+        .expect("deserialize vector scene fixture");
+
+        materialized.vector_scene = Some(scene);
+        assert!(!materialized.has_valid_content_hash(&request));
+
+        materialized.vector_scene = None;
+        materialized.embeddable_svg = Some("<svg/>".to_string());
+        assert!(!materialized.has_valid_content_hash(&request));
     }
 }
