@@ -140,8 +140,19 @@ The next implementation step has started with a narrow display-list spike:
   without changing the display-list page hash or top-level asset request;
 - an internal render capture materializes each distinct `GraphicAssetRequest`
   once and retains the prepared values as an immutable snapshot shared by PDF
-  generation and debug-SVG artifact writes. This cache is deliberately scoped
-  to one capture; cross-revision and on-disk persistence are not implemented;
+  generation and debug-SVG artifact writes;
+- bitmap and SVG prepared values also persist under the project build root in a
+  revision-independent, schema-versioned `lookup -> prepared content hash ->
+  immutable object` cache. Lookup keys include source bytes and normalized SVG
+  dependency presence/bytes, while loaded objects revalidate request metadata,
+  vector payload completeness, and the prepared content hash. Object and lookup
+  writes are independently atomic, object-first, and safe for concurrent
+  process writers; per-revision debug artifacts expose hit/miss/error counts;
+- this persistent cache remains derived renderer state and is not serialized in
+  VM checkpoints. PDF/EPS Ghostscript/Poppler conversion results remain
+  capture-local because converter executable identity alone cannot fully key
+  system fonts, fontconfig, and other external resources; failed Ghostscript
+  conversion still falls back to Poppler before the visible source fallback;
 - crop, viewport, scaling, and rotation remain `PositionedImage` placement
   concerns. PDF page/pagebox selection remains part of the materialization
   request because it changes the selected source asset itself;
@@ -1668,11 +1679,12 @@ approximate.
   `MaterializedGraphicAsset` carries the parsed scene and sanitized payload, so
   canonical PDF/debug-SVG backends consume prepared assets and reject raw SVG
   rather than interpreting it themselves. A versioned prepared-content hash and
-  capture-local reuse now provide stable vector-scene cache identity and
-  reproducible artifact snapshots. Persisting those prepared values across
-  revisions/processes and direct PDF page/XObject inclusion remain the next
-  asset-boundary work; direct PDF/EPS vector embedding is not yet a supported
-  backend shortcut.
+  dependency-complete persistent bitmap/SVG cache now provide stable
+  vector-scene identity and reproducible artifact snapshots across revisions and
+  processes without entering VM checkpoints. Direct PDF page/XObject inclusion,
+  compact cache storage/lifecycle management, and a complete external-converter
+  dependency key remain asset-boundary work; direct PDF/EPS vector embedding is
+  not yet a supported backend shortcut.
 - Default CI covers unit/golden/reduced fixtures. Full arXiv oracle, raster
   smoke/diff, Skia, and performance/cache sweeps should stay ignored or move to
   scheduled/manual jobs until their dependencies and tolerances are stable.
