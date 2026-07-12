@@ -9380,10 +9380,14 @@ mod tests {
     };
 
     fn tiny_png_bytes() -> Vec<u8> {
+        tiny_png_bytes_with_first_red(255)
+    }
+
+    fn tiny_png_bytes_with_first_red(first_red: u8) -> Vec<u8> {
         let mut bytes = Vec::new();
         image::codecs::png::PngEncoder::new(&mut bytes)
             .write_image(
-                &[255, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0],
+                &[first_red, 0, 0, 0, 255, 0, 0, 0, 255, 255, 255, 0],
                 2,
                 2,
                 image::ExtendedColorType::Rgb8,
@@ -9478,5 +9482,14 @@ mod tests {
                 .as_deref()
                 .is_some_and(|svg| svg.contains("href=\"data:image/png,"))
         );
+
+        let changed_png = tiny_png_bytes_with_first_red(64);
+        let changed_materialized =
+            MaterializedGraphicAsset::from_source(&request, svg.as_bytes().to_vec())
+                .expect("materialize changed svg source");
+        let changed = prepare_svg_materialization(&request, changed_materialized, |asset_ref| {
+            (asset_ref == "figures/pixel.png").then(|| changed_png.clone())
+        });
+        assert_ne!(changed.content_hash, prepared.content_hash);
     }
 }

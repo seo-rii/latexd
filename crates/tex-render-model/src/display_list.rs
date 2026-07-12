@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::{GraphicAssetFormat, GraphicPageSelection, SourceProvenance, SourceSpan, VectorScene};
 
 pub type PageId = String;
+pub const MATERIALIZED_GRAPHIC_ASSET_HASH_VERSION: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PageDisplayList {
@@ -166,20 +167,65 @@ pub struct MaterializedGraphicAsset {
     pub source_format: Option<GraphicAssetFormat>,
     pub format: GraphicAssetFormat,
     pub asset_hash: Option<String>,
+    pub content_hash: String,
     pub vector_scene: Option<VectorScene>,
     pub embeddable_svg: Option<String>,
 }
 
 impl MaterializedGraphicAsset {
+    fn base_content_hash(
+        request: &GraphicAssetRequest,
+        bytes: &[u8],
+        format: GraphicAssetFormat,
+    ) -> String {
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"materialized-graphic-asset");
+        hasher.update(&MATERIALIZED_GRAPHIC_ASSET_HASH_VERSION.to_le_bytes());
+        let mut update_field = |value: &[u8]| {
+            hasher.update(&(value.len() as u64).to_le_bytes());
+            hasher.update(value);
+        };
+        update_field(request.asset_ref.as_bytes());
+        update_field(&[u8::from(request.source_format.is_some())]);
+        if let Some(source_format) = request.source_format {
+            update_field(source_format.as_str().as_bytes());
+        }
+        update_field(format.as_str().as_bytes());
+        let page = request
+            .page_selection
+            .as_ref()
+            .and_then(|selection| selection.page);
+        update_field(&[u8::from(page.is_some())]);
+        if let Some(page) = page {
+            update_field(&page.to_le_bytes());
+        }
+        let pagebox = request
+            .page_selection
+            .as_ref()
+            .and_then(|selection| selection.pagebox.as_deref());
+        update_field(&[u8::from(pagebox.is_some())]);
+        if let Some(pagebox) = pagebox {
+            update_field(pagebox.as_bytes());
+        }
+        update_field(&[u8::from(request.asset_hash.is_some())]);
+        if let Some(asset_hash) = request.asset_hash.as_deref() {
+            update_field(asset_hash.as_bytes());
+        }
+        update_field(bytes);
+        format!("blake3:{}", hasher.finalize().to_hex())
+    }
+
     pub fn from_source(request: &GraphicAssetRequest, bytes: Vec<u8>) -> Option<Self> {
         let format = request
             .source_format
             .or_else(|| GraphicAssetFormat::from_bytes(&bytes))?;
+        let content_hash = Self::base_content_hash(request, &bytes, format);
         Some(Self {
             bytes,
             source_format: Some(format),
             format,
             asset_hash: request.asset_hash.clone(),
+            content_hash,
             vector_scene: None,
             embeddable_svg: None,
         })
@@ -190,17 +236,29 @@ impl MaterializedGraphicAsset {
         bytes: Vec<u8>,
         format: GraphicAssetFormat,
     ) -> Self {
+        let content_hash = Self::base_content_hash(request, &bytes, format);
         Self {
             bytes,
             source_format: request.source_format,
             format,
             asset_hash: request.asset_hash.clone(),
+            content_hash,
             vector_scene: None,
             embeddable_svg: None,
         }
     }
 
     pub fn with_vector_scene(mut self, scene: VectorScene, embeddable_svg: String) -> Self {
+        let scene_bytes = serde_json::to_vec(&scene).expect("vector scene must serialize");
+        let mut hasher = blake3::Hasher::new();
+        hasher.update(b"materialized-vector-scene");
+        hasher.update(&MATERIALIZED_GRAPHIC_ASSET_HASH_VERSION.to_le_bytes());
+        hasher.update(self.content_hash.as_bytes());
+        hasher.update(&(scene_bytes.len() as u64).to_le_bytes());
+        hasher.update(&scene_bytes);
+        hasher.update(&(embeddable_svg.len() as u64).to_le_bytes());
+        hasher.update(embeddable_svg.as_bytes());
+        self.content_hash = format!("blake3:{}", hasher.finalize().to_hex());
         self.vector_scene = Some(scene);
         self.embeddable_svg = Some(embeddable_svg);
         self
@@ -406,5 +464,25 @@ mod tests {
         assert_eq!(materialized.format, GraphicAssetFormat::Png);
         assert_eq!(materialized.asset_hash, request.asset_hash);
         assert!(materialized.is_converted());
+        assert!(materialized.content_hash.starts_with("blake3:"));
+
+        let same =
+            MaterializedGraphicAsset::converted(&request, vec![1, 2, 3], GraphicAssetFormat::Png);
+        let changed_bytes =
+            MaterializedGraphicAsset::converted(&request, vec![1, 2, 4], GraphicAssetFormat::Png);
+        let mut changed_page_request = request.clone();
+        changed_page_request.page_selection = Some(GraphicPageSelection {
+            page: Some(2),
+            pagebox: Some("cropbox".to_string()),
+        });
+        let changed_page = MaterializedGraphicAsset::converted(
+            &changed_page_request,
+            vec![1, 2, 3],
+            GraphicAssetFormat::Png,
+        );
+
+        assert_eq!(same.content_hash, materialized.content_hash);
+        assert_ne!(changed_bytes.content_hash, materialized.content_hash);
+        assert_ne!(changed_page.content_hash, materialized.content_hash);
     }
 }

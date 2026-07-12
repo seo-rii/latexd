@@ -15,13 +15,17 @@ use tex_render_model::{
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole, TableRuleSpan};
 
 fn tiny_png_bytes() -> Vec<u8> {
+    tiny_png_bytes_with_first_red(255)
+}
+
+fn tiny_png_bytes_with_first_red(first_red: u8) -> Vec<u8> {
     use image::ImageEncoder;
 
     let mut bytes = Vec::new();
     image::codecs::png::PngEncoder::new(&mut bytes)
         .write_image(
             &[
-                255, 0, 0, 0, 255, 0, //
+                first_red, 0, 0, 0, 255, 0, //
                 0, 0, 255, 255, 255, 0,
             ],
             2,
@@ -4543,6 +4547,123 @@ fn project_root_render_ir_capture_embeds_svg_assets_in_debug_artifacts() {
     assert!(display_list_svg.contains("href=\"data:image/svg+xml;charset=utf-8,%3Csvg"));
     assert!(!display_list_svg.contains("[image: figures/vector.svg]"));
     assert!(!display_list_svg.contains("data-image-placeholder-kind="));
+}
+
+#[test]
+fn project_root_render_ir_capture_reuses_and_invalidates_prepared_svg_assets() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
+    fs::create_dir_all(root.join("figures/nested").as_std_path()).expect("create figures dir");
+    fs::write(
+        root.join("main.tex").as_std_path(),
+        r"\begin{document}\includegraphics{figures/vector.svg}\includegraphics{figures/vector.svg}\end{document}",
+    )
+    .expect("write source");
+    let captured_svg = br#"<svg width="2in" height="1in" viewBox="0 0 200 100"><text x="10" y="30" font-size="12">CapturedVector</text><image href="nested/pixel.png" x="10" y="40" width="20" height="20"/></svg>"#;
+    fs::write(root.join("figures/vector.svg").as_std_path(), captured_svg).expect("write svg");
+    fs::write(
+        root.join("figures/nested/pixel.png").as_std_path(),
+        tiny_png_bytes(),
+    )
+    .expect("write png");
+
+    let first =
+        capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
+            .expect("capture first render ir");
+    let matching_image_ops = first
+        .page_display_lists
+        .iter()
+        .flat_map(|page| &page.ops)
+        .filter(|op| matches!(op, DrawOp::Image(image) if image.asset_ref == "figures/vector.svg"))
+        .count();
+    assert_eq!(matching_image_ops, 2);
+    assert_eq!(first.materialized_assets.len(), 1);
+    let (first_request, first_asset) = first
+        .materialized_assets
+        .first_key_value()
+        .expect("first prepared svg");
+    assert_eq!(first_request.asset_ref, "figures/vector.svg");
+    assert_eq!(first_asset.format, GraphicAssetFormat::Svg);
+    assert_eq!(
+        first_asset
+            .vector_scene
+            .as_ref()
+            .map(|scene| scene.embedded_images.len()),
+        Some(1)
+    );
+    assert!(
+        first_asset
+            .embeddable_svg
+            .as_deref()
+            .is_some_and(|svg| svg.contains("data:image/png,"))
+    );
+    let first_request = first_request.clone();
+    let first_prepared_hash = first_asset.content_hash.clone();
+    let first_page_hash = first.page_display_lists[0].content_hash.clone();
+    let first_pdf_text = String::from_utf8_lossy(&first.display_list_pdf);
+    assert!(first_pdf_text.contains("(CapturedVector) Tj"));
+    assert!(first_pdf_text.contains("/Subtype /Image"));
+
+    fs::write(
+        root.join("figures/nested/pixel.png").as_std_path(),
+        tiny_png_bytes_with_first_red(64),
+    )
+    .expect("change embedded png");
+    let first_paths = first
+        .write_debug_artifacts(root.join("first-artifacts"))
+        .expect("write first artifacts after source mutation");
+    let first_debug_svg =
+        fs::read_to_string(&first_paths.display_list_svgs[0]).expect("read first debug svg");
+    assert!(first_debug_svg.contains("CapturedVector"));
+    assert!(!first_debug_svg.contains("ChangedVector"));
+
+    let embedded_changed =
+        capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
+            .expect("capture embedded-change render ir");
+    let (embedded_changed_request, embedded_changed_asset) = embedded_changed
+        .materialized_assets
+        .first_key_value()
+        .expect("embedded-change prepared svg");
+    assert_eq!(embedded_changed.materialized_assets.len(), 1);
+    assert_eq!(embedded_changed_request, &first_request);
+    assert_eq!(
+        embedded_changed.page_display_lists[0].content_hash,
+        first_page_hash
+    );
+    assert_ne!(embedded_changed_asset.content_hash, first_prepared_hash);
+    let embedded_changed_paths = embedded_changed
+        .write_debug_artifacts(root.join("embedded-changed-artifacts"))
+        .expect("write embedded-change artifacts");
+    let embedded_changed_debug_svg =
+        fs::read_to_string(&embedded_changed_paths.display_list_svgs[0])
+            .expect("read embedded-change debug svg");
+    assert_ne!(embedded_changed_debug_svg, first_debug_svg);
+    assert!(embedded_changed_debug_svg.contains("CapturedVector"));
+
+    let changed_svg = String::from_utf8(captured_svg.to_vec())
+        .expect("utf8 svg")
+        .replace("CapturedVector", "ChangedVector");
+    fs::write(root.join("figures/vector.svg").as_std_path(), changed_svg)
+        .expect("change svg source");
+    let source_changed =
+        capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
+            .expect("capture source-change render ir");
+    let (source_changed_request, source_changed_asset) = source_changed
+        .materialized_assets
+        .first_key_value()
+        .expect("source-change prepared svg");
+    assert_ne!(source_changed_request, embedded_changed_request);
+    assert_ne!(
+        source_changed.page_display_lists[0].content_hash,
+        embedded_changed.page_display_lists[0].content_hash
+    );
+    assert_ne!(
+        source_changed_asset.content_hash,
+        embedded_changed_asset.content_hash
+    );
+    let source_changed_pdf_text = String::from_utf8_lossy(&source_changed.display_list_pdf);
+    assert!(source_changed_pdf_text.contains("(ChangedVector) Tj"));
+    assert!(!source_changed_pdf_text.contains("(CapturedVector) Tj"));
 }
 
 #[test]

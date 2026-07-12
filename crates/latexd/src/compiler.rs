@@ -27,8 +27,7 @@ use tex_checkpoint::{
     select_reusable_preamble,
 };
 use tex_pdf::{
-    PAGE_TEXT_LEFT_PT, PAGE_TEXT_TOP_PT, render_display_list_pdf,
-    render_display_list_pdf_with_materialized_assets, render_display_list_svg,
+    PAGE_TEXT_LEFT_PT, PAGE_TEXT_TOP_PT, render_display_list_pdf_with_materialized_assets,
     render_display_list_svg_with_materialized_assets, render_page_svg, render_single_page_pdf,
 };
 use tex_render_assets::prepare_svg_materialization;
@@ -85,7 +84,7 @@ pub struct InternalRenderIrCapture {
     pub page_display_lists: Vec<PageDisplayList>,
     pub display_list_pdf: Vec<u8>,
     pub source_files: BTreeMap<Utf8PathBuf, String>,
-    pub asset_root: Option<Utf8PathBuf>,
+    pub materialized_assets: BTreeMap<GraphicAssetRequest, MaterializedGraphicAsset>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -175,13 +174,9 @@ impl InternalRenderIrCapture {
         )
         .with_context(|| format!("failed to write {}", paths.page_display_list))?;
         for (page, path) in self.page_display_lists.iter().zip(&paths.display_list_svgs) {
-            let svg = if let Some(root) = &self.asset_root {
-                render_display_list_svg_with_materialized_assets(page, |request| {
-                    materialize_display_list_asset(root, request)
-                })
-            } else {
-                render_display_list_svg(page)
-            };
+            let svg = render_display_list_svg_with_materialized_assets(page, |request| {
+                self.materialized_assets.get(request).cloned()
+            });
             fs::write(path.as_std_path(), svg)
                 .with_context(|| format!("failed to write {path}"))?;
         }
@@ -286,13 +281,26 @@ fn capture_internal_render_ir_with_options(
     let mut page_display_lists =
         tex_layout::build_page_display_lists(&document_ir, display_list_options);
     annotate_display_list_image_diagnostics(&events, &mut page_display_lists);
-    let display_list_pdf = if let Some(root) = file_root {
+    let mut materialized_assets = BTreeMap::new();
+    if let Some(root) = file_root {
+        let asset_requests = page_display_lists
+            .iter()
+            .flat_map(|page| &page.ops)
+            .filter_map(|op| match op {
+                DrawOp::Image(image) => Some(GraphicAssetRequest::from(image)),
+                _ => None,
+            })
+            .collect::<BTreeSet<_>>();
+        for request in asset_requests {
+            if let Some(materialized) = materialize_display_list_asset(root, &request) {
+                materialized_assets.insert(request, materialized);
+            }
+        }
+    }
+    let display_list_pdf =
         render_display_list_pdf_with_materialized_assets(&page_display_lists, |request| {
-            materialize_display_list_asset(root, request)
-        })
-    } else {
-        render_display_list_pdf(&page_display_lists)
-    };
+            materialized_assets.get(request).cloned()
+        });
     let mut source_files = BTreeMap::new();
     source_files.insert(source_path.clone(), source.to_string());
     for (path, source) in mounted_files {
@@ -306,7 +314,7 @@ fn capture_internal_render_ir_with_options(
         page_display_lists,
         display_list_pdf,
         source_files,
-        asset_root: file_root.map(Utf8Path::to_path_buf),
+        materialized_assets,
     }
 }
 
