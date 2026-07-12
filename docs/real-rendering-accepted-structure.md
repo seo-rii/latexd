@@ -746,6 +746,7 @@ It owns shared data types only:
 - `RenderEvent`;
 - `Document IR`;
 - `PageDisplayList` skeleton;
+- renderer-neutral `VectorScene` and vector drawing data;
 - `AuxView`-facing view types;
 - JSON golden helpers.
 
@@ -777,8 +778,12 @@ tex-aux
 tex-layout
   -> tex-render-model        // first DocumentIrBuilder can live here initially
 
+tex-render-assets
+  -> tex-render-model        // parses/sanitizes assets into shared scene data
+
 tex-pdf
-  -> tex-render-model        // later consumes PageDisplayList
+  -> tex-render-assets       // compatibility adapters prepare raw SVG
+  -> tex-render-model        // canonical backend consumes PageDisplayList/scenes
 
 latexd
   -> all orchestration crates
@@ -793,6 +798,7 @@ crates/tex-render-model/
   src/events.rs
   src/ir.rs
   src/display_list.rs
+  src/vector.rs
   src/aux_view.rs
   src/golden.rs
 ```
@@ -1647,12 +1653,14 @@ approximate.
   CSS rules, declaration order, specificity, presentation-attribute override,
   and inline-style priority coverage.
 - External PDF/EPS raster fallback now crosses the shared materialization seam
-  and is covered through Ghostscript/Poppler-backed project tests. SVG source
-  still enters the private simple-SVG interpreter in `tex-pdf`; moving that
-  interpreter to a renderer-neutral vector-scene builder, defining sanitized
-  vector payload/cache identity, and adding direct PDF page inclusion remain
-  the next asset-boundary work. Until then, direct PDF/EPS vector embedding is
-  not a supported backend shortcut.
+  and is covered through Ghostscript/Poppler-backed project tests. SVG parsing,
+  embedded-raster resolution, and safe debug embedding now live in
+  `tex-render-assets`, producing serializable shared `VectorScene` data.
+  `MaterializedGraphicAsset` carries the parsed scene and sanitized payload, so
+  canonical PDF/debug-SVG backends consume prepared assets and reject raw SVG
+  rather than interpreting it themselves. Persisted vector-scene cache
+  identity and direct PDF page/XObject inclusion remain the next asset-boundary
+  work; direct PDF/EPS vector embedding is not yet a supported backend shortcut.
 - Default CI covers unit/golden/reduced fixtures. Full arXiv oracle, raster
   smoke/diff, Skia, and performance/cache sweeps should stay ignored or move to
   scheduled/manual jobs until their dependencies and tolerances are stable.
