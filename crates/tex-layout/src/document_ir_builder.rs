@@ -11,6 +11,12 @@ pub fn build_document_ir(stream: &RenderEventStream, aux: &impl AuxView) -> Docu
     DocumentIrBuilder::new(aux).build(stream)
 }
 
+fn trim_trailing_spaces(content: &mut Vec<InlineNode>) {
+    while matches!(content.last(), Some(InlineNode::Space { .. })) {
+        content.pop();
+    }
+}
+
 pub struct DocumentIrBuilder<'a, A: AuxView> {
     aux: &'a A,
     blocks: Vec<IrBlock>,
@@ -193,7 +199,8 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                 }
                 RenderEvent::EndBlock(event) => match &event.block {
                     tex_render_model::BlockKind::Abstract => {
-                        if let Some((content, source)) = self.abstract_content.take() {
+                        if let Some((mut content, source)) = self.abstract_content.take() {
+                            trim_trailing_spaces(&mut content);
                             self.push_block(IrBlock::Abstract(AbstractBlock { content, source }));
                         }
                     }
@@ -216,8 +223,10 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         }
                     }
                     tex_render_model::BlockKind::Environment { name } => {
-                        if let Some((open_name, content, source)) = self.environment_content.take()
+                        if let Some((open_name, mut content, source)) =
+                            self.environment_content.take()
                         {
+                            trim_trailing_spaces(&mut content);
                             self.push_block(IrBlock::Environment(EnvironmentBlock {
                                 name: if open_name == *name {
                                     open_name
@@ -682,10 +691,12 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             }
         }
         self.flush_paragraph();
-        if let Some((content, source)) = self.abstract_content.take() {
+        if let Some((mut content, source)) = self.abstract_content.take() {
+            trim_trailing_spaces(&mut content);
             self.push_block(IrBlock::Abstract(AbstractBlock { content, source }));
         }
-        if let Some((name, content, source)) = self.environment_content.take() {
+        if let Some((name, mut content, source)) = self.environment_content.take() {
+            trim_trailing_spaces(&mut content);
             self.push_block(IrBlock::Environment(EnvironmentBlock {
                 name,
                 content,
@@ -719,18 +730,36 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
 
     fn push_inline(&mut self, node: InlineNode, envelope: &RenderEventEnvelope) {
         if let Some((content, _)) = &mut self.abstract_content {
+            if matches!(node, InlineNode::Space { .. })
+                && (content.is_empty() || matches!(content.last(), Some(InlineNode::Space { .. })))
+            {
+                return;
+            }
             content.push(node);
             return;
         }
         if let Some((content, _, _)) = &mut self.list_item {
-            if content.is_empty() && matches!(node, InlineNode::Space { .. }) {
+            if matches!(node, InlineNode::Space { .. })
+                && (content.is_empty() || matches!(content.last(), Some(InlineNode::Space { .. })))
+            {
                 return;
             }
             content.push(node);
             return;
         }
         if let Some((_, content, _)) = &mut self.environment_content {
+            if matches!(node, InlineNode::Space { .. })
+                && (content.is_empty() || matches!(content.last(), Some(InlineNode::Space { .. })))
+            {
+                return;
+            }
             content.push(node);
+            return;
+        }
+        if matches!(node, InlineNode::Space { .. })
+            && (self.paragraph.is_empty()
+                || matches!(self.paragraph.last(), Some(InlineNode::Space { .. })))
+        {
             return;
         }
         if self.paragraph_source.is_none() {
@@ -740,9 +769,10 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
     }
 
     fn flush_list_item(&mut self) {
-        let Some((content, source, marker_hint)) = self.list_item.take() else {
+        let Some((mut content, source, marker_hint)) = self.list_item.take() else {
             return;
         };
+        trim_trailing_spaces(&mut content);
         if let Some((kind, items, _)) = &mut self.list {
             let marker = marker_hint.unwrap_or_else(|| match kind {
                 ListKind::Unordered => "-".to_string(),
@@ -765,7 +795,11 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             .paragraph_source
             .take()
             .unwrap_or_else(|| SourceProvenance::generated("paragraph", "paragraph builder"));
-        let content = std::mem::take(&mut self.paragraph);
+        let mut content = std::mem::take(&mut self.paragraph);
+        trim_trailing_spaces(&mut content);
+        if content.is_empty() {
+            return;
+        }
         self.push_block(IrBlock::Paragraph(ParagraphBlock { content, source }));
     }
 }
@@ -778,10 +812,10 @@ mod tests {
         BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationLabel,
         CitationStyleHint, DocumentClassEvent, EndBlockEvent, FlushTitleBlockEvent,
         GraphicAssetDimensions, GraphicRefEvent, HeadingEvent, InlineCitationEvent,
-        InlineLinkEvent, InlineReferenceEvent, IrBlock, LabelDefinitionEvent, LabelTargetView,
-        MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason,
+        InlineLinkEvent, InlineNode, InlineReferenceEvent, IrBlock, LabelDefinitionEvent,
+        LabelTargetView, MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason,
         RawFallbackEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
-        SetDocumentMetadataEvent, SourceProvenance, TextEvent,
+        SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind, TextEvent,
     };
 
     use super::build_document_ir;
@@ -1053,6 +1087,70 @@ mod tests {
         );
 
         assert_eq!(ir.extracted_text(), "(2.1)");
+    }
+
+    #[test]
+    fn paragraph_normalizes_interword_spaces() {
+        let source = SourceProvenance::file("main.tex", 0, 11);
+        let stream = RenderEventStream::new(
+            Some("trailing-space".to_string()),
+            vec![
+                RenderEventEnvelope::new(
+                    1,
+                    RenderEvent::Space(SpaceEvent {
+                        kind: SpaceKind::Interword,
+                    }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    2,
+                    RenderEvent::Text(TextEvent {
+                        text: "Hello".to_string(),
+                    }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    3,
+                    RenderEvent::Space(SpaceEvent {
+                        kind: SpaceKind::Interword,
+                    }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    4,
+                    RenderEvent::Space(SpaceEvent {
+                        kind: SpaceKind::Interword,
+                    }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    5,
+                    RenderEvent::Text(TextEvent {
+                        text: "world".to_string(),
+                    }),
+                    source.clone(),
+                ),
+                RenderEventEnvelope::new(
+                    6,
+                    RenderEvent::Space(SpaceEvent {
+                        kind: SpaceKind::Interword,
+                    }),
+                    source,
+                ),
+            ],
+        );
+
+        let ir = build_document_ir(&stream, &());
+
+        assert_eq!(ir.extracted_text(), "Hello world");
+        assert!(matches!(
+            ir.blocks.as_slice(),
+            [IrBlock::Paragraph(paragraph)]
+                if matches!(
+                    paragraph.content.as_slice(),
+                    [InlineNode::Text { .. }, InlineNode::Space { .. }, InlineNode::Text { .. }]
+                )
+        ));
     }
 
     #[test]

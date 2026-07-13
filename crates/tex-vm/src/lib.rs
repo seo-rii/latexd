@@ -10205,6 +10205,28 @@ impl<'i> Vm<'i> {
             text_start = index;
         }
         self.capture_text_events(source_path, source, text_start, source.len(), in_document);
+        let last_line_start = source
+            .rfind(['\n', '\r'])
+            .map(|index| index + 1)
+            .unwrap_or_default();
+        let last_line_has_comment = source[last_line_start..]
+            .match_indices('%')
+            .any(|(offset, _)| !is_escaped_percent(source, last_line_start + offset));
+        if initial_in_document
+            && source.chars().last().is_some_and(|ch| !ch.is_whitespace())
+            && !last_line_has_comment
+        {
+            self.emit_render_event(
+                RenderEvent::Space(SpaceEvent {
+                    kind: SpaceKind::Interword,
+                }),
+                SourceProvenance::file(
+                    source_path.to_owned(),
+                    source.len() as u32,
+                    source.len() as u32,
+                ),
+            );
+        }
         scan_state.active_input_paths.pop();
     }
 
@@ -40946,6 +40968,32 @@ Fallback text.
         assert!(!visible_text.contains("child"));
         assert!(!visible_text.contains("key"));
         assert!(!visible_text.contains("sec:intro"));
+    }
+
+    #[test]
+    fn render_event_capture_treats_input_eof_as_an_endline() {
+        let capture_visible_text = |first_input: &str| {
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.set_entry_source_path("main.tex");
+            vm.mount_file("first.tex", first_input);
+            vm.mount_file("second.tex", "Beta");
+            vm.enable_render_event_capture();
+            let outcome =
+                vm.run_plain(r"\begin{document}\input{first}\input{second}\end{document}");
+            outcome
+                .render_events
+                .iter()
+                .filter_map(|event| match &event.event {
+                    RenderEvent::Text(text) => Some(text.text.as_str()),
+                    RenderEvent::Space(_) => Some(" "),
+                    _ => None,
+                })
+                .collect::<String>()
+        };
+
+        assert_eq!(capture_visible_text("Alpha").trim_end(), "Alpha Beta");
+        assert_eq!(capture_visible_text("Alpha\n").trim_end(), "Alpha Beta");
     }
 
     #[test]
