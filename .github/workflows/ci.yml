@@ -59,10 +59,10 @@ jobs:
   licensed-corpus:
     name: External licensed corpus
     if: github.event_name == 'push'
-    uses: seo-rii/latexd-tests/.github/workflows/_test-latexd.yml@b15f4360062caa1fcc14b22bc4f6548f6c4d5afd
+    uses: seo-rii/latexd-tests/.github/workflows/_test-latexd.yml@d145a08efe3911c7e1ba539405d855d9ab986fda
     with:
       latexd_ref: ${{ github.sha }}
-      suite_ref: b15f4360062caa1fcc14b22bc4f6548f6c4d5afd
+      suite_ref: d145a08efe3911c7e1ba539405d855d9ab986fda
       tier: smoke
     permissions:
       contents: read
@@ -70,10 +70,10 @@ jobs:
   renderer-benchmark:
     name: External renderer benchmark
     if: github.event_name == 'push'
-    uses: seo-rii/latexd-tests/.github/workflows/_benchmark-latexd.yml@b15f4360062caa1fcc14b22bc4f6548f6c4d5afd
+    uses: seo-rii/latexd-tests/.github/workflows/_benchmark-latexd.yml@d145a08efe3911c7e1ba539405d855d9ab986fda
     with:
       latexd_ref: ${{ github.sha }}
-      suite_ref: b15f4360062caa1fcc14b22bc4f6548f6c4d5afd
+      suite_ref: d145a08efe3911c7e1ba539405d855d9ab986fda
       iterations: 3
     permissions:
       contents: read
