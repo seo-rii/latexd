@@ -37,6 +37,28 @@ macro_rules! smoke {
     };
 }
 
+fn assert_page_patches_transform(
+    previous_page_ids: &[String],
+    patches: &[PagePatchOp],
+    expected_page_ids: &[String],
+) {
+    let mut actual_page_ids = previous_page_ids.to_vec();
+    for patch in patches {
+        match patch {
+            PagePatchOp::ReplacePage { index, page_id, .. } => {
+                actual_page_ids[*index] = page_id.clone();
+            }
+            PagePatchOp::InsertPage { index, page_id, .. } => {
+                actual_page_ids.insert(*index, page_id.clone());
+            }
+            PagePatchOp::DeletePage { index } => {
+                actual_page_ids.remove(*index);
+            }
+        }
+    }
+    assert_eq!(actual_page_ids, expected_page_ids);
+}
+
 static PATH_ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
 struct PathOverrideGuard {

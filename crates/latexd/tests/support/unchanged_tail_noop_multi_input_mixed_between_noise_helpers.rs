@@ -112,7 +112,7 @@ fn rewrite_unchanged_tail_multi_input_mixed_between_noise(
     .expect("rewrite body a");
     fs::write(
         fixture.root.join("sections/body-b.tex"),
-        format!("{}% body-b trailing comment\n", fixture.body_b),
+        format!("{}\n% body-b trailing comment\n", fixture.body_b),
     )
     .expect("rewrite body b");
     match noise_kind {

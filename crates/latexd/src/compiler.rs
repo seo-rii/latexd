@@ -27,8 +27,8 @@ use tex_checkpoint::{
     select_reusable_preamble,
 };
 use tex_pdf::{
-    PAGE_TEXT_LEFT_PT, PAGE_TEXT_TOP_PT, render_display_list_pdf_with_materialized_assets,
-    render_display_list_svg_with_materialized_assets, render_page_svg, render_single_page_pdf,
+    render_display_list_pdf_with_materialized_assets,
+    render_display_list_svg_with_materialized_assets,
 };
 use tex_render_assets::{prepare_pdf_form, prepare_svg_materialization, svg_embedded_asset_refs};
 use tex_render_model::{
@@ -46,7 +46,6 @@ use crate::{prepared_asset_cache::PreparedAssetCache, viewer_prefixed_path};
 pub struct CompilerDriver {
     compiler_bin: Option<String>,
     compiler_args: Vec<String>,
-    internal_render_ir_svg_preview: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -64,7 +63,10 @@ pub struct CompileOutcome {
     pub pdf_path: Utf8PathBuf,
     pub diagnostics: Vec<Diagnostic>,
     pub dep_trace: DepTrace,
+    /// VM execution pages used by checkpoint and replay compatibility.
     pub page_metadata: Vec<PageArtifactMeta>,
+    /// Authoritative presentation pages derived from `PageDisplayList`.
+    pub renderer_page_metadata: Vec<PageArtifactMeta>,
     pub page_artifacts: Vec<PagePreviewArtifact>,
     pub reused_checkpoint_id: Option<String>,
     pub unchanged_tail: Option<UnchangedTail>,
@@ -763,6 +765,177 @@ pub struct PageSyncMapArtifact {
     pub items: Vec<ArtifactSyncSpan>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RendererPageState {
+    pages: Vec<CheckpointPage>,
+    metadata: Vec<PageArtifactMeta>,
+    syncmap: Vec<PageSyncMapArtifact>,
+}
+
+fn build_renderer_page_state(
+    display_lists: &[PageDisplayList],
+    pdf_artifact_paths: &BTreeMap<String, Utf8PathBuf>,
+    rev: u64,
+) -> RendererPageState {
+    let mut pages = Vec::with_capacity(display_lists.len());
+    let mut metadata = Vec::with_capacity(display_lists.len());
+    let mut syncmap = Vec::with_capacity(display_lists.len());
+    let mut document_output_offset = 0u32;
+
+    for (index, page) in display_lists.iter().enumerate() {
+        let width_pt = page.width_pt.round().max(1.0) as u32;
+        let height_pt = page.height_pt.round().max(1.0) as u32;
+        let page_output_start = document_output_offset;
+        let mut page_output_offset = 0u32;
+        let mut line_positions = BTreeSet::new();
+        let mut items = Vec::new();
+
+        for op in &page.ops {
+            let (source, left, right, top, bottom, output_len) = match op {
+                DrawOp::TextRun(run) => {
+                    line_positions.insert((run.origin.y * 100.0).round() as i64);
+                    (
+                        &run.source,
+                        run.origin.x,
+                        run.origin.x + run.approximate_advance_pt.max(run.size_pt * 0.5),
+                        run.origin.y - run.size_pt,
+                        run.origin.y + run.size_pt * 0.25,
+                        run.text.len().max(1) as u32,
+                    )
+                }
+                DrawOp::Image(image) => (
+                    &image.source,
+                    image.rect.x,
+                    image.rect.x + image.rect.width,
+                    image.rect.y,
+                    image.rect.y + image.rect.height,
+                    1,
+                ),
+                DrawOp::Save
+                | DrawOp::Restore
+                | DrawOp::ClipRect(_)
+                | DrawOp::Rule(_)
+                | DrawOp::LinkAnnotation(_)
+                | DrawOp::NamedDestination(_) => continue,
+            };
+            let source_span = match &source.primary {
+                ProvenanceSpan::File(span) => Some(span),
+                ProvenanceSpan::Generated(_) => source.related.iter().find_map(|related| {
+                    if let ProvenanceSpan::File(span) = &related.span {
+                        Some(span)
+                    } else {
+                        None
+                    }
+                }),
+            };
+            let Some(source_span) = source_span else {
+                page_output_offset = page_output_offset.saturating_add(output_len + 1);
+                continue;
+            };
+            let output_start_utf8 = page_output_offset;
+            let output_end_utf8 = output_start_utf8.saturating_add(output_len);
+            let clamp_x = |value: f32| value.max(0.0).min(page.width_pt).round() as u32;
+            let clamp_y = |value: f32| value.max(0.0).min(page.height_pt).round() as u32;
+            let left_px = clamp_x(left).min(width_pt.saturating_sub(1));
+            let right_px = clamp_x(right).min(width_pt).max(left_px.saturating_add(1));
+            let top_px = clamp_y(top).min(height_pt.saturating_sub(1));
+            let bottom_px = clamp_y(bottom).min(height_pt).max(top_px.saturating_add(1));
+            items.push(ArtifactSyncSpan {
+                file: source_span.path.clone(),
+                start_utf8: source_span.start_utf8,
+                end_utf8: source_span.end_utf8,
+                output_start_utf8,
+                output_end_utf8,
+                left_px,
+                right_px,
+                top_px,
+                bottom_px,
+            });
+            page_output_offset = output_end_utf8.saturating_add(1);
+        }
+
+        items.sort_by_key(|item| (item.output_start_utf8, item.top_px, item.left_px));
+        let page_output_len = items
+            .iter()
+            .map(|item| item.output_end_utf8)
+            .max()
+            .unwrap_or(1);
+        let page_output_end = page_output_start.saturating_add(page_output_len);
+        let source_spans = page
+            .source_spans
+            .iter()
+            .map(|span| (span.path.clone(), span.start_utf8, span.end_utf8))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .map(|(file, start_utf8, end_utf8)| ArtifactSourceSpan {
+                file,
+                start_utf8,
+                end_utf8,
+            })
+            .collect();
+        let pdf_artifact_path = pdf_artifact_paths
+            .get(&page.page_id)
+            .cloned()
+            .unwrap_or_else(|| Utf8PathBuf::from(format!("rev-{rev}/pages/{}.pdf", page.page_id)));
+        pages.push(CheckpointPage {
+            page_id: page.page_id.clone(),
+            index,
+            content_hash: page.content_hash.clone(),
+            text_start_utf8: page_output_start,
+            text_end_utf8: page_output_end,
+        });
+        metadata.push(PageArtifactMeta {
+            page_id: page.page_id.clone(),
+            index,
+            line_count: line_positions.len(),
+            width_pt,
+            height_pt,
+            content_hash: page.content_hash.clone(),
+            text_start_utf8: page_output_start,
+            text_end_utf8: page_output_end,
+            pdf_artifact_path,
+            source_spans,
+        });
+        syncmap.push(PageSyncMapArtifact {
+            page_id: page.page_id.clone(),
+            index,
+            width_pt,
+            height_pt,
+            items,
+        });
+        document_output_offset = page_output_end.saturating_add(1);
+    }
+
+    RendererPageState {
+        pages,
+        metadata,
+        syncmap,
+    }
+}
+
+fn renderer_unchanged_tail(
+    previous_rev: u64,
+    previous_pages: &[CheckpointPage],
+    current_pages: &[CheckpointPage],
+) -> Option<UnchangedTail> {
+    let mut page_count = 0usize;
+    while page_count < previous_pages.len().min(current_pages.len()) {
+        let previous = &previous_pages[previous_pages.len() - page_count - 1];
+        let current = &current_pages[current_pages.len() - page_count - 1];
+        if previous.page_id != current.page_id || previous.content_hash != current.content_hash {
+            break;
+        }
+        page_count += 1;
+    }
+    (page_count > 0).then(|| UnchangedTail {
+        previous_rev,
+        resume_checkpoint_id: String::new(),
+        previous_page_start: previous_pages.len() - page_count,
+        current_page_start: current_pages.len() - page_count,
+        page_count,
+    })
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DepTrace {
     pub inputs: Vec<Utf8PathBuf>,
@@ -839,8 +1012,12 @@ struct BuildMeta {
     start_checkpoint_id: Option<String>,
     start_page_index: usize,
     page_count: usize,
+    execution_page_count: usize,
     rebuilt_page_count: usize,
     reused_page_count: usize,
+    renderer_page_count: usize,
+    renderer_rebuilt_page_count: usize,
+    renderer_reused_page_count: usize,
     semantic_pass_count: usize,
     semantic_rerun_count: usize,
     semantic_fixpoint_reached: bool,
@@ -864,13 +1041,7 @@ impl CompilerDriver {
         Self {
             compiler_bin,
             compiler_args,
-            internal_render_ir_svg_preview: true,
         }
-    }
-
-    pub fn with_internal_render_ir_svg_preview(mut self, enabled: bool) -> Self {
-        self.internal_render_ir_svg_preview = enabled;
-        self
     }
 
     pub async fn compile(&self, request: CompileRequest) -> Result<CompileOutcome, CompileFailure> {
@@ -1369,8 +1540,51 @@ impl CompilerDriver {
             if !build.run.diagnostics.is_empty() {
                 return Err(internal_diagnostics_failure(&request.toplevel, build));
             }
-            fs::write(pdf_path.as_std_path(), &build.pdf_bytes).map_err(|error| {
-                CompileFailure {
+            let render_ir_artifact_dir = rev_dir.join("render-ir");
+            let prepared_asset_cache_root = request.build_root.join("render-asset-cache");
+            let render_ir_capture = if let Some(aux) = semantic_aux.as_ref() {
+                capture_internal_render_ir_from_project_root_with_asset_cache(
+                    &request.root,
+                    &request.toplevel,
+                    aux,
+                    &prepared_asset_cache_root,
+                )
+            } else {
+                capture_internal_render_ir_from_project_root_with_asset_cache(
+                    &request.root,
+                    &request.toplevel,
+                    &SemanticAux::default(),
+                    &prepared_asset_cache_root,
+                )
+            }
+            .map_err(|error| CompileFailure {
+                diagnostics: vec![Diagnostic {
+                    level: DiagnosticLevel::Error,
+                    file: Some(request.toplevel.to_string()),
+                    line: None,
+                    message: format!("failed to build render IR artifacts: {error}"),
+                }],
+                message: format!("failed to build render IR artifacts: {error}"),
+            })?;
+            render_ir_capture
+                .write_debug_artifacts(&render_ir_artifact_dir)
+                .map_err(|error| CompileFailure {
+                    diagnostics: vec![Diagnostic {
+                        level: DiagnosticLevel::Error,
+                        file: Some(request.toplevel.to_string()),
+                        line: None,
+                        message: format!(
+                            "failed to write render IR artifacts {}: {error}",
+                            render_ir_artifact_dir
+                        ),
+                    }],
+                    message: format!(
+                        "failed to write render IR artifacts {}: {error}",
+                        render_ir_artifact_dir
+                    ),
+                })?;
+            fs::write(pdf_path.as_std_path(), &render_ir_capture.display_list_pdf).map_err(
+                |error| CompileFailure {
                     diagnostics: vec![Diagnostic {
                         level: DiagnosticLevel::Error,
                         file: Some(request.toplevel.to_string()),
@@ -1378,8 +1592,8 @@ impl CompilerDriver {
                         message: format!("failed to write internal PDF {}: {error}", pdf_path),
                     }],
                     message: format!("failed to write internal PDF {}: {error}", pdf_path),
-                }
-            })?;
+                },
+            )?;
             let page_dir = rev_dir.join("pages");
             fs::create_dir_all(page_dir.as_std_path()).map_err(|error| CompileFailure {
                 diagnostics: vec![Diagnostic {
@@ -1411,6 +1625,28 @@ impl CompilerDriver {
                     current_page_start: tail.current_page_start,
                     page_count: tail.page_count,
                 });
+            let previous_execution_page_hashes = previous_build
+                .as_ref()
+                .map(|previous| {
+                    previous
+                        .bundle
+                        .pages
+                        .iter()
+                        .map(|page| (page.page_id.clone(), page.content_hash.clone()))
+                        .collect::<BTreeMap<_, _>>()
+                })
+                .unwrap_or_default();
+            let execution_reused_page_count = checkpoint_pages
+                .iter()
+                .filter(|page| {
+                    previous_execution_page_hashes
+                        .get(&page.page_id)
+                        .is_some_and(|hash| hash == &page.content_hash)
+                })
+                .count();
+            let execution_rebuilt_page_count = checkpoint_pages
+                .len()
+                .saturating_sub(execution_reused_page_count);
             let mut executed_sources = BTreeMap::new();
             if let Some(materialized) = materialized_project.as_ref() {
                 executed_sources.extend(materialized.files.clone());
@@ -1441,39 +1677,62 @@ impl CompilerDriver {
                     }
                 }
             }
+            let previous_renderer_metadata = previous_build
+                .as_ref()
+                .map(|previous| {
+                    load_page_artifact_metadata(
+                        &request
+                            .build_root
+                            .join(format!("rev-{}/page-metadata.json", previous.rev)),
+                    )
+                })
+                .transpose()
+                .map_err(|error| CompileFailure {
+                    diagnostics: vec![Diagnostic {
+                        level: DiagnosticLevel::Error,
+                        file: Some(request.toplevel.to_string()),
+                        line: None,
+                        message: format!("failed to load prior renderer page metadata: {error}"),
+                    }],
+                    message: format!("failed to load prior renderer page metadata: {error}"),
+                })?
+                .unwrap_or_default();
+            let previous_renderer_pages = previous_renderer_metadata
+                .iter()
+                .map(|page| CheckpointPage {
+                    page_id: page.page_id.clone(),
+                    index: page.index,
+                    content_hash: page.content_hash.clone(),
+                    text_start_utf8: page.text_start_utf8,
+                    text_end_utf8: page.text_end_utf8,
+                })
+                .collect::<Vec<_>>();
             let previous_reusable_pages = previous_build.as_ref().map(|previous| {
                 (
                     previous.rev,
-                    previous
-                        .bundle
-                        .pages
+                    previous_renderer_metadata
                         .iter()
                         .map(|page| (page.page_id.clone(), page.content_hash.clone()))
-                        .collect::<std::collections::BTreeMap<_, _>>(),
+                        .collect::<BTreeMap<_, _>>(),
                 )
             });
-            let current_page_hashes = checkpoint_pages
-                .iter()
-                .map(|page| (page.page_id.clone(), page.content_hash.clone()))
-                .collect::<BTreeMap<_, _>>();
-            let mut page_artifacts = Vec::with_capacity(build.layout.pages.len());
+            let mut page_artifacts = Vec::with_capacity(render_ir_capture.page_display_lists.len());
             let mut page_pdf_paths = BTreeMap::new();
-            let mut reused_page_count = 0usize;
-            let mut rebuilt_page_count = 0usize;
-            for page in &build.layout.pages {
-                let current_hash = current_page_hashes.get(&page.page_id).map(String::as_str);
+            let mut renderer_reused_page_count = 0usize;
+            let mut renderer_rebuilt_page_count = 0usize;
+            for page in &render_ir_capture.page_display_lists {
                 let reused_artifact_rev =
                     previous_reusable_pages
                         .as_ref()
                         .and_then(|(previous_rev, pages)| {
                             let previous_hash = pages.get(&page.page_id)?;
-                            if Some(previous_hash.as_str()) != current_hash {
+                            if previous_hash != &page.content_hash {
                                 return None;
                             }
                             Some(*previous_rev)
                         });
                 if let Some(previous_rev) = reused_artifact_rev {
-                    reused_page_count += 1;
+                    renderer_reused_page_count += 1;
                     page_pdf_paths.insert(
                         page.page_id.clone(),
                         Utf8PathBuf::from(format!("rev-{previous_rev}/pages/{}.pdf", page.page_id)),
@@ -1492,11 +1751,25 @@ impl CompilerDriver {
                     continue;
                 }
 
-                rebuilt_page_count += 1;
+                renderer_rebuilt_page_count += 1;
                 let page_path = page_dir.join(format!("{}.pdf", page.page_id));
-                let page_pdf = render_single_page_pdf(page, &build.layout.options);
+                let page_pdf = render_display_list_pdf_with_materialized_assets(
+                    std::slice::from_ref(page),
+                    |asset_request| {
+                        render_ir_capture
+                            .materialized_assets
+                            .get(asset_request)
+                            .cloned()
+                    },
+                );
                 let page_svg_path = page_dir.join(format!("{}.svg", page.page_id));
-                let page_svg = render_page_svg(page, &build.layout.options);
+                let page_svg =
+                    render_display_list_svg_with_materialized_assets(page, |asset_request| {
+                        render_ir_capture
+                            .materialized_assets
+                            .get(asset_request)
+                            .cloned()
+                    });
                 fs::write(page_path.as_std_path(), &page_pdf).map_err(|error| CompileFailure {
                     diagnostics: vec![Diagnostic {
                         level: DiagnosticLevel::Error,
@@ -1539,65 +1812,18 @@ impl CompilerDriver {
                     ))),
                 });
             }
-            let render_ir_artifact_dir = rev_dir.join("render-ir");
-            let prepared_asset_cache_root = request.build_root.join("render-asset-cache");
-            let render_ir_capture = if let Some(aux) = semantic_aux.as_ref() {
-                capture_internal_render_ir_from_project_root_with_asset_cache(
-                    &request.root,
-                    &request.toplevel,
-                    aux,
-                    &prepared_asset_cache_root,
+            let renderer_state = build_renderer_page_state(
+                &render_ir_capture.page_display_lists,
+                &page_pdf_paths,
+                request.rev,
+            );
+            let renderer_tail = previous_build.as_ref().and_then(|previous| {
+                renderer_unchanged_tail(
+                    previous.rev,
+                    &previous_renderer_pages,
+                    &renderer_state.pages,
                 )
-            } else {
-                capture_internal_render_ir_from_project_root_with_asset_cache(
-                    &request.root,
-                    &request.toplevel,
-                    &SemanticAux::default(),
-                    &prepared_asset_cache_root,
-                )
-            }
-            .map_err(|error| CompileFailure {
-                diagnostics: vec![Diagnostic {
-                    level: DiagnosticLevel::Error,
-                    file: Some(request.toplevel.to_string()),
-                    line: None,
-                    message: format!("failed to build render IR artifacts: {error}"),
-                }],
-                message: format!("failed to build render IR artifacts: {error}"),
-            })?;
-            let render_ir_artifact_paths = render_ir_capture
-                .write_debug_artifacts(&render_ir_artifact_dir)
-                .map_err(|error| CompileFailure {
-                    diagnostics: vec![Diagnostic {
-                        level: DiagnosticLevel::Error,
-                        file: Some(request.toplevel.to_string()),
-                        line: None,
-                        message: format!(
-                            "failed to write render IR artifacts {}: {error}",
-                            render_ir_artifact_dir
-                        ),
-                    }],
-                    message: format!(
-                        "failed to write render IR artifacts {}: {error}",
-                        render_ir_artifact_dir
-                    ),
-                })?;
-            if self.internal_render_ir_svg_preview
-                && render_ir_artifact_paths.display_list_svgs.len() == page_artifacts.len()
-            {
-                for (page_artifact, svg_path) in page_artifacts
-                    .iter_mut()
-                    .zip(&render_ir_artifact_paths.display_list_svgs)
-                {
-                    let Some(svg_file_name) = svg_path.file_name() else {
-                        continue;
-                    };
-                    page_artifact.svg_url = Some(viewer_prefixed_path(&format!(
-                        "/artifacts/rev/{}/render-ir/{svg_file_name}",
-                        request.rev,
-                    )));
-                }
-            }
+            });
             let shipout_checkpoints = if let Some(plan) = replay_plan.as_ref() {
                 let previous = previous_build.as_ref().ok_or_else(|| CompileFailure {
                     diagnostics: vec![Diagnostic {
@@ -1834,7 +2060,7 @@ impl CompilerDriver {
                 }],
                 message: format!("failed to build checkpoint bundle: {error}"),
             })?;
-            let page_metadata = build
+            let execution_page_metadata = build
                 .page_metadata
                 .iter()
                 .map(|page| PageArtifactMeta {
@@ -1846,14 +2072,7 @@ impl CompilerDriver {
                     content_hash: page.content_hash.clone(),
                     text_start_utf8: page.text_span.start_utf8,
                     text_end_utf8: page.text_span.end_utf8,
-                    pdf_artifact_path: page_pdf_paths.get(&page.page_id).cloned().unwrap_or_else(
-                        || {
-                            Utf8PathBuf::from(format!(
-                                "rev-{}/pages/{}.pdf",
-                                request.rev, page.page_id
-                            ))
-                        },
-                    ),
+                    pdf_artifact_path: Utf8PathBuf::new(),
                     source_spans: page
                         .source_spans
                         .iter()
@@ -1865,154 +2084,11 @@ impl CompilerDriver {
                         .collect(),
                 })
                 .collect::<Vec<_>>();
-            let page_syncmap = build
-                .page_metadata
-                .iter()
-                .map(|page| PageSyncMapArtifact {
-                    page_id: page.page_id.clone(),
-                    index: page.index,
-                    width_pt: page.width_pt.round() as u32,
-                    height_pt: page.height_pt.round() as u32,
-                    items: {
-                        let mut items = Vec::new();
-                        if let Some(layout_page) = build.layout.pages.get(page.index) {
-                            let char_width_pt = (((page.width_pt.round() as f32)
-                                - PAGE_TEXT_LEFT_PT * 2.0)
-                                .max(1.0)
-                                / build.layout.options.chars_per_line.max(1) as f32)
-                                .max(1.0);
-                            let max_right = ((page.width_pt.round() as f32) - PAGE_TEXT_LEFT_PT)
-                                .max(PAGE_TEXT_LEFT_PT + char_width_pt);
-                            let mut line_start_utf8 = 0u32;
-                            let mut line_boxes = Vec::with_capacity(layout_page.lines.len());
-                            for (line_index, line) in layout_page.lines.iter().enumerate() {
-                                let line_len_utf8 = line.len() as u32;
-                                let line_end_utf8 = line_start_utf8 + line_len_utf8;
-                                let line_top = (PAGE_TEXT_TOP_PT
-                                    + build.layout.options.line_height_pt * line_index as f32
-                                    - build.layout.options.font_size_pt)
-                                    .max(0.0);
-                                let line_bottom = (line_top + build.layout.options.line_height_pt)
-                                    .min(page.height_pt as f32);
-                                let visible_chars = line.chars().count().max(1) as f32;
-                                let line_right = (PAGE_TEXT_LEFT_PT
-                                    + visible_chars * char_width_pt)
-                                    .min(max_right)
-                                    .max(PAGE_TEXT_LEFT_PT + char_width_pt);
-                                line_boxes.push((
-                                    line_start_utf8,
-                                    line_end_utf8,
-                                    PAGE_TEXT_LEFT_PT,
-                                    line_right,
-                                    line_top,
-                                    line_bottom,
-                                ));
-                                line_start_utf8 = line_end_utf8.saturating_add(1);
-                            }
-                            for span in &page.sync_spans {
-                                let span_output_len = span
-                                    .output_end_utf8
-                                    .saturating_sub(span.output_start_utf8)
-                                    .max(1);
-                                let span_source_len =
-                                    span.end_utf8.saturating_sub(span.start_utf8).max(1);
-                                let mut span_items = 0usize;
-                                for (
-                                    line_start_utf8,
-                                    line_end_utf8,
-                                    line_left,
-                                    line_right,
-                                    line_top,
-                                    line_bottom,
-                                ) in &line_boxes
-                                {
-                                    if *line_end_utf8 <= span.output_start_utf8
-                                        || *line_start_utf8 >= span.output_end_utf8
-                                    {
-                                        continue;
-                                    }
-                                    let overlap_start =
-                                        (*line_start_utf8).max(span.output_start_utf8);
-                                    let overlap_end = (*line_end_utf8).min(span.output_end_utf8);
-                                    if overlap_end <= overlap_start {
-                                        continue;
-                                    }
-                                    let start_utf8 = span.start_utf8
-                                        + ((span_source_len as u64
-                                            * (overlap_start - span.output_start_utf8) as u64)
-                                            / span_output_len as u64)
-                                            as u32;
-                                    let end_utf8 = if overlap_end == span.output_end_utf8 {
-                                        span.end_utf8
-                                    } else {
-                                        span.start_utf8
-                                            + ((span_source_len as u64
-                                                * (overlap_end - span.output_start_utf8) as u64)
-                                                / span_output_len as u64)
-                                                as u32
-                                    };
-                                    let line_len_utf8 =
-                                        line_end_utf8.saturating_sub(*line_start_utf8).max(1);
-                                    let line_width = (line_right - line_left).max(char_width_pt);
-                                    let left = line_left
-                                        + line_width
-                                            * ((overlap_start - *line_start_utf8) as f32
-                                                / line_len_utf8 as f32);
-                                    let right = if overlap_end == *line_end_utf8 {
-                                        *line_right
-                                    } else {
-                                        line_left
-                                            + line_width
-                                                * ((overlap_end - *line_start_utf8) as f32
-                                                    / line_len_utf8 as f32)
-                                    };
-                                    items.push(ArtifactSyncSpan {
-                                        file: span.file.clone(),
-                                        start_utf8,
-                                        end_utf8,
-                                        output_start_utf8: overlap_start,
-                                        output_end_utf8: overlap_end,
-                                        left_px: left.round() as u32,
-                                        right_px: right.max(left + 1.0).round() as u32,
-                                        top_px: line_top.round() as u32,
-                                        bottom_px: line_bottom.max(line_top + 1.0).round() as u32,
-                                    });
-                                    span_items += 1;
-                                }
-                                if span_items == 0 {
-                                    items.push(ArtifactSyncSpan {
-                                        file: span.file.clone(),
-                                        start_utf8: span.start_utf8,
-                                        end_utf8: span.end_utf8,
-                                        output_start_utf8: span.output_start_utf8,
-                                        output_end_utf8: span.output_end_utf8,
-                                        left_px: 0,
-                                        right_px: page.width_pt.round() as u32,
-                                        top_px: 0,
-                                        bottom_px: page.height_pt.round() as u32,
-                                    });
-                                }
-                            }
-                        } else {
-                            items.extend(page.sync_spans.iter().map(|span| ArtifactSyncSpan {
-                                file: span.file.clone(),
-                                start_utf8: span.start_utf8,
-                                end_utf8: span.end_utf8,
-                                output_start_utf8: span.output_start_utf8,
-                                output_end_utf8: span.output_end_utf8,
-                                left_px: 0,
-                                right_px: page.width_pt.round() as u32,
-                                top_px: 0,
-                                bottom_px: page.height_pt.round() as u32,
-                            }));
-                        }
-                        items.sort_by_key(|item| {
-                            (item.output_start_utf8, item.top_px, item.left_px)
-                        });
-                        items
-                    },
-                })
-                .collect::<Vec<_>>();
+            let RendererPageState {
+                pages: renderer_pages,
+                metadata: page_metadata,
+                syncmap: page_syncmap,
+            } = renderer_state;
             let serialized_page_metadata =
                 serde_json::to_vec_pretty(&page_metadata).map_err(|error| CompileFailure {
                     diagnostics: vec![Diagnostic {
@@ -2022,6 +2098,20 @@ impl CompilerDriver {
                         message: format!("failed to serialize page metadata: {error}"),
                     }],
                     message: format!("failed to serialize page metadata: {error}"),
+                })?;
+            let serialized_execution_page_metadata =
+                serde_json::to_vec_pretty(&execution_page_metadata).map_err(|error| {
+                    CompileFailure {
+                        diagnostics: vec![Diagnostic {
+                            level: DiagnosticLevel::Error,
+                            file: Some(request.toplevel.to_string()),
+                            line: None,
+                            message: format!(
+                                "failed to serialize execution page metadata: {error}"
+                            ),
+                        }],
+                        message: format!("failed to serialize execution page metadata: {error}"),
+                    }
                 })?;
             let serialized_page_syncmap =
                 serde_json::to_vec_pretty(&page_syncmap).map_err(|error| CompileFailure {
@@ -2051,6 +2141,26 @@ impl CompilerDriver {
                     ),
                 },
             )?;
+            let execution_page_metadata_path = rev_dir.join("execution-page-metadata.json");
+            fs::write(
+                execution_page_metadata_path.as_std_path(),
+                serialized_execution_page_metadata,
+            )
+            .map_err(|error| CompileFailure {
+                diagnostics: vec![Diagnostic {
+                    level: DiagnosticLevel::Error,
+                    file: Some(request.toplevel.to_string()),
+                    line: None,
+                    message: format!(
+                        "failed to write execution page metadata {}: {error}",
+                        execution_page_metadata_path
+                    ),
+                }],
+                message: format!(
+                    "failed to write execution page metadata {}: {error}",
+                    execution_page_metadata_path
+                ),
+            })?;
             let page_syncmap_path = rev_dir.join("page-syncmap.json");
             fs::write(page_syncmap_path.as_std_path(), serialized_page_syncmap).map_err(
                 |error| CompileFailure {
@@ -2083,12 +2193,12 @@ impl CompilerDriver {
             })?;
             let page_patches = previous_build
                 .as_ref()
-                .map(|previous| {
+                .map(|_| {
                     plan_page_patches(
-                        &previous.bundle.pages,
-                        &checkpoint_pages,
+                        &previous_renderer_pages,
+                        &renderer_pages,
                         &page_artifacts,
-                        unchanged_tail.as_ref(),
+                        renderer_tail.as_ref(),
                     )
                 })
                 .unwrap_or_default();
@@ -2275,8 +2385,12 @@ impl CompilerDriver {
                     .map(|plan| plan.start_page_index)
                     .unwrap_or_default(),
                 page_count: build.page_metadata.len(),
-                rebuilt_page_count,
-                reused_page_count,
+                execution_page_count: build.page_metadata.len(),
+                rebuilt_page_count: execution_rebuilt_page_count,
+                reused_page_count: execution_reused_page_count,
+                renderer_page_count: renderer_pages.len(),
+                renderer_rebuilt_page_count,
+                renderer_reused_page_count,
                 semantic_pass_count,
                 semantic_rerun_count: semantic_pass_count.saturating_sub(1),
                 semantic_fixpoint_reached,
@@ -2314,7 +2428,8 @@ impl CompilerDriver {
                 diagnostics: Vec::new(),
                 dep_trace: DepTrace::from_inputs(tracked_inputs),
                 page_artifacts,
-                page_metadata,
+                page_metadata: execution_page_metadata,
+                renderer_page_metadata: page_metadata,
                 reused_checkpoint_id,
                 unchanged_tail,
                 page_patches,
@@ -2611,8 +2726,12 @@ impl CompilerDriver {
             start_checkpoint_id: None,
             start_page_index: 0,
             page_count: 0,
+            execution_page_count: 0,
             rebuilt_page_count: 0,
             reused_page_count: 0,
+            renderer_page_count: 0,
+            renderer_rebuilt_page_count: 0,
+            renderer_reused_page_count: 0,
             semantic_pass_count: 0,
             semantic_rerun_count: 0,
             semantic_fixpoint_reached: false,
@@ -2652,6 +2771,7 @@ impl CompilerDriver {
             dep_trace,
             page_artifacts: Vec::new(),
             page_metadata: Vec::new(),
+            renderer_page_metadata: Vec::new(),
             reused_checkpoint_id: None,
             unchanged_tail: None,
             page_patches: Vec::new(),
@@ -2688,6 +2808,7 @@ fn load_latest_previous_internal_build(
         let rev_dir = build_root.join(format!("rev-{previous_rev}"));
         let checkpoint_path = rev_dir.join("checkpoints.json");
         let page_metadata_path = rev_dir.join("page-metadata.json");
+        let execution_page_metadata_path = rev_dir.join("execution-page-metadata.json");
         let output_path = rev_dir.join("output.txt");
         let sources_path = rev_dir.join("sources.json");
         let aux_path = rev_dir.join("aux.json");
@@ -2701,11 +2822,12 @@ fn load_latest_previous_internal_build(
         }
         let bundle = load_checkpoint_bundle(&checkpoint_path)
             .with_context(|| format!("failed to load {checkpoint_path}"))?;
-        let page_metadata = serde_json::from_slice::<Vec<PageArtifactMeta>>(
-            &fs::read(page_metadata_path.as_std_path())
-                .with_context(|| format!("failed to read {page_metadata_path}"))?,
-        )
-        .with_context(|| format!("failed to parse {page_metadata_path}"))?;
+        let checkpoint_page_metadata_path = if execution_page_metadata_path.exists() {
+            &execution_page_metadata_path
+        } else {
+            &page_metadata_path
+        };
+        let page_metadata = load_page_artifact_metadata(checkpoint_page_metadata_path)?;
         let output = fs::read_to_string(output_path.as_std_path())
             .with_context(|| format!("failed to read {output_path}"))?;
         let sources = serde_json::from_slice::<StoredSourceTexts>(
@@ -2764,6 +2886,13 @@ fn load_latest_previous_internal_build(
     }
 
     Ok(None)
+}
+
+fn load_page_artifact_metadata(path: &Utf8Path) -> anyhow::Result<Vec<PageArtifactMeta>> {
+    serde_json::from_slice::<Vec<PageArtifactMeta>>(
+        &fs::read(path.as_std_path()).with_context(|| format!("failed to read {path}"))?,
+    )
+    .with_context(|| format!("failed to parse {path}"))
 }
 
 fn save_source_texts(
@@ -3887,18 +4016,19 @@ mod tests {
     use tex_vm::{VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot};
 
     use super::{
-        ArtifactSourceSpan, CheckpointPage, CompileRequest, CompilerDriver, DepTrace,
-        PageArtifactMeta, PreparedAssetCacheStats, PreviousInternalBuild,
+        ArtifactSourceSpan, BuildMeta, CheckpointPage, CompileRequest, CompilerDriver, DepTrace,
+        PageArtifactMeta, PageSyncMapArtifact, PreparedAssetCacheStats, PreviousInternalBuild,
         ResolvedGraphicAssetMaterializer, ResolvedGraphicConverter, SemanticAux,
         StoredModuleCheckpoint, StoredModuleTrace, UnchangedTail,
-        annotate_display_list_image_diagnostics, capture_internal_render_ir,
-        earliest_changed_offset, earliest_changed_rewrite_span_offset,
+        annotate_display_list_image_diagnostics, build_renderer_page_state,
+        capture_internal_render_ir, earliest_changed_offset, earliest_changed_rewrite_span_offset,
         earliest_changed_rewrite_span_source_offset, load_latest_previous_internal_build,
         materialize_display_list_asset, parse_depfile, parse_fls, plan_page_patches,
         rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
-        render_ir_display_list_svg_file_name, replay_checkpoint_from_stored,
-        resolve_graphic_asset_materializer, save_source_texts, select_shipout_replay_plan,
-        select_shipout_replay_plan_with_spans, shift_shipout_source_offset,
+        render_ir_display_list_svg_file_name, renderer_unchanged_tail,
+        replay_checkpoint_from_stored, resolve_graphic_asset_materializer, save_source_texts,
+        select_shipout_replay_plan, select_shipout_replay_plan_with_spans,
+        shift_shipout_source_offset,
     };
 
     #[test]
@@ -4246,8 +4376,82 @@ mod tests {
         );
     }
 
+    #[test]
+    fn renderer_page_state_keeps_identity_geometry_and_stable_tail_together() {
+        let image_page =
+            |page_id: &str, content_hash: &str, y: f32, source_start: u32| PageDisplayList {
+                page_id: page_id.to_string(),
+                width_pt: 300.0,
+                height_pt: 400.0,
+                ops: vec![DrawOp::Image(PositionedImage {
+                    rect: Rect {
+                        x: 20.0,
+                        y,
+                        width: 120.0,
+                        height: 60.0,
+                    },
+                    asset_ref: "figure.png".to_string(),
+                    asset_format: Some(GraphicAssetFormat::Png),
+                    page_selection: None,
+                    asset_hash: None,
+                    natural_width_pt: Some(120.0),
+                    natural_height_pt: Some(60.0),
+                    crop: None,
+                    scale: None,
+                    rotation: None,
+                    diagnostic: None,
+                    source: SourceProvenance::file("main.tex", source_start, source_start + 10),
+                })],
+                source_spans: vec![tex_render_model::SourceSpan {
+                    path: "main.tex".into(),
+                    start_utf8: source_start,
+                    end_utf8: source_start + 10,
+                }],
+                content_hash: content_hash.to_string(),
+            };
+        let previous = vec![
+            image_page("old", "old-hash", 10.0, 0),
+            image_page("stable", "stable-hash", 80.0, 20),
+        ];
+        let current = vec![
+            image_page("new-a", "new-a-hash", 20.0, 0),
+            image_page("new-b", "new-b-hash", 50.0, 10),
+            image_page("stable", "stable-hash", 80.0, 20),
+        ];
+        let pdf_paths = BTreeMap::from([
+            ("new-a".to_string(), "rev-2/pages/new-a.pdf".into()),
+            ("new-b".to_string(), "rev-2/pages/new-b.pdf".into()),
+            ("stable".to_string(), "rev-1/pages/stable.pdf".into()),
+        ]);
+
+        let previous_state = build_renderer_page_state(&previous, &BTreeMap::new(), 1);
+        let current_state = build_renderer_page_state(&current, &pdf_paths, 2);
+        let tail = renderer_unchanged_tail(1, &previous_state.pages, &current_state.pages)
+            .expect("stable renderer tail");
+
+        assert_eq!(tail.previous_page_start, 1);
+        assert_eq!(tail.current_page_start, 2);
+        assert_eq!(tail.page_count, 1);
+        assert_eq!(current_state.metadata[2].page_id, "stable");
+        assert_eq!(
+            current_state.metadata[2].pdf_artifact_path,
+            Utf8PathBuf::from("rev-1/pages/stable.pdf")
+        );
+        assert_eq!(current_state.metadata[0].text_start_utf8, 0);
+        assert_eq!(current_state.metadata[0].text_end_utf8, 1);
+        assert_eq!(current_state.metadata[1].text_start_utf8, 2);
+        assert_eq!(current_state.syncmap[1].page_id, "new-b");
+        assert_eq!(current_state.syncmap[1].items.len(), 1);
+        assert_eq!(current_state.syncmap[1].items[0].output_start_utf8, 0);
+        assert_eq!(current_state.syncmap[1].items[0].output_end_utf8, 1);
+        assert_eq!(current_state.syncmap[1].items[0].left_px, 20);
+        assert_eq!(current_state.syncmap[1].items[0].right_px, 140);
+        assert_eq!(current_state.syncmap[1].items[0].top_px, 50);
+        assert_eq!(current_state.syncmap[1].items[0].bottom_px, 110);
+    }
+
     #[tokio::test]
-    async fn internal_compiler_uses_render_ir_svgs_for_default_preview() {
+    async fn internal_compiler_uses_display_lists_as_authoritative_page_model() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
         fs::write(
@@ -4279,14 +4483,79 @@ mod tests {
                 .expect("read page display-list artifact"),
         )
         .expect("parse page display-list artifact");
+        let page_metadata = serde_json::from_slice::<Vec<PageArtifactMeta>>(
+            &fs::read(build_root.join("rev-1/page-metadata.json"))
+                .expect("read renderer page metadata"),
+        )
+        .expect("parse renderer page metadata");
+        let page_syncmap = serde_json::from_slice::<Vec<PageSyncMapArtifact>>(
+            &fs::read(build_root.join("rev-1/page-syncmap.json"))
+                .expect("read renderer page syncmap"),
+        )
+        .expect("parse renderer page syncmap");
+        let execution_page_metadata = serde_json::from_slice::<Vec<PageArtifactMeta>>(
+            &fs::read(build_root.join("rev-1/execution-page-metadata.json"))
+                .expect("read execution page metadata"),
+        )
+        .expect("parse execution page metadata");
         let first_display_list_svg =
             render_ir_display_list_svg_file_name(&display_lists[0].page_id);
+        assert_eq!(outcome.renderer_page_metadata, page_metadata);
+        assert_eq!(outcome.page_metadata, execution_page_metadata);
+        assert_eq!(outcome.page_artifacts.len(), display_lists.len());
+        assert_eq!(page_metadata.len(), display_lists.len());
+        assert_eq!(page_syncmap.len(), display_lists.len());
+        assert!(!execution_page_metadata.is_empty());
+        assert!(
+            execution_page_metadata
+                .iter()
+                .all(|page| page.pdf_artifact_path.as_str().is_empty())
+        );
+        for (((display_list, metadata), syncmap), artifact) in display_lists
+            .iter()
+            .zip(&page_metadata)
+            .zip(&page_syncmap)
+            .zip(&outcome.page_artifacts)
+        {
+            assert_eq!(metadata.page_id, display_list.page_id);
+            assert_eq!(syncmap.page_id, display_list.page_id);
+            assert_eq!(artifact.page_id, display_list.page_id);
+            assert!(artifact.pdf_url.ends_with(&format!(
+                "/artifacts/rev/1/pages/{}.pdf",
+                display_list.page_id
+            )));
+            assert!(
+                artifact
+                    .svg_url
+                    .as_deref()
+                    .is_some_and(|url| url.ends_with(&format!(
+                        "/artifacts/rev/1/pages/{}.svg",
+                        display_list.page_id
+                    )))
+            );
+            assert!(
+                build_root
+                    .join(format!("rev-1/pages/{}.pdf", display_list.page_id))
+                    .exists()
+            );
+            assert!(
+                build_root
+                    .join(format!("rev-1/pages/{}.svg", display_list.page_id))
+                    .exists()
+            );
+        }
+        assert_eq!(
+            fs::read(&outcome.pdf_path).expect("read production PDF"),
+            fs::read(build_root.join("rev-1/render-ir/display-list.pdf"))
+                .expect("read display-list PDF")
+        );
         assert!(first_page.pdf_url.contains("/artifacts/rev/1/pages/"));
-        assert!(first_page.svg_url.as_deref().is_some_and(|url| {
-            url.ends_with(&format!(
-                "/artifacts/rev/1/render-ir/{first_display_list_svg}"
-            ))
-        }));
+        assert!(
+            first_page
+                .svg_url
+                .as_deref()
+                .is_some_and(|url| !url.contains("/render-ir/"))
+        );
         assert!(
             build_root
                 .join("rev-1/render-ir")
@@ -4371,7 +4640,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn internal_compiler_can_keep_legacy_page_svgs_when_render_ir_preview_is_disabled() {
+    async fn internal_compiler_reuses_renderer_pages_separately_from_execution_metadata() {
         let tempdir = tempdir().expect("tempdir");
         let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
         fs::write(
@@ -4382,39 +4651,73 @@ mod tests {
 
         let build_root = root.join(".latexd/build");
         let manifest = tex_world::ProjectManifest::discover(&root).expect("manifest");
-        let outcome = CompilerDriver::new(Some("internal".to_string()), Vec::new())
-            .with_internal_render_ir_svg_preview(false)
+        let driver = CompilerDriver::new(Some("internal".to_string()), Vec::new());
+        let first = driver
             .compile(CompileRequest {
                 root: root.clone(),
-                manifest,
+                manifest: manifest.clone(),
                 toplevel: Utf8PathBuf::from("main.tex"),
                 rev: 1,
                 build_root: build_root.clone(),
                 changed_files: vec![Utf8PathBuf::from("main.tex")],
             })
             .await
-            .expect("internal compile");
+            .expect("first internal compile");
+        let second = driver
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest,
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 2,
+                build_root: build_root.clone(),
+                changed_files: Vec::new(),
+            })
+            .await
+            .expect("second internal compile");
 
-        let first_page = outcome
-            .page_artifacts
-            .first()
-            .expect("internal compiler page artifact");
-        assert!(first_page.svg_url.as_deref().is_some_and(|url| {
-            url.contains("/artifacts/rev/1/pages/") && url.ends_with(".svg")
+        assert_eq!(first.page_artifacts.len(), second.page_artifacts.len());
+        assert!(second.page_patches.is_empty());
+        assert!(second.page_artifacts.iter().all(|artifact| {
+            artifact.pdf_url.contains("/artifacts/rev/1/pages/")
+                && artifact
+                    .svg_url
+                    .as_deref()
+                    .is_some_and(|url| url.contains("/artifacts/rev/1/pages/"))
         }));
-        let display_lists = serde_json::from_slice::<Vec<PageDisplayList>>(
-            &fs::read(build_root.join("rev-1/render-ir/page-display-list.json"))
-                .expect("read page display-list artifact"),
+        let renderer_metadata = serde_json::from_slice::<Vec<PageArtifactMeta>>(
+            &fs::read(build_root.join("rev-2/page-metadata.json"))
+                .expect("read second renderer metadata"),
         )
-        .expect("parse page display-list artifact");
+        .expect("parse second renderer metadata");
+        let execution_metadata = serde_json::from_slice::<Vec<PageArtifactMeta>>(
+            &fs::read(build_root.join("rev-2/execution-page-metadata.json"))
+                .expect("read second execution metadata"),
+        )
+        .expect("parse second execution metadata");
+        let build_meta = serde_json::from_slice::<BuildMeta>(
+            &fs::read(build_root.join("rev-2/build-meta.json")).expect("read build metadata"),
+        )
+        .expect("parse build metadata");
+        assert_eq!(renderer_metadata, second.renderer_page_metadata);
+        assert_eq!(execution_metadata, second.page_metadata);
         assert!(
-            build_root
-                .join("rev-1/render-ir")
-                .join(render_ir_display_list_svg_file_name(
-                    &display_lists[0].page_id
-                ))
-                .exists()
+            renderer_metadata
+                .iter()
+                .all(|page| { page.pdf_artifact_path.as_str().starts_with("rev-1/pages/") })
         );
+        assert!(
+            execution_metadata
+                .iter()
+                .all(|page| page.pdf_artifact_path.as_str().is_empty())
+        );
+        assert_eq!(build_meta.page_count, execution_metadata.len());
+        assert_eq!(build_meta.execution_page_count, execution_metadata.len());
+        assert_eq!(build_meta.renderer_page_count, renderer_metadata.len());
+        assert_eq!(
+            build_meta.renderer_reused_page_count,
+            renderer_metadata.len()
+        );
+        assert_eq!(build_meta.renderer_rebuilt_page_count, 0);
     }
 
     #[test]

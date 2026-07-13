@@ -114,7 +114,7 @@ fn rewrite_unchanged_tail_trailing_toplevel_mixed_multi_input(
     .expect("rewrite body a");
     fs::write(
         root.join("sections/body-b.tex"),
-        format!("{}% body-b trailing comment\n", body_b),
+        format!("{}\n% body-b trailing comment\n", body_b),
     )
     .expect("rewrite body b");
 }

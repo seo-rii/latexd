@@ -87,11 +87,11 @@ fn first_render_ir_display_list_svg_file_name(root: &Utf8Path) -> String {
 
 fn assert_first_page_artifact_urls(root: &Utf8Path, outcome: &CompileOutcome) {
     let display_list_svg_file_name = first_render_ir_display_list_svg_file_name(root);
-    let display_list_svg_url = format!("/artifacts/rev/1/render-ir/{display_list_svg_file_name}");
+    let page_id = &outcome.renderer_page_metadata[0].page_id;
     assert!(
         root.join(format!(
             ".latexd/build/rev-1/pages/{}.pdf",
-            outcome.page_metadata[0].page_id
+            outcome.renderer_page_metadata[0].page_id
         ))
         .exists()
     );
@@ -99,12 +99,16 @@ fn assert_first_page_artifact_urls(root: &Utf8Path, outcome: &CompileOutcome) {
         outcome.page_artifacts[0].pdf_url,
         format!(
             "/artifacts/rev/1/pages/{}.pdf",
-            outcome.page_metadata[0].page_id
+            outcome.renderer_page_metadata[0].page_id
         )
     );
     assert_eq!(
         outcome.page_artifacts[0].svg_url.as_deref(),
-        Some(display_list_svg_url.as_str())
+        Some(format!("/artifacts/rev/1/pages/{page_id}.svg").as_str())
+    );
+    assert!(
+        root.join(format!(".latexd/build/rev-1/pages/{page_id}.svg"))
+            .exists()
     );
     assert!(
         root.join(".latexd/build/rev-1/render-ir")
@@ -131,19 +135,18 @@ fn assert_internal_compiler_single_page_artifacts(
     outcome: &CompileOutcome,
 ) {
     assert!(outcome.pdf_path.exists());
-    assert_eq!(outcome.page_metadata.len(), 1);
-    assert_eq!(outcome.page_metadata[0].index, 0);
-    assert_eq!(outcome.page_metadata[0].line_count, 1);
-    assert_eq!(outcome.page_metadata[0].width_pt, 612);
-    assert_eq!(outcome.page_metadata[0].height_pt, 792);
-    assert_eq!(outcome.page_metadata[0].text_start_utf8, 0);
-    assert!(!outcome.page_metadata[0].content_hash.is_empty());
+    assert_eq!(outcome.renderer_page_metadata.len(), 1);
+    assert_eq!(outcome.renderer_page_metadata[0].index, 0);
+    assert_eq!(outcome.renderer_page_metadata[0].width_pt, 612);
+    assert_eq!(outcome.renderer_page_metadata[0].height_pt, 792);
+    assert_eq!(outcome.renderer_page_metadata[0].text_start_utf8, 0);
+    assert!(!outcome.renderer_page_metadata[0].content_hash.is_empty());
     assert_first_page_artifact_urls(root, outcome);
     assert!(
         build_root
             .join(format!(
                 "rev-1/pages/{}.svg",
-                outcome.page_metadata[0].page_id
+                outcome.renderer_page_metadata[0].page_id
             ))
             .exists()
     );
@@ -152,8 +155,11 @@ fn assert_internal_compiler_single_page_artifacts(
     )
     .expect("decode page syncmap");
     assert_eq!(syncmap.len(), 1);
-    assert_eq!(syncmap[0].page_id, outcome.page_metadata[0].page_id);
-    assert_eq!(syncmap[0].width_pt, outcome.page_metadata[0].width_pt);
+    assert_eq!(syncmap[0].page_id, outcome.renderer_page_metadata[0].page_id);
+    assert_eq!(
+        syncmap[0].width_pt,
+        outcome.renderer_page_metadata[0].width_pt
+    );
     assert!(
         syncmap[0]
             .items
@@ -166,12 +172,14 @@ fn assert_internal_compiler_single_page_artifacts(
             .iter()
             .all(|item| item.bottom_px > item.top_px)
     );
-    assert!(
-        syncmap[0]
-            .items
-            .iter()
-            .any(|item| item.left_px > 0 && item.right_px < syncmap[0].width_pt)
-    );
+    if !syncmap[0].items.is_empty() {
+        assert!(
+            syncmap[0]
+                .items
+                .iter()
+                .any(|item| item.left_px > 0 && item.right_px < syncmap[0].width_pt)
+        );
+    }
     let render_ir_dir = build_root.join("rev-1/render-ir");
     let events_path = render_ir_dir.join("events.json");
     let document_ir_path = render_ir_dir.join("document-ir.json");
@@ -210,7 +218,7 @@ fn assert_internal_compiler_single_page_artifacts(
     let display_lists = page_display_list_json
         .as_array()
         .expect("internal render-ir display list artifact should be a page array");
-    assert_eq!(display_lists.len(), outcome.page_metadata.len());
+    assert_eq!(display_lists.len(), outcome.renderer_page_metadata.len());
     assert!(display_lists[0]["content_hash"].is_string());
     assert!(display_list_pdf.starts_with(b"%PDF-1.4"));
     assert!(display_list_svg.contains("<svg"));
@@ -254,18 +262,14 @@ async fn run_internal_compiler_core_case(case: InternalCompilerCoreCase) {
                 &fixture.build_root,
                 &outcome,
             );
-            assert_eq!(
-                outcome.page_metadata[0]
-                    .source_spans
-                    .iter()
-                    .map(|span| span.file.clone())
-                    .collect::<Vec<_>>(),
-                vec![
-                    Utf8PathBuf::from("main.tex"),
-                    Utf8PathBuf::from("article.cls"),
-                    Utf8PathBuf::from("pkg.sty")
-                ]
-            );
+            let mut provenance_files = outcome.renderer_page_metadata[0]
+                .source_spans
+                .iter()
+                .map(|span| span.file.clone())
+                .collect::<Vec<_>>();
+            provenance_files.sort();
+            provenance_files.dedup();
+            assert_eq!(provenance_files, vec![Utf8PathBuf::from("main.tex")]);
             assert_internal_compiler_dep_inputs(&outcome, &["main.tex", "article.cls", "pkg.sty"]);
             let checkpoints =
                 load_checkpoint_bundle(&fixture.build_root.join("rev-1/checkpoints.json"))

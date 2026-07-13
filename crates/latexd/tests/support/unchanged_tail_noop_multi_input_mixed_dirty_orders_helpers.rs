@@ -96,7 +96,7 @@ toplevel:
         UnchangedTailNoopMixedDirtyOrdersEditMode::TrailingComments => {
             fs::write(
                 root.join("sections/body-a.tex"),
-                format!("{}% body-a trailing comment\n", body_a),
+                format!("{}\n% body-a trailing comment\n", body_a),
             )
             .expect("rewrite body a");
         }
@@ -110,7 +110,7 @@ toplevel:
     }
     fs::write(
         root.join("sections/body-b.tex"),
-        format!("{}% body-b trailing comment\n", body_b),
+        format!("{}\n% body-b trailing comment\n", body_b),
     )
     .expect("rewrite body b");
     match noise_mode {

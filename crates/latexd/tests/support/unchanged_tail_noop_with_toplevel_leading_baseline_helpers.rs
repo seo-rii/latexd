@@ -96,12 +96,12 @@ fn rewrite_unchanged_tail_with_toplevel_leading_baseline(
     .expect("rewrite main tex");
     fs::write(
         fixture.root.join("sections/body-a.tex"),
-        format!("{}% body-a trailing comment\n", fixture.body_a),
+        format!("{}\n% body-a trailing comment\n", fixture.body_a),
     )
     .expect("rewrite body a");
     fs::write(
         fixture.root.join("sections/body-b.tex"),
-        format!("{}% body-b trailing comment\n", fixture.body_b),
+        format!("{}\n% body-b trailing comment\n", fixture.body_b),
     )
     .expect("rewrite body b");
 }

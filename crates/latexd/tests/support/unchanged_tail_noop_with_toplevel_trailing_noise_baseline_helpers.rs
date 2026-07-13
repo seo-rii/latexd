@@ -129,12 +129,12 @@ fn rewrite_unchanged_tail_with_toplevel_trailing_noise(
     .expect("rewrite main tex");
     fs::write(
         fixture.root.join("sections/body-a.tex"),
-        format!("{}% body-a trailing comment\n", fixture.body_a),
+        format!("{}\n% body-a trailing comment\n", fixture.body_a),
     )
     .expect("rewrite body a");
     fs::write(
         fixture.root.join("sections/body-b.tex"),
-        format!("{}% body-b trailing comment\n", fixture.body_b),
+        format!("{}\n% body-b trailing comment\n", fixture.body_b),
     )
     .expect("rewrite body b");
 }
@@ -308,17 +308,20 @@ async fn run_unchanged_tail_with_toplevel_trailing_noise_reuse(
         ));
         assert_eq!(second.unchanged_tail, None);
         assert!(second.reused_checkpoint_id.is_some());
-        assert!(matches!(
-            second.page_patches.as_slice(),
-            [
-                PagePatchOp::ReplacePage { .. },
-                PagePatchOp::ReplacePage { .. },
-                PagePatchOp::ReplacePage { .. },
-                PagePatchOp::InsertPage { .. },
-                PagePatchOp::InsertPage { .. },
-                PagePatchOp::InsertPage { .. },
-            ]
-        ));
+        assert_page_patches_transform(
+            &fixture
+                .first
+                .renderer_page_metadata
+                .iter()
+                .map(|page| page.page_id.clone())
+                .collect::<Vec<_>>(),
+            &second.page_patches,
+            &second
+                .renderer_page_metadata
+                .iter()
+                .map(|page| page.page_id.clone())
+                .collect::<Vec<_>>(),
+        );
         let build_meta = serde_json::from_slice::<BuildMeta>(
             &fs::read(fixture.build_root.join("rev-2/build-meta.json")).expect("read build meta"),
         )

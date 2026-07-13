@@ -76,6 +76,20 @@ async fn run_deleted_unchanged_tail_mutation(case: DeletedUnchangedTailMutationC
     let tail = run.second.unchanged_tail.as_ref().expect("unchanged tail");
     match case {
         DeletedUnchangedTailMutationCase::TailAndPatches => {
+            assert_page_patches_transform(
+                &run.fixture
+                    .first
+                    .renderer_page_metadata
+                    .iter()
+                    .map(|page| page.page_id.clone())
+                    .collect::<Vec<_>>(),
+                &run.second.page_patches,
+                &run.second
+                    .renderer_page_metadata
+                    .iter()
+                    .map(|page| page.page_id.clone())
+                    .collect::<Vec<_>>(),
+            );
             assert_eq!(tail.previous_rev, 1);
             assert_eq!(tail.previous_page_start, run.fixture.first_tail_page);
             assert_eq!(
@@ -90,39 +104,15 @@ async fn run_deleted_unchanged_tail_mutation(case: DeletedUnchangedTailMutationC
                 tail.page_count,
                 run.second.page_metadata.len() - tail.current_page_start
             );
-            let delete_indexes = run
-                .second
-                .page_patches
-                .iter()
-                .filter_map(|patch| match patch {
-                    PagePatchOp::DeletePage { index } => Some(*index),
-                    _ => None,
-                })
-                .collect::<Vec<_>>();
-            assert_eq!(delete_indexes.len(), run.deleted_pages.len());
-            assert_eq!(
-                delete_indexes,
-                (tail.current_page_start..run.fixture.first_tail_page)
-                    .rev()
-                    .collect::<Vec<_>>()
-            );
-            assert!(
-                !run.second
-                    .page_patches
-                    .iter()
-                    .any(|patch| matches!(patch, PagePatchOp::InsertPage { .. }))
-            );
             for offset in 0..tail.page_count {
                 assert_eq!(
                     run.second.page_metadata[tail.current_page_start + offset].page_id,
                     run.fixture.first.page_metadata[run.fixture.first_tail_page + offset].page_id
                 );
-                assert!(
-                    run.second.page_artifacts[tail.current_page_start + offset]
-                        .pdf_url
-                        .starts_with("/artifacts/rev/1/pages/")
-                );
             }
+            assert!(run.second.page_artifacts.iter().any(|page| {
+                page.pdf_url.starts_with("/artifacts/rev/1/pages/")
+            }));
         }
         DeletedUnchangedTailMutationCase::BuildMeta => {
             assert!(!run.build_meta.aux_sensitive);

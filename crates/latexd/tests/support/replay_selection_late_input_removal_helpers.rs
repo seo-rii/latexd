@@ -42,8 +42,8 @@ struct ReplaySelectionLateInputFixture {
     world: ProjectWorld,
     driver: CompilerDriver,
     main_without_tail_input: String,
-    input_page_index: usize,
     first_page_count: usize,
+    first_renderer_page_ids: Vec<String>,
 }
 
 async fn prepare_replay_selection_late_input_fixture() -> ReplaySelectionLateInputFixture {
@@ -100,8 +100,12 @@ toplevel:
         world,
         driver,
         main_without_tail_input: words.join(" "),
-        input_page_index: input_page.index,
         first_page_count: first.page_metadata.len(),
+        first_renderer_page_ids: first
+            .renderer_page_metadata
+            .iter()
+            .map(|page| page.page_id.clone())
+            .collect(),
     }
 }
 
@@ -195,23 +199,15 @@ async fn run_replay_selection_late_input_removal(
             .iter()
             .all(|span| span.file != Utf8PathBuf::from("sections/tail.tex"))
     }));
-    let replace_indexes = second
-        .page_patches
-        .iter()
-        .filter_map(|patch| match patch {
-            PagePatchOp::ReplacePage { index, .. } => Some(*index),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        replace_indexes,
-        (fixture.input_page_index..second.page_metadata.len()).collect::<Vec<_>>()
+    assert_page_patches_transform(
+        &fixture.first_renderer_page_ids,
+        &second.page_patches,
+        &second
+            .renderer_page_metadata
+            .iter()
+            .map(|page| page.page_id.clone())
+            .collect::<Vec<_>>(),
     );
-    assert!(!second.page_patches.iter().any(|patch| matches!(
-        patch,
-        PagePatchOp::InsertPage { .. } | PagePatchOp::DeletePage { .. }
-    )));
-
     assert_late_input_replay_build_meta(&fixture.build_root, &second, &dirty_files, None, 0);
 }
 

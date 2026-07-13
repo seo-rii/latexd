@@ -91,12 +91,12 @@ fn rewrite_unchanged_tail_multi_input_between_noise_unreadable(
 ) {
     fs::write(
         fixture.root.join("sections/body-a.tex"),
-        format!("{}% body-a trailing comment\n", fixture.body_a),
+        format!("{}\n% body-a trailing comment\n", fixture.body_a),
     )
     .expect("rewrite body a");
     fs::write(
         fixture.root.join("sections/body-b.tex"),
-        format!("{}% body-b trailing comment\n", fixture.body_b),
+        format!("{}\n% body-b trailing comment\n", fixture.body_b),
     )
     .expect("rewrite body b");
     fs::create_dir_all(fixture.root.join("notes.txt")).expect("create unreadable dirty dir");

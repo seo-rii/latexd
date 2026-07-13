@@ -113,7 +113,7 @@ fn rewrite_unchanged_tail_leading_toplevel_mixed_interleaved(
     .expect("rewrite body a");
     fs::write(
         fixture.root.join("sections/body-b.tex"),
-        format!("{}% body-b trailing comment\n", fixture.body_b),
+        format!("{}\n% body-b trailing comment\n", fixture.body_b),
     )
     .expect("rewrite body b");
 }

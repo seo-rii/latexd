@@ -50,7 +50,6 @@ pub struct ServeArgs {
     pub bind: String,
     pub compiler_bin: Option<String>,
     pub compiler_args: Vec<String>,
-    pub internal_render_ir_svg_preview: bool,
     pub tile_renderer: TileRendererConfig,
     pub editor_bridge: Option<EditorBridgeConfig>,
 }
@@ -885,15 +884,12 @@ pub async fn serve(args: ServeArgs) -> Result<()> {
 
     let (events, _) = broadcast::channel(64);
     let editor_bridge_enabled = args.editor_bridge.is_some();
-    let internal_render_ir_svg_preview =
-        args.internal_render_ir_svg_preview || args.compiler_bin.as_deref() == Some("internal");
     let state = Arc::new(AppState {
         root: root.clone(),
         build_root,
         artifacts_root,
         world: world.clone(),
-        compiler: CompilerDriver::new(args.compiler_bin, args.compiler_args)
-            .with_internal_render_ir_svg_preview(internal_render_ir_svg_preview),
+        compiler: CompilerDriver::new(args.compiler_bin, args.compiler_args),
         tile_renderer: args.tile_renderer,
         editor_bridge: args.editor_bridge,
         raster_cache: RwLock::new(BTreeMap::new()),
@@ -1240,7 +1236,7 @@ impl AppState {
                             urls
                         })
                         .unwrap_or_default();
-                        if display_list_svg_urls.len() == outcome.page_metadata.len() {
+                        if display_list_svg_urls.len() == outcome.renderer_page_metadata.len() {
                             Some(RenderIrArtifactUrls {
                                 legacy_output_url: viewer_prefixed_path(&format!(
                                     "/artifacts/rev/{rev}/render-ir/legacy-output.txt"
@@ -1269,14 +1265,14 @@ impl AppState {
                     {
                         let mut live = self.live.write().await;
                         live.latest_pdf_path = Some(latest_pdf_path);
-                        live.page_metadata = outcome.page_metadata.clone();
+                        live.page_metadata = outcome.renderer_page_metadata.clone();
                         live.snapshot.apply_success(
                             rev,
                             outcome.diagnostics.clone(),
                             pdf_url.clone(),
-                            outcome.page_metadata.len(),
+                            outcome.renderer_page_metadata.len(),
                             outcome
-                                .page_metadata
+                                .renderer_page_metadata
                                 .iter()
                                 .map(|page| page.page_id.clone())
                                 .collect(),
@@ -1305,7 +1301,7 @@ impl AppState {
                         }
                         build_cache.record_success(&self.root, tracked_inputs).await;
                     }
-                    attach_render_revision(&self, rev, &outcome.page_metadata).await;
+                    attach_render_revision(&self, rev, &outcome.renderer_page_metadata).await;
                     let _ = self.events.send(ServerMsg::Diagnostics {
                         rev,
                         items: outcome.diagnostics.clone(),
@@ -1320,7 +1316,7 @@ impl AppState {
                         rev,
                         pdf_url,
                         page_ids: outcome
-                            .page_metadata
+                            .renderer_page_metadata
                             .iter()
                             .map(|page| page.page_id.clone())
                             .collect(),
