@@ -13,6 +13,7 @@ pub struct PageDisplayListOptions {
     pub margin_left_pt: f32,
     pub margin_top_pt: f32,
     pub margin_bottom_pt: f32,
+    pub front_matter_top_pt: Option<f32>,
     pub column_count: usize,
     pub column_gap_pt: f32,
     pub abstract_indent_pt: f32,
@@ -24,6 +25,7 @@ pub struct PageDisplayListOptions {
     pub body_font_size_pt: f32,
     pub heading_font_size_pt: f32,
     pub title_font_size_pt: f32,
+    pub front_matter_gap_pt: f32,
 }
 
 impl Default for PageDisplayListOptions {
@@ -34,6 +36,7 @@ impl Default for PageDisplayListOptions {
             margin_left_pt: 72.0,
             margin_top_pt: 72.0,
             margin_bottom_pt: 72.0,
+            front_matter_top_pt: None,
             column_count: 1,
             column_gap_pt: 18.0,
             abstract_indent_pt: 18.0,
@@ -45,6 +48,7 @@ impl Default for PageDisplayListOptions {
             body_font_size_pt: 11.0,
             heading_font_size_pt: 15.0,
             title_font_size_pt: 18.0,
+            front_matter_gap_pt: 14.0,
         }
     }
 }
@@ -56,6 +60,22 @@ impl PageDisplayListOptions {
             return options;
         };
         let class_name = document_class.name.trim().to_ascii_lowercase();
+        if class_name == "llncs" {
+            options.page_width_pt = 595.276;
+            options.page_height_pt = 841.89;
+            options.margin_left_pt = 126.0;
+            options.margin_top_pt = 72.0;
+            options.margin_bottom_pt = 72.0;
+            options.front_matter_top_pt = Some(105.0);
+            options.abstract_indent_pt = 0.0;
+            options.line_height_pt = 12.0;
+            options.block_gap_pt = 6.0;
+            options.body_font_size_pt = 10.0;
+            options.heading_font_size_pt = 12.0;
+            options.title_font_size_pt = 14.0;
+            options.front_matter_gap_pt = 18.0;
+            return options;
+        }
         let explicitly_one_column = document_class
             .options
             .iter()
@@ -73,12 +93,14 @@ impl PageDisplayListOptions {
         options.column_gap_pt = 18.0;
         options.margin_top_pt = 54.0;
         options.margin_bottom_pt = 54.0;
+        options.front_matter_top_pt = Some(96.0);
         options.block_gap_pt = 5.0;
         options.abstract_indent_pt = 9.0;
         options.list_continuation_indent_pt = 12.0;
         options.bibliography_continuation_indent_pt = 18.0;
         options.heading_font_size_pt = 12.5;
         options.title_font_size_pt = 16.0;
+        options.front_matter_gap_pt = 36.0;
         if class_name == "ieeetran" {
             options.margin_left_pt = 49.5;
             options.body_font_size_pt = 9.0;
@@ -227,6 +249,7 @@ struct LogicalTextRun {
     first_line_indent_pt: f32,
     continuation_indent_pt: f32,
     preserve_leading_whitespace: bool,
+    full_width: bool,
 }
 
 struct LogicalImage {
@@ -430,10 +453,11 @@ pub fn build_page_display_lists(
                         source,
                         font: title_font.clone(),
                         size_pt: options.title_font_size_pt,
-                        gap_after_pt: options.block_gap_pt,
+                        gap_after_pt: options.block_gap_pt * 2.0,
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: 0.0,
                         preserve_leading_whitespace: false,
+                        full_width: true,
                     }));
                 }
                 for (index, author) in block.authors.iter().enumerate() {
@@ -455,10 +479,19 @@ pub fn build_page_display_lists(
                         source,
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
-                        gap_after_pt: 0.0,
+                        gap_after_pt: if index + 1 == block.authors.len()
+                            && block.date.is_none()
+                            && block.keywords.is_empty()
+                            && block.pacs.is_empty()
+                        {
+                            options.front_matter_gap_pt
+                        } else {
+                            0.0
+                        },
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: 0.0,
                         preserve_leading_whitespace: false,
+                        full_width: true,
                     }));
                 }
                 if let Some(date) = &block.date {
@@ -480,13 +513,14 @@ pub fn build_page_display_lists(
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
                         gap_after_pt: if block.keywords.is_empty() && block.pacs.is_empty() {
-                            options.block_gap_pt
+                            options.front_matter_gap_pt
                         } else {
                             0.0
                         },
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: 0.0,
                         preserve_leading_whitespace: false,
+                        full_width: true,
                     }));
                 }
                 for (index, keyword) in block.keywords.iter().enumerate() {
@@ -510,13 +544,14 @@ pub fn build_page_display_lists(
                         size_pt: options.body_font_size_pt,
                         gap_after_pt: if block.pacs.is_empty() && index + 1 == block.keywords.len()
                         {
-                            options.block_gap_pt
+                            options.front_matter_gap_pt
                         } else {
                             0.0
                         },
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: 0.0,
                         preserve_leading_whitespace: false,
+                        full_width: true,
                     }));
                 }
                 for (index, pacs) in block.pacs.iter().enumerate() {
@@ -539,13 +574,14 @@ pub fn build_page_display_lists(
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
                         gap_after_pt: if index + 1 == block.pacs.len() {
-                            options.block_gap_pt
+                            options.front_matter_gap_pt
                         } else {
                             0.0
                         },
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: 0.0,
                         preserve_leading_whitespace: false,
+                        full_width: true,
                     }));
                 }
             }
@@ -567,6 +603,7 @@ pub fn build_page_display_lists(
                     first_line_indent_pt: 0.0,
                     continuation_indent_pt: 0.0,
                     preserve_leading_whitespace: false,
+                    full_width: false,
                 }));
                 logical_items.push(LogicalItem::Text(LogicalTextRun {
                     segments: inline_segments(&block.content),
@@ -577,6 +614,7 @@ pub fn build_page_display_lists(
                     first_line_indent_pt: options.abstract_indent_pt,
                     continuation_indent_pt: options.abstract_indent_pt,
                     preserve_leading_whitespace: false,
+                    full_width: false,
                 }));
             }
             IrBlock::Heading(block) => {
@@ -611,6 +649,7 @@ pub fn build_page_display_lists(
                     first_line_indent_pt: 0.0,
                     continuation_indent_pt: 0.0,
                     preserve_leading_whitespace: false,
+                    full_width: false,
                 }));
             }
             IrBlock::Paragraph(block) => {
@@ -623,6 +662,7 @@ pub fn build_page_display_lists(
                     first_line_indent_pt: 0.0,
                     continuation_indent_pt: 0.0,
                     preserve_leading_whitespace: false,
+                    full_width: false,
                 }));
             }
             IrBlock::Environment(block) => {
@@ -635,6 +675,7 @@ pub fn build_page_display_lists(
                     first_line_indent_pt: 0.0,
                     continuation_indent_pt: 0.0,
                     preserve_leading_whitespace: false,
+                    full_width: false,
                 }));
             }
             IrBlock::LayoutContainer(block) => {
@@ -755,6 +796,7 @@ pub fn build_page_display_lists(
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: options.list_continuation_indent_pt,
                         preserve_leading_whitespace: false,
+                        full_width: false,
                     }));
                 }
                 if block.items.is_empty() {
@@ -767,6 +809,7 @@ pub fn build_page_display_lists(
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: options.list_continuation_indent_pt,
                         preserve_leading_whitespace: false,
+                        full_width: false,
                     }));
                 }
             }
@@ -791,6 +834,7 @@ pub fn build_page_display_lists(
                     first_line_indent_pt: 0.0,
                     continuation_indent_pt: 0.0,
                     preserve_leading_whitespace: false,
+                    full_width: false,
                 }));
             }
             IrBlock::Bibliography(block) => {
@@ -822,6 +866,7 @@ pub fn build_page_display_lists(
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: options.bibliography_continuation_indent_pt,
                         preserve_leading_whitespace: false,
+                        full_width: false,
                     }));
                 }
                 if items.is_empty() {
@@ -834,6 +879,7 @@ pub fn build_page_display_lists(
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: options.bibliography_continuation_indent_pt,
                         preserve_leading_whitespace: false,
+                        full_width: false,
                     }));
                 }
             }
@@ -876,6 +922,7 @@ pub fn build_page_display_lists(
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: 0.0,
                         preserve_leading_whitespace: false,
+                        full_width: false,
                     }));
                 }
             }
@@ -1579,6 +1626,7 @@ pub fn build_page_display_lists(
                     first_line_indent_pt: 0.0,
                     continuation_indent_pt: 0.0,
                     preserve_leading_whitespace: true,
+                    full_width: false,
                 }));
             }
             IrBlock::RawFallback(block) => {
@@ -1602,6 +1650,7 @@ pub fn build_page_display_lists(
                     first_line_indent_pt: 0.0,
                     continuation_indent_pt: 0.0,
                     preserve_leading_whitespace: false,
+                    full_width: false,
                 }));
             }
         }
@@ -1826,7 +1875,17 @@ pub fn build_page_display_lists(
     let mut pending = new_pending_page();
     let mut pending_image_row: Option<PendingImageRow> = None;
     let mut column_index = 0usize;
-    let mut y = options.margin_top_pt;
+    let first_page_top_pt = if document_ir
+        .blocks
+        .iter()
+        .any(|block| matches!(block, IrBlock::TitleBlock(_)))
+    {
+        options.front_matter_top_pt.unwrap_or(options.margin_top_pt)
+    } else {
+        options.margin_top_pt
+    };
+    let mut y = first_page_top_pt;
+    let mut column_start_y = first_page_top_pt;
     let record_source_spans = |source: &SourceProvenance, source_spans: &mut Vec<SourceSpan>| {
         if let ProvenanceSpan::File(span) = &source.primary {
             if !source_spans.contains(span) {
@@ -1887,6 +1946,7 @@ pub fn build_page_display_lists(
     for logical in logical_items {
         match logical {
             LogicalItem::Text(logical) => {
+                let full_width = logical.full_width;
                 if let Some(row) = pending_image_row.take() {
                     y = row.y + row.height_pt + row.gap_after_pt;
                 }
@@ -1898,14 +1958,14 @@ pub fn build_page_display_lists(
                     .max(logical.continuation_indent_pt);
                 let average_glyph_width_pt =
                     text_advance_pt("n", &logical.font, logical.size_pt).max(0.1);
+                let text_area_width_pt = if full_width {
+                    page_content_width_pt
+                } else {
+                    column_width_pt
+                };
                 let available_width_pt =
-                    (column_width_pt - widest_indent).max(average_glyph_width_pt);
-                let width_limited_chars =
-                    (available_width_pt / average_glyph_width_pt).floor() as usize;
-                let max_chars_per_line = options
-                    .max_chars_per_line
-                    .max(1)
-                    .min(width_limited_chars.max(1));
+                    (text_area_width_pt - widest_indent).max(average_glyph_width_pt);
+                let max_chars_per_line = options.max_chars_per_line.max(1);
                 let push_segment_text =
                     |mut text: &str,
                      source: &SourceProvenance,
@@ -1928,10 +1988,41 @@ pub fn build_page_display_lists(
                                     break;
                                 }
                             }
+                            let current_width_pt = current_line
+                                .iter()
+                                .map(|segment| {
+                                    text_advance_pt(&segment.text, &logical.font, logical.size_pt)
+                                })
+                                .sum::<f32>();
+                            let remaining_width_pt =
+                                (available_width_pt - current_width_pt).max(0.0);
                             let remaining_line_chars =
                                 max_chars_per_line.saturating_sub(*current_len);
                             let text_char_count = text.chars().count();
-                            let mut take_chars = remaining_line_chars.max(1).min(text_char_count);
+                            let width_fitting_chars = text
+                                .char_indices()
+                                .scan(0.0, |width, (index, ch)| {
+                                    let next_width = *width
+                                        + text_advance_pt(
+                                            &text[index..index + ch.len_utf8()],
+                                            &logical.font,
+                                            logical.size_pt,
+                                        );
+                                    (next_width <= remaining_width_pt + 0.01).then(|| {
+                                        *width = next_width;
+                                        1usize
+                                    })
+                                })
+                                .sum::<usize>();
+                            if width_fitting_chars == 0 && !current_line.is_empty() {
+                                wrapped_lines.push(std::mem::take(current_line));
+                                *current_len = 0;
+                                continue;
+                            }
+                            let mut take_chars = remaining_line_chars
+                                .max(1)
+                                .min(width_fitting_chars.max(1))
+                                .min(text_char_count);
                             let mut wrap_after_chunk = false;
                             let can_wrap_at_words = !logical.preserve_leading_whitespace
                                 && !table_rule
@@ -1950,6 +2041,15 @@ pub fn build_page_display_lists(
                                     && line_ends_with_whitespace
                                     && first_word_chars > remaining_line_chars
                                     && first_word_chars <= max_chars_per_line
+                                    && text_advance_pt(
+                                        &text[..text
+                                            .char_indices()
+                                            .nth(first_word_chars)
+                                            .map(|(index, _)| index)
+                                            .unwrap_or(text.len())],
+                                        &logical.font,
+                                        logical.size_pt,
+                                    ) <= available_width_pt
                                 {
                                     wrapped_lines.push(std::mem::take(current_line));
                                     *current_len = 0;
@@ -2007,7 +2107,16 @@ pub fn build_page_display_lists(
                             }
                             consumed_chars += take_chars;
                             text = &text[split_byte..];
-                            if wrap_after_chunk || *current_len >= max_chars_per_line {
+                            let current_width_pt = current_line
+                                .iter()
+                                .map(|segment| {
+                                    text_advance_pt(&segment.text, &logical.font, logical.size_pt)
+                                })
+                                .sum::<f32>();
+                            if wrap_after_chunk
+                                || *current_len >= max_chars_per_line
+                                || current_width_pt >= available_width_pt - 0.01
+                            {
                                 wrapped_lines.push(std::mem::take(current_line));
                                 *current_len = 0;
                             }
@@ -2095,18 +2204,35 @@ pub fn build_page_display_lists(
                         > options.page_height_pt - options.margin_bottom_pt
                         && !pending.ops.is_empty()
                     {
-                        if column_index + 1 < column_count {
+                        if !full_width && column_index + 1 < column_count {
                             column_index += 1;
                         } else {
                             finish_page(&mut pages, pending);
                             pending = new_pending_page();
                             column_index = 0;
+                            column_start_y = options.margin_top_pt;
                         }
-                        y = options.margin_top_pt;
+                        y = column_start_y;
                     }
-                    let column_left_pt = options.margin_left_pt
-                        + column_index as f32 * (column_width_pt + column_gap_pt);
+                    let line_width_pt = line_segments
+                        .iter()
+                        .filter(|segment| !segment.table_rule)
+                        .map(|segment| {
+                            text_advance_pt(&segment.text, &logical.font, logical.size_pt)
+                        })
+                        .sum::<f32>();
+                    let column_left_pt = if full_width {
+                        options.margin_left_pt
+                    } else {
+                        options.margin_left_pt
+                            + column_index as f32 * (column_width_pt + column_gap_pt)
+                    };
                     let line_x = column_left_pt
+                        + if full_width {
+                            ((page_content_width_pt - line_width_pt) / 2.0).max(0.0)
+                        } else {
+                            0.0
+                        }
                         + if line_index == 0 {
                             logical.first_line_indent_pt
                         } else {
@@ -2339,6 +2465,9 @@ pub fn build_page_display_lists(
                     y += options.line_height_pt;
                 }
                 y += logical.gap_after_pt;
+                if full_width {
+                    column_start_y = y;
+                }
             }
             LogicalItem::ContainerRow(containers) => {
                 if let Some(row) = pending_image_row.take() {
@@ -2357,8 +2486,9 @@ pub fn build_page_display_lists(
                         finish_page(&mut pages, pending);
                         pending = new_pending_page();
                         column_index = 0;
+                        column_start_y = options.margin_top_pt;
                     }
-                    y = options.margin_top_pt;
+                    y = column_start_y;
                 }
                 let mut container_x = options.margin_left_pt
                     + column_index as f32 * (column_width_pt + column_gap_pt);
@@ -2809,8 +2939,9 @@ pub fn build_page_display_lists(
                             finish_page(&mut pages, pending);
                             pending = new_pending_page();
                             column_index = 0;
+                            column_start_y = options.margin_top_pt;
                         }
-                        y = options.margin_top_pt;
+                        y = column_start_y;
                     }
                     let image_x = options.margin_left_pt
                         + column_index as f32 * (column_width_pt + column_gap_pt);
@@ -6291,6 +6422,15 @@ mod tests {
             Some(DocumentClassIr {
                 name: "IEEEtran".to_string(),
                 options: vec!["journal".to_string(), "onecolumn".to_string()],
+                source: source.clone(),
+            }),
+            Vec::new(),
+        );
+        let llncs = DocumentIr::with_document_class_and_labels(
+            Vec::new(),
+            Some(DocumentClassIr {
+                name: "llncs".to_string(),
+                options: vec!["runningheads".to_string()],
                 source,
             }),
             Vec::new(),
@@ -6305,10 +6445,109 @@ mod tests {
         assert_eq!(ieee_options.column_count, 2);
         assert_eq!(ieee_options.margin_left_pt, 49.5);
         assert_eq!(ieee_options.body_font_size_pt, 9.0);
+        let llncs_options = PageDisplayListOptions::for_document_ir(&llncs);
+        assert_eq!(llncs_options.page_width_pt, 595.276);
+        assert_eq!(llncs_options.page_height_pt, 841.89);
+        assert_eq!(llncs_options.margin_left_pt, 126.0);
+        assert_eq!(llncs_options.body_font_size_pt, 10.0);
         assert_eq!(
             PageDisplayListOptions::for_document_ir(&explicit_one_column),
             PageDisplayListOptions::default()
         );
+    }
+
+    #[test]
+    fn title_text_uses_and_centers_within_the_full_page_width() {
+        let source = SourceProvenance::file("main.tex", 0, 10);
+        let options = PageDisplayListOptions {
+            page_width_pt: 200.0,
+            page_height_pt: 200.0,
+            margin_left_pt: 10.0,
+            margin_top_pt: 10.0,
+            margin_bottom_pt: 10.0,
+            column_count: 2,
+            column_gap_pt: 20.0,
+            max_chars_per_line: 100,
+            title_font_size_pt: 10.0,
+            ..PageDisplayListOptions::default()
+        };
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::TitleBlock(TitleBlock {
+                title: Some("MMMMMMMMMM".to_string()),
+                title_source: Some(source.clone()),
+                authors: Vec::new(),
+                author_sources: Vec::new(),
+                date: None,
+                date_source: None,
+                keywords: Vec::new(),
+                keyword_sources: Vec::new(),
+                pacs: Vec::new(),
+                pacs_sources: Vec::new(),
+                source,
+            })]),
+            options,
+        );
+        let title_runs = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if !run.text.is_empty() => Some(run),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(title_runs.len(), 1);
+        assert!(title_runs[0].approximate_advance_pt > 80.0);
+        assert!(title_runs[0].origin.x > 10.0);
+    }
+
+    #[test]
+    fn later_columns_start_below_full_width_front_matter() {
+        let source = SourceProvenance::file("main.tex", 0, 10);
+        let mut blocks = vec![IrBlock::TitleBlock(TitleBlock {
+            title: Some("Title".to_string()),
+            title_source: Some(source.clone()),
+            authors: Vec::new(),
+            author_sources: Vec::new(),
+            date: None,
+            date_source: None,
+            keywords: Vec::new(),
+            keyword_sources: Vec::new(),
+            pacs: Vec::new(),
+            pacs_sources: Vec::new(),
+            source: source.clone(),
+        })];
+        blocks.extend((0..8).map(|index| {
+            IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: format!("p{index}"),
+                    source: source.clone(),
+                }],
+                source: source.clone(),
+            })
+        }));
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(blocks),
+            PageDisplayListOptions {
+                page_width_pt: 200.0,
+                page_height_pt: 100.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                column_count: 2,
+                column_gap_pt: 20.0,
+                max_chars_per_line: 100,
+                line_height_pt: 10.0,
+                block_gap_pt: 0.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let second_column = display_lists[0].ops.iter().find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "p7" => Some(run.origin),
+            _ => None,
+        });
+
+        assert_eq!(second_column, Some(Point { x: 110.0, y: 20.0 }));
     }
 
     #[test]

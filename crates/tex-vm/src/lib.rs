@@ -934,6 +934,21 @@ struct RenderEventScanState {
     structured_environments: HashSet<String>,
     theorem_like_environments: HashSet<String>,
     hidden_environments: HashSet<String>,
+    heading_counters: [u32; 6],
+}
+
+impl RenderEventScanState {
+    fn next_heading_number(&mut self, level: u8) -> String {
+        let level = usize::from(level).min(self.heading_counters.len() - 1);
+        self.heading_counters[level] += 1;
+        self.heading_counters[level + 1..].fill(0);
+        self.heading_counters[..=level]
+            .iter()
+            .skip_while(|counter| **counter == 0)
+            .map(u32::to_string)
+            .collect::<Vec<_>>()
+            .join(".")
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -5198,7 +5213,8 @@ impl<'i> Vm<'i> {
                         _ => unreachable!(),
                     };
                     index = skip_ascii_whitespace(source, index);
-                    if source[index..].starts_with('*') {
+                    let numbered = !source[index..].starts_with('*');
+                    if !numbered {
                         index += 1;
                         index = skip_ascii_whitespace(source, index);
                     }
@@ -5214,7 +5230,7 @@ impl<'i> Vm<'i> {
                             RenderEvent::Heading(HeadingEvent {
                                 level,
                                 text: normalize_latex_text_with_inline_placeholders(heading),
-                                number: None,
+                                number: numbered.then(|| scan_state.next_heading_number(level)),
                             }),
                             SourceProvenance::file(
                                 source_path.to_owned(),
@@ -9606,7 +9622,7 @@ impl<'i> Vm<'i> {
                     );
                 }
                 _ if in_document => {
-                    if let Some(section_macro) = scan_state.section_macros.get(command) {
+                    if let Some(section_macro) = scan_state.section_macros.get(command).cloned() {
                         let mut argument_index = skip_ascii_whitespace(source, index);
                         let mut invocation_end = index;
                         let mut selected_heading = None;
@@ -9642,7 +9658,9 @@ impl<'i> Vm<'i> {
                                 RenderEvent::Heading(HeadingEvent {
                                     level: section_macro.level,
                                     text: normalize_latex_text_with_inline_placeholders(heading),
-                                    number: None,
+                                    number: Some(
+                                        scan_state.next_heading_number(section_macro.level),
+                                    ),
                                 }),
                                 SourceProvenance::file(
                                     source_path.to_owned(),
@@ -22273,6 +22291,9 @@ fn read_delimited_source_argument(
             b'\\' => {
                 cursor = cursor.saturating_add(2);
             }
+            b'%' => {
+                cursor = skip_latex_line_comment(source, cursor);
+            }
             byte if byte == open => {
                 depth += 1;
                 cursor += 1;
@@ -22673,25 +22694,29 @@ fn parse_graphic_page_selection(options: Option<&str>) -> Option<GraphicPageSele
     (page.is_some() || pagebox.is_some()).then_some(GraphicPageSelection { page, pagebox })
 }
 
+fn strip_latex_line_comments(source: &str) -> String {
+    let mut stripped = String::with_capacity(source.len());
+    let mut cursor = 0usize;
+    let bytes = source.as_bytes();
+    while cursor < bytes.len() {
+        if bytes[cursor] == b'%' && !is_escaped_percent(source, cursor) {
+            cursor = skip_latex_line_comment(source, cursor);
+            continue;
+        }
+        let ch = source[cursor..]
+            .chars()
+            .next()
+            .expect("cursor should be inside source");
+        stripped.push(ch);
+        cursor += ch.len_utf8();
+    }
+    stripped
+}
+
 fn normalize_latex_text_with_inline_placeholders(source: &str) -> String {
     let stripped_comments;
     let source = if source.as_bytes().contains(&b'%') {
-        let mut stripped = String::with_capacity(source.len());
-        let mut cursor = 0usize;
-        let bytes = source.as_bytes();
-        while cursor < bytes.len() {
-            if bytes[cursor] == b'%' && !is_escaped_percent(source, cursor) {
-                cursor = skip_latex_line_comment(source, cursor);
-                continue;
-            }
-            let ch = source[cursor..]
-                .chars()
-                .next()
-                .expect("cursor should be inside source");
-            stripped.push(ch);
-            cursor += ch.len_utf8();
-        }
-        stripped_comments = stripped;
+        stripped_comments = strip_latex_line_comments(source);
         stripped_comments.as_str()
     } else {
         source
@@ -45117,6 +45142,85 @@ Analytical Engine Lab
         for hidden in ["whose", "authors", "omit", "following", "closing"] {
             assert!(!author.contains(hidden), "{author}");
         }
+    }
+
+    #[test]
+    fn render_event_capture_ignores_braces_inside_metadata_comments() {
+        let source = r"\author{Ada Lovelace\\
+Analytical Engine Lab
+% omit the following lines up until the closing ``}''.
+\and
+Charles Babbage\\
+Difference Engine Lab
+}
+\begin{document}\maketitle\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        let authors = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::SetDocumentMetadata(metadata)
+                    if metadata.field == MetadataField::Author =>
+                {
+                    Some(metadata.value.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let visible_text = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Text(text) => Some(text.text.as_str()),
+                _ => None,
+            })
+            .collect::<String>();
+
+        assert_eq!(
+            authors,
+            vec!["Ada Lovelace Analytical Engine Lab and Charles Babbage Difference Engine Lab"]
+        );
+        assert!(
+            visible_text.is_empty(),
+            "metadata leaked into body: {visible_text}"
+        );
+    }
+
+    #[test]
+    fn render_event_capture_numbers_unstarred_headings_hierarchically() {
+        let source = r"\begin{document}\section{One}\subsection{A}\section*{Aside}\subsection{B}\section{Two}\subsection{C}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let headings = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::Heading(heading) => {
+                    Some((heading.text.as_str(), heading.number.as_deref()))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            headings,
+            vec![
+                ("One", Some("1")),
+                ("A", Some("1.1")),
+                ("Aside", None),
+                ("B", Some("1.2")),
+                ("Two", Some("2")),
+                ("C", Some("2.1")),
+            ]
+        );
     }
 
     #[test]

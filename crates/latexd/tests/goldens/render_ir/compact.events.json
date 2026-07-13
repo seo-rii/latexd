@@ -228,7 +228,8 @@
       "event": {
         "kind": "heading",
         "level": 1,
-        "text": "Intro"
+        "text": "Intro",
+        "number": "1"
       },
       "meta": {
         "event_id": 10,

@@ -1,13 +1,13 @@
 [
   {
-    "page_id": "5c305089fbb0bbd2d81d9efdba84b57357618b68147b528685cdef593f72bf0e",
+    "page_id": "c8ea2b47a137471a7bab9972d8aa24f98b1409aba1617661dd84084aa979ecb2",
     "width_pt": 612.0,
     "height_pt": 792.0,
     "ops": [
       {
         "kind": "text_run",
         "origin": {
-          "x": 72.0,
+          "x": 272.3004,
           "y": 72.0
         },
         "text": "A Paper",
@@ -54,8 +54,8 @@
       {
         "kind": "text_run",
         "origin": {
-          "x": 72.0,
-          "y": 93.0
+          "x": 273.60498,
+          "y": 100.0
         },
         "text": "Ada Lovelace",
         "font": {
@@ -101,8 +101,8 @@
       {
         "kind": "text_run",
         "origin": {
-          "x": 72.0,
-          "y": 107.0
+          "x": 283.615,
+          "y": 114.0
         },
         "text": "May 1843",
         "font": {
@@ -149,7 +149,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 128.0
+          "y": 142.0
         },
         "text": "Abstract",
         "font": {
@@ -186,7 +186,7 @@
         "kind": "text_run",
         "origin": {
           "x": 90.0,
-          "y": 142.0
+          "y": 156.0
         },
         "text": "Short",
         "font": {
@@ -223,7 +223,7 @@
         "kind": "text_run",
         "origin": {
           "x": 119.479996,
-          "y": 142.0
+          "y": 156.0
         },
         "text": " ",
         "font": {
@@ -260,7 +260,7 @@
         "kind": "text_run",
         "origin": {
           "x": 122.229996,
-          "y": 142.0
+          "y": 156.0
         },
         "text": "abstract.",
         "font": {
@@ -297,7 +297,101 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 163.0
+          "y": 177.0
+        },
+        "text": "1",
+        "font": {
+          "family": "serif",
+          "series": "bold",
+          "shape": "upright",
+          "size_pt": 15.0,
+          "role": "heading"
+        },
+        "size_pt": 15.0,
+        "approximate_advance_pt": 7.7999997,
+        "clusters": [
+          {
+            "text_start_utf8": 0,
+            "text_end_utf8": 1,
+            "glyph_start": 0,
+            "glyph_end": 1
+          }
+        ],
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 131,
+            "end_utf8": 136
+          },
+          "related": [
+            {
+              "role": "invocation",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 122,
+                "end_utf8": 137
+              }
+            }
+          ],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      },
+      {
+        "kind": "text_run",
+        "origin": {
+          "x": 79.8,
+          "y": 177.0
+        },
+        "text": " ",
+        "font": {
+          "family": "serif",
+          "series": "bold",
+          "shape": "upright",
+          "size_pt": 15.0,
+          "role": "heading"
+        },
+        "size_pt": 15.0,
+        "approximate_advance_pt": 3.75,
+        "clusters": [
+          {
+            "text_start_utf8": 0,
+            "text_end_utf8": 1,
+            "glyph_start": 0,
+            "glyph_end": 1
+          }
+        ],
+        "source": {
+          "primary": {
+            "kind": "file",
+            "path": "main.tex",
+            "start_utf8": 131,
+            "end_utf8": 136
+          },
+          "related": [
+            {
+              "role": "invocation",
+              "span": {
+                "kind": "file",
+                "path": "main.tex",
+                "start_utf8": 122,
+                "end_utf8": 137
+              }
+            }
+          ],
+          "expansion_stack": [],
+          "generated_by": "source",
+          "expansion_stack_truncated": false
+        }
+      },
+      {
+        "kind": "text_run",
+        "origin": {
+          "x": 83.55,
+          "y": 177.0
         },
         "text": "Intro",
         "font": {
@@ -344,7 +438,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 184.0
+          "y": 198.0
         },
         "text": "Hello",
         "font": {
@@ -381,7 +475,7 @@
         "kind": "text_run",
         "origin": {
           "x": 96.64,
-          "y": 184.0
+          "y": 198.0
         },
         "text": " ",
         "font": {
@@ -418,7 +512,7 @@
         "kind": "text_run",
         "origin": {
           "x": 99.39,
-          "y": 184.0
+          "y": 198.0
         },
         "text": "[?]",
         "font": {
@@ -465,7 +559,7 @@
         "kind": "text_run",
         "origin": {
           "x": 113.25,
-          "y": 184.0
+          "y": 198.0
         },
         "text": ".",
         "font": {
@@ -502,7 +596,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 205.0
+          "y": 219.0
         },
         "text": "x^2",
         "font": {
@@ -549,7 +643,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 226.0
+          "y": 240.0
         },
         "text": "Author. Title.",
         "font": {
@@ -586,7 +680,7 @@
         "kind": "text_run",
         "origin": {
           "x": 72.0,
-          "y": 247.0
+          "y": 261.0
         },
         "text": "Fallback text.",
         "font": {
@@ -702,6 +796,6 @@
         "end_utf8": 284
       }
     ],
-    "content_hash": "e8d45bf052503cdadfd95ba0d7621f82d86ce22bad48c58f5348fbb28095327d"
+    "content_hash": "21148564b25da963621fb63a4a5928ff673e11d6f576f61510645facd9644add"
   }
 ]

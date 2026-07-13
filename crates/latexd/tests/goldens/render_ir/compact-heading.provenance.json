@@ -36,6 +36,7 @@
     "event": {
       "kind": "heading",
       "level": 1,
+      "number": "1",
       "text": "Intro"
     },
     "meta": {
@@ -69,7 +70,7 @@
   },
   "ir": {
     "level": 1,
-    "number": null,
+    "number": "1",
     "source": {
       "expansion_stack": [],
       "expansion_stack_truncated": false,
