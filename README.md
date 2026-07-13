@@ -136,8 +136,9 @@ metrics split into overlapping, oracle-only, and internal-only differences,
 `$LATEXD_ARXIV_CC0_CORPUS/reports` by default; override this with
 `LATEXD_ARXIV_ORACLE_REPORT_DIR`. The report's nested `display_list_render`
 object records the same text, page-count, and first-page raster measurements for
-the renderer-facing PDF. These measurements are observational and are not yet
-part of strict pass/fail gating.
+the debug copy of the same `PageDisplayList` PDF used by the internal production
+compiler. Strict mode gates the production internal PDF; the nested duplicate
+measurements remain diagnostic consistency data.
 
 ## Documentation
 

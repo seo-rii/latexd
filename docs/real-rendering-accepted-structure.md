@@ -1,8 +1,9 @@
 # Real Rendering Accepted Structure
 
-This document records the accepted first-batch structure for the real-rendering
-work. The immediate goal is to prove the `RenderEvent` -> `Document IR` seam,
-not page fidelity.
+This document records the accepted first-batch structure and subsequent
+production migration for the real-rendering work. The first milestone proved
+the `RenderEvent` -> `Document IR` seam; later milestones promoted the same
+pipeline without coupling renderer state to VM checkpoints.
 
 The accepted pipeline is:
 
@@ -16,9 +17,10 @@ TeX VM execution
   -> renderer backend
 ```
 
-The first batch should keep the existing string-output and PDF path working
-while adding event capture and IR goldens. Do not add Skia, serious text
-shaping, external asset conversion, or a real page builder in this batch.
+The first batch kept the existing string-output and PDF path working while
+adding event capture and IR goldens. That historical constraint is now
+superseded for internal production rendering; Skia and serious text shaping
+remain separate follow-up work.
 
 ## Current Implementation Status
 
@@ -26,8 +28,8 @@ As of 2026-05-24, the first implementation batch is complete:
 
 - `tex-render-model` owns shared provenance, event, IR, display-list skeleton,
   `AuxView`, and JSON golden helper types.
-- `tex-vm` keeps legacy string output authoritative by default and can
-  optionally capture a first `RenderEvent` stream.
+- `tex-vm` preserves legacy string output for execution compatibility and can
+  capture the `RenderEvent` stream used by production rendering.
 - `tex-layout` builds first-slice `DocumentIr` from events and a read-only
   `AuxView`.
 - `latexd` exposes an internal capture path for `RenderEvent -> DocumentIr`
@@ -61,7 +63,33 @@ As of 2026-05-24, the first implementation batch is complete:
   spans, `\maketitle` emission spans, and citation invocation/key span
   separation.
 
-Still intentionally outside this batch:
+### Production Promotion (2026-07-13)
+
+- the internal compiler's whole-document PDF and per-page PDF/SVG artifacts
+  render the same `PageDisplayList` pages;
+- public `page-metadata.json`, `page-syncmap.json`, viewer page IDs, renderer
+  reuse, and page patches use display-list identity and geometry;
+- VM execution pages remain renderer-neutral checkpoint/replay state and are
+  persisted separately as `execution-page-metadata.json`;
+- `CompileOutcome::page_metadata` remains the execution compatibility surface,
+  while `renderer_page_metadata` is the authoritative presentation surface
+  consumed by the server;
+- `build-meta.json` retains execution page/reuse fields and adds explicit
+  renderer page/rebuild/reuse counts, avoiding mixed index spaces;
+- renderer unchanged-tail alignment is independent from VM shipout unchanged
+  tails, and patch tests verify exact previous-to-current renderer page-ID
+  transformation;
+- display-list sync maps derive bounded rectangles from positioned text and
+  image operations instead of legacy line scaffolding;
+- the compatibility-only `--internal-render-ir-svg-preview` flag was removed;
+  debug render-IR artifacts remain available but are not alternate production
+  page URLs;
+- included-file EOF has TeX-like implicit endline semantics in render-event
+  capture, and Document IR normalizes leading, repeated, and trailing
+  interword spaces so non-visible edits retain stable visual page identity.
+
+Historical exclusions from the first batch, several of which were completed in
+later milestones:
 
 - real page layout and page breaking;
 - a serious `PageDisplayList` producer;
@@ -184,11 +212,9 @@ The next implementation step has started with a narrow display-list spike:
   Form, and raster-fallback payloads. Direct PDF forms and external-converter
   rasters remain capture-local for now, while bitmap/SVG persistence retains
   the existing dependency-complete cache policy;
-- this closes direct PDF page inclusion for the renderer-facing
-  `display-list.pdf` artifact. It does not yet promote that artifact to the
-  production compiler PDF: legacy `DocumentLayout`, page metadata,
-  checkpoints, sync maps, and per-page artifacts must be migrated together to
-  `PageDisplayList` rather than overwriting one output in isolation;
+- direct PDF page inclusion now feeds both renderer-facing debug output and the
+  production whole/per-page PDFs through the promoted `PageDisplayList` path;
+  VM checkpoints deliberately retain independent execution pagination;
 - crop, viewport, scaling, and rotation remain `PositionedImage` placement
   concerns. PDF page/pagebox selection remains part of the materialization
   request because it changes the selected source asset itself;
@@ -766,9 +792,9 @@ tex-vm must not build or mutate Document IR.
 - Create `crates/tex-render-model` now.
 - Keep `tex-render-model` data-first and dependency-light.
 - Keep the first `DocumentIrBuilder` outside `tex-vm`.
-- Dual-write legacy string output and optional `RenderEvent` capture during the
-  migration phase.
-- Treat events as authoritative only for commands that have migrated tests.
+- Preserve dual-write legacy string output and `RenderEvent` capture for
+  execution compatibility and diagnostics, while production rendering treats
+  migrated events/IR/display lists as authoritative.
 - Keep full arXiv oracle, raster diff, Skia, and performance sweeps outside
   default CI.
 
@@ -1104,8 +1130,10 @@ pub enum EventCapture {
 
 Migration rule:
 
-- Legacy string output remains authoritative for existing smoke tests.
-- `RenderEvent` output is authoritative for migrated rendering semantics.
+- Legacy string output remains authoritative only for VM execution/replay
+  compatibility tests.
+- `RenderEvent` output is authoritative for migrated production rendering
+  semantics.
 - Do not require global equivalence between string output and event output.
 - Migrated commands must have event and IR goldens.
 - Unmigrated commands may still rely on legacy string output, but should emit
@@ -1521,11 +1549,14 @@ Acceptance:
 Add an internal-only command/test path that captures events, builds IR, derives
 text-only display lists, and emits a display-list PDF artifact.
 
-Do not replace the PDF path yet.
+Historical first-batch constraint: do not replace the PDF path until page
+identity, metadata, sync, reuse, and patches can migrate together. That
+coordinated promotion completed on 2026-07-13.
 
 Acceptance:
 
-- legacy internal PDF path still works;
+- legacy VM string/PDF execution state remains available for replay
+  compatibility, but no longer drives production page artifacts;
 - event/IR/display-list/PDF artifacts can be written for debugging;
 - compact smoke fixture has event, IR, and display-list goldens.
 - debug artifact writing covers legacy text, event JSON, IR JSON, display-list
