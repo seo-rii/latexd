@@ -59,10 +59,10 @@ jobs:
   licensed-corpus:
     name: External licensed corpus
     if: github.event_name == 'push'
-    uses: seo-rii/latexd-tests/.github/workflows/_test-latexd.yml@fb106aeb3b9d355357f46ae641235015b5e6c495
+    uses: seo-rii/latexd-tests/.github/workflows/_test-latexd.yml@2bd22ebbb2c74e4dd31a6da821d946e4420e344d
     with:
       latexd_ref: ${{ github.sha }}
-      suite_ref: fb106aeb3b9d355357f46ae641235015b5e6c495
+      suite_ref: 2bd22ebbb2c74e4dd31a6da821d946e4420e344d
       tier: smoke
     permissions:
       contents: read
