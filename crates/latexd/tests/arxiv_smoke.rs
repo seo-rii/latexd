@@ -100,6 +100,7 @@ fn failure_snapshot(failure: &latexd::compiler::CompileFailure) -> serde_json::V
 }
 
 #[tokio::test]
+#[ignore = "large bundled corpus; run explicitly in manual or nightly verification"]
 async fn arxiv_smoke_fixture_corpus_builds_with_expected_output() {
     let fixture_root =
         Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../fixtures/arxiv-smoke");

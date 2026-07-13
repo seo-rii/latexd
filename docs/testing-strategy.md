@@ -24,6 +24,15 @@ LATEXD_ARXIV_CC0_CORPUS=/tmp/latexd-arxiv-cc0 \
   cargo test -p latexd --test arxiv_oracle -- --ignored --nocapture
 ```
 
+The vendored multi-revision arXiv smoke corpus is also intentionally excluded
+from default CI because production whole/per-page rendering makes the full
+6,357-file, 36 MiB sweep an approximately 18-minute test. Run it explicitly for
+manual or nightly verification:
+
+```bash
+cargo test -p latexd --test arxiv_smoke -- --ignored --nocapture
+```
+
 The oracle compares build success, diagnostics, extracted text token counts, raw
 and normalized unique-token overlap, page count, and first-page raster gross
 status. Normalized overlap folds common Greek symbols, ligatures, and soft
