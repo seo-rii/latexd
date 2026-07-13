@@ -253,6 +253,7 @@ impl DocumentIr {
                         text.push_str(caption);
                     }
                 }
+                IrBlock::IncludedPdfPage(_) => {}
                 IrBlock::Table(block) => text.push_str(&block.visible_text()),
                 IrBlock::RawFallback(block) => {
                     if let Some(visible) = &block.normalized_visible_text {
@@ -280,6 +281,7 @@ pub enum IrBlock {
     DisplayMath(DisplayMathBlock),
     Bibliography(BibliographyBlock),
     Graphic(GraphicBlock),
+    IncludedPdfPage(GraphicBlock),
     Table(TableBlock),
     RawFallback(RawFallbackIr),
 }

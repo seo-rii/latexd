@@ -29,20 +29,35 @@ impl fmt::Display for PreparePdfError {
 
 impl std::error::Error for PreparePdfError {}
 
-pub fn prepare_pdf_form(
-    request: &GraphicAssetRequest,
-    bytes: &[u8],
-) -> Result<PreparedPdfForm, PreparePdfError> {
+fn load_pdf_document(bytes: &[u8]) -> Result<Document, PreparePdfError> {
     if bytes.len() > MAX_PDF_INPUT_BYTES {
         return Err(PreparePdfError::new(
             "PDF asset exceeds the direct-import size limit",
         ));
     }
-    let document = Document::load_mem_with_options(
+    Document::load_mem_with_options(
         bytes,
         LoadOptions::with_max_decompressed_size(MAX_PDF_DECOMPRESSED_STREAM_BYTES),
     )
-    .map_err(|error| PreparePdfError::new(format!("failed to parse PDF asset: {error}")))?;
+    .map_err(|error| PreparePdfError::new(format!("failed to parse PDF asset: {error}")))
+}
+
+pub fn pdf_page_count(bytes: &[u8]) -> Result<u32, PreparePdfError> {
+    let document = load_pdf_document(bytes)?;
+    if document.was_encrypted() || document.is_encrypted() {
+        return Err(PreparePdfError::new(
+            "encrypted PDF assets are not eligible for direct import",
+        ));
+    }
+    u32::try_from(document.get_pages().len())
+        .map_err(|_| PreparePdfError::new("PDF page count exceeds the supported range"))
+}
+
+pub fn prepare_pdf_form(
+    request: &GraphicAssetRequest,
+    bytes: &[u8],
+) -> Result<PreparedPdfForm, PreparePdfError> {
+    let document = load_pdf_document(bytes)?;
     if !supported_pdf_version(document.version.as_bytes()) {
         return Err(PreparePdfError::new(
             "PDF versions newer than 1.7 are not eligible for direct import",
@@ -793,8 +808,7 @@ mod tests {
         GraphicAssetFormat, GraphicAssetRequest, GraphicPageSelection, PreparedPdfObject,
     };
 
-    use super::normalized_page_matrix;
-    use super::prepare_pdf_form;
+    use super::{normalized_page_matrix, pdf_page_count, prepare_pdf_form};
 
     fn two_page_pdf() -> Vec<u8> {
         let mut document = Document::with_version("1.7");
@@ -843,6 +857,11 @@ mod tests {
         let mut bytes = Vec::new();
         document.save_to(&mut bytes).expect("serialize fixture PDF");
         bytes
+    }
+
+    #[test]
+    fn counts_pdf_pages_without_preparing_page_content() {
+        assert_eq!(pdf_page_count(&two_page_pdf()).expect("count pages"), 2);
     }
 
     #[test]

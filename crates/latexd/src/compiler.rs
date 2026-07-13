@@ -30,14 +30,16 @@ use tex_pdf::{
     render_display_list_pdf_with_materialized_assets,
     render_display_list_svg_with_materialized_assets,
 };
-use tex_render_assets::{prepare_pdf_form, prepare_svg_materialization, svg_embedded_asset_refs};
+use tex_render_assets::{
+    pdf_page_count, prepare_pdf_form, prepare_svg_materialization, svg_embedded_asset_refs,
+};
 use tex_render_model::{
     AuxView, DocumentIr, DrawOp, GraphicAssetDimensions, GraphicAssetFormat, GraphicAssetRequest,
-    MaterializedGraphicAsset, PageDisplayList, PreparedPdfForm, ProvenanceSpan, RenderEvent,
-    RenderEventStream, to_pretty_json,
+    GraphicPageSelection, MaterializedGraphicAsset, PageDisplayList, PreparedPdfForm,
+    ProvenanceSpan, RenderEvent, RenderEventStream, to_pretty_json,
 };
 use tex_tokens::ControlSequenceInterner;
-use tex_vm::{VmModuleCheckpointKind, VmReplayFrame};
+use tex_vm::{VmDiagnostic, VmDiagnosticKind, VmModuleCheckpointKind, VmReplayFrame};
 use tex_world::{CompilerMode, ProjectManifest, normalize_relative_path};
 
 use crate::{prepared_asset_cache::PreparedAssetCache, viewer_prefixed_path};
@@ -353,9 +355,11 @@ fn capture_internal_render_ir_with_options(
     let mut prepared_pdf_forms = BTreeMap::<GraphicAssetRequest, PreparedPdfForm>::new();
     let mut prepared_pdf_source_bytes = BTreeMap::<GraphicAssetRequest, Vec<u8>>::new();
     if let Some(root) = file_root {
+        expand_included_pdf_events(&mut events, root);
         for envelope in &mut events.events {
-            let RenderEvent::GraphicRef(graphic) = &mut envelope.event else {
-                continue;
+            let graphic = match &mut envelope.event {
+                RenderEvent::GraphicRef(graphic) | RenderEvent::IncludePdf(graphic) => graphic,
+                _ => continue,
             };
             if graphic.asset_format.is_some()
                 && graphic.asset_format != Some(GraphicAssetFormat::Pdf)
@@ -578,6 +582,109 @@ fn read_graphic_asset(root: &Utf8Path, asset_ref: &str) -> Option<Vec<u8>> {
     fs::read(resolved_path.as_std_path()).ok()
 }
 
+fn expand_included_pdf_events(events: &mut RenderEventStream, root: &Utf8Path) {
+    let mut expanded = Vec::with_capacity(events.events.len());
+    for envelope in std::mem::take(&mut events.events) {
+        let RenderEvent::IncludePdf(graphic) = &envelope.event else {
+            expanded.push(envelope);
+            continue;
+        };
+        let Some(bytes) = read_graphic_asset(root, &graphic.path) else {
+            expanded.push(envelope);
+            continue;
+        };
+        let Ok(page_count) = pdf_page_count(&bytes) else {
+            expanded.push(envelope);
+            continue;
+        };
+        let pages = included_pdf_pages(graphic.options.as_deref(), page_count);
+        if pages.is_empty() {
+            expanded.push(envelope);
+            continue;
+        }
+        for page in pages {
+            let mut page_envelope = envelope.clone();
+            let RenderEvent::IncludePdf(page_graphic) = &mut page_envelope.event else {
+                unreachable!("cloned included-PDF event changed variant");
+            };
+            page_graphic.page_selection = Some(GraphicPageSelection {
+                page: Some(page),
+                pagebox: None,
+            });
+            expanded.push(page_envelope);
+        }
+    }
+    for (index, envelope) in expanded.iter_mut().enumerate() {
+        envelope.meta.event_id = index as u64 + 1;
+    }
+    events.events = expanded;
+}
+
+fn included_pdf_pages(options: Option<&str>, page_count: u32) -> Vec<u32> {
+    if page_count == 0 {
+        return Vec::new();
+    }
+    let Some(options) = options else {
+        return vec![1];
+    };
+    let mut option_parts = Vec::new();
+    let mut part_start = 0usize;
+    let mut brace_depth = 0usize;
+    for (index, ch) in options.char_indices() {
+        match ch {
+            '{' => brace_depth += 1,
+            '}' if brace_depth > 0 => brace_depth -= 1,
+            ',' if brace_depth == 0 => {
+                option_parts.push(&options[part_start..index]);
+                part_start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    option_parts.push(&options[part_start..]);
+    let Some(specification) = option_parts.iter().find_map(|part| {
+        let (key, value) = part.split_once('=')?;
+        key.trim()
+            .eq_ignore_ascii_case("pages")
+            .then_some(value.trim())
+    }) else {
+        return vec![1];
+    };
+    let specification = specification
+        .strip_prefix('{')
+        .and_then(|value| value.strip_suffix('}'))
+        .unwrap_or(specification);
+    let parse_endpoint = |value: &str, default: u32| {
+        let value = value.trim();
+        if value.is_empty() {
+            Some(default)
+        } else if value.eq_ignore_ascii_case("last") {
+            Some(page_count)
+        } else {
+            value.parse::<u32>().ok()
+        }
+    };
+    let mut pages = Vec::new();
+    for part in specification.split(',').map(str::trim) {
+        if let Some((start, end)) = part.split_once('-') {
+            let (Some(start), Some(end)) =
+                (parse_endpoint(start, 1), parse_endpoint(end, page_count))
+            else {
+                continue;
+            };
+            if start <= end {
+                pages.extend(start..=end);
+            } else {
+                pages.extend((end..=start).rev());
+            }
+        } else if let Some(page) = parse_endpoint(part, 1) {
+            pages.push(page);
+        }
+    }
+    pages.retain(|page| (1..=page_count).contains(page));
+    if pages.is_empty() { vec![1] } else { pages }
+}
+
 fn resolve_graphic_asset_materializer(
     request: &GraphicAssetRequest,
     detected_format: Option<GraphicAssetFormat>,
@@ -753,7 +860,8 @@ fn default_syncmap_width_pt() -> u32 {
     612
 }
 
-const MAX_SEMANTIC_AUX_PASSES: usize = 3;
+// Page-label feedback in long documents can need more than LaTeX's usual three passes.
+const MAX_SEMANTIC_AUX_PASSES: usize = 8;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PageSyncMapArtifact {
@@ -1232,7 +1340,7 @@ impl CompilerDriver {
                             ),
                         })?
                     };
-                    if !candidate_build.run.diagnostics.is_empty() {
+                    if has_fatal_internal_diagnostics(&candidate_build.run.diagnostics) {
                         return Err(internal_diagnostics_failure(
                             &request.toplevel,
                             candidate_build,
@@ -1347,7 +1455,7 @@ impl CompilerDriver {
                                     "internal compiler semantic aux rebuild from base snapshot failed: {error}"
                                 ),
                             })?;
-                        if !replayed_build.run.diagnostics.is_empty() {
+                        if has_fatal_internal_diagnostics(&replayed_build.run.diagnostics) {
                             return Err(internal_diagnostics_failure(
                                 &request.toplevel,
                                 replayed_build,
@@ -1537,9 +1645,11 @@ impl CompilerDriver {
                     )?;
                 (build, preamble_checkpoint, None)
             };
-            if !build.run.diagnostics.is_empty() {
+            if has_fatal_internal_diagnostics(&build.run.diagnostics) {
                 return Err(internal_diagnostics_failure(&request.toplevel, build));
             }
+            let internal_diagnostics =
+                map_internal_diagnostics(&request.toplevel, &build.run.diagnostics);
             let render_ir_artifact_dir = rev_dir.join("render-ir");
             let prepared_asset_cache_root = request.build_root.join("render-asset-cache");
             let render_ir_capture = if let Some(aux) = semantic_aux.as_ref() {
@@ -2425,7 +2535,7 @@ impl CompilerDriver {
             })?;
             return Ok(CompileOutcome {
                 pdf_path,
-                diagnostics: Vec::new(),
+                diagnostics: internal_diagnostics,
                 dep_trace: DepTrace::from_inputs(tracked_inputs),
                 page_artifacts,
                 page_metadata: execution_page_metadata,
@@ -2781,19 +2891,53 @@ impl CompilerDriver {
 
 fn internal_diagnostics_failure(toplevel: &Utf8Path, build: ProjectPdfBuild) -> CompileFailure {
     CompileFailure {
-        diagnostics: build
-            .run
-            .diagnostics
-            .into_iter()
-            .map(|diagnostic| Diagnostic {
-                level: DiagnosticLevel::Error,
-                file: Some(toplevel.to_string()),
-                line: None,
-                message: diagnostic.detail,
-            })
-            .collect(),
+        diagnostics: map_internal_diagnostics(toplevel, &build.run.diagnostics),
         message: "internal compiler reported diagnostics".to_string(),
     }
+}
+
+fn has_fatal_internal_diagnostics(diagnostics: &[VmDiagnostic]) -> bool {
+    diagnostics
+        .iter()
+        .any(|diagnostic| !is_nonfatal_internal_diagnostic(diagnostic))
+}
+
+fn is_nonfatal_internal_diagnostic(diagnostic: &VmDiagnostic) -> bool {
+    diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+        || (diagnostic.kind == VmDiagnosticKind::ExplicitError
+            && [
+                "newcommand ",
+                "renewcommand ",
+                "newenvironment ",
+                "renewenvironment ",
+            ]
+            .iter()
+            .any(|prefix| diagnostic.detail.starts_with(prefix)))
+}
+
+fn map_internal_diagnostics(toplevel: &Utf8Path, diagnostics: &[VmDiagnostic]) -> Vec<Diagnostic> {
+    let mut seen = BTreeSet::new();
+    diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            let kind = match diagnostic.kind {
+                VmDiagnosticKind::UndefinedControlSequence => 0,
+                VmDiagnosticKind::MissingFile => 1,
+                VmDiagnosticKind::ExplicitError => 2,
+            };
+            seen.insert((kind, diagnostic.detail.clone()))
+        })
+        .map(|diagnostic| Diagnostic {
+            level: if is_nonfatal_internal_diagnostic(diagnostic) {
+                DiagnosticLevel::Warning
+            } else {
+                DiagnosticLevel::Error
+            },
+            file: Some(toplevel.to_string()),
+            line: None,
+            message: diagnostic.detail.clone(),
+        })
+        .collect()
 }
 
 fn load_latest_previous_internal_build(
@@ -3997,7 +4141,7 @@ mod tests {
     use std::{collections::BTreeMap, fs};
 
     use camino::{Utf8Path, Utf8PathBuf};
-    use hmr_protocol::{PagePatchOp, PagePreviewArtifact};
+    use hmr_protocol::{DiagnosticLevel, PagePatchOp, PagePreviewArtifact};
     use tempfile::tempdir;
     use tex_aux::MaterializedRewriteSpan;
     use tex_bootstrap::{ProjectPageMeta, ProjectReplayCheckpoint};
@@ -4008,12 +4152,15 @@ mod tests {
     };
     use tex_layout::TextSpan;
     use tex_render_model::{
-        DrawOp, GraphicAssetFormat, GraphicAssetRequest, PageDisplayList, PositionedImage, Rect,
-        RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
+        DrawOp, GraphicAssetFormat, GraphicAssetRequest, IrBlock, PageDisplayList, PositionedImage,
+        Rect, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
         SourceProvenance,
     };
     use tex_tokens::ControlSequenceInterner;
-    use tex_vm::{VmModuleCheckpointKind, VmReplayFrame, compile_format_snapshot};
+    use tex_vm::{
+        VmDiagnostic, VmDiagnosticKind, VmModuleCheckpointKind, VmReplayFrame,
+        compile_format_snapshot,
+    };
 
     use super::{
         ArtifactSourceSpan, BuildMeta, CheckpointPage, CompileRequest, CompilerDriver, DepTrace,
@@ -4021,8 +4168,10 @@ mod tests {
         ResolvedGraphicAssetMaterializer, ResolvedGraphicConverter, SemanticAux,
         StoredModuleCheckpoint, StoredModuleTrace, UnchangedTail,
         annotate_display_list_image_diagnostics, build_renderer_page_state,
-        capture_internal_render_ir, earliest_changed_offset, earliest_changed_rewrite_span_offset,
-        earliest_changed_rewrite_span_source_offset, load_latest_previous_internal_build,
+        capture_internal_render_ir, capture_internal_render_ir_from_project_root,
+        earliest_changed_offset, earliest_changed_rewrite_span_offset,
+        earliest_changed_rewrite_span_source_offset, has_fatal_internal_diagnostics,
+        included_pdf_pages, load_latest_previous_internal_build, map_internal_diagnostics,
         materialize_display_list_asset, parse_depfile, parse_fls, plan_page_patches,
         rebase_reused_shipout_checkpoint, rebase_shipout_path_offset,
         render_ir_display_list_svg_file_name, renderer_unchanged_tail,
@@ -4030,6 +4179,49 @@ mod tests {
         select_shipout_replay_plan, select_shipout_replay_plan_with_spans,
         shift_shipout_source_offset,
     };
+
+    #[test]
+    fn internal_diagnostic_policy_warns_for_compatibility_definitions_but_not_resource_limits() {
+        let compatibility = [
+            VmDiagnostic {
+                kind: VmDiagnosticKind::UndefinedControlSequence,
+                detail: "unknownformat".to_string(),
+            },
+            VmDiagnostic {
+                kind: VmDiagnosticKind::ExplicitError,
+                detail: r"newcommand \listofalgorithms already defined".to_string(),
+            },
+            VmDiagnostic {
+                kind: VmDiagnosticKind::ExplicitError,
+                detail: r"renewcommand \headrulewidth undefined".to_string(),
+            },
+        ];
+        assert!(!has_fatal_internal_diagnostics(&compatibility));
+        assert!(
+            map_internal_diagnostics(Utf8Path::new("main.tex"), &compatibility)
+                .iter()
+                .all(|diagnostic| diagnostic.level == DiagnosticLevel::Warning)
+        );
+
+        let resource_limit = [VmDiagnostic {
+            kind: VmDiagnosticKind::ExplicitError,
+            detail: "TeX expansion resource limit exceeded".to_string(),
+        }];
+        assert!(has_fatal_internal_diagnostics(&resource_limit));
+    }
+
+    #[test]
+    fn included_pdf_page_ranges_expand_in_declared_order() {
+        assert_eq!(
+            included_pdf_pages(Some("pages=1-last"), 4),
+            vec![1, 2, 3, 4]
+        );
+        assert_eq!(
+            included_pdf_pages(Some("pages={1,3-4,last},fitpaper=true"), 5),
+            vec![1, 3, 4, 5]
+        );
+        assert_eq!(included_pdf_pages(Some("pages=3-1"), 3), vec![3, 2, 1]);
+    }
 
     #[test]
     fn render_ir_display_list_svg_file_names_escape_path_unsafe_page_ids() {
@@ -4263,6 +4455,88 @@ mod tests {
         assert_eq!(capture.page_display_lists.len(), 1);
         assert!(String::from_utf8_lossy(&capture.display_list_pdf).contains("(A Paper) Tj"));
         assert!(!capture.legacy_output.is_empty());
+    }
+
+    #[test]
+    fn internal_render_ir_expands_included_pdf_into_dedicated_pages() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 root");
+        let source_pdf = tex_pdf::render_display_list_pdf(&[
+            PageDisplayList {
+                page_id: "source-1".to_string(),
+                width_pt: 200.0,
+                height_pt: 100.0,
+                ops: Vec::new(),
+                source_spans: Vec::new(),
+                content_hash: "source-hash-1".to_string(),
+            },
+            PageDisplayList {
+                page_id: "source-2".to_string(),
+                width_pt: 200.0,
+                height_pt: 100.0,
+                ops: Vec::new(),
+                source_spans: Vec::new(),
+                content_hash: "source-hash-2".to_string(),
+            },
+        ]);
+        fs::write(root.join("paper.pdf"), source_pdf).expect("source PDF");
+        fs::write(
+            root.join("main.tex"),
+            r"\documentclass[a4paper]{article}\usepackage{pdfpages}\begin{document}\includepdf[pages=1-last]{paper.pdf}\end{document}",
+        )
+        .expect("source TeX");
+
+        let capture = capture_internal_render_ir_from_project_root(
+            &root,
+            "main.tex",
+            &SemanticAux::default(),
+        )
+        .expect("capture included PDF");
+
+        let included_events = capture
+            .events
+            .events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::IncludePdf(graphic) => graphic
+                    .page_selection
+                    .as_ref()
+                    .and_then(|selection| selection.page),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(included_events, vec![1, 2]);
+        assert_eq!(
+            capture
+                .events
+                .events
+                .iter()
+                .map(|event| event.meta.event_id)
+                .collect::<Vec<_>>(),
+            (1..=capture.events.events.len() as u64).collect::<Vec<_>>()
+        );
+        assert!(
+            capture
+                .document_ir
+                .blocks
+                .iter()
+                .all(|block| matches!(block, IrBlock::IncludedPdfPage(_)))
+        );
+        assert_eq!(capture.page_display_lists.len(), 2);
+        assert!(capture.page_display_lists.iter().all(|page| {
+            page.ops
+                .iter()
+                .filter(|op| matches!(op, DrawOp::Image(_)))
+                .count()
+                == 1
+        }));
+        assert_eq!(capture.materialized_assets.len(), 2);
+        assert!(
+            capture
+                .materialized_assets
+                .values()
+                .all(|asset| asset.pdf_form.is_some())
+        );
     }
 
     #[test]
@@ -4561,6 +4835,44 @@ mod tests {
                 .join("rev-1/render-ir")
                 .join(&first_display_list_svg)
                 .exists()
+        );
+    }
+
+    #[tokio::test]
+    async fn internal_compiler_keeps_undefined_commands_as_warnings() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("main.tex"),
+            r"\begin{document}Before \unknownformat{Visible} and \unknownformat{again} after.\end{document}",
+        )
+        .expect("main tex");
+
+        let build_root = root.join(".latexd/build");
+        let manifest = tex_world::ProjectManifest::discover(&root).expect("manifest");
+        let outcome = CompilerDriver::new(Some("internal".to_string()), Vec::new())
+            .compile(CompileRequest {
+                root: root.clone(),
+                manifest,
+                toplevel: Utf8PathBuf::from("main.tex"),
+                rev: 1,
+                build_root,
+                changed_files: vec![Utf8PathBuf::from("main.tex")],
+            })
+            .await
+            .expect("internal compile");
+
+        assert!(outcome.pdf_path.is_file());
+        assert_eq!(
+            outcome
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| {
+                    diagnostic.level == DiagnosticLevel::Warning
+                        && diagnostic.message == "unknownformat"
+                })
+                .count(),
+            1
         );
     }
 

@@ -650,6 +650,20 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         source: envelope.meta.source.clone(),
                     }));
                 }
+                RenderEvent::IncludePdf(event) => {
+                    self.flush_paragraph();
+                    self.push_block(IrBlock::IncludedPdfPage(GraphicBlock {
+                        path: event.path.clone(),
+                        options: event.options.clone(),
+                        page_selection: event.page_selection.clone(),
+                        asset_format: event.asset_format,
+                        asset_hash: event.asset_hash.clone(),
+                        asset_dimensions: event.asset_dimensions,
+                        caption: None,
+                        caption_source: None,
+                        source: envelope.meta.source.clone(),
+                    }));
+                }
                 RenderEvent::Caption(event) => {
                     let table_float_open = matches!(
                         self.float_stack.last(),

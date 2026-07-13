@@ -24208,7 +24208,7 @@ fn tabular_partial_rule_rects_use_visible_separator_widths() {
 fn booktabs_cmidrule_trim_options_shorten_partial_rule_rects() {
     let untrimmed = capture_internal_render_ir(
         "main.tex",
-        r"\begin{document}\begin{tabular}{lll}A & B & C \\\cline{1-2} D & E & F\end{tabular}\end{document}",
+        r"\documentclass{article}\begin{document}\begin{tabular}{lll}A & B & C \\\cline{1-2} D & E & F\end{tabular}\end{document}",
         &SemanticAux::default(),
     );
     let trimmed = capture_internal_render_ir(
@@ -24264,7 +24264,7 @@ fn booktabs_cmidrule_trim_options_shorten_partial_rule_rects() {
 fn booktabs_cmidrule_single_sided_trim_options_are_directional() {
     let untrimmed = capture_internal_render_ir(
         "main.tex",
-        r"\begin{document}\begin{tabular}{lll}A & B & C \\\cline{1-2} D & E & F\end{tabular}\end{document}",
+        r"\documentclass{article}\begin{document}\begin{tabular}{lll}A & B & C \\\cline{1-2} D & E & F\end{tabular}\end{document}",
         &SemanticAux::default(),
     );
     let left_trimmed = capture_internal_render_ir(
@@ -24337,7 +24337,7 @@ fn booktabs_cmidrule_single_sided_trim_options_are_directional() {
 fn booktabs_cmidrule_trim_length_units_do_not_change_trim_side() {
     let untrimmed = capture_internal_render_ir(
         "main.tex",
-        r"\begin{document}\begin{tabular}{lll}A & B & C \\\cline{1-2} D & E & F \\\cline{2-3} G & H & I\end{tabular}\end{document}",
+        r"\documentclass{article}\begin{document}\begin{tabular}{lll}A & B & C \\\cline{1-2} D & E & F \\\cline{2-3} G & H & I\end{tabular}\end{document}",
         &SemanticAux::default(),
     );
     let trimmed = capture_internal_render_ir(

@@ -17,7 +17,7 @@ enum InternalBaselinesBibliographyAndTocCase {
 
 enum InternalBaselinesSourceAndFailureCase {
     SourceSpans,
-    VmDiagnostics,
+    VmWarnings,
 }
 
 fn prepare_internal_baselines_fixture(
@@ -107,14 +107,18 @@ async fn run_internal_baselines_source_and_failure(case: InternalBaselinesSource
                 ]
             );
         }
-        InternalBaselinesSourceAndFailureCase::VmDiagnostics => {
+        InternalBaselinesSourceAndFailureCase::VmWarnings => {
             let fixture = prepare_internal_baselines_fixture("\\UnknownCommand", &[]);
-            let failure = compile_internal_baselines_fixture(&fixture, &["main.tex"])
+            let outcome = compile_internal_baselines_fixture(&fixture, &["main.tex"])
                 .await
-                .expect_err("internal build should fail on VM diagnostics");
+                .expect("undefined commands should not prevent preview rendering");
 
-            assert_eq!(failure.diagnostics.len(), 1);
-            assert!(failure.diagnostics[0].message.contains("UnknownCommand"));
+            assert_eq!(outcome.diagnostics.len(), 1);
+            assert!(matches!(
+                outcome.diagnostics[0].level,
+                hmr_protocol::DiagnosticLevel::Warning
+            ));
+            assert!(outcome.diagnostics[0].message.contains("UnknownCommand"));
         }
     }
 }

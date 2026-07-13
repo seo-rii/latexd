@@ -22,6 +22,9 @@ use tex_render_model::{
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
 
+const MAX_PENDING_QUEUE_ITEMS: usize = 1_000_000;
+const MAX_EXECUTED_TOKENS: usize = 5_000_000;
+
 fn lex_plain_at_letter(input: &str, interner: &mut ControlSequenceInterner) -> Vec<Token> {
     let mut catcodes = CatCodeTable::plain_tex();
     catcodes.set('@', CatCode::Letter);
@@ -36,6 +39,7 @@ fn builtin_latex_module_source(label: &str, path: &Utf8Path) -> Option<&'static 
         ("class", "revtex4-2.cls") => Some(REVTEX_CLASS_SHIM),
         ("package", "authblk.sty") => Some(AUTHBLK_PACKAGE_SHIM),
         ("package", "braket.sty") => Some(BRAKET_PACKAGE_SHIM),
+        ("package", "neurips_2019.sty") => Some(COMMON_PACKAGE_SHIM),
         ("package", "wacv.sty") => Some(WACV_PACKAGE_SHIM),
         ("package", package) if BUILTIN_PACKAGE_SHIMS.contains(&package) => {
             Some(COMMON_PACKAGE_SHIM)
@@ -185,6 +189,35 @@ const COMMON_PACKAGE_SHIM: &str = r"
 \providecommand{\path}[1]{#1}
 \providecommand{\,}{ }
 \providecommand{\includegraphics}[2][]{[image]}
+\providecommand{\includepdf}[2][]{}
+\providecommand{\captionof}[2]{#2}
+\providecommand{\fancyhf}[1]{}
+\providecommand{\fancyhead}[2][]{}
+\providecommand{\fancyfoot}[2][]{}
+\providecommand{\lhead}[1]{}
+\providecommand{\chead}[1]{}
+\providecommand{\rhead}[1]{}
+\providecommand{\lfoot}[1]{}
+\providecommand{\cfoot}[1]{}
+\providecommand{\rfoot}[1]{}
+\providecommand{\pagestyle}[1]{}
+\providecommand{\thispagestyle}[1]{}
+\providecommand{\twocolumn}[1][]{#1}
+\providecommand{\onecolumn}{}
+\providecommand{\geometry}[1]{}
+\providecommand{\newgeometry}[1]{}
+\providecommand{\restoregeometry}{}
+\providecommand{\savegeometry}[1]{}
+\providecommand{\loadgeometry}[1]{}
+\providecommand{\afterpage}[1]{#1}
+\providecommand{\counterwithin}[3][]{}
+\providecommand{\counterwithout}[3][]{}
+\providecommand{\newboolean}[1]{}
+\providecommand{\setboolean}[2]{}
+\providecommand{\boolean}[1]{0}
+\providecommand{\equal}[2]{0}
+\providecommand{\ifthenelse}[3]{#3}
+\providecommand{\forloop}[5]{}
 \providecommand{\epsfxsize}{}
 \providecommand{\epsfysize}{}
 \providecommand{\epsfbox}[1]{}
@@ -346,12 +379,14 @@ const COMMON_PACKAGE_SHIM: &str = r"
 
 const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "adjustbox.sty",
+    "afterpage.sty",
     "CJK.sty",
     "CJKutf8.sty",
     "aliascnt.sty",
     "algpseudocode.sty",
     "algorithm.sty",
     "algorithm2e.sty",
+    "algorithmic.sty",
     "algorithmicx.sty",
     "amsfonts.sty",
     "amsmath.sty",
@@ -360,14 +395,20 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "arydshln.sty",
     "array.sty",
     "authblk.sty",
+    "babel.sty",
     "balance.sty",
     "bbm.sty",
     "bigstrut.sty",
     "bm.sty",
+    "bold-extra.sty",
     "booktabs.sty",
     "braket.sty",
+    "calc.sty",
+    "capt-of.sty",
     "caption.sty",
     "ccaption.sty",
+    "changepage.sty",
+    "chngcntr.sty",
     "cite.sty",
     "cleveref.sty",
     "collcell.sty",
@@ -380,20 +421,26 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "dblfloatfix.sty",
     "enumitem.sty",
     "epsf.sty",
+    "epsfig.sty",
+    "eso-pic.sty",
     "etoolbox.sty",
     "fancybox.sty",
+    "fancyhdr.sty",
     "float.sty",
     "floatflt.sty",
     "floatrow.sty",
     "flushend.sty",
     "fontenc.sty",
+    "forloop.sty",
     "framed.sty",
     "fullpage.sty",
+    "geometry.sty",
     "graphicx.sty",
     "hhline.sty",
     "ragged2e.sty",
     "hyperref.sty",
     "inputenc.sty",
+    "ifthen.sty",
     "keyval.sty",
     "latexsym.sty",
     "lineno.sty",
@@ -411,7 +458,9 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "optidef.sty",
     "overpic.sty",
     "paracol.sty",
+    "pdfpages.sty",
     "pdflscape.sty",
+    "pgfplots.sty",
     "pbox.sty",
     "picins.sty",
     "picinpar.sty",
@@ -431,12 +480,15 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "subfig.sty",
     "subfigure.sty",
     "tabu.sty",
+    "tabulary.sty",
     "tablefootnote.sty",
     "tabularx.sty",
     "tcolorbox.sty",
+    "textcomp.sty",
     "theorem.sty",
     "threeparttable.sty",
     "tikz.sty",
+    "tikz-qtree.sty",
     "times.sty",
     "tocloft.sty",
     "todonotes.sty",
@@ -445,6 +497,7 @@ const BUILTIN_PACKAGE_SHIMS: &[&str] = &[
     "url.sty",
     "wacv.sty",
     "xcolor.sty",
+    "xfrac.sty",
     "xspace.sty",
 ];
 
@@ -3534,22 +3587,19 @@ impl<'i> Vm<'i> {
                                             &source[start..body_command_index]
                                         };
                                         match body_command {
-                                            "includegraphics" => {
-                                                if let Some(after) = self
-                                                    .capture_includegraphics_event(
-                                                        source_path,
-                                                        source,
-                                                        body_command_start,
-                                                        body_command_index,
-                                                        body_end,
-                                                        &scan_state.graphic_paths,
-                                                        &scan_state.graphic_extensions,
-                                                        scan_state
-                                                            .graphic_default_options
-                                                            .as_deref(),
-                                                        None,
-                                                    )
-                                                {
+                                            "includegraphics" | "includepdf" => {
+                                                if let Some(after) = self.capture_graphic_event(
+                                                    source_path,
+                                                    source,
+                                                    body_command_start,
+                                                    body_command_index,
+                                                    body_end,
+                                                    &scan_state.graphic_paths,
+                                                    &scan_state.graphic_extensions,
+                                                    scan_state.graphic_default_options.as_deref(),
+                                                    None,
+                                                    body_command == "includepdf",
+                                                ) {
                                                     body_index = after;
                                                     continue;
                                                 }
@@ -5557,6 +5607,26 @@ impl<'i> Vm<'i> {
                             .map(str::trim)
                             .filter(|package| !package.is_empty())
                         {
+                            if (package_name.eq_ignore_ascii_case("neurips_2019")
+                                || package_name.eq_ignore_ascii_case("neurips_2019.sty"))
+                                && let Some(document_class) = self
+                                    .render_events
+                                    .iter_mut()
+                                    .find_map(|event| match &mut event.event {
+                                        RenderEvent::DocumentClass(document_class) => {
+                                            Some(document_class)
+                                        }
+                                        _ => None,
+                                    })
+                            {
+                                document_class.options.retain(|option| {
+                                    !matches!(
+                                        option.trim().to_ascii_lowercase().as_str(),
+                                        "10pt" | "11pt" | "12pt"
+                                    )
+                                });
+                                document_class.options.push("10pt".to_string());
+                            }
                             if matches!(package_name, "graphicx" | "graphics" | "epsfig") {
                                 let explicit_options = merge_graphic_options(
                                     scan_state.graphic_global_options.clone(),
@@ -5792,6 +5862,24 @@ impl<'i> Vm<'i> {
                             );
                         }
                         index = after_class;
+                    }
+                }
+                "twocolumn" | "onecolumn" if in_document && include_depth == 0 => {
+                    if let Some(document_class) =
+                        self.render_events
+                            .iter_mut()
+                            .find_map(|event| match &mut event.event {
+                                RenderEvent::DocumentClass(document_class) => Some(document_class),
+                                _ => None,
+                            })
+                    {
+                        document_class.options.retain(|option| {
+                            !matches!(
+                                option.trim().to_ascii_lowercase().as_str(),
+                                "onecolumn" | "twocolumn"
+                            )
+                        });
+                        document_class.options.push(command.to_string());
                     }
                 }
                 "includeonly" => {
@@ -9199,7 +9287,7 @@ impl<'i> Vm<'i> {
                     }
                 }
                 "includegraphics" if in_document => {
-                    if let Some(after) = self.capture_includegraphics_event(
+                    if let Some(after) = self.capture_graphic_event(
                         source_path,
                         source,
                         command_start,
@@ -9209,6 +9297,23 @@ impl<'i> Vm<'i> {
                         &scan_state.graphic_extensions,
                         scan_state.graphic_default_options.as_deref(),
                         None,
+                        false,
+                    ) {
+                        index = after;
+                    }
+                }
+                "includepdf" if in_document => {
+                    if let Some(after) = self.capture_graphic_event(
+                        source_path,
+                        source,
+                        command_start,
+                        index,
+                        source.len(),
+                        &scan_state.graphic_paths,
+                        &scan_state.graphic_extensions,
+                        scan_state.graphic_default_options.as_deref(),
+                        None,
+                        true,
                     ) {
                         index = after;
                     }
@@ -10286,7 +10391,7 @@ impl<'i> Vm<'i> {
                 &source[start..command_index]
             };
             let after = match command {
-                "includegraphics" => self.capture_includegraphics_event(
+                "includegraphics" | "includepdf" => self.capture_graphic_event(
                     source_path,
                     source,
                     command_start,
@@ -10296,6 +10401,7 @@ impl<'i> Vm<'i> {
                     graphic_extensions,
                     default_options,
                     inherited_options,
+                    command == "includepdf",
                 ),
                 "epsfig" | "psfig" => self.capture_legacy_graphic_event(
                     source_path,
@@ -13272,7 +13378,7 @@ impl<'i> Vm<'i> {
         let relative_end = source[argument_index..limit].find(&end_marker)?;
         let body_end = argument_index + relative_end;
         let raw_end = body_end + end_marker.len();
-        let body_start = self.capture_includegraphics_event(
+        let body_start = self.capture_graphic_event(
             source_path,
             source,
             command_start,
@@ -13282,6 +13388,7 @@ impl<'i> Vm<'i> {
             graphic_extensions,
             default_options,
             inherited_options,
+            false,
         )?;
         let mut body_index = body_start;
         while body_index < body_end {
@@ -13380,7 +13487,7 @@ impl<'i> Vm<'i> {
         Some(raw_end)
     }
 
-    fn capture_includegraphics_event(
+    fn capture_graphic_event(
         &mut self,
         source_path: &Utf8Path,
         source: &str,
@@ -13391,6 +13498,7 @@ impl<'i> Vm<'i> {
         graphic_extensions: &[String],
         default_options: Option<&str>,
         inherited_options: Option<&str>,
+        include_pdf: bool,
     ) -> Option<usize> {
         let mut argument_index = skip_ascii_whitespace(source, argument_index);
         let mut starred_clip = false;
@@ -13460,15 +13568,20 @@ impl<'i> Vm<'i> {
             merge_graphic_options(local_options, inherited_options),
         );
         let page_selection = parse_graphic_page_selection(options.as_deref());
+        let event = GraphicRefEvent {
+            asset_format,
+            asset_hash: asset_hash.clone(),
+            asset_dimensions,
+            path: resolved_path.clone(),
+            page_selection,
+            options,
+        };
         self.emit_render_event(
-            RenderEvent::GraphicRef(GraphicRefEvent {
-                asset_format,
-                asset_hash: asset_hash.clone(),
-                asset_dimensions,
-                path: resolved_path.clone(),
-                page_selection,
-                options,
-            }),
+            if include_pdf {
+                RenderEvent::IncludePdf(event)
+            } else {
+                RenderEvent::GraphicRef(event)
+            },
             event_source.clone(),
         );
         self.emit_missing_graphic_asset_diagnostic(
@@ -14145,6 +14258,7 @@ impl<'i> Vm<'i> {
             .into_iter()
             .map(QueueItem::Token)
             .collect::<VecDeque<_>>();
+        let mut executed_tokens = 0usize;
         let pushed_root_source = self.entry_source_path.clone().map(|path| {
             self.source_stack.push(ActiveSourceFrame {
                 path,
@@ -14155,8 +14269,21 @@ impl<'i> Vm<'i> {
                 module_options: None,
             });
         });
-        loop {
+        'execution: loop {
             while let Some(token) = self.pop_next_token(&mut queue) {
+                executed_tokens = executed_tokens.saturating_add(1);
+                if executed_tokens > MAX_EXECUTED_TOKENS || queue.len() > MAX_PENDING_QUEUE_ITEMS {
+                    self.diagnostics.push(VmDiagnostic {
+                        kind: VmDiagnosticKind::ExplicitError,
+                        detail: format!(
+                            "TeX expansion resource limit exceeded after {executed_tokens} tokens with {} pending items",
+                            queue.len()
+                        ),
+                    });
+                    queue.clear();
+                    self.at_end_document_hooks.clear();
+                    break 'execution;
+                }
                 self.execute_token(token, &mut queue);
             }
             if self.at_end_document_hooks.is_empty() {
@@ -20599,7 +20726,16 @@ impl<'i> Vm<'i> {
 
         let prefer_builtin_module = matches!(
             (label, path.as_str()),
-            ("class", "llncs.cls" | "IEEEtran.cls") | ("package", "wacv.sty")
+            ("class", "llncs.cls" | "IEEEtran.cls")
+                | (
+                    "package",
+                    "algorithm.sty"
+                        | "eso-pic.sty"
+                        | "fancyhdr.sty"
+                        | "natbib.sty"
+                        | "neurips_2019.sty"
+                        | "wacv.sty"
+                )
         );
         let builtin_source = builtin_latex_module_source(label, &path);
         let source = prefer_builtin_module
@@ -20632,9 +20768,15 @@ impl<'i> Vm<'i> {
         if record_transcript {
             self.transcript.push(format!("{label} {}", path));
         }
+        let input_inherits_module_catcodes = label == "input"
+            && self
+                .source_stack
+                .iter()
+                .rev()
+                .any(|frame| frame.module_kind.is_some());
         let tokens = {
             let interner = &mut *self.interner;
-            if label == "class" || label == "package" {
+            if label == "class" || label == "package" || input_inherits_module_catcodes {
                 lex_plain_at_letter(&source, interner)
             } else {
                 lex_plain(&source, interner)
@@ -22606,6 +22748,7 @@ fn source_range_contains_graphic_command(source: &str, start: usize, end: usize)
     let body = &source[start..end];
     [
         "\\includegraphics",
+        "\\includepdf",
         "\\epsfig",
         "\\psfig",
         "\\epsfbox",
@@ -27587,6 +27730,20 @@ mod tests {
         let outcome = vm.run_plain(r"\def\foo{ab}\foo");
 
         assert_eq!(outcome.output, "ab");
+    }
+
+    #[test]
+    fn expanding_macro_growth_stops_at_the_resource_limit() {
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        let outcome = vm.run_plain(r"\def\foo{\foo\foo}\foo");
+
+        assert!(outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::ExplicitError
+                && diagnostic
+                    .detail
+                    .starts_with("TeX expansion resource limit exceeded")
+        }));
     }
 
     #[test]
@@ -34503,6 +34660,30 @@ Fallback text.
             .expect("paragraph break event");
 
         assert_eq!(paragraph_break.meta.mode_hint, ModeHint::Vertical);
+    }
+
+    #[test]
+    fn render_event_capture_records_multipage_pdf_inclusion() {
+        let source = r"\documentclass[a4paper]{article}\usepackage{pdfpages}\begin{document}\includepdf[pages=1-last]{paper.pdf}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("paper.pdf", "%PDF fake");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.render_events.iter().any(|event| matches!(
+            &event.event,
+            RenderEvent::IncludePdf(graphic)
+                if graphic.path == "paper.pdf"
+                    && graphic.options.as_deref() == Some("pages=1-last")
+        )));
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::UndefinedControlSequence
+                && diagnostic.detail == "includepdf"
+        }));
+        assert!(!outcome.output.contains("paper.pdf"));
+        assert!(!outcome.output.contains("pages=1-last"));
     }
 
     #[test]
@@ -43581,14 +43762,26 @@ Fallback text.
 
     #[test]
     fn render_event_capture_hides_list_of_float_commands() {
-        let source = r"\documentclass{article}\usepackage{algorithm,tocloft}\begin{document}\listoffigures\listoftables\listofalgorithms\listof{figure}{Hidden Figure List}Visible text.\end{document}";
+        let source = r"\documentclass{article}\usepackage{algorithm,algorithmic,babel,calc,capt-of,epsfig,eso-pic,forloop,ifthen,tabulary,tocloft}\begin{document}\listoffigures\listoftables\listofalgorithms\listof{figure}{Hidden Figure List}Visible text.\end{document}";
         let mut interner = ControlSequenceInterner::new();
         let mut vm = Vm::new(&mut interner);
         vm.set_entry_source_path("main.tex");
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
 
-        for package in ["algorithm.sty", "tocloft.sty"] {
+        for package in [
+            "algorithm.sty",
+            "algorithmic.sty",
+            "babel.sty",
+            "calc.sty",
+            "capt-of.sty",
+            "epsfig.sty",
+            "eso-pic.sty",
+            "forloop.sty",
+            "ifthen.sty",
+            "tabulary.sty",
+            "tocloft.sty",
+        ] {
             assert!(!outcome.diagnostics.iter().any(|diagnostic| {
                 diagnostic.kind == VmDiagnosticKind::MissingFile
                     && diagnostic.detail == format!("package {package}")
@@ -43616,6 +43809,88 @@ Fallback text.
         ] {
             assert!(!visible_text.contains(hidden), "{visible_text}");
         }
+    }
+
+    #[test]
+    fn fancyhdr_uses_preview_shim_instead_of_recursive_local_implementation() {
+        let source = r"\documentclass{article}\usepackage{fancyhdr}\begin{document}\fancyhf{}Visible text.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.mount_file("fancyhdr.sty", r"\def\fancyhf#1{\fancyhf{#1}}");
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.output.contains("Visible text."));
+        assert!(!outcome.output.contains("fancyhf"));
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::ExplicitError
+                && diagnostic.detail.contains("resource limit")
+        }));
+    }
+
+    #[test]
+    fn geometry_loads_from_the_common_preview_shim() {
+        let source = r"\documentclass{article}\usepackage{geometry}\begin{document}Visible text.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.output.contains("Visible text."));
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::MissingFile
+                && diagnostic.detail == "package geometry.sty"
+        }));
+    }
+
+    #[test]
+    fn common_preview_shims_cover_gpt3_support_packages() {
+        let source = r"\documentclass{article}\usepackage{bold-extra,textcomp,changepage,afterpage,chngcntr}\counterwithin{figure}{section}\begin{document}\afterpage{Visible text.}\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.output.contains("Visible text."));
+        for package in [
+            "bold-extra.sty",
+            "textcomp.sty",
+            "changepage.sty",
+            "afterpage.sty",
+            "chngcntr.sty",
+        ] {
+            assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+                diagnostic.kind == VmDiagnosticKind::MissingFile
+                    && diagnostic.detail == format!("package {package}")
+            }));
+        }
+    }
+
+    #[test]
+    fn neurips_2019_uses_preview_shim_instead_of_recursive_local_implementation() {
+        let source = r"\documentclass{article}\usepackage{neurips_2019}\begin{document}Visible text.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        vm.mount_file(
+            "neurips_2019.sty",
+            r"\RequirePackage{geometry}\def\normalsize{\normalsize}\normalsize",
+        );
+        let outcome = vm.run_plain(source);
+
+        assert!(outcome.output.contains("Visible text."));
+        assert!(!outcome.diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind == VmDiagnosticKind::ExplicitError
+                && diagnostic.detail.contains("resource limit")
+        }));
+        assert!(outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::DocumentClass(document_class)
+                    if document_class.options == vec!["10pt".to_string()]
+            )
+        }));
     }
 
     #[test]
@@ -44958,6 +45233,27 @@ Fallback text.
                     && &source[span.start_utf8 as usize..span.end_utf8 as usize]
                         == r"\documentclass[10pt, twocolumn]{article}"
         ));
+    }
+
+    #[test]
+    fn render_event_capture_records_runtime_column_layout_intent() {
+        let source =
+            r"\documentclass{article}\begin{document}\twocolumn[Front matter]Body.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let document_class = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::DocumentClass(document_class) => Some(document_class),
+                _ => None,
+            })
+            .expect("document class event");
+
+        assert_eq!(document_class.options, vec!["twocolumn".to_string()]);
     }
 
     #[test]

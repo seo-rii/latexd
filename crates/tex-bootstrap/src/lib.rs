@@ -59,6 +59,18 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \newcommand{\makebox}[2][]{#2}
 \newcommand{\raisebox}[3][]{#3}
 \def\normalfont{}
+\def\encodingdefault{OT1}
+\def\familydefault{cmr}
+\def\seriesdefault{m}
+\def\shapedefault{n}
+\def\rmdefault{cmr}
+\def\sfdefault{cmss}
+\def\ttdefault{cmtt}
+\def\bfdefault{bx}
+\def\mddefault{m}
+\def\itdefault{it}
+\def\sldefault{sl}
+\def\scdefault{sc}
 \def\rmfamily{}
 \def\sffamily{}
 \def\ttfamily{}
@@ -388,6 +400,9 @@ pub const MINI_KERNEL_SOURCE: &str = r##"
 \def\@tocrmarg{2.55em}
 \def\@endpart{}
 \def\@mkboth#1#2{}
+\def\fnum@figure{Figure}
+\def\fnum@table{Table}
+\def\@setsize#1#2#3#4{}
 \def\@startsection#1#2#3#4#5#6#7{#7}
 \def\@dottedtocline#1#2#3#4#5{#4 #5}
 \makeatother
@@ -1452,6 +1467,83 @@ mod tests {
                 "def \\packmark #0",
             ]
         );
+    }
+
+    #[test]
+    fn mini_kernel_supports_legacy_font_defaults_and_setsize() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("legacy.sty"),
+            r"\renewcommand{\rmdefault}{ptm}\renewcommand{\fnum@figure}{Fig.}\renewcommand{\fnum@table}{Tab.}\def\Large{\@setsize\Large{16pt}\xivpt\@xivpt}",
+        )
+        .expect("package");
+        fs::write(
+            root.join("paper.tex"),
+            r"\usepackage{legacy}\begin{document}\Large Visible\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        assert_eq!(result.output.trim(), "Visible");
+        assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+    }
+
+    #[test]
+    fn package_inputs_inherit_at_letter_tokenization() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(root.join("legacy.sty"), r"\input{nested}").expect("package");
+        fs::write(
+            root.join("nested.tex"),
+            r"\newcommand{\@NestedHook}{N}\@NestedHook",
+        )
+        .expect("nested input");
+        fs::write(
+            root.join("paper.tex"),
+            r"\usepackage{legacy}\begin{document}X\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        assert_eq!(result.output, "NX");
+        assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+    }
+
+    #[test]
+    fn pdfpages_uses_the_builtin_package_shim() {
+        let tempdir = tempdir().expect("tempdir");
+        let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 tempdir");
+        fs::write(
+            root.join("00README.yaml"),
+            "compiler: pdf_latex\ntoplevel:\n  - paper.tex\n",
+        )
+        .expect("manifest");
+        fs::write(
+            root.join("paper.tex"),
+            r"\usepackage{pdfpages}\begin{document}Visible\includepdf[pages=1-last]{paper.pdf}\end{document}",
+        )
+        .expect("paper");
+
+        let world = ProjectWorld::load(root).expect("world");
+        let result = run_project(&world).expect("project run");
+
+        assert_eq!(result.output.trim(), "Visible");
+        assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
     }
 
     #[test]

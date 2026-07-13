@@ -60,6 +60,39 @@ impl PageDisplayListOptions {
             return options;
         };
         let class_name = document_class.name.trim().to_ascii_lowercase();
+        if document_class
+            .options
+            .iter()
+            .any(|option| option.trim().eq_ignore_ascii_case("a4paper"))
+        {
+            options.page_width_pt = 595.276;
+            options.page_height_pt = 841.89;
+        }
+        let requested_font_size_pt =
+            document_class.options.iter().find_map(|option| {
+                match option.trim().to_ascii_lowercase().as_str() {
+                    "10pt" => Some(10.0),
+                    "11pt" => Some(11.0),
+                    "12pt" => Some(12.0),
+                    _ => None,
+                }
+            });
+        match requested_font_size_pt {
+            Some(10.0) => {
+                options.body_font_size_pt = 10.0;
+                options.line_height_pt = 12.0;
+                options.heading_font_size_pt = 14.0;
+                options.title_font_size_pt = 17.0;
+                options.block_gap_pt = 6.0;
+            }
+            Some(12.0) => {
+                options.body_font_size_pt = 12.0;
+                options.line_height_pt = 14.5;
+                options.heading_font_size_pt = 16.0;
+                options.title_font_size_pt = 20.0;
+            }
+            _ => {}
+        }
         if class_name == "llncs" {
             options.page_width_pt = 595.276;
             options.page_height_pt = 841.89;
@@ -279,6 +312,7 @@ struct LogicalContainer {
 enum LogicalItem {
     Text(LogicalTextRun),
     Image(LogicalImage),
+    FullPageImage(LogicalImage),
     Container(LogicalContainer),
     ContainerRow(Vec<LogicalContainer>),
 }
@@ -925,6 +959,20 @@ pub fn build_page_display_lists(
                         full_width: false,
                     }));
                 }
+            }
+            IrBlock::IncludedPdfPage(block) => {
+                logical_items.push(LogicalItem::FullPageImage(LogicalImage {
+                    path: block.path.clone(),
+                    options: block.options.clone(),
+                    page_selection: block.page_selection.clone(),
+                    asset_format: block.asset_format,
+                    asset_hash: block.asset_hash.clone(),
+                    asset_dimensions: block.asset_dimensions,
+                    caption: None,
+                    caption_source: None,
+                    source: block.source.clone(),
+                    gap_after_pt: 0.0,
+                }));
             }
             IrBlock::Table(block) => {
                 struct RenderedTableCell {
@@ -2565,6 +2613,81 @@ pub fn build_page_display_lists(
             LogicalItem::Container(_) => {
                 unreachable!("layout containers must be grouped before page placement")
             }
+            LogicalItem::FullPageImage(logical) => {
+                pending_image_row = None;
+                if !pending.ops.is_empty() {
+                    finish_page(&mut pages, pending);
+                    pending = new_pending_page();
+                }
+
+                let (natural_width_pt, natural_height_pt) = logical
+                    .asset_dimensions
+                    .and_then(|dimensions| {
+                        match (
+                            dimensions.natural_width_pt_milli,
+                            dimensions.natural_height_pt_milli,
+                        ) {
+                            (Some(width), Some(height)) if width > 0 && height > 0 => {
+                                Some((width as f32 / 1000.0, height as f32 / 1000.0))
+                            }
+                            _ if dimensions.width_px > 0 && dimensions.height_px > 0 => {
+                                Some((dimensions.width_px as f32, dimensions.height_px as f32))
+                            }
+                            _ => None,
+                        }
+                    })
+                    .unwrap_or((options.page_width_pt, options.page_height_pt));
+                let fit_scale = (options.page_width_pt / natural_width_pt)
+                    .min(options.page_height_pt / natural_height_pt);
+                let image_width = natural_width_pt * fit_scale;
+                let image_height = natural_height_pt * fit_scale;
+                let image_x = (options.page_width_pt - image_width) / 2.0;
+                let image_y = (options.page_height_pt - image_height) / 2.0;
+
+                emit_due_destinations(
+                    &logical.source,
+                    Point {
+                        x: image_x,
+                        y: image_y,
+                    },
+                    &mut pending,
+                );
+                pending.hash_input.push('\u{1f}');
+                pending.hash_input.push_str(&format!(
+                    "included-pdf-page:{}:{:?}:{:.3}:{:.3}:{image_width:.3}:{image_height:.3}",
+                    logical.path, logical.page_selection, image_x, image_y
+                ));
+                if let Some(asset_hash) = &logical.asset_hash {
+                    pending.hash_input.push('\u{1f}');
+                    pending.hash_input.push_str("asset-hash:");
+                    pending.hash_input.push_str(asset_hash);
+                }
+                record_source_spans(&logical.source, &mut pending.source_spans);
+                pending.ops.push(DrawOp::Image(PositionedImage {
+                    rect: Rect {
+                        x: image_x,
+                        y: image_y,
+                        width: image_width,
+                        height: image_height,
+                    },
+                    asset_ref: logical.path,
+                    asset_format: logical.asset_format,
+                    page_selection: logical.page_selection,
+                    asset_hash: logical.asset_hash,
+                    natural_width_pt: Some(natural_width_pt),
+                    natural_height_pt: Some(natural_height_pt),
+                    crop: None,
+                    scale: None,
+                    rotation: None,
+                    diagnostic: None,
+                    source: logical.source,
+                }));
+                finish_page(&mut pages, pending);
+                pending = new_pending_page();
+                column_index = 0;
+                column_start_y = options.margin_top_pt;
+                y = column_start_y;
+            }
             LogicalItem::Image(logical) => {
                 let (mut natural_image_width, mut natural_image_height) = if let Some(dimensions) =
                     logical.asset_dimensions
@@ -3198,11 +3321,11 @@ mod tests {
         AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint,
         DisplayMathBlock, DocumentClassIr, DocumentIr, DrawOp, GraphicAssetDensity,
         GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat, GraphicBlock,
-        HeadingBlock, ImageCrop, ImageRotation, ImageScale, ImageTrim, ImageViewport, InlineNode,
-        IrBlock, LabelDefinitionIr, LayoutAlignment, LayoutContainerBlock, LinkInline, ListBlock,
-        ListItemIr, ListKind, ParagraphBlock, Point, ProvenanceSpan, ReferenceInline,
-        SourceProvenance, SourceSpan, TableBlock, TableCell, TableColumnAlignment, TableColumnSpec,
-        TableRow, TableRuleSpan, TextCluster, TitleBlock,
+        GraphicPageSelection, HeadingBlock, ImageCrop, ImageRotation, ImageScale, ImageTrim,
+        ImageViewport, InlineNode, IrBlock, LabelDefinitionIr, LayoutAlignment,
+        LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, ListKind, ParagraphBlock, Point,
+        ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan, TableBlock, TableCell,
+        TableColumnAlignment, TableColumnSpec, TableRow, TableRuleSpan, TextCluster, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists, parse_table_width_spec_pt};
@@ -6426,6 +6549,15 @@ mod tests {
             }),
             Vec::new(),
         );
+        let a4_article = DocumentIr::with_document_class_and_labels(
+            Vec::new(),
+            Some(DocumentClassIr {
+                name: "article".to_string(),
+                options: vec!["11pt".to_string(), "a4paper".to_string()],
+                source: source.clone(),
+            }),
+            Vec::new(),
+        );
         let llncs = DocumentIr::with_document_class_and_labels(
             Vec::new(),
             Some(DocumentClassIr {
@@ -6439,12 +6571,41 @@ mod tests {
         let article_options = PageDisplayListOptions::for_document_ir(&article);
         let ieee_options = PageDisplayListOptions::for_document_ir(&ieee);
 
+        let plain_article = DocumentIr::with_document_class_and_labels(
+            Vec::new(),
+            Some(DocumentClassIr {
+                name: "article".to_string(),
+                options: Vec::new(),
+                source: SourceProvenance::file("plain.tex", 0, 23),
+            }),
+            Vec::new(),
+        );
+        let plain_article_options = PageDisplayListOptions::for_document_ir(&plain_article);
+        let ten_point_article = DocumentIr::with_document_class_and_labels(
+            Vec::new(),
+            Some(DocumentClassIr {
+                name: "article".to_string(),
+                options: vec!["10pt".to_string()],
+                source: SourceProvenance::file("ten-point.tex", 0, 28),
+            }),
+            Vec::new(),
+        );
+        let ten_point_article_options = PageDisplayListOptions::for_document_ir(&ten_point_article);
+
         assert_eq!(article_options.column_count, 2);
         assert_eq!(article_options.body_font_size_pt, 9.5);
         assert_eq!(article_options.line_height_pt, 10.5);
         assert_eq!(ieee_options.column_count, 2);
         assert_eq!(ieee_options.margin_left_pt, 49.5);
         assert_eq!(ieee_options.body_font_size_pt, 9.0);
+        let a4_options = PageDisplayListOptions::for_document_ir(&a4_article);
+        assert_eq!(a4_options.page_width_pt, 595.276);
+        assert_eq!(a4_options.page_height_pt, 841.89);
+        assert_eq!(a4_options.body_font_size_pt, 11.0);
+        assert_eq!(a4_options.line_height_pt, 14.0);
+        assert_eq!(plain_article_options, PageDisplayListOptions::default());
+        assert_eq!(ten_point_article_options.body_font_size_pt, 10.0);
+        assert_eq!(ten_point_article_options.line_height_pt, 12.0);
         let llncs_options = PageDisplayListOptions::for_document_ir(&llncs);
         assert_eq!(llncs_options.page_width_pt, 595.276);
         assert_eq!(llncs_options.page_height_pt, 841.89);
@@ -7010,6 +7171,74 @@ mod tests {
         assert_ne!(
             display_lists[0].content_hash,
             different_width[0].content_hash
+        );
+    }
+
+    #[test]
+    fn included_pdf_pages_are_centered_on_dedicated_pages() {
+        let source = SourceProvenance::file("main.tex", 0, 48);
+        let included_page = |page, width, height| {
+            IrBlock::IncludedPdfPage(GraphicBlock {
+                path: "paper.pdf".to_string(),
+                options: Some("pages=1-last".to_string()),
+                page_selection: Some(GraphicPageSelection {
+                    page: Some(page),
+                    pagebox: None,
+                }),
+                asset_format: Some(GraphicAssetFormat::Pdf),
+                asset_hash: Some("blake3:paper".to_string()),
+                asset_dimensions: Some(GraphicAssetDimensions {
+                    width_px: width,
+                    height_px: height,
+                    density: None,
+                    natural_width_pt_milli: Some(width * 1000),
+                    natural_height_pt_milli: Some(height * 1000),
+                }),
+                caption: None,
+                caption_source: None,
+                source: source.clone(),
+            })
+        };
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![included_page(1, 100, 100), included_page(2, 200, 100)]),
+            PageDisplayListOptions {
+                page_width_pt: 200.0,
+                page_height_pt: 300.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+
+        assert_eq!(display_lists.len(), 2);
+        let first = display_lists[0]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::Image(image) => Some(image),
+                _ => None,
+            })
+            .expect("first included page");
+        assert_eq!(first.rect.x, 0.0);
+        assert_eq!(first.rect.y, 50.0);
+        assert_eq!(first.rect.width, 200.0);
+        assert_eq!(first.rect.height, 200.0);
+        let second = display_lists[1]
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::Image(image) => Some(image),
+                _ => None,
+            })
+            .expect("second included page");
+        assert_eq!(second.rect.x, 0.0);
+        assert_eq!(second.rect.y, 100.0);
+        assert_eq!(second.rect.width, 200.0);
+        assert_eq!(second.rect.height, 100.0);
+        assert_eq!(
+            second
+                .page_selection
+                .as_ref()
+                .and_then(|selection| selection.page),
+            Some(2)
         );
     }
 

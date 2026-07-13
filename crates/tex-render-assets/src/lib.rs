@@ -1,6 +1,6 @@
 mod pdf;
 
-pub use pdf::{PreparePdfError, prepare_pdf_form};
+pub use pdf::{PreparePdfError, pdf_page_count, prepare_pdf_form};
 
 use tex_render_model::{
     EmbeddedRasterImage, FontSeries, FontShape, GraphicAssetFormat, GraphicAssetRequest,

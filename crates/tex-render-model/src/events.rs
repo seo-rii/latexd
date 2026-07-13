@@ -121,6 +121,7 @@ pub enum RenderEvent {
     ListItem(ListItemEvent),
     BibliographyItem(BibliographyItemEvent),
     GraphicRef(GraphicRefEvent),
+    IncludePdf(GraphicRefEvent),
     Caption(CaptionEvent),
     InlineMath(MathSourceEvent),
     DisplayMath(MathSourceEvent),
@@ -145,7 +146,7 @@ impl RenderEvent {
             Self::InlineCitation(_) => ModeHint::Horizontal,
             Self::BibliographyItem(_) => ModeHint::Vertical,
             Self::InlineReference(_) | Self::InlineLink(_) => ModeHint::Horizontal,
-            Self::GraphicRef(_) | Self::Caption(_) => ModeHint::Vertical,
+            Self::GraphicRef(_) | Self::IncludePdf(_) | Self::Caption(_) => ModeHint::Vertical,
             Self::InlineMath(_) | Self::DisplayMath(_) => ModeHint::Math,
             Self::LabelDefinition(_) | Self::RawFallback(_) | Self::Diagnostic(_) => {
                 ModeHint::Unknown

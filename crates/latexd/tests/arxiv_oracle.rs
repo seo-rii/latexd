@@ -1212,6 +1212,7 @@ fn collect_structure_slice_texts(
                     );
                 }
             }
+            IrBlock::IncludedPdfPage(_) => {}
             IrBlock::Table(block) => {
                 if let Some(caption) = &block.caption {
                     append_slice(
