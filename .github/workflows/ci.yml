@@ -55,3 +55,14 @@ jobs:
 
       - name: Build web workspace
         run: pnpm -C web build
+
+  licensed-corpus:
+    name: External licensed corpus
+    if: github.event_name == 'push'
+    uses: seo-rii/latexd-tests/.github/workflows/_test-latexd.yml@main
+    with:
+      latexd_ref: ${{ github.sha }}
+      suite_ref: main
+      tier: smoke
+    permissions:
+      contents: read
