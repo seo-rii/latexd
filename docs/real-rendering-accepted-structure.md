@@ -153,6 +153,42 @@ The next implementation step has started with a narrow display-list spike:
   capture-local because converter executable identity alone cannot fully key
   system fonts, fontconfig, and other external resources; failed Ghostscript
   conversion still falls back to Poppler before the visible source fallback;
+- selected PDF pages now also prepare a serializable `PreparedPdfForm` before
+  layout. The preparation boundary lives in `tex-render-assets`, not in the VM
+  or renderer: it resolves the selected page/pagebox, permitted inherited page
+  attributes and resources, rotation, `UserUnit`, ordered content streams, and
+  the reachable resource graph under explicit input/decompression/object/depth
+  limits;
+- PDF preparation rejects encrypted or PDF-2.0 inputs, document-tree/resource
+  escapes, external streams and Form references, PostScript XObjects,
+  active/embedded content, malformed references, unsupported content filters,
+  and decoded-size or graph-limit violations. Those cases continue through
+  Ghostscript/Poppler PNG fallback and then the bounded unsupported placeholder
+  policy;
+- the compiler applies the prepared page's natural dimensions to `GraphicRef`
+  events before Document IR and layout are built, using the same immutable
+  source-byte snapshot later consumed by materialization. A selected second
+  page, CropBox, 90/270-degree page rotation, `UserUnit`, or byte-detected
+  extensionless PDF therefore changes the renderer-facing aspect ratio without
+  moving PDF parsing into `tex-vm` or opening a read-after-probe race;
+- `tex-pdf` consumes the prepared graph without parsing source PDF bytes. It
+  relocates local IDs into the output object store, rewrites all references and
+  stream lengths, preserves binary strings and small real values, and shares a
+  repeated form once per prepared content hash while registering page-local
+  `/FmN` resource names;
+- display-list output remains PDF 1.4 when it has no imported form and raises
+  its header to PDF 1.7 only when direct import is used. Direct output is
+  reparsed in focused tests and rasterized by Ghostscript; PNG fallback remains
+  available to the debug-SVG backend from the same immutable materialization;
+- prepared-asset schema/hash versions were advanced for the new request,
+  Form, and raster-fallback payloads. Direct PDF forms and external-converter
+  rasters remain capture-local for now, while bitmap/SVG persistence retains
+  the existing dependency-complete cache policy;
+- this closes direct PDF page inclusion for the renderer-facing
+  `display-list.pdf` artifact. It does not yet promote that artifact to the
+  production compiler PDF: legacy `DocumentLayout`, page metadata,
+  checkpoints, sync maps, and per-page artifacts must be migrated together to
+  `PageDisplayList` rather than overwriting one output in isolation;
 - crop, viewport, scaling, and rotation remain `PositionedImage` placement
   concerns. PDF page/pagebox selection remains part of the materialization
   request because it changes the selected source asset itself;
@@ -1674,17 +1710,19 @@ approximate.
   and inline-style priority coverage.
 - External PDF/EPS raster fallback now crosses the shared materialization seam
   and is covered through Ghostscript/Poppler-backed project tests. SVG parsing,
-  embedded-raster resolution, and safe debug embedding now live in
+  embedded-raster resolution, and safe debug embedding live in
   `tex-render-assets`, producing serializable shared `VectorScene` data.
-  `MaterializedGraphicAsset` carries the parsed scene and sanitized payload, so
-  canonical PDF/debug-SVG backends consume prepared assets and reject raw SVG
-  rather than interpreting it themselves. A versioned prepared-content hash and
-  dependency-complete persistent bitmap/SVG cache now provide stable
-  vector-scene identity and reproducible artifact snapshots across revisions and
-  processes without entering VM checkpoints. Direct PDF page/XObject inclusion,
-  compact cache storage/lifecycle management, and a complete external-converter
-  dependency key remain asset-boundary work; direct PDF/EPS vector embedding is
-  not yet a supported backend shortcut.
+  `MaterializedGraphicAsset` carries the parsed scene, sanitized payload,
+  optional prepared PDF Form, and raster fallback, so canonical PDF/debug-SVG
+  backends consume prepared assets rather than interpreting source formats.
+  Selected PDF pages can be embedded directly as Form XObjects in
+  `display-list.pdf`; EPS still uses raster fallback. A versioned
+  prepared-content hash and dependency-complete persistent bitmap/SVG cache
+  provide stable vector-scene identity and reproducible artifact snapshots
+  across revisions and processes without entering VM checkpoints. Persisting
+  PDF Forms or converter rasters, compact cache lifecycle management, a complete
+  external-converter dependency key, and production-output promotion remain
+  asset and orchestration follow-ups.
 - Default CI covers unit/golden/reduced fixtures. Full arXiv oracle, raster
   smoke/diff, Skia, and performance/cache sweeps should stay ignored or move to
   scheduled/manual jobs until their dependencies and tolerances are stable.
