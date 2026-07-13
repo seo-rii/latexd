@@ -1,3 +1,7 @@
+mod pdf;
+
+pub use pdf::{PreparePdfError, prepare_pdf_form};
+
 use tex_render_model::{
     EmbeddedRasterImage, FontSeries, FontShape, GraphicAssetFormat, GraphicAssetRequest,
     MaterializedGraphicAsset, VectorAspectAlign, VectorAspectScale, VectorClipRect,

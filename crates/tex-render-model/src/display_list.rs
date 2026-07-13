@@ -1,9 +1,13 @@
 use serde::{Deserialize, Serialize};
+use std::io::Write;
 
-use crate::{GraphicAssetFormat, GraphicPageSelection, SourceProvenance, SourceSpan, VectorScene};
+use crate::{
+    GraphicAssetFormat, GraphicPageSelection, PreparedPdfForm, PreparedRasterFallback,
+    SourceProvenance, SourceSpan, VectorScene,
+};
 
 pub type PageId = String;
-pub const MATERIALIZED_GRAPHIC_ASSET_HASH_VERSION: u32 = 1;
+pub const MATERIALIZED_GRAPHIC_ASSET_HASH_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PageDisplayList {
@@ -163,6 +167,7 @@ impl From<&PositionedImage> for GraphicAssetRequest {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MaterializedGraphicAsset {
+    pub request: GraphicAssetRequest,
     pub bytes: Vec<u8>,
     pub source_format: Option<GraphicAssetFormat>,
     pub format: GraphicAssetFormat,
@@ -170,6 +175,10 @@ pub struct MaterializedGraphicAsset {
     pub content_hash: String,
     pub vector_scene: Option<VectorScene>,
     pub embeddable_svg: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pdf_form: Option<PreparedPdfForm>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub raster_fallback: Option<PreparedRasterFallback>,
 }
 
 impl MaterializedGraphicAsset {
@@ -215,21 +224,56 @@ impl MaterializedGraphicAsset {
         format!("blake3:{}", hasher.finalize().to_hex())
     }
 
-    fn vector_content_hash(
+    fn derived_content_hash(
         base_content_hash: &str,
-        scene: &VectorScene,
-        embeddable_svg: &str,
+        vector_scene: Option<&VectorScene>,
+        embeddable_svg: Option<&str>,
+        pdf_form: Option<&PreparedPdfForm>,
+        raster_fallback: Option<&PreparedRasterFallback>,
     ) -> Option<String> {
-        let scene_bytes = serde_json::to_vec(scene).ok()?;
+        struct HashWriter<'a>(&'a mut blake3::Hasher);
+
+        impl Write for HashWriter<'_> {
+            fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+                self.0.update(bytes);
+                Ok(bytes.len())
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
         let mut hasher = blake3::Hasher::new();
-        hasher.update(b"materialized-vector-scene");
+        hasher.update(b"materialized-graphic-derived-payloads");
         hasher.update(&MATERIALIZED_GRAPHIC_ASSET_HASH_VERSION.to_le_bytes());
         hasher.update(base_content_hash.as_bytes());
-        hasher.update(&(scene_bytes.len() as u64).to_le_bytes());
-        hasher.update(&scene_bytes);
-        hasher.update(&(embeddable_svg.len() as u64).to_le_bytes());
-        hasher.update(embeddable_svg.as_bytes());
+        serde_json::to_writer(
+            HashWriter(&mut hasher),
+            &(vector_scene, embeddable_svg, pdf_form, raster_fallback),
+        )
+        .ok()?;
         Some(format!("blake3:{}", hasher.finalize().to_hex()))
+    }
+
+    fn refresh_derived_content_hash(&mut self) {
+        let base_content_hash = Self::base_content_hash(&self.request, &self.bytes, self.format);
+        self.content_hash = if self.vector_scene.is_none()
+            && self.embeddable_svg.is_none()
+            && self.pdf_form.is_none()
+            && self.raster_fallback.is_none()
+        {
+            base_content_hash
+        } else {
+            Self::derived_content_hash(
+                &base_content_hash,
+                self.vector_scene.as_ref(),
+                self.embeddable_svg.as_deref(),
+                self.pdf_form.as_ref(),
+                self.raster_fallback.as_ref(),
+            )
+            .expect("derived graphic payloads must serialize")
+        };
     }
 
     pub fn from_source(request: &GraphicAssetRequest, bytes: Vec<u8>) -> Option<Self> {
@@ -238,6 +282,7 @@ impl MaterializedGraphicAsset {
             .or_else(|| GraphicAssetFormat::from_bytes(&bytes))?;
         let content_hash = Self::base_content_hash(request, &bytes, format);
         Some(Self {
+            request: request.clone(),
             bytes,
             source_format: Some(format),
             format,
@@ -245,6 +290,8 @@ impl MaterializedGraphicAsset {
             content_hash,
             vector_scene: None,
             embeddable_svg: None,
+            pdf_form: None,
+            raster_fallback: None,
         })
     }
 
@@ -255,6 +302,7 @@ impl MaterializedGraphicAsset {
     ) -> Self {
         let content_hash = Self::base_content_hash(request, &bytes, format);
         Self {
+            request: request.clone(),
             bytes,
             source_format: request.source_format,
             format,
@@ -262,19 +310,33 @@ impl MaterializedGraphicAsset {
             content_hash,
             vector_scene: None,
             embeddable_svg: None,
+            pdf_form: None,
+            raster_fallback: None,
         }
     }
 
     pub fn with_vector_scene(mut self, scene: VectorScene, embeddable_svg: String) -> Self {
-        self.content_hash = Self::vector_content_hash(&self.content_hash, &scene, &embeddable_svg)
-            .expect("vector scene must serialize");
         self.vector_scene = Some(scene);
         self.embeddable_svg = Some(embeddable_svg);
+        self.refresh_derived_content_hash();
+        self
+    }
+
+    pub fn with_pdf_form(mut self, pdf_form: PreparedPdfForm) -> Self {
+        self.pdf_form = Some(pdf_form);
+        self.refresh_derived_content_hash();
+        self
+    }
+
+    pub fn with_raster_fallback(mut self, bytes: Vec<u8>, format: GraphicAssetFormat) -> Self {
+        self.raster_fallback = Some(PreparedRasterFallback { format, bytes });
+        self.refresh_derived_content_hash();
         self
     }
 
     pub fn has_valid_content_hash(&self, request: &GraphicAssetRequest) -> bool {
-        if self.asset_hash != request.asset_hash
+        if &self.request != request
+            || self.asset_hash != request.asset_hash
             || match request.source_format {
                 Some(source_format) => self.source_format != Some(source_format),
                 None => self
@@ -284,14 +346,39 @@ impl MaterializedGraphicAsset {
         {
             return false;
         }
+        if !matches!(
+            (&self.vector_scene, &self.embeddable_svg),
+            (None, None) | (Some(_), Some(_))
+        ) || self
+            .pdf_form
+            .as_ref()
+            .is_some_and(|pdf_form| !pdf_form.is_complete())
+            || self.raster_fallback.as_ref().is_some_and(|fallback| {
+                fallback.bytes.is_empty()
+                    || !matches!(
+                        fallback.format,
+                        GraphicAssetFormat::Png | GraphicAssetFormat::Jpeg
+                    )
+            })
+        {
+            return false;
+        }
         let base_content_hash = Self::base_content_hash(request, &self.bytes, self.format);
-        match (&self.vector_scene, &self.embeddable_svg) {
-            (None, None) => self.content_hash == base_content_hash,
-            (Some(scene), Some(embeddable_svg)) => {
-                Self::vector_content_hash(&base_content_hash, scene, embeddable_svg)
-                    .is_some_and(|content_hash| self.content_hash == content_hash)
-            }
-            _ => false,
+        if self.vector_scene.is_none()
+            && self.embeddable_svg.is_none()
+            && self.pdf_form.is_none()
+            && self.raster_fallback.is_none()
+        {
+            self.content_hash == base_content_hash
+        } else {
+            Self::derived_content_hash(
+                &base_content_hash,
+                self.vector_scene.as_ref(),
+                self.embeddable_svg.as_deref(),
+                self.pdf_form.as_ref(),
+                self.raster_fallback.as_ref(),
+            )
+            .is_some_and(|content_hash| self.content_hash == content_hash)
         }
     }
 
@@ -400,8 +487,9 @@ pub enum FontRole {
 mod tests {
     use crate::{
         Destination, DrawOp, GraphicAssetFormat, GraphicAssetRequest, GraphicPageSelection,
-        MaterializedGraphicAsset, Point, PositionedImage, Rect, SourceProvenance,
-        VectorAspectAlign, VectorAspectScale, VectorPreserveAspectRatio, VectorScene,
+        MaterializedGraphicAsset, Point, PositionedImage, PreparedPdfDictionaryEntry,
+        PreparedPdfForm, PreparedPdfObject, Rect, SourceProvenance, VectorAspectAlign,
+        VectorAspectScale, VectorPreserveAspectRatio, VectorScene,
     };
 
     #[test]
@@ -608,5 +696,87 @@ mod tests {
         materialized.vector_scene = None;
         materialized.embeddable_svg = Some("<svg/>".to_string());
         assert!(!materialized.has_valid_content_hash(&request));
+    }
+
+    #[test]
+    fn materialized_pdf_form_and_raster_fallback_are_hashed_and_validated() {
+        let request = GraphicAssetRequest {
+            asset_ref: "figures/page.pdf".to_string(),
+            source_format: Some(GraphicAssetFormat::Pdf),
+            page_selection: None,
+            asset_hash: Some("blake3:pdf".to_string()),
+        };
+        let form = PreparedPdfForm {
+            root_object_id: 1,
+            natural_width_pt: 100.0,
+            natural_height_pt: 50.0,
+            objects: std::collections::BTreeMap::from([(
+                1,
+                PreparedPdfObject::Stream {
+                    entries: vec![
+                        PreparedPdfDictionaryEntry {
+                            key: b"Type".to_vec(),
+                            value: PreparedPdfObject::Name {
+                                value: b"XObject".to_vec(),
+                            },
+                        },
+                        PreparedPdfDictionaryEntry {
+                            key: b"Subtype".to_vec(),
+                            value: PreparedPdfObject::Name {
+                                value: b"Form".to_vec(),
+                            },
+                        },
+                        PreparedPdfDictionaryEntry {
+                            key: b"BBox".to_vec(),
+                            value: PreparedPdfObject::Array {
+                                values: vec![
+                                    PreparedPdfObject::Integer { value: 0 },
+                                    PreparedPdfObject::Integer { value: 0 },
+                                    PreparedPdfObject::Integer { value: 1 },
+                                    PreparedPdfObject::Integer { value: 1 },
+                                ],
+                            },
+                        },
+                        PreparedPdfDictionaryEntry {
+                            key: b"Resources".to_vec(),
+                            value: PreparedPdfObject::Dictionary {
+                                entries: Vec::new(),
+                            },
+                        },
+                    ],
+                    data: b"0 0 1 1 re f".to_vec(),
+                },
+            )]),
+        };
+        let materialized = MaterializedGraphicAsset::from_source(&request, b"%PDF-1.7".to_vec())
+            .expect("materialize PDF")
+            .with_pdf_form(form)
+            .with_raster_fallback(vec![1, 2, 3], GraphicAssetFormat::Png);
+
+        assert!(materialized.has_valid_content_hash(&request));
+        let json = serde_json::to_vec(&materialized).expect("serialize materialized PDF");
+        let decoded: MaterializedGraphicAsset =
+            serde_json::from_slice(&json).expect("deserialize materialized PDF");
+        assert_eq!(decoded, materialized);
+
+        let mut changed_form = materialized.clone();
+        let Some(PreparedPdfObject::Stream { data, .. }) = changed_form
+            .pdf_form
+            .as_mut()
+            .and_then(|form| form.objects.get_mut(&form.root_object_id))
+        else {
+            panic!("prepared form stream");
+        };
+        data.push(b'Q');
+        assert!(!changed_form.has_valid_content_hash(&request));
+
+        let mut changed_fallback = materialized;
+        changed_fallback
+            .raster_fallback
+            .as_mut()
+            .expect("raster fallback")
+            .bytes
+            .push(4);
+        assert!(!changed_fallback.has_valid_content_hash(&request));
     }
 }

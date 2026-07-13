@@ -10,7 +10,7 @@ use tex_render_model::{
     GraphicAssetRequest, MATERIALIZED_GRAPHIC_ASSET_HASH_VERSION, MaterializedGraphicAsset,
 };
 
-pub(crate) const PREPARED_ASSET_CACHE_SCHEMA_VERSION: u32 = 1;
+pub(crate) const PREPARED_ASSET_CACHE_SCHEMA_VERSION: u32 = 2;
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

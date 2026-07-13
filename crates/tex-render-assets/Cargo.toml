@@ -6,4 +6,5 @@ license.workspace = true
 
 [dependencies]
 image.workspace = true
+lopdf.workspace = true
 tex-render-model = { path = "../tex-render-model" }

@@ -30,10 +30,11 @@ use tex_pdf::{
     PAGE_TEXT_LEFT_PT, PAGE_TEXT_TOP_PT, render_display_list_pdf_with_materialized_assets,
     render_display_list_svg_with_materialized_assets, render_page_svg, render_single_page_pdf,
 };
-use tex_render_assets::{prepare_svg_materialization, svg_embedded_asset_refs};
+use tex_render_assets::{prepare_pdf_form, prepare_svg_materialization, svg_embedded_asset_refs};
 use tex_render_model::{
-    AuxView, DocumentIr, DrawOp, GraphicAssetFormat, GraphicAssetRequest, MaterializedGraphicAsset,
-    PageDisplayList, ProvenanceSpan, RenderEvent, RenderEventStream, to_pretty_json,
+    AuxView, DocumentIr, DrawOp, GraphicAssetDimensions, GraphicAssetFormat, GraphicAssetRequest,
+    MaterializedGraphicAsset, PageDisplayList, PreparedPdfForm, ProvenanceSpan, RenderEvent,
+    RenderEventStream, to_pretty_json,
 };
 use tex_tokens::ControlSequenceInterner;
 use tex_vm::{VmModuleCheckpointKind, VmReplayFrame};
@@ -346,7 +347,56 @@ fn capture_internal_render_ir_with_options(
     }
     vm.enable_render_event_capture();
     let outcome = vm.run_plain(source);
-    let events = RenderEventStream::new(Some(source_path.to_string()), outcome.render_events);
+    let mut events = RenderEventStream::new(Some(source_path.to_string()), outcome.render_events);
+    let mut prepared_pdf_forms = BTreeMap::<GraphicAssetRequest, PreparedPdfForm>::new();
+    let mut prepared_pdf_source_bytes = BTreeMap::<GraphicAssetRequest, Vec<u8>>::new();
+    if let Some(root) = file_root {
+        for envelope in &mut events.events {
+            let RenderEvent::GraphicRef(graphic) = &mut envelope.event else {
+                continue;
+            };
+            if graphic.asset_format.is_some()
+                && graphic.asset_format != Some(GraphicAssetFormat::Pdf)
+            {
+                continue;
+            }
+            let Some(bytes) = read_graphic_asset(root, &graphic.path) else {
+                continue;
+            };
+            if graphic.asset_format != Some(GraphicAssetFormat::Pdf)
+                && GraphicAssetFormat::from_bytes(&bytes) != Some(GraphicAssetFormat::Pdf)
+            {
+                continue;
+            }
+            graphic.asset_format = Some(GraphicAssetFormat::Pdf);
+            graphic.asset_hash = Some(format!("blake3:{}", blake3::hash(&bytes).to_hex()));
+            let request = GraphicAssetRequest {
+                asset_ref: graphic.path.clone(),
+                source_format: graphic.asset_format,
+                page_selection: graphic.page_selection.clone(),
+                asset_hash: graphic.asset_hash.clone(),
+            };
+            if !prepared_pdf_forms.contains_key(&request)
+                && let Ok(form) = prepare_pdf_form(&request, &bytes)
+            {
+                prepared_pdf_forms.insert(request.clone(), form);
+            }
+            prepared_pdf_source_bytes.insert(request.clone(), bytes);
+            if let Some(form) = prepared_pdf_forms.get(&request) {
+                graphic.asset_dimensions = Some(GraphicAssetDimensions {
+                    width_px: form.natural_width_pt.round().max(1.0) as u32,
+                    height_px: form.natural_height_pt.round().max(1.0) as u32,
+                    density: None,
+                    natural_width_pt_milli: Some(
+                        (form.natural_width_pt * 1000.0).round().max(1.0) as u32
+                    ),
+                    natural_height_pt_milli: Some(
+                        (form.natural_height_pt * 1000.0).round().max(1.0) as u32,
+                    ),
+                });
+            }
+        }
+    }
     let document_ir = tex_layout::build_document_ir(&events, aux);
     let display_list_options = tex_layout::PageDisplayListOptions::for_document_ir(&document_ir);
     let mut page_display_lists =
@@ -367,7 +417,10 @@ fn capture_internal_render_ir_with_options(
             })
             .collect::<BTreeSet<_>>();
         for request in asset_requests {
-            let Some(source_bytes) = read_graphic_asset(root, &request.asset_ref) else {
+            let Some(source_bytes) = prepared_pdf_source_bytes
+                .remove(&request)
+                .or_else(|| read_graphic_asset(root, &request.asset_ref))
+            else {
                 continue;
             };
             let detected_format = GraphicAssetFormat::from_bytes(&source_bytes);
@@ -413,6 +466,7 @@ fn capture_internal_render_ir_with_options(
                 &request,
                 source_bytes,
                 &embedded_assets,
+                prepared_pdf_forms.remove(&request),
                 &materializer,
             ) else {
                 continue;
@@ -526,7 +580,7 @@ fn resolve_graphic_asset_materializer(
     request: &GraphicAssetRequest,
     detected_format: Option<GraphicAssetFormat>,
 ) -> ResolvedGraphicAssetMaterializer {
-    match request.source_format {
+    match request.source_format.or(detected_format) {
         Some(GraphicAssetFormat::Pdf | GraphicAssetFormat::Eps) => {
             let ghostscript = which::which("gs")
                 .ok()
@@ -535,7 +589,7 @@ fn resolve_graphic_asset_materializer(
                 .then(|| which::which("pdftoppm").ok())
                 .flatten()
                 .map(|program| ResolvedGraphicConverter { program });
-            if ghostscript.is_none() && pdftoppm.is_none() {
+            if request.source_format == Some(GraphicAssetFormat::Eps) && ghostscript.is_none() {
                 return ResolvedGraphicAssetMaterializer::Source;
             }
             ResolvedGraphicAssetMaterializer::External {
@@ -555,6 +609,7 @@ fn materialize_display_list_asset(
     request: &GraphicAssetRequest,
     source_bytes: Vec<u8>,
     embedded_assets: &BTreeMap<String, Option<Vec<u8>>>,
+    prepared_pdf_form: Option<PreparedPdfForm>,
     materializer: &ResolvedGraphicAssetMaterializer,
 ) -> Option<(MaterializedGraphicAsset, bool)> {
     match materializer {
@@ -572,6 +627,13 @@ fn materialize_display_list_asset(
             pdftoppm,
             ..
         } => {
+            let pdf_form = prepared_pdf_form.or_else(|| {
+                (request.source_format == Some(GraphicAssetFormat::Pdf)
+                    || GraphicAssetFormat::from_bytes(&source_bytes)
+                        == Some(GraphicAssetFormat::Pdf))
+                .then(|| prepare_pdf_form(request, &source_bytes).ok())
+                .flatten()
+            });
             let page = request
                 .page_selection
                 .as_ref()
@@ -603,12 +665,22 @@ fn materialize_display_list_asset(
                     )
                     .ok()
                 });
-            match converted {
-                Some(bytes) => Some((
+            match (pdf_form, converted) {
+                (Some(pdf_form), raster_fallback) => {
+                    let mut materialized =
+                        MaterializedGraphicAsset::from_source(request, source_bytes)?
+                            .with_pdf_form(pdf_form);
+                    if let Some(bytes) = raster_fallback {
+                        materialized =
+                            materialized.with_raster_fallback(bytes, GraphicAssetFormat::Png);
+                    }
+                    Some((materialized, false))
+                }
+                (None, Some(bytes)) => Some((
                     MaterializedGraphicAsset::converted(request, bytes, GraphicAssetFormat::Png),
                     false,
                 )),
-                None => MaterializedGraphicAsset::from_source(request, source_bytes)
+                (None, None) => MaterializedGraphicAsset::from_source(request, source_bytes)
                     .map(|materialized| (materialized, false)),
             }
         }
@@ -3861,6 +3933,7 @@ mod tests {
             &request,
             source_bytes.clone(),
             &BTreeMap::new(),
+            None,
             &materializer,
         )
         .expect("fallback materialization");
@@ -3871,7 +3944,43 @@ mod tests {
     }
 
     #[test]
-    fn failed_ghostscript_conversion_falls_back_to_pdftoppm_when_available() {
+    fn valid_pdf_prepares_direct_form_without_external_converters() {
+        let request = GraphicAssetRequest {
+            asset_ref: "figures/vector.pdf".to_string(),
+            source_format: Some(GraphicAssetFormat::Pdf),
+            page_selection: None,
+            asset_hash: Some("blake3:pdf".to_string()),
+        };
+        let source_bytes = tex_pdf::render_display_list_pdf(&[PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 144.0,
+            height_pt: 72.0,
+            ops: Vec::new(),
+            source_spans: Vec::new(),
+            content_hash: "page-hash".to_string(),
+        }]);
+        let materializer = ResolvedGraphicAssetMaterializer::External {
+            ghostscript: None,
+            pdftoppm: None,
+        };
+
+        let (materialized, cacheable) = materialize_display_list_asset(
+            &request,
+            source_bytes,
+            &BTreeMap::new(),
+            None,
+            &materializer,
+        )
+        .expect("direct PDF materialization");
+
+        assert_eq!(materialized.format, GraphicAssetFormat::Pdf);
+        assert!(materialized.pdf_form.is_some());
+        assert!(materialized.raster_fallback.is_none());
+        assert!(!cacheable);
+    }
+
+    #[test]
+    fn direct_pdf_keeps_pdftoppm_fallback_when_ghostscript_fails() {
         let Ok(pdftoppm) = which::which("pdftoppm") else {
             return;
         };
@@ -3896,11 +4005,25 @@ mod tests {
             pdftoppm: Some(ResolvedGraphicConverter { program: pdftoppm }),
         };
 
-        let (materialized, cacheable) =
-            materialize_display_list_asset(&request, source_bytes, &BTreeMap::new(), &materializer)
-                .expect("pdftoppm fallback materialization");
+        let (materialized, cacheable) = materialize_display_list_asset(
+            &request,
+            source_bytes,
+            &BTreeMap::new(),
+            None,
+            &materializer,
+        )
+        .expect("pdftoppm fallback materialization");
 
-        assert_eq!(materialized.format, GraphicAssetFormat::Png);
+        assert_eq!(materialized.format, GraphicAssetFormat::Pdf);
+        assert!(materialized.pdf_form.is_some());
+        assert!(
+            materialized
+                .raster_fallback
+                .as_ref()
+                .is_some_and(|fallback| {
+                    fallback.format == GraphicAssetFormat::Png && !fallback.bytes.is_empty()
+                })
+        );
         assert!(!cacheable);
     }
 
@@ -3923,11 +4046,44 @@ mod tests {
             ResolvedGraphicAssetMaterializer::Svg
         ));
 
-        let (materialized, cacheable) =
-            materialize_display_list_asset(&request, source_bytes, &BTreeMap::new(), &materializer)
-                .expect("extensionless SVG materialization");
+        let (materialized, cacheable) = materialize_display_list_asset(
+            &request,
+            source_bytes,
+            &BTreeMap::new(),
+            None,
+            &materializer,
+        )
+        .expect("extensionless SVG materialization");
         assert!(materialized.vector_scene.is_some());
         assert!(cacheable);
+    }
+
+    #[test]
+    fn byte_detected_pdf_uses_the_direct_external_materializer() {
+        let request = GraphicAssetRequest {
+            asset_ref: "figures/extensionless".to_string(),
+            source_format: None,
+            page_selection: None,
+            asset_hash: Some("blake3:extensionless-pdf".to_string()),
+        };
+        let source_bytes = tex_pdf::render_display_list_pdf(&[PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 144.0,
+            height_pt: 72.0,
+            ops: Vec::new(),
+            source_spans: Vec::new(),
+            content_hash: "page-hash".to_string(),
+        }]);
+
+        let materializer = resolve_graphic_asset_materializer(
+            &request,
+            GraphicAssetFormat::from_bytes(&source_bytes),
+        );
+
+        assert!(matches!(
+            materializer,
+            ResolvedGraphicAssetMaterializer::External { .. }
+        ));
     }
 
     #[test]
@@ -4200,10 +4356,10 @@ mod tests {
         assert_eq!(second_stats.hits, 1);
         assert_eq!(second_stats.misses, 0);
         assert_eq!(second_stats.writes, 0);
-        assert!(build_root.join("render-asset-cache/v1/lookups").exists());
+        assert!(build_root.join("render-asset-cache/v2/lookups").exists());
         assert!(
             build_root
-                .join("render-asset-cache/v1/objects/blake3")
+                .join("render-asset-cache/v2/objects/blake3")
                 .exists()
         );
 

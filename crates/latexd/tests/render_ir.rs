@@ -10,9 +10,10 @@ use latexd::compiler::{
 use tex_aux::{BibliographyEntry, SemanticAux, SemanticLabel};
 use tex_render_model::{
     BlockKind, CitationStyleHint, DrawOp, EventProducer, GeneratedBy, GraphicAssetDensity,
-    GraphicAssetDensityUnit, GraphicAssetFormat, ImageCrop, ImageRotation, ImageScale, ImageTrim,
-    ImageViewport, LayoutAlignment, ListKind, MetadataField, ModeHint, RenderEvent,
-    SemanticConfidence, SpaceKind, TableColumnAlignment, to_pretty_json, to_semantic_pretty_json,
+    GraphicAssetDensityUnit, GraphicAssetFormat, GraphicAssetRequest, ImageCrop, ImageRotation,
+    ImageScale, ImageTrim, ImageViewport, LayoutAlignment, ListKind, MetadataField, ModeHint,
+    RenderEvent, SemanticConfidence, SpaceKind, TableColumnAlignment, to_pretty_json,
+    to_semantic_pretty_json,
 };
 use tex_render_model::{InlineNode, IrBlock, ProvenanceSpan, SourceSpanRole, TableRuleSpan};
 
@@ -4337,6 +4338,63 @@ fn extensionless_svg_graphic_asset_format_survives_render_boundaries() {
 }
 
 #[test]
+fn byte_detected_extensionless_pdf_prepares_direct_form_before_layout() {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let root = Utf8PathBuf::from_path_buf(tempdir.path().to_path_buf()).expect("utf8 temp path");
+    fs::create_dir_all(root.join("figures").as_std_path()).expect("create figures dir");
+    fs::write(
+        root.join("main.tex").as_std_path(),
+        r"\begin{document}\includegraphics{figures/vector}\end{document}",
+    )
+    .expect("write source");
+    fs::write(
+        root.join("figures/vector").as_std_path(),
+        cropped_pdf_bytes(),
+    )
+    .expect("write extensionless PDF");
+
+    let capture =
+        capture_internal_render_ir_from_project_root(&root, "main.tex", &SemanticAux::default())
+            .expect("capture project render ir");
+    let graphic = capture
+        .events
+        .events
+        .iter()
+        .find_map(|envelope| match &envelope.event {
+            RenderEvent::GraphicRef(graphic) if graphic.path == "figures/vector" => Some(graphic),
+            _ => None,
+        })
+        .expect("extensionless PDF event");
+    let image = capture.page_display_lists[0]
+        .ops
+        .iter()
+        .find_map(|op| match op {
+            DrawOp::Image(image) if image.asset_ref == "figures/vector" => Some(image),
+            _ => None,
+        })
+        .expect("extensionless PDF image");
+    let request = GraphicAssetRequest::from(image);
+    let materialized = capture
+        .materialized_assets
+        .get(&request)
+        .expect("materialized extensionless PDF");
+    let pdf_text = String::from_utf8_lossy(&capture.display_list_pdf);
+
+    assert_eq!(graphic.asset_format, Some(GraphicAssetFormat::Pdf));
+    assert_eq!(image.asset_format, Some(GraphicAssetFormat::Pdf));
+    assert_eq!(image.natural_width_pt, Some(144.0));
+    assert_eq!(image.natural_height_pt, Some(72.0));
+    assert!(materialized.pdf_form.is_some());
+    assert_eq!(
+        graphic.asset_hash.as_deref(),
+        Some(format!("blake3:{}", blake3::hash(&materialized.bytes).to_hex()).as_str())
+    );
+    assert!(pdf_text.contains("/Subtype /Form"));
+    assert!(pdf_text.contains("/Fm1 Do"));
+    assert!(!pdf_text.contains("[unsupported image: figures/vector]"));
+}
+
+#[test]
 fn graphic_asset_hash_survives_render_boundaries_and_affects_page_hash() {
     let first = capture_internal_render_ir_with_mounted_files(
         "main.tex",
@@ -4807,7 +4865,7 @@ fn project_root_render_ir_persists_prepared_svg_assets_across_captures() {
         .strip_prefix("blake3:")
         .expect("blake3 prepared hash");
     let object_path = cache_root
-        .join("v1/objects/blake3")
+        .join("v2/objects/blake3")
         .join(&object_hash[..2])
         .join(format!("{object_hash}.json"));
     fs::write(object_path.as_std_path(), b"not json").expect("corrupt cached object");
@@ -5897,7 +5955,7 @@ fn graphic_draft_pdf_asset_is_not_reported_as_unsupported() {
 }
 
 #[test]
-fn project_root_render_ir_capture_converts_pdf_assets_in_debug_artifacts_when_gs_available() {
+fn project_root_render_ir_capture_directly_embeds_pdf_and_keeps_svg_fallback_when_gs_available() {
     let Ok(_) = which::which("gs") else {
         return;
     };
@@ -5960,8 +6018,9 @@ fn project_root_render_ir_capture_converts_pdf_assets_in_debug_artifacts_when_gs
     assert!(image.asset_hash.is_some());
     assert_eq!(image.asset_format, Some(GraphicAssetFormat::Pdf));
     assert!(image.diagnostic.is_none());
-    assert!(pdf_text.contains("/Subtype /Image"));
-    assert!(pdf_text.contains("/Im1 Do"));
+    assert!(pdf_text.contains("/Subtype /Form"));
+    assert!(pdf_text.contains("/Fm1 Do"));
+    assert!(!pdf_text.contains("/Subtype /Image"));
     assert!(!pdf_text.contains("[unsupported image: figures/plot.pdf]"));
 
     let output_dir = root.join("render-artifacts");
@@ -5976,6 +6035,28 @@ fn project_root_render_ir_capture_converts_pdf_assets_in_debug_artifacts_when_gs
     assert!(display_list_svg.contains("data-image-embedded=\"true\""));
     assert!(display_list_svg.contains("href=\"data:image/png,%89PNG"));
     assert!(!display_list_svg.contains("[unsupported image: figures/plot.pdf]"));
+
+    let png_path = root.join("direct-pdf-form.png");
+    let output_file = format!("-sOutputFile={png_path}");
+    let output = Command::new(which::which("gs").expect("ghostscript path"))
+        .args(["-dSAFER", "-dBATCH", "-dNOPAUSE", "-sDEVICE=png16m", "-r72"])
+        .arg(output_file)
+        .arg(paths.display_list_pdf.as_std_path())
+        .output()
+        .expect("rasterize direct PDF form output");
+    assert!(
+        output.status.success(),
+        "ghostscript failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let raster = image::load_from_memory(&fs::read(png_path).expect("read PDF form raster"))
+        .expect("decode PDF form raster")
+        .to_rgb8();
+    let dark_pixels = raster
+        .pixels()
+        .filter(|pixel| pixel.0.iter().any(|channel| *channel < 245))
+        .count();
+    assert!(dark_pixels > 1_000, "{dark_pixels}");
 }
 
 #[test]
@@ -6086,7 +6167,7 @@ this is not valid postscript
 }
 
 #[test]
-fn project_root_pdf_pagebox_option_affects_converted_debug_asset() {
+fn project_root_pdf_pagebox_option_affects_direct_form_and_debug_fallback() {
     if which::which("gs").is_err() && which::which("pdftoppm").is_err() {
         return;
     }
@@ -6124,10 +6205,17 @@ fn project_root_pdf_pagebox_option_affects_converted_debug_asset() {
             .and_then(|selection| selection.pagebox.as_deref()),
         Some("cropbox")
     );
-    assert!(pdf_text.contains("/Subtype /Image"));
-    assert!(pdf_text.contains("/Width 72"));
-    assert!(pdf_text.contains("/Height 36"));
-    assert!(pdf_text.contains("/Im1 Do"));
+    let request = GraphicAssetRequest::from(image);
+    let prepared = capture
+        .materialized_assets
+        .get(&request)
+        .and_then(|asset| asset.pdf_form.as_ref())
+        .expect("prepared PDF form");
+    assert!((prepared.natural_width_pt - 72.0).abs() < 0.01);
+    assert!((prepared.natural_height_pt - 36.0).abs() < 0.01);
+    assert!(pdf_text.contains("/Subtype /Form"));
+    assert!(pdf_text.contains("/Fm1 Do"));
+    assert!(!pdf_text.contains("/Subtype /Image"));
     assert!(!pdf_text.contains("[unsupported image: figures/cropped.pdf]"));
 
     let output_dir = root.join("render-artifacts");
@@ -6144,7 +6232,7 @@ fn project_root_pdf_pagebox_option_affects_converted_debug_asset() {
 }
 
 #[test]
-fn project_root_pdf_page_option_affects_converted_debug_asset() {
+fn project_root_pdf_page_option_affects_direct_form_and_debug_fallback() {
     if which::which("gs").is_err() && which::which("pdftoppm").is_err() {
         return;
     }
@@ -6158,7 +6246,7 @@ fn project_root_pdf_page_option_affects_converted_debug_asset() {
     .expect("write source");
     fs::write(
         root.join("figures/multipage.pdf").as_std_path(),
-        multipage_pdf_bytes(&[(72, 36), (144, 72)]),
+        multipage_pdf_bytes(&[(72, 36), (72, 144)]),
     )
     .expect("write pdf");
 
@@ -6182,10 +6270,21 @@ fn project_root_pdf_page_option_affects_converted_debug_asset() {
             .and_then(|selection| selection.page),
         Some(2)
     );
-    assert!(pdf_text.contains("/Subtype /Image"));
-    assert!(pdf_text.contains("/Width 144"));
-    assert!(pdf_text.contains("/Height 72"));
-    assert!(pdf_text.contains("/Im1 Do"));
+    let request = GraphicAssetRequest::from(image);
+    let prepared = capture
+        .materialized_assets
+        .get(&request)
+        .and_then(|asset| asset.pdf_form.as_ref())
+        .expect("prepared PDF form");
+    assert!((prepared.natural_width_pt - 72.0).abs() < 0.01);
+    assert!((prepared.natural_height_pt - 144.0).abs() < 0.01);
+    assert_eq!(image.natural_width_pt, Some(72.0));
+    assert_eq!(image.natural_height_pt, Some(144.0));
+    assert!((image.rect.width - 72.0).abs() < 0.01);
+    assert!((image.rect.height - 144.0).abs() < 0.01);
+    assert!(pdf_text.contains("/Subtype /Form"));
+    assert!(pdf_text.contains("/Fm1 Do"));
+    assert!(!pdf_text.contains("/Subtype /Image"));
     assert!(!pdf_text.contains("[unsupported image: figures/multipage.pdf]"));
 
     let output_dir = root.join("render-artifacts");

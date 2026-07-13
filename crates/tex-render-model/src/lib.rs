@@ -3,6 +3,7 @@ pub mod display_list;
 pub mod events;
 pub mod golden;
 pub mod ir;
+pub mod pdf_asset;
 pub mod provenance;
 pub mod vector;
 
@@ -34,6 +35,9 @@ pub use ir::{
     DocumentClassIr, DocumentIr, EnvironmentBlock, GraphicBlock, HeadingBlock, InlineNode, IrBlock,
     LabelDefinitionIr, LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, ParagraphBlock,
     RawFallbackIr, ReferenceInline, TableBlock, TableCell, TableRow, TitleBlock,
+};
+pub use pdf_asset::{
+    PreparedPdfDictionaryEntry, PreparedPdfForm, PreparedPdfObject, PreparedRasterFallback,
 };
 pub use provenance::{
     ExpansionFrame, GeneratedBy, GeneratedSpan, MAX_EXPANSION_FRAMES_IN_EVENT, ProvenanceSpan,

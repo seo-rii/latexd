@@ -1,3 +1,8 @@
+mod pdf_form;
+
+use std::collections::BTreeMap;
+
+use pdf_form::build_pdf_form_objects;
 use tex_layout::{DocumentLayout, LayoutOptions, PageLayout};
 use tex_render_assets::prepare_svg_materialization;
 #[cfg(test)]
@@ -343,6 +348,7 @@ pub fn render_display_list_pdf_with_materialized_assets(
     }
 
     let mut extra_objects = Vec::new();
+    let mut imported_pdf_forms = BTreeMap::<String, (usize, f32, f32)>::new();
     let mut next_extra_object_id = 15 + pages.len() * 2;
     for (index, page) in pages.iter().enumerate() {
         let content_id = content_object_id(index);
@@ -449,8 +455,81 @@ pub fn render_display_list_pdf_with_materialized_assets(
                         materialize_asset(&GraphicAssetRequest::from(image))
                     {
                         let asset_format = materialized.format;
+                        let materialized_content_hash = materialized.content_hash.clone();
                         let vector_scene = materialized.vector_scene;
+                        let pdf_form = materialized.pdf_form;
+                        let raster_fallback = materialized.raster_fallback;
                         let bytes = materialized.bytes;
+                        if asset_format == GraphicAssetFormat::Pdf
+                            && let Some(pdf_form) = pdf_form
+                        {
+                            let imported = imported_pdf_forms
+                                .get(&materialized_content_hash)
+                                .copied()
+                                .or_else(|| {
+                                    let imported =
+                                        build_pdf_form_objects(next_extra_object_id, &pdf_form)?;
+                                    next_extra_object_id += imported.objects.len();
+                                    let cached = (
+                                        imported.root_object_id,
+                                        imported.natural_width_pt,
+                                        imported.natural_height_pt,
+                                    );
+                                    extra_objects.extend(imported.objects);
+                                    imported_pdf_forms
+                                        .insert(materialized_content_hash.clone(), cached);
+                                    Some(cached)
+                                });
+                            if let Some((root_object_id, form_width_pt, form_height_pt)) = imported
+                            {
+                                let resource_name = format!("Fm{next_page_image_index}");
+                                next_page_image_index += 1;
+                                image_resource_refs
+                                    .push(format!("/{resource_name} {root_object_id} 0 R"));
+                                let (natural_width, natural_height) =
+                                    image_natural_size_or_fallback(
+                                        image,
+                                        form_width_pt,
+                                        form_height_pt,
+                                    );
+                                let dest_x = image.rect.x;
+                                let dest_y = page.height_pt - image.rect.y - image.rect.height;
+                                let draw = image_draw_placement(
+                                    Rect {
+                                        x: dest_x,
+                                        y: dest_y,
+                                        width: image.rect.width,
+                                        height: image.rect.height,
+                                    },
+                                    image.crop,
+                                    natural_width,
+                                    natural_height,
+                                    false,
+                                );
+                                let rotated =
+                                    push_pdf_image_rotation(&mut stream, page.height_pt, image);
+                                if draw.clip_to_dest {
+                                    stream.push_str(&format!(
+                                    "q {dest_x} {dest_y} {} {} re W n q {} 0 0 {} {} {} cm /{resource_name} Do Q Q ",
+                                    image.rect.width,
+                                    image.rect.height,
+                                    draw.rect.width,
+                                    draw.rect.height,
+                                    draw.rect.x,
+                                    draw.rect.y,
+                                ));
+                                } else {
+                                    stream.push_str(&format!(
+                                        "q {} 0 0 {} {} {} cm /{resource_name} Do Q ",
+                                        draw.rect.width, draw.rect.height, draw.rect.x, draw.rect.y,
+                                    ));
+                                }
+                                if rotated {
+                                    stream.push_str("Q ");
+                                }
+                                continue;
+                            }
+                        }
                         let mut rendered_svg_vector = false;
                         if asset_format == GraphicAssetFormat::Svg
                             && let Some(svg) = vector_scene
@@ -1554,7 +1633,11 @@ pub fn render_display_list_pdf_with_materialized_assets(
                         if rendered_svg_vector {
                             continue;
                         }
-                        let decoded = decode_pdf_image(&bytes);
+                        let raster_bytes = raster_fallback
+                            .as_ref()
+                            .map(|fallback| fallback.bytes.as_slice())
+                            .unwrap_or(&bytes);
+                        let decoded = decode_pdf_image(raster_bytes);
                         if let Some(decoded) = decoded {
                             let (natural_width, natural_height) = image_natural_size_or_fallback(
                                 image,
@@ -1696,7 +1779,11 @@ pub fn render_display_list_pdf_with_materialized_assets(
     objects.extend(extra_objects);
 
     let mut pdf = Vec::new();
-    pdf.extend_from_slice(b"%PDF-1.4\n");
+    pdf.extend_from_slice(if imported_pdf_forms.is_empty() {
+        b"%PDF-1.4\n"
+    } else {
+        b"%PDF-1.7\n"
+    });
     let mut offsets = vec![0usize];
     for object in &objects {
         offsets.push(pdf.len());
@@ -2340,12 +2427,27 @@ pub fn render_display_list_svg_with_materialized_assets(
                 let mut embedded_decode_failure = false;
                 let embedded_image = if placeholder_status == ImagePlaceholderStatus::Generic {
                     materialize_asset(&GraphicAssetRequest::from(image)).and_then(|materialized| {
-                        let converted_format =
+                        let source_converted_format =
                             materialized.is_converted().then_some(materialized.format);
+                        let pdf_form_natural_size = materialized
+                            .pdf_form
+                            .as_ref()
+                            .map(|form| (form.natural_width_pt, form.natural_height_pt));
+                        let raster_fallback = materialized.raster_fallback;
+                        let uses_raster_fallback = raster_fallback.is_some();
+                        let (effective_format, bytes, converted_format) =
+                            if let Some(fallback) = raster_fallback {
+                                (fallback.format, fallback.bytes, Some(fallback.format))
+                            } else {
+                                (
+                                    materialized.format,
+                                    materialized.bytes,
+                                    source_converted_format,
+                                )
+                            };
                         let vector_scene = materialized.vector_scene;
                         let embeddable_svg = materialized.embeddable_svg;
-                        let bytes = materialized.bytes;
-                        let (media_type, natural_size, data_bytes) = match materialized.format {
+                        let (media_type, natural_size, data_bytes) = match effective_format {
                             GraphicAssetFormat::Svg => {
                                 let (Some(vector_scene), Some(embeddable_svg)) =
                                     (vector_scene, embeddable_svg)
@@ -2372,8 +2474,14 @@ pub fn render_display_list_svg_with_materialized_assets(
                                 };
                                 let natural_size = image_natural_size_or_fallback(
                                     image,
-                                    decoded_image.width() as f32,
-                                    decoded_image.height() as f32,
+                                    pdf_form_natural_size
+                                        .filter(|_| uses_raster_fallback)
+                                        .map(|size| size.0)
+                                        .unwrap_or(decoded_image.width() as f32),
+                                    pdf_form_natural_size
+                                        .filter(|_| uses_raster_fallback)
+                                        .map(|size| size.1)
+                                        .unwrap_or(decoded_image.height() as f32),
                                 );
                                 ("image/png", Some(natural_size), bytes)
                             }
@@ -2385,8 +2493,14 @@ pub fn render_display_list_svg_with_materialized_assets(
                                 };
                                 let natural_size = image_natural_size_or_fallback(
                                     image,
-                                    decoded_image.width() as f32,
-                                    decoded_image.height() as f32,
+                                    pdf_form_natural_size
+                                        .filter(|_| uses_raster_fallback)
+                                        .map(|size| size.0)
+                                        .unwrap_or(decoded_image.width() as f32),
+                                    pdf_form_natural_size
+                                        .filter(|_| uses_raster_fallback)
+                                        .map(|size| size.1)
+                                        .unwrap_or(decoded_image.height() as f32),
                                 );
                                 ("image/jpeg", Some(natural_size), bytes)
                             }
@@ -2766,6 +2880,7 @@ fn page_object_id(index: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use tex_layout::{LayoutOptions, layout_text};
+    use tex_render_assets::prepare_pdf_form;
     use tex_render_model::{
         Destination, DrawOp, ExpansionFrame, FontFamilyRequest, FontRequest, FontRole, FontSeries,
         FontShape, GraphicAssetFormat, GraphicAssetRequest, GraphicPageSelection, ImageCrop,
@@ -25759,6 +25874,117 @@ mod tests {
         assert!(!prepared_pdf_text.contains("/Subtype /Image"));
         assert!(prepared_svg.contains("data-image-embedded=\"true\""));
         assert!(prepared_svg.contains("href=\"data:image/svg+xml;charset=utf-8,"));
+    }
+
+    #[test]
+    fn renders_selected_pdf_page_as_form_xobject() {
+        let request = GraphicAssetRequest {
+            asset_ref: "figures/two-pages.pdf".to_string(),
+            source_format: Some(GraphicAssetFormat::Pdf),
+            page_selection: Some(GraphicPageSelection {
+                page: Some(2),
+                pagebox: Some("mediabox".to_string()),
+            }),
+            asset_hash: Some("blake3:two-pages".to_string()),
+        };
+        let source_pdf = render_pdf(&layout_text(
+            "first\nsecond",
+            LayoutOptions {
+                lines_per_page: 1,
+                ..LayoutOptions::default()
+            },
+        ));
+        let pdf_form = prepare_pdf_form(&request, &source_pdf).expect("prepare selected page");
+        let materialized = MaterializedGraphicAsset::from_source(&request, source_pdf)
+            .expect("materialize source PDF")
+            .with_pdf_form(pdf_form)
+            .with_raster_fallback(tiny_png_bytes(), GraphicAssetFormat::Png);
+        let mut page = PageDisplayList {
+            page_id: "page-1".to_string(),
+            width_pt: 612.0,
+            height_pt: 792.0,
+            ops: vec![DrawOp::Image(PositionedImage {
+                rect: Rect {
+                    x: 72.0,
+                    y: 78.0,
+                    width: 144.0,
+                    height: 72.0,
+                },
+                asset_ref: request.asset_ref.clone(),
+                asset_format: request.source_format,
+                page_selection: request.page_selection.clone(),
+                asset_hash: request.asset_hash.clone(),
+                natural_width_pt: None,
+                natural_height_pt: None,
+                crop: Some(ImageCrop {
+                    trim: None,
+                    viewport: Some(ImageViewport {
+                        llx_pt: 0.0,
+                        lly_pt: 0.0,
+                        urx_pt: 306.0,
+                        ury_pt: 396.0,
+                    }),
+                    clip: true,
+                }),
+                scale: None,
+                rotation: None,
+                diagnostic: None,
+                source: SourceProvenance::file("main.tex", 0, 10),
+            })],
+            source_spans: Vec::new(),
+            content_hash: "hash".to_string(),
+        };
+        let mut repeated = page.ops[0].clone();
+        if let DrawOp::Image(image) = &mut repeated {
+            image.rect.x += 160.0;
+        }
+        page.ops.push(repeated);
+
+        let pdf = render_display_list_pdf_with_materialized_assets(&[page.clone()], |candidate| {
+            (candidate == &request).then(|| materialized.clone())
+        });
+        let svg = render_display_list_svg_with_materialized_assets(&page, |candidate| {
+            (candidate == &request).then(|| materialized.clone())
+        });
+        let text = String::from_utf8_lossy(&pdf);
+
+        assert!(text.starts_with("%PDF-1.7"));
+        assert_eq!(text.matches("/Subtype /Form").count(), 1);
+        assert!(text.contains("/Fm1"));
+        assert!(text.contains("/Fm1 Do"));
+        assert!(text.contains("/Fm2 Do"));
+        let fm1_reference = text
+            .rsplit("/Fm1 ")
+            .next()
+            .expect("Fm1 resource")
+            .split_whitespace()
+            .take(3)
+            .collect::<Vec<_>>();
+        let fm2_reference = text
+            .rsplit("/Fm2 ")
+            .next()
+            .expect("Fm2 resource")
+            .split_whitespace()
+            .take(3)
+            .collect::<Vec<_>>();
+        assert_eq!(fm1_reference, fm2_reference);
+        assert!(text.contains("(second) Tj"));
+        assert!(!text.contains("(first) Tj"));
+        assert!(text.contains("/BaseFont /Helvetica"));
+        assert!(!text.contains("/Subtype /Image"));
+        assert!(!text.contains("[unsupported image: figures/two-pages.pdf]"));
+        assert!(svg.contains("data-image-converted-format=\"png\""));
+        assert!(svg.contains("data-image-embedded=\"true\""));
+        assert!(svg.contains("data-image-crop-rendered=\"true\""));
+        assert!(svg.contains("<image x=\"72\" y=\"6\" width=\"288\" height=\"144\""));
+        assert!(!svg.contains("[unsupported image: figures/two-pages.pdf]"));
+        let output_request = GraphicAssetRequest {
+            asset_ref: "output.pdf".to_string(),
+            source_format: Some(GraphicAssetFormat::Pdf),
+            page_selection: None,
+            asset_hash: None,
+        };
+        prepare_pdf_form(&output_request, &pdf).expect("generated PDF remains parseable");
     }
 
     #[test]
