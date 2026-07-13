@@ -232,10 +232,12 @@ fn default_min_first_page_ink_ratio() -> f64 {
 }
 
 #[tokio::test]
-#[ignore = "requires LATEXD_ARXIV_CC0_CORPUS with downloaded arXiv source/PDF files"]
+#[ignore = "requires a downloaded arXiv source/PDF corpus"]
 async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
-    let Some(corpus_root) = env::var_os("LATEXD_ARXIV_CC0_CORPUS") else {
-        eprintln!("skipping: LATEXD_ARXIV_CC0_CORPUS is not set");
+    let Some(corpus_root) = env::var_os("LATEXD_ARXIV_ORACLE_CORPUS")
+        .or_else(|| env::var_os("LATEXD_ARXIV_CC0_CORPUS"))
+    else {
+        eprintln!("skipping: LATEXD_ARXIV_ORACLE_CORPUS or LATEXD_ARXIV_CC0_CORPUS is not set");
         return;
     };
     let corpus_root =
@@ -261,8 +263,12 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
             return;
         }
     };
-    let manifest_path = Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/arxiv-oracle/cc0-smoke.json");
+    let manifest_path = env::var_os("LATEXD_ARXIV_ORACLE_MANIFEST")
+        .map(|path| Utf8PathBuf::from_path_buf(path.into()).expect("manifest path should be utf8"))
+        .unwrap_or_else(|| {
+            Utf8PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../fixtures/arxiv-oracle/cc0-smoke.json")
+        });
     let manifest = serde_json::from_slice::<OracleManifest>(
         &fs::read(manifest_path.as_std_path()).expect("read arXiv oracle manifest"),
     )
@@ -781,7 +787,9 @@ async fn arxiv_cc0_local_corpus_compares_internal_pdf_text_to_official_pdf() {
         strict,
         cases: reports,
     };
-    let report_path = report_dir.join("cc0-smoke-report.json");
+    let report_file = env::var("LATEXD_ARXIV_ORACLE_REPORT_FILE")
+        .unwrap_or_else(|_| "cc0-smoke-report.json".to_string());
+    let report_path = report_dir.join(report_file);
     fs::write(
         report_path.as_std_path(),
         serde_json::to_vec_pretty(&report).expect("serialize arXiv oracle report"),

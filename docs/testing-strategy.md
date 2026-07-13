@@ -65,6 +65,37 @@ and missing-major-text-block regressions are visible without manual artifact
 inspection. Use `LATEXD_ARXIV_ORACLE_STRICT=1` to turn the configured thresholds
 into hard failures.
 
+## External Licensed Corpus
+
+The separately maintained
+[`seo-rii/latexd-tests`](https://github.com/seo-rii/latexd-tests) repository
+contains a license-aware manifest for well-known non-CC0 papers. It does not
+vendor paper artifacts. Its fetcher pins the arXiv version and SHA-256, rejects
+unsafe archives, downloads into an ephemeral/local cache, and prevents paper
+sources, PDFs, extracted text, and raster derivatives from being uploaded as CI
+artifacts.
+
+The local oracle accepts that repository without copying its manifest into
+`latexd`:
+
+```bash
+LATEXD_ARXIV_ORACLE_CORPUS=/tmp/latexd-tests-corpus \
+LATEXD_ARXIV_ORACLE_MANIFEST=../latexd-tests/corpus/famous-arxiv-non-cc0.json \
+LATEXD_ARXIV_ORACLE_REPORT_DIR=/tmp/latexd-tests-report \
+  cargo test -p latexd --test arxiv_oracle -- --ignored --nocapture
+```
+
+`LATEXD_ARXIV_CC0_CORPUS` and the in-repository CC0 manifest remain the default
+for backward compatibility. `LATEXD_ARXIV_ORACLE_REPORT_FILE` can override the
+report filename for isolated case runs.
+
+On trusted pushes to `main`, this repository calls the reusable workflow owned
+by `latexd-tests` with the exact `github.sha`. This tokenless cross-repository
+call keeps the corpus policy and harness in the external repository while
+attaching the result to the latexd CI run. It is deliberately disabled for
+pull requests: untrusted code must not receive remote-only paper artifacts.
+Weekly full-corpus and manual runs execute from `latexd-tests` itself.
+
 ## 테스트 전략
 
 ### 테스트 레이어
