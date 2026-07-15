@@ -65,6 +65,23 @@ and missing-major-text-block regressions are visible without manual artifact
 inspection. Use `LATEXD_ARXIV_ORACLE_STRICT=1` to turn the configured thresholds
 into hard failures.
 
+## External Component Diff
+
+The `latexd-tests` repository owns a set of small MIT-licensed fixtures that
+isolate paragraphs, front matter, headings, formatting, lists, math, tables,
+citations, references, links, columns, page breaks, line breaks, and minipages.
+Each case compares `latexd` with `pdflatex` at the RenderEvent, Document IR,
+PageDisplayList, extracted-text, page-count, and raster layers. This makes a
+failure attributable to one syntax or layout contract before it is obscured by
+a complete paper.
+
+Every push and pull request calls the reusable component workflow at a pinned
+`latexd-tests` commit and passes the exact `latexd` commit SHA. The resulting
+artifact retains both PDFs, renderer logs, structured rendering output, and
+color-coded page diffs because these fixtures are owned and redistributable.
+The external licensed-paper workflow remains push-only and follows the stricter
+artifact policy below.
+
 ## External Licensed Corpus
 
 The separately maintained
