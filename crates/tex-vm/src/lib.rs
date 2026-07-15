@@ -8,16 +8,17 @@ use serde::{Deserialize, Serialize};
 use tex_lexer::{CatCodeTable, Lexer, lex_plain};
 use tex_render_model::{
     BeginBlockEvent, BeginLayoutContainerEvent, BibliographyItemEvent, BlockKind, CaptionEvent,
-    CitationStyleHint, DocumentClassEvent, EndBlockEvent, EndLayoutContainerEvent, EventId,
-    ExpansionFrame, FallbackReason, FlushTitleBlockEvent, GraphicAssetDensity,
-    GraphicAssetDensityUnit, GraphicAssetFormat, GraphicPageSelection, GraphicRefEvent,
-    HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
-    LayoutAlignment, LineBreakEvent, LineBreakReason, ListItemEvent, ListKind, MathSourceEvent,
-    MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan,
-    RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
-    SetDocumentMetadataEvent, SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind,
-    TableCellSpanEvent, TableColumnAlignment, TableColumnSpec, TableRuleEvent, TableRulePosition,
-    TableRuleSpan, TextEvent,
+    CitationStyleHint, DocumentClassEvent, DocumentLayoutIntent, EndBlockEvent,
+    EndLayoutContainerEvent, EventId, ExpansionFrame, FallbackReason, FlushTitleBlockEvent,
+    GraphicAssetDensity, GraphicAssetDensityUnit, GraphicAssetFormat, GraphicPageSelection,
+    GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent,
+    LabelDefinitionEvent, LayoutAlignment, LineBreakEvent, LineBreakReason, ListItemEvent,
+    ListKind, MathSourceEvent, MetadataField, ModeHint, PageBreakEvent, PageBreakKind,
+    ParagraphBreakEvent, ParagraphBreakReason, ProvenanceSpan, RawFallbackEvent,
+    RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, SetDocumentMetadataEvent,
+    SourceProvenance, SourceSpan, SourceSpanRole, SpaceEvent, SpaceKind, TableCellSpanEvent,
+    TableColumnAlignment, TableColumnSpec, TableRuleEvent, TableRulePosition, TableRuleSpan,
+    TextEvent,
 };
 use tex_tokens::{CatCode, ControlSequenceInterner, Token, TokenKind};
 use tex_world::normalize_relative_path;
@@ -44,6 +45,107 @@ fn builtin_latex_module_source(label: &str, path: &Utf8Path) -> Option<&'static 
         ("package", package) if BUILTIN_PACKAGE_SHIMS.contains(&package) => {
             Some(COMMON_PACKAGE_SHIM)
         }
+        _ => None,
+    }
+}
+
+fn package_layout_intent(package_name: &str) -> Option<DocumentLayoutIntent> {
+    let package_name = Utf8Path::new(package_name)
+        .file_name()
+        .unwrap_or(package_name)
+        .to_ascii_lowercase();
+    let package_name = package_name.strip_suffix(".sty").unwrap_or(&package_name);
+    match package_name {
+        "nips14submit_e" => Some(DocumentLayoutIntent {
+            profile: Some("nips_2014".to_string()),
+            page_width_pt_milli: Some(612_000),
+            page_height_pt_milli: Some(792_000),
+            text_width_pt_milli: Some(396_000),
+            text_height_pt_milli: Some(648_000),
+            margin_left_pt_milli: Some(108_000),
+            margin_top_pt_milli: Some(72_000),
+            front_matter_top_pt_milli: Some(72_000),
+            column_count: Some(1),
+            body_font_size_pt_milli: Some(10_000),
+            line_height_pt_milli: Some(11_000),
+            heading_font_size_pt_milli: Some(12_000),
+            title_font_size_pt_milli: Some(20_000),
+            block_gap_pt_milli: Some(6_000),
+            abstract_indent_pt_milli: Some(36_000),
+            ..DocumentLayoutIntent::default()
+        }),
+        "nips_2017" => Some(DocumentLayoutIntent {
+            profile: Some("nips_2017".to_string()),
+            page_width_pt_milli: Some(612_000),
+            page_height_pt_milli: Some(792_000),
+            text_width_pt_milli: Some(396_000),
+            text_height_pt_milli: Some(648_000),
+            margin_left_pt_milli: Some(108_000),
+            margin_top_pt_milli: Some(72_000),
+            front_matter_top_pt_milli: Some(72_000),
+            column_count: Some(1),
+            body_font_size_pt_milli: Some(10_000),
+            line_height_pt_milli: Some(11_000),
+            heading_font_size_pt_milli: Some(12_000),
+            title_font_size_pt_milli: Some(17_000),
+            block_gap_pt_milli: Some(5_500),
+            abstract_indent_pt_milli: Some(36_000),
+            ..DocumentLayoutIntent::default()
+        }),
+        "neurips_2019" => Some(DocumentLayoutIntent {
+            profile: Some("neurips_2019".to_string()),
+            page_width_pt_milli: Some(612_000),
+            page_height_pt_milli: Some(792_000),
+            text_width_pt_milli: Some(468_000),
+            text_height_pt_milli: Some(648_000),
+            margin_left_pt_milli: Some(72_000),
+            margin_top_pt_milli: Some(72_000),
+            front_matter_top_pt_milli: Some(72_000),
+            column_count: Some(1),
+            body_font_size_pt_milli: Some(10_000),
+            line_height_pt_milli: Some(11_000),
+            heading_font_size_pt_milli: Some(12_000),
+            title_font_size_pt_milli: Some(17_000),
+            block_gap_pt_milli: Some(5_500),
+            abstract_indent_pt_milli: Some(36_000),
+            ..DocumentLayoutIntent::default()
+        }),
+        "naaclhlt2019" => Some(DocumentLayoutIntent {
+            profile: Some("naacl_hlt_2019".to_string()),
+            page_width_pt_milli: Some(595_276),
+            page_height_pt_milli: Some(841_890),
+            text_width_pt_milli: Some(453_543),
+            text_height_pt_milli: Some(700_157),
+            margin_left_pt_milli: Some(72_000),
+            margin_top_pt_milli: Some(62_800),
+            front_matter_top_pt_milli: Some(62_800),
+            column_count: Some(2),
+            column_gap_pt_milli: Some(17_008),
+            body_font_size_pt_milli: Some(11_000),
+            line_height_pt_milli: Some(13_200),
+            heading_font_size_pt_milli: Some(11_000),
+            title_font_size_pt_milli: Some(14_000),
+            block_gap_pt_milli: Some(5_000),
+            abstract_indent_pt_milli: Some(0),
+        }),
+        "icml2020" => Some(DocumentLayoutIntent {
+            profile: Some("icml_2020".to_string()),
+            page_width_pt_milli: Some(612_000),
+            page_height_pt_milli: Some(792_000),
+            text_width_pt_milli: Some(486_000),
+            text_height_pt_milli: Some(648_000),
+            margin_left_pt_milli: Some(55_440),
+            margin_top_pt_milli: Some(67_000),
+            front_matter_top_pt_milli: Some(67_000),
+            column_count: Some(2),
+            column_gap_pt_milli: Some(18_000),
+            body_font_size_pt_milli: Some(10_000),
+            line_height_pt_milli: Some(11_000),
+            heading_font_size_pt_milli: Some(10_000),
+            title_font_size_pt_milli: Some(14_000),
+            block_gap_pt_milli: Some(5_000),
+            abstract_indent_pt_milli: Some(0),
+        }),
         _ => None,
     }
 }
@@ -1519,8 +1621,16 @@ impl<'i> Vm<'i> {
         let mut index = 0usize;
         let mut text_start = 0usize;
         let mut in_document = initial_in_document;
+        let mut transparent_bracket_end = None;
         scan_state.active_input_paths.push(source_path.to_owned());
         while index < bytes.len() {
+            if transparent_bracket_end == Some(index) {
+                self.capture_text_events(source_path, source, text_start, index, in_document);
+                index += 1;
+                text_start = index;
+                transparent_bracket_end = None;
+                continue;
+            }
             if bytes[index] == b'%' && !is_escaped_percent(source, index) {
                 self.capture_text_events(source_path, source, text_start, index, in_document);
                 index = skip_latex_line_comment(source, index);
@@ -2698,6 +2808,165 @@ impl<'i> Vm<'i> {
                         index = after;
                     }
                 }
+                "icmltitlerunning" => {
+                    let argument_index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after)) =
+                        read_braced_source_argument(source, argument_index)
+                    {
+                        index = after;
+                    }
+                }
+                "icmlsetsymbol" => {
+                    let mut argument_index = skip_ascii_whitespace(source, index);
+                    for _ in 0..2 {
+                        let Some((_, _, _, after)) =
+                            read_braced_source_argument(source, argument_index)
+                        else {
+                            break;
+                        };
+                        argument_index = skip_ascii_whitespace(source, after);
+                        index = after;
+                    }
+                }
+                "icmltitle" | "icmlkeywords" => {
+                    let argument_index = skip_ascii_whitespace(source, index);
+                    if let Some((value, content_start, content_end, after)) =
+                        read_braced_source_argument(source, argument_index)
+                    {
+                        let value = normalize_latex_text_with_inline_placeholders(value);
+                        if !value.is_empty() {
+                            self.emit_render_event(
+                                RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
+                                    field: if command == "icmltitle" {
+                                        MetadataField::Title
+                                    } else {
+                                        MetadataField::Keywords
+                                    },
+                                    value,
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    content_start as u32,
+                                    content_end as u32,
+                                ),
+                            );
+                        }
+                        index = after;
+                    }
+                }
+                "icmlauthor" => {
+                    let argument_index = skip_ascii_whitespace(source, index);
+                    if let Some((name, content_start, content_end, after_name)) =
+                        read_braced_source_argument(source, argument_index)
+                    {
+                        let labels_index = skip_ascii_whitespace(source, after_name);
+                        let after = read_braced_source_argument(source, labels_index)
+                            .map(|(_, _, _, after)| after)
+                            .unwrap_or(after_name);
+                        let name = normalize_latex_text_with_inline_placeholders(name);
+                        if !name.is_empty() {
+                            self.emit_render_event(
+                                RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
+                                    field: MetadataField::Author,
+                                    value: name,
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    content_start as u32,
+                                    content_end as u32,
+                                ),
+                            );
+                        }
+                        index = after;
+                    }
+                }
+                "icmlaffiliation" => {
+                    let label_index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after_label)) =
+                        read_braced_source_argument(source, label_index)
+                    {
+                        let value_index = skip_ascii_whitespace(source, after_label);
+                        if let Some((value, content_start, content_end, after)) =
+                            read_braced_source_argument(source, value_index)
+                        {
+                            let value = normalize_latex_text_with_inline_placeholders(value);
+                            if !value.is_empty() {
+                                self.emit_render_event(
+                                    RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
+                                        field: MetadataField::Affiliation,
+                                        value,
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        content_start as u32,
+                                        content_end as u32,
+                                    ),
+                                );
+                            }
+                            index = after;
+                        } else {
+                            index = after_label;
+                        }
+                    }
+                }
+                "icmlcorrespondingauthor" => {
+                    let name_index = skip_ascii_whitespace(source, index);
+                    if let Some((name, name_start, name_end, after_name)) =
+                        read_braced_source_argument(source, name_index)
+                    {
+                        let email_index = skip_ascii_whitespace(source, after_name);
+                        if let Some((email, email_start, email_end, after)) =
+                            read_braced_source_argument(source, email_index)
+                        {
+                            let name = normalize_latex_text_with_inline_placeholders(name);
+                            let email = normalize_latex_text_with_inline_placeholders(email);
+                            let primary_is_email = name.is_empty();
+                            let value = match (primary_is_email, email.is_empty()) {
+                                (false, false) => format!("{name} <{email}>"),
+                                (false, true) => name,
+                                (true, false) => email,
+                                (true, true) => String::new(),
+                            };
+                            if !value.is_empty() {
+                                let (content_start, content_end) = if primary_is_email {
+                                    (email_start, email_end)
+                                } else {
+                                    (name_start, name_end)
+                                };
+                                self.emit_render_event(
+                                    RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
+                                        field: MetadataField::Correspondence,
+                                        value,
+                                    }),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        content_start as u32,
+                                        content_end as u32,
+                                    ),
+                                );
+                            }
+                            index = after;
+                        } else {
+                            index = after_name;
+                        }
+                    }
+                }
+                "printAffiliationsAndNotice" if in_document => {
+                    let argument_index = skip_ascii_whitespace(source, index);
+                    if let Some((_, _, _, after)) =
+                        read_braced_source_argument(source, argument_index)
+                    {
+                        index = after;
+                    }
+                    self.emit_render_event(
+                        RenderEvent::FlushTitleBlock(FlushTitleBlockEvent),
+                        SourceProvenance::file(
+                            source_path.to_owned(),
+                            command_start as u32,
+                            index as u32,
+                        ),
+                    );
+                }
                 "title" | "author" | "date" | "affil" | "affiliation" | "institute" | "email"
                 | "keywords" | "pacs" => {
                     let mut argument_index = skip_ascii_whitespace(source, index);
@@ -2717,9 +2986,9 @@ impl<'i> Vm<'i> {
                             "date" => MetadataField::Date,
                             "keywords" => MetadataField::Keywords,
                             "pacs" => MetadataField::Pacs,
-                            "author" | "affil" | "affiliation" | "institute" | "email" => {
-                                MetadataField::Author
-                            }
+                            "author" => MetadataField::Author,
+                            "affil" | "affiliation" | "institute" => MetadataField::Affiliation,
+                            "email" => MetadataField::Correspondence,
                             _ => unreachable!(),
                         };
                         self.emit_render_event(
@@ -2776,6 +3045,7 @@ impl<'i> Vm<'i> {
                             "document" => {
                                 in_document = true;
                             }
+                            "icmlauthorlist" if in_document => {}
                             other
                                 if in_document
                                     && scan_state.hidden_environments.contains(other) =>
@@ -3498,10 +3768,14 @@ impl<'i> Vm<'i> {
                                 if in_document =>
                             {
                                 let block = match environment {
-                                    "figure" | "figure*" | "sidewaysfigure" | "sidewaysfigure*"
-                                    | "wrapfigure" | "wrapfigure*" | "SCfigure" | "SCfigure*"
-                                    | "floatingfigure" | "marginfigure" | "marginfigure*"
-                                    | "measuredfigure" => BlockKind::Figure,
+                                    "figure*" | "sidewaysfigure" | "sidewaysfigure*"
+                                    | "SCfigure*" | "marginfigure*" => BlockKind::FullWidthFigure,
+                                    "figure" | "wrapfigure" | "wrapfigure*" | "SCfigure"
+                                    | "floatingfigure" | "marginfigure" | "measuredfigure" => {
+                                        BlockKind::Figure
+                                    }
+                                    "table*" | "sidewaystable" | "sidewaystable*" | "SCtable*"
+                                    | "margintable*" => BlockKind::FullWidthTable,
                                     _ => BlockKind::Table,
                                 };
                                 self.emit_render_event(
@@ -5165,6 +5439,7 @@ impl<'i> Vm<'i> {
                             "document" => {
                                 in_document = false;
                             }
+                            "icmlauthorlist" if in_document => {}
                             "abstract" | "abstract*" | "onecolabstract" if in_document => {
                                 self.emit_render_event(
                                     RenderEvent::EndBlock(EndBlockEvent {
@@ -5405,8 +5680,23 @@ impl<'i> Vm<'i> {
                         index = after_option;
                     }
                 }
-                "smallskip" | "medskip" | "bigskip" | "noindent" | "indent" | "newpage"
-                | "clearpage" | "cleardoublepage" | "vfill" | "hfill"
+                "newpage" | "clearpage" | "cleardoublepage" if in_document => {
+                    let kind = match command {
+                        "newpage" => PageBreakKind::NewPage,
+                        "clearpage" => PageBreakKind::ClearPage,
+                        "cleardoublepage" => PageBreakKind::ClearDoublePage,
+                        _ => unreachable!(),
+                    };
+                    self.emit_render_event(
+                        RenderEvent::PageBreak(PageBreakEvent { kind }),
+                        SourceProvenance::file(
+                            source_path.to_owned(),
+                            command_start as u32,
+                            index as u32,
+                        ),
+                    );
+                }
+                "smallskip" | "medskip" | "bigskip" | "noindent" | "indent" | "vfill" | "hfill"
                     if in_document => {}
                 _ if in_document && is_font_declaration_command(command) => {}
                 "fontsize" if in_document => {
@@ -5607,6 +5897,16 @@ impl<'i> Vm<'i> {
                             .map(str::trim)
                             .filter(|package| !package.is_empty())
                         {
+                            if let Some(layout) = package_layout_intent(package_name) {
+                                self.emit_render_event(
+                                    RenderEvent::SetDocumentLayout(layout),
+                                    SourceProvenance::file(
+                                        source_path.to_owned(),
+                                        command_start as u32,
+                                        after_packages as u32,
+                                    ),
+                                );
+                            }
                             if (package_name.eq_ignore_ascii_case("neurips_2019")
                                 || package_name.eq_ignore_ascii_case("neurips_2019.sty"))
                                 && let Some(document_class) = self
@@ -5864,7 +6164,7 @@ impl<'i> Vm<'i> {
                         index = after_class;
                     }
                 }
-                "twocolumn" | "onecolumn" if in_document && include_depth == 0 => {
+                "twocolumn" | "onecolumn" if include_depth == 0 => {
                     if let Some(document_class) =
                         self.render_events
                             .iter_mut()
@@ -5880,6 +6180,15 @@ impl<'i> Vm<'i> {
                             )
                         });
                         document_class.options.push(command.to_string());
+                    }
+                    if command == "twocolumn" {
+                        let argument_index = skip_ascii_whitespace(source, index);
+                        if let Some((_, content_start, content_end, _)) =
+                            read_bracket_source_argument(source, argument_index)
+                        {
+                            transparent_bracket_end = Some(content_end);
+                            index = content_start;
+                        }
                     }
                 }
                 "includeonly" => {
@@ -27713,9 +28022,9 @@ mod tests {
         BeginBlockEvent, BeginLayoutContainerEvent, BlockKind, CitationStyleHint, EndBlockEvent,
         EndLayoutContainerEvent, EventProducer, GeneratedBy, GraphicAssetDensity,
         GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat, HeadingEvent,
-        LayoutAlignment, ListKind, MetadataField, ModeHint, RenderEvent, SemanticConfidence,
-        SourceSpanRole, SpaceKind, TableCellSpanEvent, TableColumnAlignment, TableColumnSpec,
-        TableRuleEvent, TableRulePosition, TableRuleSpan,
+        LayoutAlignment, ListKind, MetadataField, ModeHint, ProvenanceSpan, RenderEvent,
+        SemanticConfidence, SourceSpanRole, SpaceKind, TableCellSpanEvent, TableColumnAlignment,
+        TableColumnSpec, TableRuleEvent, TableRulePosition, TableRuleSpan,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -36030,7 +36339,7 @@ Fallback text.
 
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
-            RenderEvent::BeginBlock(block) if block.block == BlockKind::Figure
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::FullWidthFigure
         )));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
@@ -36064,7 +36373,7 @@ Fallback text.
 
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
-            RenderEvent::BeginBlock(block) if block.block == BlockKind::Table
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::FullWidthTable
         )));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
@@ -36088,11 +36397,11 @@ Fallback text.
 
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
-            RenderEvent::BeginBlock(block) if block.block == BlockKind::Figure
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::FullWidthFigure
         )));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
-            RenderEvent::BeginBlock(block) if block.block == BlockKind::Table
+            RenderEvent::BeginBlock(block) if block.block == BlockKind::FullWidthTable
         )));
         assert!(outcome.render_events.iter().any(|event| matches!(
             &event.event,
@@ -45257,6 +45566,178 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_records_preamble_column_layout_intent() {
+        let source = r"\documentclass{article}\twocolumn\begin{document}Body.\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let document_class = outcome
+            .render_events
+            .iter()
+            .find_map(|event| match &event.event {
+                RenderEvent::DocumentClass(document_class) => Some(document_class),
+                _ => None,
+            })
+            .expect("document class event");
+
+        assert_eq!(document_class.options, vec!["twocolumn".to_string()]);
+    }
+
+    #[test]
+    fn render_event_capture_records_known_package_layout_intents() {
+        for (package, profile, columns, text_width, margin_left, body_font_size) in [
+            ("nips14submit_e", "nips_2014", 1, 396_000, 108_000, 10_000),
+            ("nips_2017", "nips_2017", 1, 396_000, 108_000, 10_000),
+            ("neurips_2019", "neurips_2019", 1, 468_000, 72_000, 10_000),
+            ("naaclhlt2019", "naacl_hlt_2019", 2, 453_543, 72_000, 11_000),
+            ("icml2020", "icml_2020", 2, 486_000, 55_440, 10_000),
+        ] {
+            let source = format!(
+                "\\documentclass{{article}}\\usepackage{{{package}}}\\begin{{document}}Body.\\end{{document}}"
+            );
+            let mut interner = ControlSequenceInterner::new();
+            let mut vm = Vm::new(&mut interner);
+            vm.mount_file(format!("{package}.sty"), "");
+            vm.set_entry_source_path("main.tex");
+            vm.enable_render_event_capture();
+            let outcome = vm.run_plain(&source);
+            let layout = outcome
+                .render_events
+                .iter()
+                .find_map(|event| match &event.event {
+                    RenderEvent::SetDocumentLayout(layout) => Some(layout),
+                    _ => None,
+                })
+                .expect("layout intent event");
+
+            assert_eq!(layout.profile.as_deref(), Some(profile));
+            assert_eq!(layout.column_count, Some(columns));
+            assert_eq!(layout.text_width_pt_milli, Some(text_width));
+            assert_eq!(layout.margin_left_pt_milli, Some(margin_left));
+            assert_eq!(layout.body_font_size_pt_milli, Some(body_font_size));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_emits_forced_page_breaks() {
+        let source =
+            r"\begin{document}One\newpage Two\clearpage Three\cleardoublepage Four\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let page_breaks = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::PageBreak(page_break) => Some((page_break.kind, &event.meta.source)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            page_breaks
+                .iter()
+                .map(|(kind, _)| *kind)
+                .collect::<Vec<_>>(),
+            vec![
+                tex_render_model::PageBreakKind::NewPage,
+                tex_render_model::PageBreakKind::ClearPage,
+                tex_render_model::PageBreakKind::ClearDoublePage,
+            ]
+        );
+        for ((_, provenance), command) in
+            page_breaks
+                .iter()
+                .zip([r"\newpage", r"\clearpage", r"\cleardoublepage"])
+        {
+            assert!(matches!(
+                &provenance.primary,
+                ProvenanceSpan::File(span)
+                    if &source[span.start_utf8 as usize..span.end_utf8 as usize] == command
+            ));
+        }
+    }
+
+    #[test]
+    fn render_event_capture_recovers_icml_front_matter() {
+        let source = r"\documentclass{article}
+\usepackage[accepted]{icml2020}
+\icmltitlerunning{Short title}
+\begin{document}
+\twocolumn[
+\icmltitle{A Paper}
+\icmlsetsymbol{equal}{*}
+\begin{icmlauthorlist}
+\icmlauthor{Ada Lovelace}{equal,engine}
+\icmlauthor{Charles Babbage}{engine}
+\end{icmlauthorlist}
+\icmlaffiliation{engine}{Analytical Engine Institute}
+\icmlcorrespondingauthor{Ada Lovelace}{ada@example.test}
+\icmlkeywords{preview, rendering}
+\printAffiliationsAndNotice{\icmlEqualContribution}
+]
+\begin{abstract}Short abstract.\end{abstract}
+\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.mount_file("icml2020.sty", "");
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let metadata = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::SetDocumentMetadata(metadata) => {
+                    Some((metadata.field, metadata.value.as_str()))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            metadata,
+            vec![
+                (MetadataField::Title, "A Paper"),
+                (MetadataField::Author, "Ada Lovelace"),
+                (MetadataField::Author, "Charles Babbage"),
+                (MetadataField::Affiliation, "Analytical Engine Institute"),
+                (
+                    MetadataField::Correspondence,
+                    "Ada Lovelace <ada@example.test>",
+                ),
+                (MetadataField::Keywords, "preview, rendering"),
+            ]
+        );
+        assert_eq!(
+            outcome
+                .render_events
+                .iter()
+                .filter(|event| matches!(event.event, RenderEvent::FlushTitleBlock(_)))
+                .count(),
+            1
+        );
+        assert!(!outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::RawFallback(fallback)
+                    if fallback.environment.as_deref() == Some("icmlauthorlist")
+            )
+        }));
+        assert!(!outcome.render_events.iter().any(|event| {
+            matches!(
+                &event.event,
+                RenderEvent::Text(text)
+                    if matches!(text.text.as_str(), "[" | "]" | "equal,engine" | "engine")
+            )
+        }));
+    }
+
+    #[test]
     fn render_event_capture_records_title_definition_and_emit_spans() {
         let source = r"\title{A Paper}\begin{document}\maketitle\end{document}";
         let mut interner = ControlSequenceInterner::new();
@@ -45331,21 +45812,35 @@ Fallback text.
                 _ => None,
             })
             .collect::<Vec<_>>();
+        let affiliations = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::SetDocumentMetadata(metadata)
+                    if metadata.field == MetadataField::Affiliation =>
+                {
+                    Some(metadata.value.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
 
         assert_eq!(
             authors,
+            vec!["Nai-Hui Chia nc67@rice.edu", "Atsuya Hasegawa"]
+        );
+        assert_eq!(
+            affiliations,
             vec![
-                "Nai-Hui Chia nc67@rice.edu",
-                "Atsuya Hasegawa",
                 "Department of Computer Science",
                 "Graduate School of Mathematics"
             ]
         );
-        for author in authors {
-            assert!(!author.contains("[1]"));
-            assert!(!author.contains("[2]"));
-            assert!(!author.contains("affil"));
-            assert!(!author.contains("thanks"));
+        for value in authors.iter().chain(&affiliations) {
+            assert!(!value.contains("[1]"));
+            assert!(!value.contains("[2]"));
+            assert!(!value.contains("affil"));
+            assert!(!value.contains("thanks"));
         }
     }
 
@@ -45370,11 +45865,23 @@ Fallback text.
                 _ => None,
             })
             .collect::<Vec<_>>();
+        let affiliations = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::SetDocumentMetadata(metadata)
+                    if metadata.field == MetadataField::Affiliation =>
+                {
+                    Some(metadata.value.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
 
+        assert_eq!(authors, vec!["F. A. C\u{00e1}rdenas-L\u{00f3}pez"]);
         assert_eq!(
-            authors,
+            affiliations,
             vec![
-                "F. A. C\u{00e1}rdenas-L\u{00f3}pez",
                 "Forschungszentrum J\u{00fc}lich GmbH, Peter Gr\u{00fc}nberg Institute, \u{014c}\u{017b} Lab"
             ]
         );
@@ -45387,8 +45894,11 @@ Fallback text.
             r#"\.Z"#,
         ] {
             assert!(
-                authors.iter().all(|author| !author.contains(hidden)),
-                "{hidden} leaked in {authors:?}"
+                authors
+                    .iter()
+                    .chain(&affiliations)
+                    .all(|value| !value.contains(hidden)),
+                "{hidden} leaked in authors={authors:?}, affiliations={affiliations:?}"
             );
         }
     }

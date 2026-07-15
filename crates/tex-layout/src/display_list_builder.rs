@@ -56,20 +56,18 @@ impl Default for PageDisplayListOptions {
 impl PageDisplayListOptions {
     pub fn for_document_ir(document_ir: &DocumentIr) -> Self {
         let mut options = Self::default();
-        let Some(document_class) = &document_ir.document_class else {
-            return options;
-        };
-        let class_name = document_class.name.trim().to_ascii_lowercase();
-        if document_class
-            .options
-            .iter()
-            .any(|option| option.trim().eq_ignore_ascii_case("a4paper"))
-        {
-            options.page_width_pt = 595.276;
-            options.page_height_pt = 841.89;
-        }
-        let requested_font_size_pt =
-            document_class.options.iter().find_map(|option| {
+        if let Some(document_class) = &document_ir.document_class {
+            let class_name = document_class.name.trim().to_ascii_lowercase();
+            options.max_chars_per_line = usize::MAX;
+            if document_class
+                .options
+                .iter()
+                .any(|option| option.trim().eq_ignore_ascii_case("a4paper"))
+            {
+                options.page_width_pt = 595.276;
+                options.page_height_pt = 841.89;
+            }
+            let requested_font_size_pt = document_class.options.iter().find_map(|option| {
                 match option.trim().to_ascii_lowercase().as_str() {
                     "10pt" => Some(10.0),
                     "11pt" => Some(11.0),
@@ -77,71 +75,130 @@ impl PageDisplayListOptions {
                     _ => None,
                 }
             });
-        match requested_font_size_pt {
-            Some(10.0) => {
-                options.body_font_size_pt = 10.0;
+            match requested_font_size_pt {
+                Some(10.0) => {
+                    options.body_font_size_pt = 10.0;
+                    options.line_height_pt = 12.0;
+                    options.heading_font_size_pt = 14.0;
+                    options.title_font_size_pt = 17.0;
+                    options.block_gap_pt = 6.0;
+                }
+                None if class_name == "article" => {
+                    options.body_font_size_pt = 10.0;
+                    options.line_height_pt = 12.0;
+                    options.heading_font_size_pt = 14.0;
+                    options.title_font_size_pt = 17.0;
+                    options.block_gap_pt = 6.0;
+                }
+                Some(12.0) => {
+                    options.body_font_size_pt = 12.0;
+                    options.line_height_pt = 14.5;
+                    options.heading_font_size_pt = 16.0;
+                    options.title_font_size_pt = 20.0;
+                }
+                _ => {}
+            }
+            if class_name == "llncs" {
+                options.page_width_pt = 595.276;
+                options.page_height_pt = 841.89;
+                options.margin_left_pt = 126.0;
+                options.margin_top_pt = 72.0;
+                options.margin_bottom_pt = 72.0;
+                options.front_matter_top_pt = Some(105.0);
+                options.abstract_indent_pt = 0.0;
                 options.line_height_pt = 12.0;
-                options.heading_font_size_pt = 14.0;
-                options.title_font_size_pt = 17.0;
                 options.block_gap_pt = 6.0;
+                options.body_font_size_pt = 10.0;
+                options.heading_font_size_pt = 12.0;
+                options.title_font_size_pt = 14.0;
+                options.front_matter_gap_pt = 18.0;
+            } else {
+                let explicitly_one_column = document_class
+                    .options
+                    .iter()
+                    .any(|option| option.trim().eq_ignore_ascii_case("onecolumn"));
+                let explicitly_two_column = document_class
+                    .options
+                    .iter()
+                    .any(|option| option.trim().eq_ignore_ascii_case("twocolumn"));
+                let class_defaults_to_two_columns = matches!(class_name.as_str(), "ieeetran");
+                if !explicitly_one_column
+                    && (explicitly_two_column || class_defaults_to_two_columns)
+                {
+                    options.column_count = 2;
+                    options.column_gap_pt = 18.0;
+                    options.margin_top_pt = 54.0;
+                    options.margin_bottom_pt = 54.0;
+                    options.front_matter_top_pt = Some(96.0);
+                    options.block_gap_pt = 5.0;
+                    options.abstract_indent_pt = 9.0;
+                    options.list_continuation_indent_pt = 12.0;
+                    options.bibliography_continuation_indent_pt = 18.0;
+                    options.heading_font_size_pt = 12.5;
+                    options.title_font_size_pt = 16.0;
+                    options.front_matter_gap_pt = 36.0;
+                    if class_name == "ieeetran" {
+                        options.margin_left_pt = 49.5;
+                        options.body_font_size_pt = 9.0;
+                        options.line_height_pt = 10.0;
+                    } else {
+                        options.margin_left_pt = 54.0;
+                        options.body_font_size_pt = 9.5;
+                        options.line_height_pt = 10.5;
+                    }
+                }
             }
-            Some(12.0) => {
-                options.body_font_size_pt = 12.0;
-                options.line_height_pt = 14.5;
-                options.heading_font_size_pt = 16.0;
-                options.title_font_size_pt = 20.0;
-            }
-            _ => {}
-        }
-        if class_name == "llncs" {
-            options.page_width_pt = 595.276;
-            options.page_height_pt = 841.89;
-            options.margin_left_pt = 126.0;
-            options.margin_top_pt = 72.0;
-            options.margin_bottom_pt = 72.0;
-            options.front_matter_top_pt = Some(105.0);
-            options.abstract_indent_pt = 0.0;
-            options.line_height_pt = 12.0;
-            options.block_gap_pt = 6.0;
-            options.body_font_size_pt = 10.0;
-            options.heading_font_size_pt = 12.0;
-            options.title_font_size_pt = 14.0;
-            options.front_matter_gap_pt = 18.0;
-            return options;
-        }
-        let explicitly_one_column = document_class
-            .options
-            .iter()
-            .any(|option| option.trim().eq_ignore_ascii_case("onecolumn"));
-        let explicitly_two_column = document_class
-            .options
-            .iter()
-            .any(|option| option.trim().eq_ignore_ascii_case("twocolumn"));
-        let class_defaults_to_two_columns = matches!(class_name.as_str(), "ieeetran");
-        if explicitly_one_column || (!explicitly_two_column && !class_defaults_to_two_columns) {
-            return options;
         }
 
-        options.column_count = 2;
-        options.column_gap_pt = 18.0;
-        options.margin_top_pt = 54.0;
-        options.margin_bottom_pt = 54.0;
-        options.front_matter_top_pt = Some(96.0);
-        options.block_gap_pt = 5.0;
-        options.abstract_indent_pt = 9.0;
-        options.list_continuation_indent_pt = 12.0;
-        options.bibliography_continuation_indent_pt = 18.0;
-        options.heading_font_size_pt = 12.5;
-        options.title_font_size_pt = 16.0;
-        options.front_matter_gap_pt = 36.0;
-        if class_name == "ieeetran" {
-            options.margin_left_pt = 49.5;
-            options.body_font_size_pt = 9.0;
-            options.line_height_pt = 10.0;
-        } else {
-            options.margin_left_pt = 54.0;
-            options.body_font_size_pt = 9.5;
-            options.line_height_pt = 10.5;
+        if let Some(layout) = &document_ir.layout {
+            if let Some(value) = layout.page_width_pt_milli {
+                options.page_width_pt = value as f32 / 1000.0;
+            }
+            if let Some(value) = layout.page_height_pt_milli {
+                options.page_height_pt = value as f32 / 1000.0;
+            }
+            if let Some(value) = layout.margin_top_pt_milli {
+                options.margin_top_pt = value as f32 / 1000.0;
+            }
+            if let Some(value) = layout.text_width_pt_milli {
+                let text_width_pt = value as f32 / 1000.0;
+                options.margin_left_pt = ((options.page_width_pt - text_width_pt) / 2.0).max(0.0);
+            }
+            if let Some(value) = layout.margin_left_pt_milli {
+                options.margin_left_pt = value as f32 / 1000.0;
+            }
+            if let Some(value) = layout.text_height_pt_milli {
+                let text_height_pt = value as f32 / 1000.0;
+                options.margin_bottom_pt =
+                    (options.page_height_pt - options.margin_top_pt - text_height_pt).max(0.0);
+            }
+            if let Some(value) = layout.front_matter_top_pt_milli {
+                options.front_matter_top_pt = Some(value as f32 / 1000.0);
+            }
+            if let Some(value) = layout.column_count {
+                options.column_count = value.max(1) as usize;
+            }
+            if let Some(value) = layout.column_gap_pt_milli {
+                options.column_gap_pt = value as f32 / 1000.0;
+            }
+            if let Some(value) = layout.body_font_size_pt_milli {
+                options.body_font_size_pt = value as f32 / 1000.0;
+            }
+            if let Some(value) = layout.line_height_pt_milli {
+                options.line_height_pt = value as f32 / 1000.0;
+            }
+            if let Some(value) = layout.heading_font_size_pt_milli {
+                options.heading_font_size_pt = value as f32 / 1000.0;
+            }
+            if let Some(value) = layout.title_font_size_pt_milli {
+                options.title_font_size_pt = value as f32 / 1000.0;
+            }
+            if let Some(value) = layout.block_gap_pt_milli {
+                options.block_gap_pt = value as f32 / 1000.0;
+            }
+            if let Some(value) = layout.abstract_indent_pt_milli {
+                options.abstract_indent_pt = value as f32 / 1000.0;
+            }
         }
         options
     }
@@ -296,6 +353,7 @@ struct LogicalImage {
     caption_source: Option<SourceProvenance>,
     source: SourceProvenance,
     gap_after_pt: f32,
+    full_width: bool,
 }
 
 struct LogicalContainer {
@@ -313,6 +371,7 @@ enum LogicalItem {
     Text(LogicalTextRun),
     Image(LogicalImage),
     FullPageImage(LogicalImage),
+    PageBreak,
     Container(LogicalContainer),
     ContainerRow(Vec<LogicalContainer>),
 }
@@ -514,6 +573,77 @@ pub fn build_page_display_lists(
                         font: body_font.clone(),
                         size_pt: options.body_font_size_pt,
                         gap_after_pt: if index + 1 == block.authors.len()
+                            && block.affiliations.is_empty()
+                            && block.correspondence.is_empty()
+                            && block.date.is_none()
+                            && block.keywords.is_empty()
+                            && block.pacs.is_empty()
+                        {
+                            options.front_matter_gap_pt
+                        } else {
+                            0.0
+                        },
+                        first_line_indent_pt: 0.0,
+                        continuation_indent_pt: 0.0,
+                        preserve_leading_whitespace: false,
+                        full_width: true,
+                    }));
+                }
+                for (index, affiliation) in block.affiliations.iter().enumerate() {
+                    let source = block
+                        .affiliation_sources
+                        .get(index)
+                        .cloned()
+                        .unwrap_or_else(|| block.source.clone());
+                    logical_items.push(LogicalItem::Text(LogicalTextRun {
+                        segments: vec![LogicalTextSegment {
+                            text: affiliation.clone(),
+                            source: source.clone(),
+                            link_target: None,
+                            table_rule: false,
+                            table_rule_trim_start_pt: None,
+                            table_rule_trim_end_pt: None,
+                            table_vertical_rule_offsets: Vec::new(),
+                        }],
+                        source,
+                        font: body_font.clone(),
+                        size_pt: options.body_font_size_pt,
+                        gap_after_pt: if index + 1 == block.affiliations.len()
+                            && block.correspondence.is_empty()
+                            && block.date.is_none()
+                            && block.keywords.is_empty()
+                            && block.pacs.is_empty()
+                        {
+                            options.front_matter_gap_pt
+                        } else {
+                            0.0
+                        },
+                        first_line_indent_pt: 0.0,
+                        continuation_indent_pt: 0.0,
+                        preserve_leading_whitespace: false,
+                        full_width: true,
+                    }));
+                }
+                for (index, correspondence) in block.correspondence.iter().enumerate() {
+                    let source = block
+                        .correspondence_sources
+                        .get(index)
+                        .cloned()
+                        .unwrap_or_else(|| block.source.clone());
+                    logical_items.push(LogicalItem::Text(LogicalTextRun {
+                        segments: vec![LogicalTextSegment {
+                            text: correspondence.clone(),
+                            source: source.clone(),
+                            link_target: None,
+                            table_rule: false,
+                            table_rule_trim_start_pt: None,
+                            table_rule_trim_end_pt: None,
+                            table_vertical_rule_offsets: Vec::new(),
+                        }],
+                        source,
+                        font: body_font.clone(),
+                        size_pt: options.body_font_size_pt,
+                        gap_after_pt: if index + 1 == block.correspondence.len()
                             && block.date.is_none()
                             && block.keywords.is_empty()
                             && block.pacs.is_empty()
@@ -917,7 +1047,12 @@ pub fn build_page_display_lists(
                     }));
                 }
             }
-            IrBlock::Graphic(block) => {
+            graphic @ (IrBlock::Graphic(_) | IrBlock::FullWidthGraphic(_)) => {
+                let (block, full_width) = match graphic {
+                    IrBlock::Graphic(block) => (block, false),
+                    IrBlock::FullWidthGraphic(block) => (block, true),
+                    _ => unreachable!(),
+                };
                 logical_items.push(LogicalItem::Image(LogicalImage {
                     path: block.path.clone(),
                     options: block.options.clone(),
@@ -933,6 +1068,7 @@ pub fn build_page_display_lists(
                     } else {
                         options.block_gap_pt
                     },
+                    full_width,
                 }));
                 if let Some(caption) = &block.caption {
                     let source = block
@@ -956,7 +1092,7 @@ pub fn build_page_display_lists(
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: 0.0,
                         preserve_leading_whitespace: false,
-                        full_width: false,
+                        full_width,
                     }));
                 }
             }
@@ -972,9 +1108,16 @@ pub fn build_page_display_lists(
                     caption_source: None,
                     source: block.source.clone(),
                     gap_after_pt: 0.0,
+                    full_width: true,
                 }));
             }
-            IrBlock::Table(block) => {
+            IrBlock::PageBreak(_) => logical_items.push(LogicalItem::PageBreak),
+            table @ (IrBlock::Table(_) | IrBlock::FullWidthTable(_)) => {
+                let (block, full_width) = match table {
+                    IrBlock::Table(block) => (block, false),
+                    IrBlock::FullWidthTable(block) => (block, true),
+                    _ => unreachable!(),
+                };
                 struct RenderedTableCell {
                     text: String,
                     column_span: usize,
@@ -1674,7 +1817,7 @@ pub fn build_page_display_lists(
                     first_line_indent_pt: 0.0,
                     continuation_indent_pt: 0.0,
                     preserve_leading_whitespace: true,
-                    full_width: false,
+                    full_width,
                 }));
             }
             IrBlock::RawFallback(block) => {
@@ -1794,116 +1937,122 @@ pub fn build_page_display_lists(
     };
     let content_height_pt =
         (options.page_height_pt - options.margin_top_pt - options.margin_bottom_pt).max(1.0);
-    let parse_graphic_dimension_pt = |raw_value: &str, allow_zero: bool| -> Option<f32> {
-        let accepts_dimension = |dimension: f32| {
-            dimension.is_finite() && (dimension > 0.0 || (allow_zero && dimension >= 0.0))
-        };
-        let normalized = raw_value
-            .trim()
-            .trim_matches(|ch| ch == '{' || ch == '}')
-            .chars()
-            .filter(|ch| !ch.is_whitespace())
-            .collect::<String>();
-        if normalized.is_empty() {
-            return None;
-        }
-
-        let reference_dimensions = [
-            ("\\hsize", column_width_pt),
-            ("\\linewidth", column_width_pt),
-            ("\\textwidth", column_width_pt),
-            ("\\columnwidth", column_width_pt),
-            ("\\paperwidth", options.page_width_pt),
-            ("\\pagewidth", options.page_width_pt),
-            ("\\vsize", content_height_pt),
-            ("\\textheight", content_height_pt),
-            ("\\paperheight", options.page_height_pt),
-            ("\\pageheight", options.page_height_pt),
-            ("\\fboxsep", 3.0),
-        ];
-        let unit_dimensions = [
-            ("truept", 1.0),
-            ("bp", 1.0),
-            ("pt", 1.0),
-            ("in", 72.0),
-            ("cm", 72.0 / 2.54),
-            ("mm", 72.0 / 25.4),
-            ("pc", 12.0),
-            ("em", options.body_font_size_pt),
-            ("ex", options.body_font_size_pt * 0.5),
-        ];
-        let parse_dimension_atom = |atom: &str| -> Option<f32> {
-            let atom = atom.trim();
-            if atom.is_empty() {
+    let parse_graphic_dimension_pt =
+        |raw_value: &str, allow_zero: bool, full_width: bool| -> Option<f32> {
+            let accepts_dimension = |dimension: f32| {
+                dimension.is_finite() && (dimension > 0.0 || (allow_zero && dimension >= 0.0))
+            };
+            let normalized = raw_value
+                .trim()
+                .trim_matches(|ch| ch == '{' || ch == '}')
+                .chars()
+                .filter(|ch| !ch.is_whitespace())
+                .collect::<String>();
+            if normalized.is_empty() {
                 return None;
             }
 
-            for (name, reference_pt) in reference_dimensions {
-                if atom == name {
-                    return Some(reference_pt);
-                }
-                if let Some(prefix) = atom.strip_suffix(name) {
-                    let factor = prefix.strip_suffix('*').unwrap_or(prefix);
-                    let factor = if factor.is_empty() {
-                        Some(1.0)
-                    } else {
-                        factor.parse::<f32>().ok()
-                    }?;
-                    let dimension = reference_pt * factor;
-                    if accepts_dimension(dimension) {
-                        return Some(dimension);
-                    }
-                }
-            }
-
-            for (unit, multiplier) in unit_dimensions {
-                if let Some(number) = atom.strip_suffix(unit) {
-                    let dimension = number.parse::<f32>().ok()? * multiplier;
-                    if accepts_dimension(dimension) {
-                        return Some(dimension);
-                    }
-                }
-            }
-
-            let dimension = atom.parse::<f32>().ok()?;
-            accepts_dimension(dimension).then_some(dimension)
-        };
-        let parse_dimension_expression = |expression: &str| -> Option<f32> {
-            let mut expression = expression;
-            let is_dimexpr = if let Some(inner) = expression.strip_prefix("\\dimexpr") {
-                expression = inner.strip_suffix("\\relax").unwrap_or(inner);
-                true
+            let line_width_pt = if full_width {
+                page_content_width_pt
             } else {
-                false
+                column_width_pt
             };
-            let mut total = 0.0;
-            let mut sign = 1.0;
-            let mut term_start = 0usize;
-            let mut saw_operator = false;
-            for (index, ch) in expression.char_indices() {
-                if ch != '+' && ch != '-' {
-                    continue;
+            let reference_dimensions = [
+                ("\\hsize", line_width_pt),
+                ("\\linewidth", line_width_pt),
+                ("\\textwidth", page_content_width_pt),
+                ("\\columnwidth", line_width_pt),
+                ("\\paperwidth", options.page_width_pt),
+                ("\\pagewidth", options.page_width_pt),
+                ("\\vsize", content_height_pt),
+                ("\\textheight", content_height_pt),
+                ("\\paperheight", options.page_height_pt),
+                ("\\pageheight", options.page_height_pt),
+                ("\\fboxsep", 3.0),
+            ];
+            let unit_dimensions = [
+                ("truept", 1.0),
+                ("bp", 1.0),
+                ("pt", 1.0),
+                ("in", 72.0),
+                ("cm", 72.0 / 2.54),
+                ("mm", 72.0 / 25.4),
+                ("pc", 12.0),
+                ("em", options.body_font_size_pt),
+                ("ex", options.body_font_size_pt * 0.5),
+            ];
+            let parse_dimension_atom = |atom: &str| -> Option<f32> {
+                let atom = atom.trim();
+                if atom.is_empty() {
+                    return None;
                 }
-                if index == term_start {
+
+                for (name, reference_pt) in reference_dimensions {
+                    if atom == name {
+                        return Some(reference_pt);
+                    }
+                    if let Some(prefix) = atom.strip_suffix(name) {
+                        let factor = prefix.strip_suffix('*').unwrap_or(prefix);
+                        let factor = if factor.is_empty() {
+                            Some(1.0)
+                        } else {
+                            factor.parse::<f32>().ok()
+                        }?;
+                        let dimension = reference_pt * factor;
+                        if accepts_dimension(dimension) {
+                            return Some(dimension);
+                        }
+                    }
+                }
+
+                for (unit, multiplier) in unit_dimensions {
+                    if let Some(number) = atom.strip_suffix(unit) {
+                        let dimension = number.parse::<f32>().ok()? * multiplier;
+                        if accepts_dimension(dimension) {
+                            return Some(dimension);
+                        }
+                    }
+                }
+
+                let dimension = atom.parse::<f32>().ok()?;
+                accepts_dimension(dimension).then_some(dimension)
+            };
+            let parse_dimension_expression = |expression: &str| -> Option<f32> {
+                let mut expression = expression;
+                let is_dimexpr = if let Some(inner) = expression.strip_prefix("\\dimexpr") {
+                    expression = inner.strip_suffix("\\relax").unwrap_or(inner);
+                    true
+                } else {
+                    false
+                };
+                let mut total = 0.0;
+                let mut sign = 1.0;
+                let mut term_start = 0usize;
+                let mut saw_operator = false;
+                for (index, ch) in expression.char_indices() {
+                    if ch != '+' && ch != '-' {
+                        continue;
+                    }
+                    if index == term_start {
+                        sign = if ch == '-' { -1.0 } else { 1.0 };
+                        term_start = index + ch.len_utf8();
+                        continue;
+                    }
+                    total += sign * parse_dimension_atom(&expression[term_start..index])?;
+                    saw_operator = true;
                     sign = if ch == '-' { -1.0 } else { 1.0 };
                     term_start = index + ch.len_utf8();
-                    continue;
                 }
-                total += sign * parse_dimension_atom(&expression[term_start..index])?;
-                saw_operator = true;
-                sign = if ch == '-' { -1.0 } else { 1.0 };
-                term_start = index + ch.len_utf8();
-            }
-            if term_start >= expression.len() {
-                return None;
-            }
-            total += sign * parse_dimension_atom(&expression[term_start..])?;
-            ((is_dimexpr || saw_operator) && accepts_dimension(total)).then_some(total)
-        };
+                if term_start >= expression.len() {
+                    return None;
+                }
+                total += sign * parse_dimension_atom(&expression[term_start..])?;
+                ((is_dimexpr || saw_operator) && accepts_dimension(total)).then_some(total)
+            };
 
-        parse_dimension_atom(&normalized).or_else(|| parse_dimension_expression(&normalized))
-    };
-    let parse_graphic_quad_pt = |raw_value: &str| -> Option<[f32; 4]> {
+            parse_dimension_atom(&normalized).or_else(|| parse_dimension_expression(&normalized))
+        };
+    let parse_graphic_quad_pt = |raw_value: &str, full_width: bool| -> Option<[f32; 4]> {
         let normalized = raw_value
             .trim()
             .trim_matches(|ch| ch == '{' || ch == '}')
@@ -1914,10 +2063,10 @@ pub fn build_page_display_lists(
         }
 
         Some([
-            parse_graphic_dimension_pt(parts[0], true)?,
-            parse_graphic_dimension_pt(parts[1], true)?,
-            parse_graphic_dimension_pt(parts[2], true)?,
-            parse_graphic_dimension_pt(parts[3], true)?,
+            parse_graphic_dimension_pt(parts[0], true, full_width)?,
+            parse_graphic_dimension_pt(parts[1], true, full_width)?,
+            parse_graphic_dimension_pt(parts[2], true, full_width)?,
+            parse_graphic_dimension_pt(parts[3], true, full_width)?,
         ])
     };
     let mut pending = new_pending_page();
@@ -1998,6 +2147,15 @@ pub fn build_page_display_lists(
                 if let Some(row) = pending_image_row.take() {
                     y = row.y + row.height_pt + row.gap_after_pt;
                 }
+                if full_width && column_index > 0 {
+                    if !pending.ops.is_empty() {
+                        finish_page(&mut pages, pending);
+                        pending = new_pending_page();
+                    }
+                    column_index = 0;
+                    column_start_y = options.margin_top_pt;
+                    y = column_start_y;
+                }
                 let mut wrapped_lines = Vec::new();
                 let mut current_line = Vec::new();
                 let mut current_len = 0usize;
@@ -2075,10 +2233,7 @@ pub fn build_page_display_lists(
                             let can_wrap_at_words = !logical.preserve_leading_whitespace
                                 && !table_rule
                                 && table_vertical_rule_offsets.is_empty();
-                            if can_wrap_at_words
-                                && remaining_line_chars > 0
-                                && text_char_count > remaining_line_chars
-                            {
+                            if can_wrap_at_words && take_chars > 0 && text_char_count > take_chars {
                                 let first_word_chars =
                                     text.chars().take_while(|ch| !ch.is_whitespace()).count();
                                 let line_ends_with_whitespace = current_line
@@ -2087,7 +2242,7 @@ pub fn build_page_display_lists(
                                     .is_some_and(char::is_whitespace);
                                 if *current_len > 0
                                     && line_ends_with_whitespace
-                                    && first_word_chars > remaining_line_chars
+                                    && first_word_chars > take_chars
                                     && first_word_chars <= max_chars_per_line
                                     && text_advance_pt(
                                         &text[..text
@@ -2105,7 +2260,7 @@ pub fn build_page_display_lists(
                                 }
                                 if let Some(word_end) = text
                                     .chars()
-                                    .take(remaining_line_chars)
+                                    .take(take_chars)
                                     .enumerate()
                                     .filter_map(|(index, ch)| {
                                         (index > 0 && ch.is_whitespace()).then_some(index)
@@ -2613,6 +2768,16 @@ pub fn build_page_display_lists(
             LogicalItem::Container(_) => {
                 unreachable!("layout containers must be grouped before page placement")
             }
+            LogicalItem::PageBreak => {
+                pending_image_row = None;
+                if !pending.ops.is_empty() {
+                    finish_page(&mut pages, pending);
+                    pending = new_pending_page();
+                }
+                column_index = 0;
+                column_start_y = options.margin_top_pt;
+                y = column_start_y;
+            }
             LogicalItem::FullPageImage(logical) => {
                 pending_image_row = None;
                 if !pending.ops.is_empty() {
@@ -2689,6 +2854,12 @@ pub fn build_page_display_lists(
                 y = column_start_y;
             }
             LogicalItem::Image(logical) => {
+                let full_width = logical.full_width;
+                let image_area_width_pt = if full_width {
+                    page_content_width_pt
+                } else {
+                    column_width_pt
+                };
                 let (mut natural_image_width, mut natural_image_height) = if let Some(dimensions) =
                     logical.asset_dimensions
                 {
@@ -2743,10 +2914,10 @@ pub fn build_page_display_lists(
                     {
                         (natural_width, natural_height)
                     } else {
-                        (column_width_pt, options.line_height_pt * 6.0)
+                        (image_area_width_pt, options.line_height_pt * 6.0)
                     }
                 } else {
-                    (column_width_pt, options.line_height_pt * 6.0)
+                    (image_area_width_pt, options.line_height_pt * 6.0)
                 };
                 let mut width_hint_pt = None;
                 let mut height_hint_pt = None;
@@ -2805,15 +2976,21 @@ pub fn build_page_display_lists(
                             continue;
                         };
                         match key.trim() {
-                            "width" => width_hint_pt = parse_graphic_dimension_pt(value, false),
+                            "width" => {
+                                width_hint_pt =
+                                    parse_graphic_dimension_pt(value, false, full_width);
+                            }
                             "height" | "totalheight" => {
-                                height_hint_pt = parse_graphic_dimension_pt(value, false);
+                                height_hint_pt =
+                                    parse_graphic_dimension_pt(value, false, full_width);
                             }
                             "natwidth" => {
-                                natural_width_hint_pt = parse_graphic_dimension_pt(value, false);
+                                natural_width_hint_pt =
+                                    parse_graphic_dimension_pt(value, false, full_width);
                             }
                             "natheight" => {
-                                natural_height_hint_pt = parse_graphic_dimension_pt(value, false);
+                                natural_height_hint_pt =
+                                    parse_graphic_dimension_pt(value, false, full_width);
                             }
                             "scale" => {
                                 let scale = value
@@ -2842,7 +3019,7 @@ pub fn build_page_display_lists(
                             }
                             "trim" => {
                                 if let Some([left, bottom, right, top]) =
-                                    parse_graphic_quad_pt(value)
+                                    parse_graphic_quad_pt(value, full_width)
                                 {
                                     trim = Some(ImageTrim {
                                         left_pt: left,
@@ -2853,7 +3030,9 @@ pub fn build_page_display_lists(
                                 }
                             }
                             "viewport" | "bb" => {
-                                if let Some([llx, lly, urx, ury]) = parse_graphic_quad_pt(value) {
+                                if let Some([llx, lly, urx, ury]) =
+                                    parse_graphic_quad_pt(value, full_width)
+                                {
                                     viewport = Some(ImageViewport {
                                         llx_pt: llx,
                                         lly_pt: lly,
@@ -2863,16 +3042,16 @@ pub fn build_page_display_lists(
                                 }
                             }
                             "bbllx" => {
-                                bb_llx_pt = parse_graphic_dimension_pt(value, true);
+                                bb_llx_pt = parse_graphic_dimension_pt(value, true, full_width);
                             }
                             "bblly" => {
-                                bb_lly_pt = parse_graphic_dimension_pt(value, true);
+                                bb_lly_pt = parse_graphic_dimension_pt(value, true, full_width);
                             }
                             "bburx" => {
-                                bb_urx_pt = parse_graphic_dimension_pt(value, true);
+                                bb_urx_pt = parse_graphic_dimension_pt(value, true, full_width);
                             }
                             "bbury" => {
-                                bb_ury_pt = parse_graphic_dimension_pt(value, true);
+                                bb_ury_pt = parse_graphic_dimension_pt(value, true, full_width);
                             }
                             "clip" => {
                                 clip = !matches!(value.trim(), "false" | "0" | "off");
@@ -2990,12 +3169,12 @@ pub fn build_page_display_lists(
                 } else {
                     (natural_image_width, natural_image_height)
                 };
-                let fit_scale = (column_width_pt / source_image_width).min(1.0);
+                let fit_scale = (image_area_width_pt / source_image_width).min(1.0);
                 let (default_image_width, default_image_height) = (
                     source_image_width * fit_scale,
                     source_image_height * fit_scale,
                 );
-                let (image_width, image_height) = match (width_hint_pt, height_hint_pt) {
+                let (mut image_width, mut image_height) = match (width_hint_pt, height_hint_pt) {
                     (Some(width), Some(height)) if keep_aspect_ratio => {
                         let scale =
                             (width / default_image_width).min(height / default_image_height);
@@ -3023,6 +3202,13 @@ pub fn build_page_display_lists(
                         )
                     }
                 };
+                let bounds_scale = (image_area_width_pt / image_width)
+                    .min(content_height_pt / image_height)
+                    .min(1.0);
+                if bounds_scale < 1.0 {
+                    image_width = (image_width * bounds_scale).max(1.0);
+                    image_height = (image_height * bounds_scale).max(1.0);
+                }
                 let required_height = image_height
                     + if logical.caption.is_some() {
                         options.line_height_pt
@@ -3030,8 +3216,9 @@ pub fn build_page_display_lists(
                         0.0
                     };
                 let row_gap_pt = 4.0;
-                let image_is_packable =
-                    width_hint_pt.is_some() && image_width + row_gap_pt < column_width_pt;
+                let image_is_packable = !full_width
+                    && width_hint_pt.is_some()
+                    && image_width + row_gap_pt < column_width_pt;
                 let can_join_pending_row = pending_image_row.as_ref().is_some_and(|row| {
                     row.packable
                         && image_is_packable
@@ -3053,10 +3240,19 @@ pub fn build_page_display_lists(
                     if let Some(row) = pending_image_row.take() {
                         y = row.y + row.height_pt + row.gap_after_pt;
                     }
+                    if full_width && column_index > 0 {
+                        if !pending.ops.is_empty() {
+                            finish_page(&mut pages, pending);
+                            pending = new_pending_page();
+                        }
+                        column_index = 0;
+                        column_start_y = options.margin_top_pt;
+                        y = column_start_y;
+                    }
                     if y + required_height > options.page_height_pt - options.margin_bottom_pt
                         && !pending.ops.is_empty()
                     {
-                        if column_index + 1 < column_count {
+                        if !full_width && column_index + 1 < column_count {
                             column_index += 1;
                         } else {
                             finish_page(&mut pages, pending);
@@ -3066,8 +3262,12 @@ pub fn build_page_display_lists(
                         }
                         y = column_start_y;
                     }
-                    let image_x = options.margin_left_pt
-                        + column_index as f32 * (column_width_pt + column_gap_pt);
+                    let image_x = if full_width {
+                        options.margin_left_pt
+                    } else {
+                        options.margin_left_pt
+                            + column_index as f32 * (column_width_pt + column_gap_pt)
+                    };
                     pending_image_row = Some(PendingImageRow {
                         y,
                         used_width_pt: image_width,
@@ -3077,6 +3277,10 @@ pub fn build_page_display_lists(
                     });
                     (image_x, y)
                 };
+                if full_width {
+                    column_index = 0;
+                    column_start_y = image_y + required_height + logical.gap_after_pt;
+                }
 
                 if !pending.text.is_empty() {
                     pending.text.push('\n');
@@ -3323,9 +3527,10 @@ mod tests {
         GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat, GraphicBlock,
         GraphicPageSelection, HeadingBlock, ImageCrop, ImageRotation, ImageScale, ImageTrim,
         ImageViewport, InlineNode, IrBlock, LabelDefinitionIr, LayoutAlignment,
-        LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, ListKind, ParagraphBlock, Point,
-        ProvenanceSpan, ReferenceInline, SourceProvenance, SourceSpan, TableBlock, TableCell,
-        TableColumnAlignment, TableColumnSpec, TableRow, TableRuleSpan, TextCluster, TitleBlock,
+        LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, ListKind, PageBreakBlock,
+        PageBreakKind, ParagraphBlock, Point, ProvenanceSpan, ReferenceInline, SourceProvenance,
+        SourceSpan, TableBlock, TableCell, TableColumnAlignment, TableColumnSpec, TableRow,
+        TableRuleSpan, TextCluster, TitleBlock,
     };
 
     use super::{PageDisplayListOptions, build_page_display_lists, parse_table_width_spec_pt};
@@ -3340,6 +3545,10 @@ mod tests {
                     title_source: None,
                     authors: vec!["Ada Lovelace".to_string()],
                     author_sources: Vec::new(),
+                    affiliations: Vec::new(),
+                    affiliation_sources: Vec::new(),
+                    correspondence: Vec::new(),
+                    correspondence_sources: Vec::new(),
                     date: None,
                     date_source: None,
                     keywords: Vec::new(),
@@ -6098,6 +6307,44 @@ mod tests {
     }
 
     #[test]
+    fn width_wrapping_moves_a_complete_word_to_the_next_line() {
+        let source = SourceProvenance::file("main.tex", 0, 10);
+        let options = PageDisplayListOptions {
+            page_width_pt: 60.0,
+            margin_left_pt: 10.0,
+            max_chars_per_line: 100,
+            ..PageDisplayListOptions::default()
+        };
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Paragraph(ParagraphBlock {
+                content: vec![InlineNode::Text {
+                    text: "alpha beta".to_string(),
+                    source: source.clone(),
+                }],
+                source,
+            })]),
+            options.clone(),
+        );
+
+        let text_runs = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) => Some((run.text.as_str(), run.origin.x)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            text_runs,
+            vec![
+                ("alpha ", options.margin_left_pt),
+                ("beta", options.margin_left_pt),
+            ]
+        );
+    }
+
+    #[test]
     fn wraps_heading_text_by_approximate_available_width() {
         let source = SourceProvenance::file("main.tex", 0, 70);
         let options = PageDisplayListOptions::default();
@@ -6209,6 +6456,10 @@ mod tests {
                 title_source: Some(title_source),
                 authors: vec!["Ada Lovelace".to_string()],
                 author_sources: vec![author_source],
+                affiliations: Vec::new(),
+                affiliation_sources: Vec::new(),
+                correspondence: Vec::new(),
+                correspondence_sources: Vec::new(),
                 date: None,
                 date_source: None,
                 keywords: Vec::new(),
@@ -6603,7 +6854,8 @@ mod tests {
         assert_eq!(a4_options.page_height_pt, 841.89);
         assert_eq!(a4_options.body_font_size_pt, 11.0);
         assert_eq!(a4_options.line_height_pt, 14.0);
-        assert_eq!(plain_article_options, PageDisplayListOptions::default());
+        assert_eq!(plain_article_options.body_font_size_pt, 10.0);
+        assert_eq!(plain_article_options.line_height_pt, 12.0);
         assert_eq!(ten_point_article_options.body_font_size_pt, 10.0);
         assert_eq!(ten_point_article_options.line_height_pt, 12.0);
         let llncs_options = PageDisplayListOptions::for_document_ir(&llncs);
@@ -6613,7 +6865,10 @@ mod tests {
         assert_eq!(llncs_options.body_font_size_pt, 10.0);
         assert_eq!(
             PageDisplayListOptions::for_document_ir(&explicit_one_column),
-            PageDisplayListOptions::default()
+            PageDisplayListOptions {
+                max_chars_per_line: usize::MAX,
+                ..PageDisplayListOptions::default()
+            }
         );
     }
 
@@ -6638,6 +6893,10 @@ mod tests {
                 title_source: Some(source.clone()),
                 authors: Vec::new(),
                 author_sources: Vec::new(),
+                affiliations: Vec::new(),
+                affiliation_sources: Vec::new(),
+                correspondence: Vec::new(),
+                correspondence_sources: Vec::new(),
                 date: None,
                 date_source: None,
                 keywords: Vec::new(),
@@ -6670,6 +6929,10 @@ mod tests {
             title_source: Some(source.clone()),
             authors: Vec::new(),
             author_sources: Vec::new(),
+            affiliations: Vec::new(),
+            affiliation_sources: Vec::new(),
+            correspondence: Vec::new(),
+            correspondence_sources: Vec::new(),
             date: None,
             date_source: None,
             keywords: Vec::new(),
@@ -6709,6 +6972,80 @@ mod tests {
         });
 
         assert_eq!(second_column, Some(Point { x: 110.0, y: 20.0 }));
+    }
+
+    #[test]
+    fn full_width_graphics_span_columns_and_advance_both_column_origins() {
+        let source = SourceProvenance::file("main.tex", 0, 64);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![
+                IrBlock::FullWidthGraphic(GraphicBlock {
+                    path: "figures/wide.pdf".to_string(),
+                    options: Some("width=\\textwidth".to_string()),
+                    page_selection: None,
+                    asset_format: Some(GraphicAssetFormat::Pdf),
+                    asset_hash: None,
+                    asset_dimensions: Some(GraphicAssetDimensions {
+                        width_px: 180,
+                        height_px: 20,
+                        density: None,
+                        natural_width_pt_milli: Some(180_000),
+                        natural_height_pt_milli: Some(20_000),
+                    }),
+                    caption: Some("Wide caption".to_string()),
+                    caption_source: Some(source.clone()),
+                    source: source.clone(),
+                }),
+                IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "one\ntwo\nthree\nfour\nfive\nsix".to_string(),
+                        source: source.clone(),
+                    }],
+                    source,
+                }),
+            ]),
+            PageDisplayListOptions {
+                page_width_pt: 200.0,
+                page_height_pt: 100.0,
+                margin_left_pt: 10.0,
+                margin_top_pt: 10.0,
+                margin_bottom_pt: 10.0,
+                column_count: 2,
+                column_gap_pt: 10.0,
+                max_chars_per_line: 100,
+                line_height_pt: 10.0,
+                block_gap_pt: 0.0,
+                body_font_size_pt: 10.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+
+        let page = &display_lists[0];
+        let image = page
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::Image(image) => Some(image),
+                _ => None,
+            })
+            .expect("full-width image");
+        let caption = page
+            .ops
+            .iter()
+            .find_map(|op| match op {
+                DrawOp::TextRun(run) if run.text == "Wide caption" => Some(run),
+                _ => None,
+            })
+            .expect("full-width caption");
+        let second_column = page.ops.iter().find_map(|op| match op {
+            DrawOp::TextRun(run) if run.text == "six" => Some(run.origin),
+            _ => None,
+        });
+
+        assert_eq!(image.rect.x, 10.0);
+        assert!((image.rect.width - 180.0).abs() < 0.01);
+        assert!(caption.origin.y >= image.rect.y + image.rect.height);
+        assert_eq!(second_column, Some(Point { x: 105.0, y: 40.0 }));
     }
 
     #[test]
@@ -7989,6 +8326,48 @@ mod tests {
         assert_eq!(
             after.map(|run| run.origin.y),
             Some(options.margin_top_pt + options.line_height_pt * 2.0 + options.block_gap_pt)
+        );
+    }
+
+    #[test]
+    fn forced_page_break_starts_following_content_on_a_new_page() {
+        let source = SourceProvenance::file("main.tex", 0, 20);
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![
+                IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "Before".to_string(),
+                        source: source.clone(),
+                    }],
+                    source: source.clone(),
+                }),
+                IrBlock::PageBreak(PageBreakBlock {
+                    kind: PageBreakKind::NewPage,
+                    source: source.clone(),
+                }),
+                IrBlock::Paragraph(ParagraphBlock {
+                    content: vec![InlineNode::Text {
+                        text: "After".to_string(),
+                        source: source.clone(),
+                    }],
+                    source,
+                }),
+            ]),
+            PageDisplayListOptions::default(),
+        );
+
+        assert_eq!(display_lists.len(), 2);
+        assert!(
+            display_lists[0]
+                .ops
+                .iter()
+                .any(|op| matches!(op, DrawOp::TextRun(run) if run.text == "Before"))
+        );
+        assert!(
+            display_lists[1]
+                .ops
+                .iter()
+                .any(|op| matches!(op, DrawOp::TextRun(run) if run.text == "After"))
         );
     }
 }

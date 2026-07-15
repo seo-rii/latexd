@@ -107,6 +107,8 @@ pub enum RenderEvent {
     LineBreak(LineBreakEvent),
     ParagraphBreak(ParagraphBreakEvent),
     DocumentClass(DocumentClassEvent),
+    SetDocumentLayout(DocumentLayoutIntent),
+    PageBreak(PageBreakEvent),
     SetDocumentMetadata(SetDocumentMetadataEvent),
     FlushTitleBlock(FlushTitleBlockEvent),
     BeginBlock(BeginBlockEvent),
@@ -135,7 +137,10 @@ impl RenderEvent {
             Self::Text(_) | Self::Space(_) => ModeHint::Horizontal,
             Self::LineBreak(_) => ModeHint::Horizontal,
             Self::ParagraphBreak(_) => ModeHint::Vertical,
-            Self::DocumentClass(_) | Self::SetDocumentMetadata(_) => ModeHint::Preamble,
+            Self::DocumentClass(_) | Self::SetDocumentLayout(_) | Self::SetDocumentMetadata(_) => {
+                ModeHint::Preamble
+            }
+            Self::PageBreak(_) => ModeHint::Vertical,
             Self::FlushTitleBlock(_) => ModeHint::Vertical,
             Self::BeginBlock(_)
             | Self::EndBlock(_)
@@ -204,6 +209,56 @@ pub struct DocumentClassEvent {
     pub options: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct DocumentLayoutIntent {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_width_pt_milli: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub page_height_pt_milli: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_width_pt_milli: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_height_pt_milli: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub margin_left_pt_milli: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub margin_top_pt_milli: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub front_matter_top_pt_milli: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column_count: Option<u8>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column_gap_pt_milli: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body_font_size_pt_milli: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub line_height_pt_milli: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub heading_font_size_pt_milli: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title_font_size_pt_milli: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_gap_pt_milli: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub abstract_indent_pt_milli: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageBreakEvent {
+    #[serde(rename = "break_kind")]
+    pub kind: PageBreakKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PageBreakKind {
+    NewPage,
+    ClearPage,
+    ClearDoublePage,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetDocumentMetadataEvent {
     pub field: MetadataField,
@@ -215,6 +270,8 @@ pub struct SetDocumentMetadataEvent {
 pub enum MetadataField {
     Title,
     Author,
+    Affiliation,
+    Correspondence,
     Date,
     Keywords,
     Pacs,
@@ -265,7 +322,9 @@ pub enum BlockKind {
     Abstract,
     Bibliography,
     Figure,
+    FullWidthFigure,
     Table,
+    FullWidthTable,
     List { list_kind: ListKind },
     Environment { name: String },
 }
@@ -584,10 +643,10 @@ mod tests {
         EndBlockEvent, EventMeta, EventProducer, FallbackReason, FlushTitleBlockEvent, GeneratedBy,
         GraphicAssetFormat, GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent,
         InlineReferenceEvent, LabelDefinitionEvent, LineBreakEvent, LineBreakReason, ListItemEvent,
-        MathSourceEvent, MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason,
-        RawFallbackEvent, RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope,
-        RenderEventStream, SemanticConfidence, SetDocumentMetadataEvent, SourceProvenance,
-        SpaceEvent, SpaceKind, TextEvent,
+        MathSourceEvent, MetadataField, ModeHint, PageBreakEvent, PageBreakKind,
+        ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RenderDiagnosticEvent,
+        RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
+        SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind, TextEvent,
     };
 
     #[test]
@@ -630,6 +689,27 @@ mod tests {
 
         assert!(encoded.contains("\"kind\": \"space\""));
         assert!(encoded.contains("\"space_kind\": \"interword\""));
+    }
+
+    #[test]
+    fn page_break_event_roundtrips_with_a_non_conflicting_payload_field() {
+        let stream = RenderEventStream::new(
+            Some("page-break".to_string()),
+            vec![RenderEventEnvelope::new(
+                1,
+                RenderEvent::PageBreak(PageBreakEvent {
+                    kind: PageBreakKind::ClearPage,
+                }),
+                SourceProvenance::file("main.tex", 0, 10),
+            )],
+        );
+
+        let encoded = serde_json::to_string_pretty(&stream).expect("encode stream");
+        let decoded: RenderEventStream = serde_json::from_str(&encoded).expect("decode stream");
+
+        assert!(encoded.contains("\"kind\": \"page_break\""));
+        assert!(encoded.contains("\"break_kind\": \"clear_page\""));
+        assert_eq!(decoded, stream);
     }
 
     #[test]

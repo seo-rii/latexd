@@ -1,10 +1,10 @@
 use tex_render_model::{
     AbstractBlock, AuxView, BibliographyBlock, BibliographyItemIr, CitationInline,
-    CitationStyleHint, DocumentClassIr, DocumentIr, EnvironmentBlock, GraphicBlock, HeadingBlock,
-    InlineNode, IrBlock, LabelDefinitionIr, LayoutContainerBlock, LinkInline, ListBlock,
-    ListItemIr, ListKind, MetadataField, ParagraphBlock, ReferenceInline, RenderEvent,
-    RenderEventEnvelope, RenderEventStream, SourceProvenance, SourceSpanRole, TableBlock,
-    TableCell, TableRow, TableRulePosition, TitleBlock,
+    CitationStyleHint, DocumentClassIr, DocumentIr, DocumentLayoutIntent, EnvironmentBlock,
+    GraphicBlock, HeadingBlock, InlineNode, IrBlock, LabelDefinitionIr, LayoutContainerBlock,
+    LinkInline, ListBlock, ListItemIr, ListKind, MetadataField, PageBreakBlock, ParagraphBlock,
+    ReferenceInline, RenderEvent, RenderEventEnvelope, RenderEventStream, SourceProvenance,
+    SourceSpanRole, TableBlock, TableCell, TableRow, TableRulePosition, TitleBlock,
 };
 
 pub fn build_document_ir(stream: &RenderEventStream, aux: &impl AuxView) -> DocumentIr {
@@ -32,8 +32,11 @@ pub struct DocumentIrBuilder<'a, A: AuxView> {
     float_stack: Vec<tex_render_model::BlockKind>,
     pending_table_caption: Option<(String, SourceProvenance)>,
     document_class: Option<DocumentClassIr>,
+    layout: Option<DocumentLayoutIntent>,
     title: Option<(String, SourceProvenance)>,
     authors: Vec<(String, SourceProvenance)>,
+    affiliations: Vec<(String, SourceProvenance)>,
+    correspondence: Vec<(String, SourceProvenance)>,
     date: Option<(String, SourceProvenance)>,
     keywords: Vec<(String, SourceProvenance)>,
     pacs: Vec<(String, SourceProvenance)>,
@@ -57,8 +60,11 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
             float_stack: Vec::new(),
             pending_table_caption: None,
             document_class: None,
+            layout: None,
             title: None,
             authors: Vec::new(),
+            affiliations: Vec::new(),
+            correspondence: Vec::new(),
             date: None,
             keywords: Vec::new(),
             pacs: Vec::new(),
@@ -76,6 +82,16 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         source: envelope.meta.source.clone(),
                     });
                 }
+                RenderEvent::SetDocumentLayout(event) => {
+                    self.layout = Some(event.clone());
+                }
+                RenderEvent::PageBreak(event) => {
+                    self.flush_paragraph();
+                    self.push_block(IrBlock::PageBreak(PageBreakBlock {
+                        kind: event.kind,
+                        source: envelope.meta.source.clone(),
+                    }));
+                }
                 RenderEvent::SetDocumentMetadata(event) => match event.field {
                     MetadataField::Title => {
                         self.title = Some((event.value.clone(), envelope.meta.source.clone()));
@@ -83,6 +99,16 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                     }
                     MetadataField::Author => {
                         self.authors
+                            .push((event.value.clone(), envelope.meta.source.clone()));
+                        self.metadata_sources.push(envelope.meta.source.clone());
+                    }
+                    MetadataField::Affiliation => {
+                        self.affiliations
+                            .push((event.value.clone(), envelope.meta.source.clone()));
+                        self.metadata_sources.push(envelope.meta.source.clone());
+                    }
+                    MetadataField::Correspondence => {
+                        self.correspondence
                             .push((event.value.clone(), envelope.meta.source.clone()));
                         self.metadata_sources.push(envelope.meta.source.clone());
                     }
@@ -126,6 +152,24 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                 .with_related(SourceSpanRole::EmitSite, emit_span.clone())
                         })
                         .collect::<Vec<_>>();
+                    let affiliations = std::mem::take(&mut self.affiliations);
+                    let affiliation_sources = affiliations
+                        .iter()
+                        .map(|(_, source)| {
+                            source
+                                .clone()
+                                .with_related(SourceSpanRole::EmitSite, emit_span.clone())
+                        })
+                        .collect::<Vec<_>>();
+                    let correspondence = std::mem::take(&mut self.correspondence);
+                    let correspondence_sources = correspondence
+                        .iter()
+                        .map(|(_, source)| {
+                            source
+                                .clone()
+                                .with_related(SourceSpanRole::EmitSite, emit_span.clone())
+                        })
+                        .collect::<Vec<_>>();
                     let date = self.date.take();
                     let date_source = date.as_ref().map(|(_, source)| {
                         source
@@ -155,6 +199,13 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         title_source,
                         authors: authors.into_iter().map(|(value, _)| value).collect(),
                         author_sources,
+                        affiliations: affiliations.into_iter().map(|(value, _)| value).collect(),
+                        affiliation_sources,
+                        correspondence: correspondence
+                            .into_iter()
+                            .map(|(value, _)| value)
+                            .collect(),
+                        correspondence_sources,
                         date: date.map(|(value, _)| value),
                         date_source,
                         keywords: keywords.into_iter().map(|(value, _)| value).collect(),
@@ -181,7 +232,9 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             self.list_item = None;
                         }
                         tex_render_model::BlockKind::Figure
-                        | tex_render_model::BlockKind::Table => {
+                        | tex_render_model::BlockKind::FullWidthFigure
+                        | tex_render_model::BlockKind::Table
+                        | tex_render_model::BlockKind::FullWidthTable => {
                             self.float_stack.push(event.block.clone());
                         }
                         tex_render_model::BlockKind::Environment { name } => {
@@ -238,7 +291,10 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             }));
                         }
                     }
-                    tex_render_model::BlockKind::Figure | tex_render_model::BlockKind::Table => {
+                    tex_render_model::BlockKind::Figure
+                    | tex_render_model::BlockKind::FullWidthFigure
+                    | tex_render_model::BlockKind::Table
+                    | tex_render_model::BlockKind::FullWidthTable => {
                         if self.float_stack.last() == Some(&event.block) {
                             self.float_stack.pop();
                         } else if let Some(position) = self
@@ -248,11 +304,16 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         {
                             self.float_stack.remove(position);
                         }
-                        if matches!(event.block, tex_render_model::BlockKind::Table)
-                            && let Some((caption, caption_source)) =
-                                self.pending_table_caption.take()
+                        if matches!(
+                            event.block,
+                            tex_render_model::BlockKind::Table
+                                | tex_render_model::BlockKind::FullWidthTable
+                        ) && let Some((caption, caption_source)) =
+                            self.pending_table_caption.take()
                         {
-                            self.push_block(IrBlock::Table(TableBlock {
+                            let full_width =
+                                matches!(event.block, tex_render_model::BlockKind::FullWidthTable);
+                            let table = TableBlock {
                                 environment: "table".to_string(),
                                 width_spec: None,
                                 columns: Vec::new(),
@@ -260,7 +321,12 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                 caption: Some(caption),
                                 caption_source: Some(caption_source.clone()),
                                 source: caption_source,
-                            }));
+                            };
+                            self.push_block(if full_width {
+                                IrBlock::FullWidthTable(table)
+                            } else {
+                                IrBlock::Table(table)
+                            });
                         }
                     }
                 },
@@ -615,7 +681,11 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                                 }
                             }
                         }
-                        self.push_block(IrBlock::Table(TableBlock {
+                        let full_width = matches!(
+                            self.float_stack.last(),
+                            Some(tex_render_model::BlockKind::FullWidthTable)
+                        );
+                        let table = TableBlock {
                             environment: event
                                 .environment
                                 .clone()
@@ -626,7 +696,12 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             caption,
                             caption_source,
                             source: envelope.meta.source.clone(),
-                        }));
+                        };
+                        self.push_block(if full_width {
+                            IrBlock::FullWidthTable(table)
+                        } else {
+                            IrBlock::Table(table)
+                        });
                     } else {
                         self.push_block(IrBlock::RawFallback(
                             tex_render_model::RawFallbackIr::from_event(
@@ -638,7 +713,20 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                 }
                 RenderEvent::GraphicRef(event) => {
                     self.flush_paragraph();
-                    self.push_block(IrBlock::Graphic(GraphicBlock {
+                    let option_requests_full_width =
+                        event.options.as_deref().is_some_and(|options| {
+                            options.split(',').any(|part| {
+                                part.split_once('=').is_some_and(|(key, value)| {
+                                    key.trim() == "width" && value.contains("\\textwidth")
+                                })
+                            })
+                        });
+                    let full_width = option_requests_full_width
+                        || matches!(
+                            self.float_stack.last(),
+                            Some(tex_render_model::BlockKind::FullWidthFigure)
+                        );
+                    let graphic = GraphicBlock {
                         path: event.path.clone(),
                         options: event.options.clone(),
                         page_selection: event.page_selection.clone(),
@@ -648,7 +736,12 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                         caption: None,
                         caption_source: None,
                         source: envelope.meta.source.clone(),
-                    }));
+                    };
+                    self.push_block(if full_width {
+                        IrBlock::FullWidthGraphic(graphic)
+                    } else {
+                        IrBlock::Graphic(graphic)
+                    });
                 }
                 RenderEvent::IncludePdf(event) => {
                     self.flush_paragraph();
@@ -667,7 +760,10 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                 RenderEvent::Caption(event) => {
                     let table_float_open = matches!(
                         self.float_stack.last(),
-                        Some(tex_render_model::BlockKind::Table)
+                        Some(
+                            tex_render_model::BlockKind::Table
+                                | tex_render_model::BlockKind::FullWidthTable
+                        )
                     );
                     let target_blocks =
                         if let Some(container) = self.layout_container_stack.last_mut() {
@@ -676,12 +772,14 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
                             &mut self.blocks
                         };
                     if !table_float_open
-                        && let Some(IrBlock::Graphic(block)) = target_blocks.last_mut()
+                        && let Some(IrBlock::Graphic(block) | IrBlock::FullWidthGraphic(block)) =
+                            target_blocks.last_mut()
                     {
                         block.caption = Some(event.text.clone());
                         block.caption_source = Some(envelope.meta.source.clone());
                     } else if table_float_open {
-                        if let Some(IrBlock::Table(block)) = target_blocks.last_mut()
+                        if let Some(IrBlock::Table(block) | IrBlock::FullWidthTable(block)) =
+                            target_blocks.last_mut()
                             && block.caption.is_none()
                         {
                             block.caption = Some(event.text.clone());
@@ -731,7 +829,12 @@ impl<'a, A: AuxView> DocumentIrBuilder<'a, A> {
         while let Some(container) = self.layout_container_stack.pop() {
             self.push_block(IrBlock::LayoutContainer(container));
         }
-        DocumentIr::with_document_class_and_labels(self.blocks, self.document_class, self.labels)
+        DocumentIr::with_document_class_layout_and_labels(
+            self.blocks,
+            self.document_class,
+            self.layout,
+            self.labels,
+        )
     }
 
     fn push_block(&mut self, block: IrBlock) {
@@ -824,12 +927,13 @@ mod tests {
 
     use tex_render_model::{
         BeginBlockEvent, BibliographyItemEvent, BlockKind, CaptionEvent, CitationLabel,
-        CitationStyleHint, DocumentClassEvent, EndBlockEvent, FlushTitleBlockEvent,
-        GraphicAssetDimensions, GraphicRefEvent, HeadingEvent, InlineCitationEvent,
-        InlineLinkEvent, InlineNode, InlineReferenceEvent, IrBlock, LabelDefinitionEvent,
-        LabelTargetView, MathSourceEvent, MetadataField, ParagraphBreakEvent, ParagraphBreakReason,
-        RawFallbackEvent, RenderEvent, RenderEventEnvelope, RenderEventStream,
-        SetDocumentMetadataEvent, SourceProvenance, SpaceEvent, SpaceKind, TextEvent,
+        CitationStyleHint, DocumentClassEvent, DocumentLayoutIntent, EndBlockEvent,
+        FlushTitleBlockEvent, GraphicAssetDimensions, GraphicRefEvent, HeadingEvent,
+        InlineCitationEvent, InlineLinkEvent, InlineNode, InlineReferenceEvent, IrBlock,
+        LabelDefinitionEvent, LabelTargetView, MathSourceEvent, MetadataField, PageBreakEvent,
+        PageBreakKind, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RenderEvent,
+        RenderEventEnvelope, RenderEventStream, SetDocumentMetadataEvent, SourceProvenance,
+        SpaceEvent, SpaceKind, TextEvent,
     };
 
     use super::build_document_ir;
@@ -917,6 +1021,14 @@ mod tests {
                     field: MetadataField::Author,
                     value: "Ada Lovelace".to_string(),
                 })),
+                push(RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
+                    field: MetadataField::Affiliation,
+                    value: "Analytical Engine Institute".to_string(),
+                })),
+                push(RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
+                    field: MetadataField::Correspondence,
+                    value: "ada@example.test".to_string(),
+                })),
                 push(RenderEvent::FlushTitleBlock(FlushTitleBlockEvent)),
                 push(RenderEvent::BeginBlock(BeginBlockEvent {
                     block: BlockKind::Abstract,
@@ -973,6 +1085,8 @@ mod tests {
         let text = ir.extracted_text();
         assert!(text.contains("A Paper"));
         assert!(text.contains("Ada Lovelace"));
+        assert!(text.contains("Analytical Engine Institute"));
+        assert!(text.contains("ada@example.test"));
         assert!(text.contains("Short abstract."));
         assert!(text.contains("Intro"));
         assert!(text.contains("Hello[?]"));
@@ -1000,7 +1114,7 @@ mod tests {
                         && matches!(
                             &related.span,
                             tex_render_model::ProvenanceSpan::File(span)
-                                if span.start_utf8 == 3 && span.end_utf8 == 4
+                                if span.start_utf8 == 5 && span.end_utf8 == 6
                         )
                 }))
         );
@@ -1010,9 +1124,25 @@ mod tests {
                 if span.start_utf8 == 2 && span.end_utf8 == 3
         ));
         assert!(matches!(
+            title_block
+                .affiliation_sources
+                .first()
+                .map(|source| &source.primary),
+            Some(tex_render_model::ProvenanceSpan::File(span))
+                if span.start_utf8 == 3 && span.end_utf8 == 4
+        ));
+        assert!(matches!(
+            title_block
+                .correspondence_sources
+                .first()
+                .map(|source| &source.primary),
+            Some(tex_render_model::ProvenanceSpan::File(span))
+                if span.start_utf8 == 4 && span.end_utf8 == 5
+        ));
+        assert!(matches!(
             &title_block.source.primary,
             tex_render_model::ProvenanceSpan::File(span)
-                if span.start_utf8 == 3 && span.end_utf8 == 4
+                if span.start_utf8 == 5 && span.end_utf8 == 6
         ));
     }
 
@@ -1385,5 +1515,134 @@ mod tests {
                     && table.rows.is_empty()
         ));
         assert_eq!(ir.extracted_text(), "Plot caption.\nTable caption.");
+    }
+
+    #[test]
+    fn preserves_full_width_float_intent_on_graphics_and_tables() {
+        let stream = RenderEventStream::new(
+            Some("full-width-floats".to_string()),
+            vec![
+                RenderEventEnvelope::new(
+                    1,
+                    RenderEvent::BeginBlock(BeginBlockEvent {
+                        block: BlockKind::FullWidthFigure,
+                    }),
+                    SourceProvenance::file("main.tex", 0, 15),
+                ),
+                RenderEventEnvelope::new(
+                    2,
+                    RenderEvent::GraphicRef(GraphicRefEvent {
+                        path: "figures/wide.pdf".to_string(),
+                        options: Some("width=\\textwidth".to_string()),
+                        page_selection: None,
+                        asset_format: None,
+                        asset_hash: None,
+                        asset_dimensions: None,
+                    }),
+                    SourceProvenance::file("main.tex", 16, 64),
+                ),
+                RenderEventEnvelope::new(
+                    3,
+                    RenderEvent::Caption(CaptionEvent {
+                        text: "Wide figure.".to_string(),
+                    }),
+                    SourceProvenance::file("main.tex", 65, 87),
+                ),
+                RenderEventEnvelope::new(
+                    4,
+                    RenderEvent::EndBlock(EndBlockEvent {
+                        block: BlockKind::FullWidthFigure,
+                    }),
+                    SourceProvenance::file("main.tex", 88, 100),
+                ),
+                RenderEventEnvelope::new(
+                    5,
+                    RenderEvent::BeginBlock(BeginBlockEvent {
+                        block: BlockKind::FullWidthTable,
+                    }),
+                    SourceProvenance::file("main.tex", 101, 115),
+                ),
+                RenderEventEnvelope::new(
+                    6,
+                    RenderEvent::Caption(CaptionEvent {
+                        text: "Wide table.".to_string(),
+                    }),
+                    SourceProvenance::file("main.tex", 116, 137),
+                ),
+                RenderEventEnvelope::new(
+                    7,
+                    RenderEvent::EndBlock(EndBlockEvent {
+                        block: BlockKind::FullWidthTable,
+                    }),
+                    SourceProvenance::file("main.tex", 138, 149),
+                ),
+            ],
+        );
+
+        let ir = build_document_ir(&stream, &());
+
+        assert!(matches!(
+            ir.blocks.as_slice(),
+            [IrBlock::FullWidthGraphic(graphic), IrBlock::FullWidthTable(table)]
+                if graphic.path == "figures/wide.pdf"
+                    && graphic.caption.as_deref() == Some("Wide figure.")
+                    && table.caption.as_deref() == Some("Wide table.")
+        ));
+    }
+
+    #[test]
+    fn preserves_layout_intent_and_forced_page_breaks() {
+        let layout = DocumentLayoutIntent {
+            profile: Some("conference-preview".to_string()),
+            text_width_pt_milli: Some(396_000),
+            text_height_pt_milli: Some(648_000),
+            column_count: Some(2),
+            column_gap_pt_milli: Some(18_000),
+            body_font_size_pt_milli: Some(10_000),
+            line_height_pt_milli: Some(11_000),
+            ..DocumentLayoutIntent::default()
+        };
+        let stream = RenderEventStream::new(
+            Some("layout-and-page-break".to_string()),
+            vec![
+                RenderEventEnvelope::new(
+                    1,
+                    RenderEvent::SetDocumentLayout(layout.clone()),
+                    SourceProvenance::file("style.sty", 0, 20),
+                ),
+                RenderEventEnvelope::new(
+                    2,
+                    RenderEvent::Text(TextEvent {
+                        text: "Before".to_string(),
+                    }),
+                    SourceProvenance::file("main.tex", 0, 6),
+                ),
+                RenderEventEnvelope::new(
+                    3,
+                    RenderEvent::PageBreak(PageBreakEvent {
+                        kind: PageBreakKind::NewPage,
+                    }),
+                    SourceProvenance::file("main.tex", 6, 14),
+                ),
+                RenderEventEnvelope::new(
+                    4,
+                    RenderEvent::Text(TextEvent {
+                        text: "After".to_string(),
+                    }),
+                    SourceProvenance::file("main.tex", 14, 19),
+                ),
+            ],
+        );
+
+        let ir = build_document_ir(&stream, &());
+
+        assert_eq!(ir.layout, Some(layout));
+        assert!(matches!(
+            ir.blocks.as_slice(),
+            [IrBlock::Paragraph(before), IrBlock::PageBreak(page_break), IrBlock::Paragraph(after)]
+                if before.content.len() == 1
+                    && page_break.kind == PageBreakKind::NewPage
+                    && after.content.len() == 1
+        ));
     }
 }

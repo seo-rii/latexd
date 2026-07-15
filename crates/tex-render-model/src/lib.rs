@@ -19,13 +19,14 @@ pub use display_list::{
 };
 pub use events::{
     BeginBlockEvent, BeginLayoutContainerEvent, BibliographyItemEvent, BlockKind, CaptionEvent,
-    DocumentClassEvent, EndBlockEvent, EndLayoutContainerEvent, EventId, EventMeta, EventProducer,
-    FallbackReason, FlushTitleBlockEvent, GraphicAssetDensity, GraphicAssetDensityUnit,
-    GraphicAssetDimensions, GraphicAssetFormat, GraphicPageSelection, GraphicRefEvent,
-    HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent, LabelDefinitionEvent,
-    LayoutAlignment, LineBreakEvent, LineBreakReason, ListItemEvent, ListKind, MathSourceEvent,
-    MetadataField, ModeHint, ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent,
-    RenderDiagnosticEvent, RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
+    DocumentClassEvent, DocumentLayoutIntent, EndBlockEvent, EndLayoutContainerEvent, EventId,
+    EventMeta, EventProducer, FallbackReason, FlushTitleBlockEvent, GraphicAssetDensity,
+    GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat, GraphicPageSelection,
+    GraphicRefEvent, HeadingEvent, InlineCitationEvent, InlineLinkEvent, InlineReferenceEvent,
+    LabelDefinitionEvent, LayoutAlignment, LineBreakEvent, LineBreakReason, ListItemEvent,
+    ListKind, MathSourceEvent, MetadataField, ModeHint, PageBreakEvent, PageBreakKind,
+    ParagraphBreakEvent, ParagraphBreakReason, RawFallbackEvent, RenderDiagnosticEvent,
+    RenderEvent, RenderEventEnvelope, RenderEventStream, SemanticConfidence,
     SetDocumentMetadataEvent, SpaceEvent, SpaceKind, TableCellSpanEvent, TableColumnAlignment,
     TableColumnSpec, TableRuleEvent, TableRulePosition, TableRuleSpan, TextEvent,
 };
@@ -33,8 +34,8 @@ pub use golden::{from_pretty_json, to_pretty_json, to_semantic_pretty_json};
 pub use ir::{
     AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, DisplayMathBlock,
     DocumentClassIr, DocumentIr, EnvironmentBlock, GraphicBlock, HeadingBlock, InlineNode, IrBlock,
-    LabelDefinitionIr, LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, ParagraphBlock,
-    RawFallbackIr, ReferenceInline, TableBlock, TableCell, TableRow, TitleBlock,
+    LabelDefinitionIr, LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, PageBreakBlock,
+    ParagraphBlock, RawFallbackIr, ReferenceInline, TableBlock, TableCell, TableRow, TitleBlock,
 };
 pub use pdf_asset::{
     PreparedPdfDictionaryEntry, PreparedPdfForm, PreparedPdfObject, PreparedRasterFallback,

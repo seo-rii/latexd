@@ -2611,9 +2611,11 @@ fn authblk_frontmatter_survives_ir_and_display_list() {
     assert_eq!(title.title.as_deref(), Some("Quantum Paper"));
     assert_eq!(
         title.authors,
+        vec!["Nai-Hui Chia nc67@rice.edu", "Atsuya Hasegawa"]
+    );
+    assert_eq!(
+        title.affiliations,
         vec![
-            "Nai-Hui Chia nc67@rice.edu",
-            "Atsuya Hasegawa",
             "Department of Computer Science",
             "Graduate School of Mathematics"
         ]
@@ -2666,12 +2668,10 @@ fn tex_accent_frontmatter_survives_ir_and_display_list() {
         })
         .expect("title block");
 
+    assert_eq!(title.authors, vec!["F. A. C\u{00e1}rdenas-L\u{00f3}pez"]);
     assert_eq!(
-        title.authors,
-        vec![
-            "F. A. C\u{00e1}rdenas-L\u{00f3}pez",
-            "Forschungszentrum J\u{00fc}lich GmbH, Peter Gr\u{00fc}nberg Institute",
-        ]
+        title.affiliations,
+        vec!["Forschungszentrum J\u{00fc}lich GmbH, Peter Gr\u{00fc}nberg Institute"]
     );
 
     let extracted_text = capture.document_ir.extracted_text();
@@ -2716,9 +2716,10 @@ fn llncs_frontmatter_survives_ir_and_display_list() {
         .expect("title block");
 
     assert_eq!(title.title.as_deref(), Some("LNCS Paper"));
+    assert_eq!(title.authors, vec!["Alice and Bob"]);
     assert_eq!(
-        title.authors,
-        vec!["Alice and Bob", "Lab One alice@example.test and Lab Two"]
+        title.affiliations,
+        vec!["Lab One alice@example.test and Lab Two"]
     );
     let extracted_text = capture.document_ir.extracted_text();
     for visible in [
@@ -2740,7 +2741,9 @@ fn class_frontmatter_shims_survive_ir_and_display_list() {
             "revtex",
             REVTEX_FRONTMATTER_SOURCE,
             "REVTeX Paper",
-            vec!["Alice", "alice@example.test", "Quantum Lab"],
+            vec!["Alice"],
+            vec!["Quantum Lab"],
+            vec!["alice@example.test"],
             vec!["Quantum systems"],
             vec!["12.34.-x"],
             vec!["affiliation", "email", "keywords", "pacs"],
@@ -2749,7 +2752,9 @@ fn class_frontmatter_shims_survive_ir_and_display_list() {
             "wacv",
             WACV_FRONTMATTER_SOURCE,
             "WACV Paper",
-            vec!["Alice", "Vision Lab"],
+            vec!["Alice"],
+            vec!["Vision Lab"],
+            Vec::new(),
             Vec::new(),
             Vec::new(),
             vec!["affiliation"],
@@ -2761,6 +2766,8 @@ fn class_frontmatter_shims_survive_ir_and_display_list() {
             vec!["Alice Smith and Bob Jones Vision Lab"],
             Vec::new(),
             Vec::new(),
+            Vec::new(),
+            Vec::new(),
             vec!["IEEEauthor", "IEEEauthorrefmark"],
         ),
     ];
@@ -2770,6 +2777,8 @@ fn class_frontmatter_shims_survive_ir_and_display_list() {
         source,
         expected_title,
         expected_authors,
+        expected_affiliations,
+        expected_correspondence,
         expected_keywords,
         expected_pacs,
         hidden,
@@ -2790,6 +2799,24 @@ fn class_frontmatter_shims_survive_ir_and_display_list() {
         assert_eq!(
             title.authors.iter().map(String::as_str).collect::<Vec<_>>(),
             expected_authors,
+            "{case}"
+        );
+        assert_eq!(
+            title
+                .affiliations
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            expected_affiliations,
+            "{case}"
+        );
+        assert_eq!(
+            title
+                .correspondence
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            expected_correspondence,
             "{case}"
         );
         assert_eq!(
@@ -2829,6 +2856,26 @@ fn class_frontmatter_shims_survive_ir_and_display_list() {
             assert!(extracted_text.contains(*author), "{case}: {extracted_text}");
             assert!(
                 display_list_text.contains(*author),
+                "{case}: {display_list_text}"
+            );
+        }
+        for affiliation in &expected_affiliations {
+            assert!(
+                extracted_text.contains(*affiliation),
+                "{case}: {extracted_text}"
+            );
+            assert!(
+                display_list_text.contains(*affiliation),
+                "{case}: {display_list_text}"
+            );
+        }
+        for correspondence in &expected_correspondence {
+            assert!(
+                extracted_text.contains(*correspondence),
+                "{case}: {extracted_text}"
+            );
+            assert!(
+                display_list_text.contains(*correspondence),
                 "{case}: {display_list_text}"
             );
         }
@@ -6491,7 +6538,8 @@ fn graphic_layout_box_wrappers_preserve_images_without_argument_leakage() {
         assert!(capture.document_ir.blocks.iter().any(|block| {
             matches!(
                 block,
-                IrBlock::Graphic(graphic) if graphic.path == path
+                IrBlock::Graphic(graphic) | IrBlock::FullWidthGraphic(graphic)
+                    if graphic.path == path
             )
         }));
         assert!(capture.page_display_lists[0].ops.iter().any(|op| {
@@ -6594,7 +6642,7 @@ fn nested_graphic_layout_box_wrappers_thread_sizing_options() {
     assert!(capture.document_ir.blocks.iter().any(|block| {
         matches!(
             block,
-            IrBlock::Graphic(graphic)
+            IrBlock::FullWidthGraphic(graphic)
                 if graphic.path == "figures/nested.pdf"
                     && graphic.options.as_deref()
                         == Some("scale=0.5,yscale=2,width=0.5\\textwidth")
@@ -6638,7 +6686,8 @@ fn graphic_alignment_box_wrappers_preserve_images_without_argument_leakage() {
         assert!(capture.document_ir.blocks.iter().any(|block| {
             matches!(
                 block,
-                IrBlock::Graphic(graphic) if graphic.path == path
+                IrBlock::Graphic(graphic) | IrBlock::FullWidthGraphic(graphic)
+                    if graphic.path == path
             )
         }));
         assert!(capture.page_display_lists[0].ops.iter().any(|op| {
@@ -6832,7 +6881,6 @@ fn overpic_environment_captures_backing_image_without_option_leakage() {
             IrBlock::RawFallback(fallback) if fallback.environment.as_deref() == Some("overpic")
         )
     }));
-
     let extracted_text = capture.document_ir.extracted_text();
     let display_list_text = capture.page_display_lists[0]
         .ops
@@ -7134,7 +7182,7 @@ fn starred_float_graphic_capture_derives_display_list_image_without_fallback() {
     assert!(capture.document_ir.blocks.iter().any(|block| {
         matches!(
             block,
-            IrBlock::Graphic(graphic)
+            IrBlock::FullWidthGraphic(graphic)
                 if graphic.path == "figures/wide.pdf"
                     && graphic.caption.as_deref() == Some("Wide figure.")
         )
@@ -7167,6 +7215,10 @@ fn starred_table_caption_capture_survives_ir_without_fallback() {
                 if fallback.environment.as_deref() == Some("table*")
         )
     }));
+    assert!(matches!(
+        capture.document_ir.blocks.as_slice(),
+        [IrBlock::FullWidthTable(table)] if table.caption.as_deref() == Some("Wide table.")
+    ));
 
     let display_list_text = capture.page_display_lists[0]
         .ops
@@ -7188,7 +7240,7 @@ fn sideways_float_capture_survives_ir_without_fallback() {
     assert!(capture.document_ir.blocks.iter().any(|block| {
         matches!(
             block,
-            IrBlock::Graphic(graphic)
+            IrBlock::FullWidthGraphic(graphic)
                 if graphic.path == "figures/rotated.pdf"
                     && graphic.options.as_deref() == Some("width=4cm")
                     && graphic.caption.as_deref() == Some("Rotated figure.")

@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    CitationStyleHint, GraphicAssetDimensions, GraphicAssetFormat, GraphicPageSelection,
-    LayoutAlignment, ListKind, RawFallbackEvent, SourceProvenance, TableColumnAlignment,
-    TableColumnSpec, TableRuleSpan,
+    CitationStyleHint, DocumentLayoutIntent, GraphicAssetDimensions, GraphicAssetFormat,
+    GraphicPageSelection, LayoutAlignment, ListKind, PageBreakKind, RawFallbackEvent,
+    SourceProvenance, TableColumnAlignment, TableColumnSpec, TableRuleSpan,
 };
 
 pub const DOCUMENT_IR_SCHEMA_VERSION: u32 = 1;
@@ -20,6 +20,8 @@ pub struct DocumentIr {
     pub schema_version: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub document_class: Option<DocumentClassIr>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub layout: Option<DocumentLayoutIntent>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub labels: Vec<LabelDefinitionIr>,
     pub blocks: Vec<IrBlock>,
@@ -39,9 +41,19 @@ impl DocumentIr {
         document_class: Option<DocumentClassIr>,
         labels: Vec<LabelDefinitionIr>,
     ) -> Self {
+        Self::with_document_class_layout_and_labels(blocks, document_class, None, labels)
+    }
+
+    pub fn with_document_class_layout_and_labels(
+        blocks: Vec<IrBlock>,
+        document_class: Option<DocumentClassIr>,
+        layout: Option<DocumentLayoutIntent>,
+        labels: Vec<LabelDefinitionIr>,
+    ) -> Self {
         Self {
             schema_version: DOCUMENT_IR_SCHEMA_VERSION,
             document_class,
+            layout,
             labels,
             blocks,
         }
@@ -53,6 +65,9 @@ impl DocumentIr {
         while let Some(block) = pending_blocks.pop() {
             if let IrBlock::LayoutContainer(container) = block {
                 pending_blocks.extend(container.children.iter().rev());
+                continue;
+            }
+            if matches!(block, IrBlock::PageBreak(_)) {
                 continue;
             }
             if !text.is_empty() {
@@ -68,6 +83,18 @@ impl DocumentIr {
                             text.push('\n');
                         }
                         text.push_str(author);
+                    }
+                    for affiliation in &block.affiliations {
+                        if !text.is_empty() {
+                            text.push('\n');
+                        }
+                        text.push_str(affiliation);
+                    }
+                    for correspondence in &block.correspondence {
+                        if !text.is_empty() {
+                            text.push('\n');
+                        }
+                        text.push_str(correspondence);
                     }
                     if let Some(date) = &block.date {
                         if !text.is_empty() {
@@ -248,13 +275,16 @@ impl DocumentIr {
                         text.push_str(&item.content);
                     }
                 }
-                IrBlock::Graphic(block) => {
+                IrBlock::Graphic(block) | IrBlock::FullWidthGraphic(block) => {
                     if let Some(caption) = &block.caption {
                         text.push_str(caption);
                     }
                 }
                 IrBlock::IncludedPdfPage(_) => {}
-                IrBlock::Table(block) => text.push_str(&block.visible_text()),
+                IrBlock::PageBreak(_) => {}
+                IrBlock::Table(block) | IrBlock::FullWidthTable(block) => {
+                    text.push_str(&block.visible_text())
+                }
                 IrBlock::RawFallback(block) => {
                     if let Some(visible) = &block.normalized_visible_text {
                         text.push_str(visible);
@@ -281,8 +311,11 @@ pub enum IrBlock {
     DisplayMath(DisplayMathBlock),
     Bibliography(BibliographyBlock),
     Graphic(GraphicBlock),
+    FullWidthGraphic(GraphicBlock),
     IncludedPdfPage(GraphicBlock),
+    PageBreak(PageBreakBlock),
     Table(TableBlock),
+    FullWidthTable(TableBlock),
     RawFallback(RawFallbackIr),
 }
 
@@ -296,6 +329,14 @@ pub struct TitleBlock {
     pub authors: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub author_sources: Vec<SourceProvenance>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub affiliations: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub affiliation_sources: Vec<SourceProvenance>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub correspondence: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub correspondence_sources: Vec<SourceProvenance>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub date: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -408,6 +449,13 @@ pub struct GraphicBlock {
     pub caption: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub caption_source: Option<SourceProvenance>,
+    pub source: SourceProvenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageBreakBlock {
+    #[serde(rename = "break_kind")]
+    pub kind: PageBreakKind,
     pub source: SourceProvenance,
 }
 
@@ -581,9 +629,9 @@ pub struct LinkInline {
 mod tests {
     use super::{
         DisplayMathBlock, DocumentIr, HeadingBlock, InlineNode, IrBlock, ListBlock, ListItemIr,
-        ParagraphBlock,
+        PageBreakBlock, ParagraphBlock,
     };
-    use crate::{ListKind, SourceProvenance};
+    use crate::{ListKind, PageBreakKind, SourceProvenance};
 
     #[test]
     fn extracted_text_includes_heading_numbers() {
@@ -644,6 +692,21 @@ mod tests {
 
         assert!(encoded.contains("\"kind\":\"list\""));
         assert!(encoded.contains("\"list_kind\":\"ordered\""));
+        assert_eq!(decoded, document);
+    }
+
+    #[test]
+    fn page_break_block_roundtrips_with_a_non_conflicting_payload_field() {
+        let document = DocumentIr::new(vec![IrBlock::PageBreak(PageBreakBlock {
+            kind: PageBreakKind::ClearDoublePage,
+            source: SourceProvenance::file("main.tex", 0, 16),
+        })]);
+
+        let encoded = serde_json::to_string(&document).expect("serialize document IR");
+        let decoded: DocumentIr = serde_json::from_str(&encoded).expect("deserialize document IR");
+
+        assert!(encoded.contains("\"kind\":\"page_break\""));
+        assert!(encoded.contains("\"break_kind\":\"clear_double_page\""));
         assert_eq!(decoded, document);
     }
 }

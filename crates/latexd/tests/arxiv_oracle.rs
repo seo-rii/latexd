@@ -1055,6 +1055,8 @@ fn collect_structure_slice_texts(
             lines.push(title.clone());
         }
         lines.extend(block.authors.iter().cloned());
+        lines.extend(block.affiliations.iter().cloned());
+        lines.extend(block.correspondence.iter().cloned());
         if let Some(date) = &block.date {
             lines.push(date.clone());
         }
@@ -1122,6 +1124,8 @@ fn collect_structure_slice_texts(
                     sources.push(source.clone());
                 }
                 sources.extend(block.author_sources.iter().cloned());
+                sources.extend(block.affiliation_sources.iter().cloned());
+                sources.extend(block.correspondence_sources.iter().cloned());
                 if let Some(source) = &block.date_source {
                     sources.push(source.clone());
                 }
@@ -1171,6 +1175,7 @@ fn collect_structure_slice_texts(
             IrBlock::LayoutContainer(block) => {
                 pending_blocks.extend(block.children.iter().rev());
             }
+            IrBlock::PageBreak(_) => {}
             IrBlock::List(block) => {
                 append_slice(
                     OracleStructureSliceKind::Body,
@@ -1203,6 +1208,12 @@ fn collect_structure_slice_texts(
                 caption_source,
                 source,
                 ..
+            })
+            | IrBlock::FullWidthGraphic(GraphicBlock {
+                caption,
+                caption_source,
+                source,
+                ..
             }) => {
                 if let Some(caption) = caption {
                     append_slice(
@@ -1213,7 +1224,7 @@ fn collect_structure_slice_texts(
                 }
             }
             IrBlock::IncludedPdfPage(_) => {}
-            IrBlock::Table(block) => {
+            IrBlock::Table(block) | IrBlock::FullWidthTable(block) => {
                 if let Some(caption) = &block.caption {
                     append_slice(
                         OracleStructureSliceKind::Caption,
@@ -1730,6 +1741,10 @@ fn sample_structure_slice_document_ir() -> DocumentIr {
             title_source: None,
             authors: vec!["Ada Lovelace".to_string()],
             author_sources: Vec::new(),
+            affiliations: Vec::new(),
+            affiliation_sources: Vec::new(),
+            correspondence: Vec::new(),
+            correspondence_sources: Vec::new(),
             date: None,
             date_source: None,
             keywords: Vec::new(),
