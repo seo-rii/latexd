@@ -19,6 +19,8 @@ pub struct PageDisplayListOptions {
     pub abstract_indent_pt: f32,
     pub list_continuation_indent_pt: f32,
     pub bibliography_continuation_indent_pt: f32,
+    pub bibliography_font_size_pt: Option<f32>,
+    pub bibliography_line_height_pt: Option<f32>,
     pub max_chars_per_line: usize,
     pub line_height_pt: f32,
     pub block_gap_pt: f32,
@@ -58,6 +60,8 @@ impl Default for PageDisplayListOptions {
             abstract_indent_pt: 18.0,
             list_continuation_indent_pt: 18.0,
             bibliography_continuation_indent_pt: 24.0,
+            bibliography_font_size_pt: None,
+            bibliography_line_height_pt: None,
             max_chars_per_line: 72,
             line_height_pt: 14.0,
             block_gap_pt: 7.0,
@@ -281,6 +285,14 @@ impl PageDisplayListOptions {
         }
 
         if let Some(layout) = &document_ir.layout {
+            if layout
+                .profile
+                .as_deref()
+                .is_some_and(|profile| profile.trim().eq_ignore_ascii_case("cvpr"))
+            {
+                options.bibliography_font_size_pt = Some(8.0);
+                options.bibliography_line_height_pt = Some(9.5);
+            }
             if let Some(value) = layout.page_width_pt_milli {
                 options.page_width_pt = value as f32 / 1000.0;
             }
@@ -527,6 +539,19 @@ pub fn build_page_display_lists(
         series: FontSeries::Regular,
         shape: FontShape::Upright,
         size_pt: options.body_font_size_pt,
+        role: FontRole::Body,
+    };
+    let bibliography_font_size_pt = options
+        .bibliography_font_size_pt
+        .unwrap_or(options.body_font_size_pt);
+    let bibliography_line_height_pt = options
+        .bibliography_line_height_pt
+        .unwrap_or(options.line_height_pt);
+    let bibliography_font = FontRequest {
+        family: FontFamilyRequest::Serif,
+        series: FontSeries::Regular,
+        shape: FontShape::Upright,
+        size_pt: bibliography_font_size_pt,
         role: FontRole::Body,
     };
     let heading_font = FontRequest {
@@ -1284,9 +1309,9 @@ pub fn build_page_display_lists(
                             table_vertical_rule_offsets: Vec::new(),
                         }],
                         source: item.source.clone(),
-                        font: body_font.clone(),
-                        size_pt: options.body_font_size_pt,
-                        line_height_pt: options.line_height_pt,
+                        font: bibliography_font.clone(),
+                        size_pt: bibliography_font_size_pt,
+                        line_height_pt: bibliography_line_height_pt,
                         gap_after_pt: if index + 1 == items.len() {
                             options.block_gap_pt
                         } else {
@@ -1303,9 +1328,9 @@ pub fn build_page_display_lists(
                     logical_items.push(LogicalItem::Text(LogicalTextRun {
                         segments: Vec::new(),
                         source: source.clone(),
-                        font: body_font.clone(),
-                        size_pt: options.body_font_size_pt,
-                        line_height_pt: options.line_height_pt,
+                        font: bibliography_font.clone(),
+                        size_pt: bibliography_font_size_pt,
+                        line_height_pt: bibliography_line_height_pt,
                         gap_after_pt: options.block_gap_pt,
                         first_line_indent_pt: 0.0,
                         continuation_indent_pt: options.bibliography_continuation_indent_pt,
@@ -2529,6 +2554,11 @@ pub fn build_page_display_lists(
                                     break;
                                 }
                             }
+                            if *current_len >= max_chars_per_line && !current_line.is_empty() {
+                                wrapped_lines.push(std::mem::take(current_line));
+                                *current_len = 0;
+                                continue;
+                            }
                             let current_width_pt = current_line
                                 .iter()
                                 .map(|segment| {
@@ -2654,8 +2684,9 @@ pub fn build_page_display_lists(
                                 })
                                 .sum::<f32>();
                             if wrap_after_chunk
-                                || *current_len >= max_chars_per_line
-                                || current_width_pt >= available_width_pt - 0.01
+                                || (!text.is_empty()
+                                    && (*current_len >= max_chars_per_line
+                                        || current_width_pt >= available_width_pt - 0.01))
                             {
                                 wrapped_lines.push(std::mem::take(current_line));
                                 *current_len = 0;
@@ -4962,6 +4993,84 @@ mod tests {
         assert!(
             (row_runs[0].origin.x + row_runs[0].approximate_advance_pt / 2.0 - 300.0).abs() < 0.1
         );
+    }
+
+    #[test]
+    fn resizebox_exact_fit_does_not_emit_blank_table_lines() {
+        let source = SourceProvenance::file("main.tex", 0, 96);
+        let first_row = "A".repeat(40);
+        let second_row = "B".repeat(40);
+        let make_cell = |text: String| TableCell {
+            text,
+            column_span: None,
+            row_span: None,
+            alignment: None,
+            rule_before_count: 0,
+            rule_after_count: 0,
+            cell_prefix: None,
+            cell_suffix: None,
+        };
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::Table(TableBlock {
+                environment: "tabular".to_string(),
+                width_spec: Some("0.5\\linewidth".to_string()),
+                columns: vec![TableColumnSpec {
+                    alignment: TableColumnAlignment::Left,
+                    rule_before: false,
+                    rule_before_count: 0,
+                    rule_after: false,
+                    rule_after_count: 0,
+                    separator_after: None,
+                    width_pt_milli: None,
+                    cell_prefix: None,
+                    cell_suffix: None,
+                }],
+                rows: vec![
+                    TableRow {
+                        rule_above: true,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![make_cell(first_row.clone())],
+                        rule_below: true,
+                        partial_rules_below: Vec::new(),
+                    },
+                    TableRow {
+                        rule_above: false,
+                        partial_rules_above: Vec::new(),
+                        cells: vec![make_cell(second_row.clone())],
+                        rule_below: true,
+                        partial_rules_below: Vec::new(),
+                    },
+                ],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            PageDisplayListOptions {
+                page_width_pt: 600.0,
+                margin_left_pt: 50.0,
+                column_count: 2,
+                column_gap_pt: 20.0,
+                body_font_size_pt: 10.0,
+                ..PageDisplayListOptions::default()
+            },
+        );
+        let table_runs = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if run.size_pt < 10.0 => Some(run),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            table_runs
+                .iter()
+                .map(|run| run.text.as_str())
+                .collect::<Vec<_>>(),
+            vec![first_row.as_str(), second_row.as_str()]
+        );
+        assert!((table_runs[1].origin.y - table_runs[0].origin.y - 7.0).abs() < 0.001);
     }
 
     #[test]
@@ -8953,6 +9062,65 @@ mod tests {
         assert_eq!(
             continuation.map(|run| run.origin.x),
             Some(options.margin_left_pt + options.bibliography_continuation_indent_pt)
+        );
+    }
+
+    #[test]
+    fn cvpr_profile_uses_compact_bibliography_metrics() {
+        let source = SourceProvenance::file("main.tex", 0, 40);
+        let document = DocumentIr::with_document_class_layout_and_labels(
+            vec![IrBlock::Bibliography(BibliographyBlock {
+                items: vec![
+                    BibliographyItemIr {
+                        key: "one".to_string(),
+                        label: Some("1".to_string()),
+                        content: "First.".to_string(),
+                        source: source.clone(),
+                    },
+                    BibliographyItemIr {
+                        key: "two".to_string(),
+                        label: Some("2".to_string()),
+                        content: "Second.".to_string(),
+                        source: source.clone(),
+                    },
+                ],
+                source: source.clone(),
+            })],
+            Some(DocumentClassIr {
+                name: "article".to_string(),
+                options: vec!["10pt".to_string(), "twocolumn".to_string()],
+                source,
+            }),
+            Some(DocumentLayoutIntent {
+                profile: Some("cvpr".to_string()),
+                body_font_size_pt_milli: Some(10_000),
+                line_height_pt_milli: Some(10_500),
+                ..DocumentLayoutIntent::default()
+            }),
+            Vec::new(),
+        );
+        let options = PageDisplayListOptions::for_document_ir(&document);
+        assert_eq!(options.body_font_size_pt, 10.0);
+        assert_eq!(options.line_height_pt, 10.5);
+        assert_eq!(options.bibliography_font_size_pt, Some(8.0));
+        assert_eq!(options.bibliography_line_height_pt, Some(9.5));
+        let display_lists = build_page_display_lists(&document, options);
+        let bibliography_runs = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if run.text == "[1] First." || run.text == "[2] Second." => {
+                    Some(run)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(bibliography_runs.len(), 2);
+        assert_eq!(bibliography_runs[0].size_pt, 8.0);
+        assert_eq!(bibliography_runs[1].size_pt, 8.0);
+        assert!(
+            (bibliography_runs[1].origin.y - bibliography_runs[0].origin.y - 9.5).abs() < 0.001
         );
     }
 
