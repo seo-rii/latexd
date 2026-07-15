@@ -88,6 +88,11 @@ impl Default for PageDisplayListOptions {
 impl PageDisplayListOptions {
     pub fn for_document_ir(document_ir: &DocumentIr) -> Self {
         let mut options = Self::default();
+        let has_package_layout_profile = document_ir
+            .layout
+            .as_ref()
+            .and_then(|layout| layout.profile.as_ref())
+            .is_some();
         if let Some(document_class) = &document_ir.document_class {
             let class_name = document_class.name.trim().to_ascii_lowercase();
             options.max_chars_per_line = usize::MAX;
@@ -148,7 +153,7 @@ impl PageDisplayListOptions {
             let class_defaults_to_two_columns = matches!(class_name.as_str(), "ieeetran");
             let uses_two_columns =
                 !explicitly_one_column && (explicitly_two_column || class_defaults_to_two_columns);
-            if class_name == "article" {
+            if class_name == "article" && !has_package_layout_profile {
                 const TEX_POINT_TO_PDF_POINT: f32 = 72.0 / 72.27;
                 const TEX_INCH_PT: f32 = 72.27;
                 let (
@@ -231,15 +236,21 @@ impl PageDisplayListOptions {
                 options.page_number_font_size_pt = options.body_font_size_pt;
                 options.page_number_offset_pt = foot_skip_tex_pt * TEX_POINT_TO_PDF_POINT;
             } else if class_name == "llncs" {
-                options.page_width_pt = 595.276;
-                options.page_height_pt = 841.89;
-                options.margin_left_pt = 126.0;
-                options.margin_top_pt = 72.0;
-                options.margin_bottom_pt = 72.0;
-                options.front_matter_top_pt = Some(105.0);
+                const TEX_POINT_TO_PDF_POINT: f32 = 72.0 / 72.27;
+                const TEX_INCH_PT: f32 = 72.27;
+                let text_width_pt = 12.2 * 72.0 / 2.54;
+                let text_height_pt = 19.3 * 72.0 / 2.54;
+                let text_top_pt = (TEX_INCH_PT + 16.0 + 12.0 + 16.0) * TEX_POINT_TO_PDF_POINT;
+
+                options.margin_left_pt = (options.page_width_pt - text_width_pt) / 2.0;
+                options.margin_top_pt = text_top_pt + 10.0 * TEX_POINT_TO_PDF_POINT;
+                options.margin_bottom_pt = options.page_height_pt - text_top_pt - text_height_pt;
+                options.front_matter_top_pt = Some(options.margin_top_pt);
                 options.abstract_indent_pt = 0.0;
                 options.line_height_pt = 12.0;
                 options.block_gap_pt = 6.0;
+                options.paragraph_first_line_indent_pt = 15.0 * TEX_POINT_TO_PDF_POINT;
+                options.paragraph_gap_pt = Some(0.0);
                 options.body_font_size_pt = 10.0;
                 options.heading_font_size_pt = 12.0;
                 options.title_font_size_pt = 14.0;
@@ -1596,6 +1607,11 @@ pub fn build_page_display_lists(
                     }
                 }
                 let table_glyph_width_pt = (options.body_font_size_pt * 0.6).max(1.0);
+                let table_area_width_pt = if full_width {
+                    page_content_width_pt
+                } else {
+                    column_width_pt
+                };
                 for (column_index, column) in block.columns.iter().enumerate() {
                     if let Some(width_pt_milli) = column.width_pt_milli {
                         while column_index >= column_widths.len() {
@@ -1610,20 +1626,23 @@ pub fn build_page_display_lists(
                 }
                 let mut separator_extra_widths =
                     vec![0usize; column_widths.len().saturating_sub(1)];
+                let mut requested_table_width_pt = None;
                 if let Some(width_spec) = block.width_spec.as_deref() {
                     if let Some(table_width_pt) =
-                        parse_table_width_spec_pt(width_spec, column_width_pt, &options)
+                        parse_table_width_spec_pt(width_spec, table_area_width_pt, &options)
                         && !column_widths.is_empty()
                     {
+                        let table_width_pt = table_width_pt.clamp(1.0, table_area_width_pt);
+                        requested_table_width_pt = Some(table_width_pt);
                         let line_char_budget = options.max_chars_per_line.max(1).min(
-                            ((column_width_pt / table_glyph_width_pt).floor() as usize).max(1),
+                            ((table_area_width_pt / table_glyph_width_pt).floor() as usize).max(1),
                         );
                         let current_chars = column_widths.iter().sum::<usize>()
                             + base_spanned_separator_width(0, column_widths.len());
                         let target_chars = ((table_width_pt / table_glyph_width_pt).floor()
                             as usize)
                             .max(1)
-                            .min(line_char_budget.max(current_chars));
+                            .min(line_char_budget);
                         if target_chars > current_chars {
                             let stretch_columns = block
                                 .columns
@@ -1685,6 +1704,24 @@ pub fn build_page_display_lists(
                 };
                 let rule_width = column_widths.iter().sum::<usize>()
                     + spanned_separator_width(0, column_widths.len());
+                let natural_table_width_pt = rule_width.max(1) as f32 * table_glyph_width_pt;
+                let fitted_table_width_pt = requested_table_width_pt
+                    .unwrap_or(table_area_width_pt)
+                    .min(table_area_width_pt);
+                let table_font_scale = if natural_table_width_pt > fitted_table_width_pt {
+                    (fitted_table_width_pt / natural_table_width_pt).clamp(0.1, 1.0)
+                } else {
+                    1.0
+                };
+                let table_font_size_pt = options.body_font_size_pt * table_font_scale;
+                let table_line_height_pt = options.line_height_pt * table_font_scale;
+                let table_side_indent_pt = if full_width {
+                    0.0
+                } else {
+                    requested_table_width_pt
+                        .map(|width| ((table_area_width_pt - width) / 2.0).max(0.0))
+                        .unwrap_or(0.0)
+                };
                 let rule_text = "-".repeat(rule_width.max(3));
                 let partial_rule_text = |span: &TableRuleSpan| {
                     if column_widths.is_empty() {
@@ -2068,15 +2105,15 @@ pub fn build_page_display_lists(
                         family: FontFamilyRequest::Mono,
                         series: FontSeries::Regular,
                         shape: FontShape::Upright,
-                        size_pt: options.body_font_size_pt,
+                        size_pt: table_font_size_pt,
                         role: FontRole::Mono,
                     },
-                    size_pt: options.body_font_size_pt,
-                    line_height_pt: options.line_height_pt,
+                    size_pt: table_font_size_pt,
+                    line_height_pt: table_line_height_pt,
                     gap_after_pt: options.block_gap_pt,
-                    first_line_indent_pt: 0.0,
-                    continuation_indent_pt: 0.0,
-                    right_indent_pt: 0.0,
+                    first_line_indent_pt: table_side_indent_pt,
+                    continuation_indent_pt: table_side_indent_pt,
+                    right_indent_pt: table_side_indent_pt,
                     preserve_leading_whitespace: true,
                     full_width,
                 }));
@@ -3821,10 +3858,10 @@ fn approximate_text_clusters(text: &str) -> Option<Vec<TextCluster>> {
 mod tests {
     use tex_render_model::{
         AbstractBlock, BibliographyBlock, BibliographyItemIr, CitationInline, CitationStyleHint,
-        DisplayMathBlock, DocumentClassIr, DocumentIr, DrawOp, FontSeries, GraphicAssetDensity,
-        GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat, GraphicBlock,
-        GraphicPageSelection, HeadingBlock, ImageCrop, ImageRotation, ImageScale, ImageTrim,
-        ImageViewport, InlineNode, IrBlock, LabelDefinitionIr, LayoutAlignment,
+        DisplayMathBlock, DocumentClassIr, DocumentIr, DocumentLayoutIntent, DrawOp, FontSeries,
+        GraphicAssetDensity, GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat,
+        GraphicBlock, GraphicPageSelection, HeadingBlock, ImageCrop, ImageRotation, ImageScale,
+        ImageTrim, ImageViewport, InlineNode, IrBlock, LabelDefinitionIr, LayoutAlignment,
         LayoutContainerBlock, LinkInline, ListBlock, ListItemIr, ListKind, PageBreakBlock,
         PageBreakKind, ParagraphBlock, Point, ProvenanceSpan, ReferenceInline, SourceProvenance,
         SourceSpan, TableBlock, TableCell, TableColumnAlignment, TableColumnSpec, TableRow,
@@ -4864,6 +4901,78 @@ mod tests {
         assert!(
             !lines.iter().any(|line| *line == "Beta"),
             "target-width row wrapped: {lines:?}"
+        );
+    }
+
+    #[test]
+    fn resizebox_width_scales_oversized_full_width_table_without_wrapping() {
+        let source = SourceProvenance::file("main.tex", 0, 96);
+        let columns = (0..2)
+            .map(|_| TableColumnSpec {
+                alignment: TableColumnAlignment::Left,
+                rule_before: false,
+                rule_before_count: 0,
+                rule_after: false,
+                rule_after_count: 0,
+                separator_after: None,
+                width_pt_milli: None,
+                cell_prefix: None,
+                cell_suffix: None,
+            })
+            .collect();
+        let cells = ["A".repeat(40), "B".repeat(40)]
+            .into_iter()
+            .map(|text| TableCell {
+                text,
+                column_span: None,
+                row_span: None,
+                alignment: None,
+                rule_before_count: 0,
+                rule_after_count: 0,
+                cell_prefix: None,
+                cell_suffix: None,
+            })
+            .collect();
+        let options = PageDisplayListOptions {
+            page_width_pt: 600.0,
+            margin_left_pt: 50.0,
+            column_count: 2,
+            column_gap_pt: 20.0,
+            body_font_size_pt: 10.0,
+            ..PageDisplayListOptions::default()
+        };
+        let display_lists = build_page_display_lists(
+            &DocumentIr::new(vec![IrBlock::FullWidthTable(TableBlock {
+                environment: "tabular".to_string(),
+                width_spec: Some("0.5\\textwidth".to_string()),
+                columns,
+                rows: vec![TableRow {
+                    rule_above: false,
+                    partial_rules_above: Vec::new(),
+                    cells,
+                    rule_below: false,
+                    partial_rules_below: Vec::new(),
+                }],
+                caption: None,
+                caption_source: None,
+                source,
+            })]),
+            options,
+        );
+        let row_runs = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if run.text.contains('A') => Some(run),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(row_runs.len(), 1, "scaled table row wrapped: {row_runs:?}");
+        assert!(row_runs[0].size_pt < 10.0);
+        assert!(row_runs[0].approximate_advance_pt <= 250.1);
+        assert!(
+            (row_runs[0].origin.x + row_runs[0].approximate_advance_pt / 2.0 - 300.0).abs() < 0.1
         );
     }
 
@@ -7112,6 +7221,15 @@ mod tests {
             Some(DocumentClassIr {
                 name: "llncs".to_string(),
                 options: vec!["runningheads".to_string()],
+                source: source.clone(),
+            }),
+            Vec::new(),
+        );
+        let a4_llncs = DocumentIr::with_document_class_and_labels(
+            Vec::new(),
+            Some(DocumentClassIr {
+                name: "llncs".to_string(),
+                options: vec!["a4paper".to_string()],
                 source,
             }),
             Vec::new(),
@@ -7164,10 +7282,18 @@ mod tests {
         assert_eq!(ten_point_article_options.body_font_size_pt, 10.0);
         assert_eq!(ten_point_article_options.line_height_pt, 12.0);
         let llncs_options = PageDisplayListOptions::for_document_ir(&llncs);
-        assert_eq!(llncs_options.page_width_pt, 595.276);
-        assert_eq!(llncs_options.page_height_pt, 841.89);
-        assert_eq!(llncs_options.margin_left_pt, 126.0);
+        assert_eq!(llncs_options.page_width_pt, 612.0);
+        assert_eq!(llncs_options.page_height_pt, 792.0);
+        assert!((llncs_options.margin_left_pt - 133.1).abs() < 0.1);
+        assert!((llncs_options.margin_top_pt - 125.8).abs() < 0.1);
+        assert!((llncs_options.margin_bottom_pt - 129.1).abs() < 0.1);
+        assert!((llncs_options.paragraph_first_line_indent_pt - 14.94).abs() < 0.02);
+        assert_eq!(llncs_options.paragraph_gap_pt, Some(0.0));
         assert_eq!(llncs_options.body_font_size_pt, 10.0);
+        let a4_llncs_options = PageDisplayListOptions::for_document_ir(&a4_llncs);
+        assert_eq!(a4_llncs_options.page_width_pt, 595.276);
+        assert_eq!(a4_llncs_options.page_height_pt, 841.89);
+        assert!((a4_llncs_options.margin_left_pt - 124.7).abs() < 0.1);
         assert_eq!(
             PageDisplayListOptions::for_document_ir(&explicit_one_column),
             PageDisplayListOptions {
@@ -7175,6 +7301,42 @@ mod tests {
                 ..PageDisplayListOptions::default()
             }
         );
+    }
+
+    #[test]
+    fn package_layout_profile_takes_precedence_over_article_defaults() {
+        let source = SourceProvenance::file("main.tex", 0, 72);
+        let document = DocumentIr::with_document_class_layout_and_labels(
+            Vec::new(),
+            Some(DocumentClassIr {
+                name: "article".to_string(),
+                options: vec!["10pt".to_string(), "twocolumn".to_string()],
+                source,
+            }),
+            Some(DocumentLayoutIntent {
+                profile: Some("wacv".to_string()),
+                text_width_pt_milli: Some(495_000),
+                text_height_pt_milli: Some(639_000),
+                margin_top_pt_milli: Some(72_000),
+                column_count: Some(2),
+                column_gap_pt_milli: Some(22_500),
+                body_font_size_pt_milli: Some(10_000),
+                line_height_pt_milli: Some(10_500),
+                ..DocumentLayoutIntent::default()
+            }),
+            Vec::new(),
+        );
+
+        let options = PageDisplayListOptions::for_document_ir(&document);
+
+        assert_eq!(options.column_count, 2);
+        assert_eq!(options.line_height_pt, 10.5);
+        assert_eq!(options.margin_left_pt, 58.5);
+        assert_eq!(options.margin_top_pt, 72.0);
+        assert_eq!(options.margin_bottom_pt, 81.0);
+        assert_eq!(options.paragraph_first_line_indent_pt, 0.0);
+        assert_eq!(options.paragraph_gap_pt, None);
+        assert!(!options.show_page_numbers);
     }
 
     #[test]

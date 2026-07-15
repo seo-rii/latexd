@@ -24075,11 +24075,15 @@ fn resizebox_wrapped_tabular_survives_ir_and_display_list() {
         .collect::<Vec<_>>();
 
     assert!(
-        display_list_text.contains(&"A | B"),
+        display_list_text
+            .iter()
+            .any(|line| line.split_whitespace().eq(["A", "|", "B"])),
         "{display_list_text:?}"
     );
     assert!(
-        display_list_text.contains(&"C | D"),
+        display_list_text
+            .iter()
+            .any(|line| line.split_whitespace().eq(["C", "|", "D"])),
         "{display_list_text:?}"
     );
 }

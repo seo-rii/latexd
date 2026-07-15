@@ -146,6 +146,24 @@ fn package_layout_intent(package_name: &str) -> Option<DocumentLayoutIntent> {
             block_gap_pt_milli: Some(5_000),
             abstract_indent_pt_milli: Some(0),
         }),
+        "cvpr" | "wacv" => Some(DocumentLayoutIntent {
+            profile: Some(package_name.to_string()),
+            page_width_pt_milli: Some(612_000),
+            page_height_pt_milli: Some(792_000),
+            text_width_pt_milli: Some(495_000),
+            text_height_pt_milli: Some(639_000),
+            margin_left_pt_milli: Some(58_500),
+            margin_top_pt_milli: Some(72_000),
+            front_matter_top_pt_milli: Some(72_000),
+            column_count: Some(2),
+            column_gap_pt_milli: Some(22_500),
+            body_font_size_pt_milli: Some(10_000),
+            line_height_pt_milli: Some(10_500),
+            heading_font_size_pt_milli: Some(12_000),
+            title_font_size_pt_milli: Some(14_000),
+            block_gap_pt_milli: Some(5_000),
+            abstract_indent_pt_milli: Some(0),
+        }),
         _ => None,
     }
 }
@@ -3666,6 +3684,7 @@ impl<'i> Vm<'i> {
                                                                 &source[after_environment
                                                                     ..table_body_end],
                                                                 nested_environment,
+                                                                None,
                                                             )
                                                         {
                                                             object_index = after;
@@ -4263,6 +4282,7 @@ impl<'i> Vm<'i> {
                                                                     &source[after_environment
                                                                         ..table_body_end],
                                                                     nested_environment,
+                                                                    None,
                                                                 )
                                                             {
                                                                 body_index = after;
@@ -5005,6 +5025,7 @@ impl<'i> Vm<'i> {
                                         body_start,
                                         body_source,
                                         other,
+                                        None,
                                     ) {
                                         index = after;
                                         text_start = index;
@@ -10860,7 +10881,11 @@ impl<'i> Vm<'i> {
             argument_index = skip_ascii_whitespace(source, argument_index);
         }
         let capture_wrapper_body =
-            |vm: &mut Self, body_start: usize, body_end: usize, inherited_options: Option<&str>| {
+            |vm: &mut Self,
+             body_start: usize,
+             body_end: usize,
+             inherited_options: Option<&str>,
+             table_width_spec: Option<&str>| {
                 vm.capture_graphics_in_source_range(
                     source_path,
                     source,
@@ -10907,6 +10932,7 @@ impl<'i> Vm<'i> {
                                 after_environment,
                                 &source[after_environment..table_body_end],
                                 environment,
+                                table_width_spec,
                             ) {
                                 body_index = after;
                                 continue;
@@ -10948,7 +10974,13 @@ impl<'i> Vm<'i> {
                     (!inherited_options.is_empty()).then_some(inherited_options.join(",")),
                     outer_options,
                 );
-                capture_wrapper_body(self, body_start, body_end, inherited_options.as_deref());
+                capture_wrapper_body(
+                    self,
+                    body_start,
+                    body_end,
+                    inherited_options.as_deref(),
+                    (!width.is_empty() && width != "!").then_some(width.as_str()),
+                );
                 Some(after_body)
             }
             "scalebox" => {
@@ -10984,7 +11016,13 @@ impl<'i> Vm<'i> {
                     (!inherited_options.is_empty()).then_some(inherited_options.join(",")),
                     outer_options,
                 );
-                capture_wrapper_body(self, body_start, body_end, inherited_options.as_deref());
+                capture_wrapper_body(
+                    self,
+                    body_start,
+                    body_end,
+                    inherited_options.as_deref(),
+                    None,
+                );
                 Some(after_body)
             }
             "rotatebox" => {
@@ -11020,7 +11058,13 @@ impl<'i> Vm<'i> {
                     (!inherited_options.is_empty()).then_some(inherited_options.join(",")),
                     outer_options,
                 );
-                capture_wrapper_body(self, body_start, body_end, inherited_options.as_deref());
+                capture_wrapper_body(
+                    self,
+                    body_start,
+                    body_end,
+                    inherited_options.as_deref(),
+                    None,
+                );
                 Some(after_body)
             }
             "reflectbox" => {
@@ -11034,6 +11078,7 @@ impl<'i> Vm<'i> {
                     body_start,
                     body_end,
                     merge_graphic_options(Some("xscale=-1".to_string()), outer_options).as_deref(),
+                    None,
                 );
                 Some(after_body)
             }
@@ -11059,6 +11104,7 @@ impl<'i> Vm<'i> {
                         outer_options,
                     )
                     .as_deref(),
+                    None,
                 );
                 Some(after_body)
             }
@@ -11068,7 +11114,7 @@ impl<'i> Vm<'i> {
                 if after_body > limit {
                     return None;
                 }
-                capture_wrapper_body(self, body_start, body_end, outer_options);
+                capture_wrapper_body(self, body_start, body_end, outer_options, None);
                 Some(after_body)
             }
             "colorbox" => {
@@ -11091,7 +11137,7 @@ impl<'i> Vm<'i> {
                 if after_body > limit {
                     return None;
                 }
-                capture_wrapper_body(self, body_start, body_end, outer_options);
+                capture_wrapper_body(self, body_start, body_end, outer_options, None);
                 Some(after_body)
             }
             "fcolorbox" => {
@@ -11119,7 +11165,7 @@ impl<'i> Vm<'i> {
                 if after_body > limit {
                     return None;
                 }
-                capture_wrapper_body(self, body_start, body_end, outer_options);
+                capture_wrapper_body(self, body_start, body_end, outer_options, None);
                 Some(after_body)
             }
             "makebox" | "framebox" => {
@@ -11142,7 +11188,7 @@ impl<'i> Vm<'i> {
                 if after_body > limit {
                     return None;
                 }
-                capture_wrapper_body(self, body_start, body_end, None);
+                capture_wrapper_body(self, body_start, body_end, None, None);
                 Some(after_body)
             }
             "raisebox" => {
@@ -11169,7 +11215,7 @@ impl<'i> Vm<'i> {
                 if after_body > limit {
                     return None;
                 }
-                capture_wrapper_body(self, body_start, body_end, outer_options);
+                capture_wrapper_body(self, body_start, body_end, outer_options, None);
                 Some(after_body)
             }
             "parbox" => {
@@ -11197,7 +11243,7 @@ impl<'i> Vm<'i> {
                 if after_body > limit {
                     return None;
                 }
-                capture_wrapper_body(self, body_start, body_end, outer_options);
+                capture_wrapper_body(self, body_start, body_end, outer_options, None);
                 Some(after_body)
             }
             _ => None,
@@ -11213,6 +11259,7 @@ impl<'i> Vm<'i> {
         body_start: usize,
         body_source: &str,
         environment: &str,
+        wrapper_width_spec: Option<&str>,
     ) -> Option<usize> {
         let mut table_body_start = skip_ascii_whitespace(body_source, 0);
         let mut table_width_spec = None;
@@ -11256,6 +11303,12 @@ impl<'i> Vm<'i> {
                 }
                 table_body_start = skip_ascii_whitespace(body_source, dimension_index);
             }
+        }
+        if let Some(width_spec) = wrapper_width_spec
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            table_width_spec = Some(width_spec.to_string());
         }
         if let Some((_, _, _, after)) = read_bracket_source_argument(body_source, table_body_start)
         {
@@ -44056,20 +44109,24 @@ Fallback text.
         vm.set_entry_source_path("main.tex");
         vm.enable_render_event_capture();
         let outcome = vm.run_plain(source);
-        let visible_text = outcome
+        let fallback = outcome
             .render_events
             .iter()
             .find_map(|event| match &event.event {
                 RenderEvent::RawFallback(fallback)
                     if fallback.environment.as_deref() == Some("tabular") =>
                 {
-                    fallback.normalized_visible_text.as_deref()
+                    Some(fallback)
                 }
                 _ => None,
             })
             .expect("tabular fallback visible text");
 
-        assert_eq!(visible_text, "A | B ; C | D");
+        assert_eq!(
+            fallback.normalized_visible_text.as_deref(),
+            Some("A | B ; C | D")
+        );
+        assert_eq!(fallback.table_width_spec.as_deref(), Some(r"\textwidth"));
         assert!(!outcome.render_events.iter().any(|event| {
             matches!(
                 &event.event,
@@ -45716,6 +45773,8 @@ Fallback text.
             ("neurips_2019", "neurips_2019", 1, 468_000, 72_000, 10_000),
             ("naaclhlt2019", "naacl_hlt_2019", 2, 453_543, 72_000, 11_000),
             ("icml2020", "icml_2020", 2, 486_000, 55_440, 10_000),
+            ("cvpr", "cvpr", 2, 495_000, 58_500, 10_000),
+            ("wacv", "wacv", 2, 495_000, 58_500, 10_000),
         ] {
             let source = format!(
                 "\\documentclass{{article}}\\usepackage{{{package}}}\\begin{{document}}Body.\\end{{document}}"
