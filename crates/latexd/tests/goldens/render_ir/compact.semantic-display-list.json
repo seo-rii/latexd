@@ -65,7 +65,7 @@
         "clusters": "<present>",
         "font": {
           "family": "serif",
-          "role": "body",
+          "role": "heading",
           "series": "regular",
           "shape": "upright",
           "size_pt": 11.0

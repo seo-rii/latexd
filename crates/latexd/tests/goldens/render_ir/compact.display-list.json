@@ -1,6 +1,6 @@
 [
   {
-    "page_id": "c8ea2b47a137471a7bab9972d8aa24f98b1409aba1617661dd84084aa979ecb2",
+    "page_id": "13f9cb008d39f4ffb2f9f50e96e03fd6bebd1073b3a0cdb336764291126fdbd9",
     "width_pt": 612.0,
     "height_pt": 792.0,
     "ops": [
@@ -157,7 +157,7 @@
           "series": "regular",
           "shape": "upright",
           "size_pt": 11.0,
-          "role": "body"
+          "role": "heading"
         },
         "size_pt": 11.0,
         "approximate_advance_pt": 45.98,
@@ -796,6 +796,6 @@
         "end_utf8": 284
       }
     ],
-    "content_hash": "21148564b25da963621fb63a4a5928ff673e11d6f576f61510645facd9644add"
+    "content_hash": "d7c2a1ccb594083311bfb3f19c153ff5cb034813fee547792ab0bd84681b4629"
   }
 ]

@@ -2978,7 +2978,7 @@ impl<'i> Vm<'i> {
                         };
                         argument_index = skip_ascii_whitespace(source, after_option);
                     }
-                    if let Some((value, content_start, content_end, after)) =
+                    if let Some((value, content_start, _content_end, after)) =
                         read_braced_source_argument(source, argument_index)
                     {
                         let field = match command {
@@ -2991,17 +2991,77 @@ impl<'i> Vm<'i> {
                             "email" => MetadataField::Correspondence,
                             _ => unreachable!(),
                         };
-                        self.emit_render_event(
-                            RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
-                                field,
-                                value: normalize_latex_text_with_inline_placeholders(value),
-                            }),
-                            SourceProvenance::file(
-                                source_path.to_owned(),
-                                content_start as u32,
-                                content_end as u32,
-                            ),
-                        );
+                        let mut values = Vec::new();
+                        if field == MetadataField::Author {
+                            let value_bytes = value.as_bytes();
+                            let mut value_start = 0usize;
+                            let mut cursor = 0usize;
+                            let mut group_depth = 0usize;
+                            while cursor < value_bytes.len() {
+                                match value_bytes[cursor] {
+                                    b'%' => {
+                                        while cursor < value_bytes.len()
+                                            && !matches!(value_bytes[cursor], b'\r' | b'\n')
+                                        {
+                                            cursor += 1;
+                                        }
+                                        continue;
+                                    }
+                                    b'\\' => {
+                                        let command_start = cursor;
+                                        cursor += 1;
+                                        if cursor >= value_bytes.len() {
+                                            break;
+                                        }
+                                        if value_bytes[cursor].is_ascii_alphabetic() {
+                                            let name_start = cursor;
+                                            while cursor < value_bytes.len()
+                                                && value_bytes[cursor].is_ascii_alphabetic()
+                                            {
+                                                cursor += 1;
+                                            }
+                                            if group_depth == 0
+                                                && &value_bytes[name_start..cursor] == b"and"
+                                            {
+                                                values.push((value_start, command_start));
+                                                value_start = cursor;
+                                            }
+                                        } else {
+                                            cursor += 1;
+                                        }
+                                        continue;
+                                    }
+                                    b'{' => group_depth += 1,
+                                    b'}' => group_depth = group_depth.saturating_sub(1),
+                                    _ => {}
+                                }
+                                cursor += 1;
+                            }
+                            values.push((value_start, value.len()));
+                        } else {
+                            values.push((0, value.len()));
+                        }
+                        for (value_start, value_end) in values {
+                            let raw_value = &value[value_start..value_end];
+                            let leading_whitespace = raw_value.len() - raw_value.trim_start().len();
+                            let trimmed = raw_value.trim();
+                            if trimmed.is_empty() {
+                                continue;
+                            }
+                            let span_start = content_start + value_start + leading_whitespace;
+                            let span_end = span_start + trimmed.len();
+                            self.emit_render_event(
+                                RenderEvent::SetDocumentMetadata(SetDocumentMetadataEvent {
+                                    field,
+                                    value: normalize_latex_text_with_inline_placeholders(trimmed),
+                                }),
+                                SourceProvenance::file(
+                                    source_path.to_owned(),
+                                    span_start as u32,
+                                    span_end as u32,
+                                ),
+                            );
+                        }
                         index = after;
                     }
                 }
@@ -14498,15 +14558,13 @@ impl<'i> Vm<'i> {
         let mut pending_word = String::new();
         let mut pending_space = None;
         let mut emitted_any = false;
-        for ch in source[start..end].chars() {
-            let space_kind = if ch.is_whitespace() {
-                Some(SpaceKind::Interword)
-            } else if ch == '~' {
-                Some(SpaceKind::Explicit)
-            } else {
-                None
-            };
-            if let Some(space_kind) = space_kind {
+        let mut whitespace_start = start;
+        let mut newline_count = 0usize;
+        let mut previous_was_carriage_return = false;
+        let mut emitted_break_for_whitespace = false;
+        for (relative_index, ch) in source[start..end].char_indices() {
+            let absolute_index = start + relative_index;
+            if ch.is_whitespace() || ch == '~' {
                 if !pending_word.is_empty() {
                     self.emit_render_event(
                         RenderEvent::Text(TextEvent {
@@ -14516,6 +14574,48 @@ impl<'i> Vm<'i> {
                     );
                     emitted_any = true;
                 }
+                if pending_space.is_none() && newline_count == 0 && !emitted_break_for_whitespace {
+                    whitespace_start = absolute_index;
+                }
+                if ch == '~' {
+                    newline_count = 0;
+                    previous_was_carriage_return = false;
+                    emitted_break_for_whitespace = false;
+                } else if ch == '\r' {
+                    newline_count += 1;
+                    previous_was_carriage_return = true;
+                } else if ch == '\n' {
+                    if !previous_was_carriage_return {
+                        newline_count += 1;
+                    }
+                    previous_was_carriage_return = false;
+                } else {
+                    previous_was_carriage_return = false;
+                }
+                if newline_count >= 2 && !emitted_break_for_whitespace {
+                    pending_space = None;
+                    self.emit_render_event(
+                        RenderEvent::ParagraphBreak(ParagraphBreakEvent {
+                            reason: ParagraphBreakReason::BlankLine,
+                        }),
+                        SourceProvenance::file(
+                            source_path.to_owned(),
+                            whitespace_start as u32,
+                            (absolute_index + ch.len_utf8()) as u32,
+                        ),
+                    );
+                    emitted_any = true;
+                    emitted_break_for_whitespace = true;
+                    continue;
+                }
+                if emitted_break_for_whitespace {
+                    continue;
+                }
+                let space_kind = if ch == '~' {
+                    SpaceKind::Explicit
+                } else {
+                    SpaceKind::Interword
+                };
                 pending_space = match (pending_space, space_kind) {
                     (Some(SpaceKind::Explicit), _) | (_, SpaceKind::Explicit) => {
                         Some(SpaceKind::Explicit)
@@ -14524,6 +14624,9 @@ impl<'i> Vm<'i> {
                 };
                 continue;
             }
+            newline_count = 0;
+            previous_was_carriage_return = false;
+            emitted_break_for_whitespace = false;
             if let Some(space_kind) = pending_space.take() {
                 self.emit_render_event(
                     RenderEvent::Space(SpaceEvent { kind: space_kind }),
@@ -28022,9 +28125,9 @@ mod tests {
         BeginBlockEvent, BeginLayoutContainerEvent, BlockKind, CitationStyleHint, EndBlockEvent,
         EndLayoutContainerEvent, EventProducer, GeneratedBy, GraphicAssetDensity,
         GraphicAssetDensityUnit, GraphicAssetDimensions, GraphicAssetFormat, HeadingEvent,
-        LayoutAlignment, ListKind, MetadataField, ModeHint, ProvenanceSpan, RenderEvent,
-        SemanticConfidence, SourceSpanRole, SpaceKind, TableCellSpanEvent, TableColumnAlignment,
-        TableColumnSpec, TableRuleEvent, TableRulePosition, TableRuleSpan,
+        LayoutAlignment, ListKind, MetadataField, ModeHint, ParagraphBreakReason, ProvenanceSpan,
+        RenderEvent, SemanticConfidence, SourceSpanRole, SpaceKind, TableCellSpanEvent,
+        TableColumnAlignment, TableColumnSpec, TableRuleEvent, TableRulePosition, TableRuleSpan,
     };
     use tex_tokens::ControlSequenceInterner;
 
@@ -34969,6 +35072,26 @@ Fallback text.
             .expect("paragraph break event");
 
         assert_eq!(paragraph_break.meta.mode_hint, ModeHint::Vertical);
+    }
+
+    #[test]
+    fn render_event_capture_records_blank_lines_as_paragraph_breaks() {
+        let source = "\\begin{document}First paragraph.\n   \nSecond paragraph.\\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let paragraph_breaks = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::ParagraphBreak(event) => Some(event.reason),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(paragraph_breaks, vec![ParagraphBreakReason::BlankLine]);
     }
 
     #[test]
@@ -45779,6 +45902,56 @@ Fallback text.
     }
 
     #[test]
+    fn render_event_capture_splits_standard_author_and_separator() {
+        let source =
+            r"\author{Ada Example \and Grace Sample}\begin{document}\maketitle\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let authors = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::SetDocumentMetadata(metadata)
+                    if metadata.field == MetadataField::Author =>
+                {
+                    Some(metadata.value.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(authors, vec!["Ada Example", "Grace Sample"]);
+    }
+
+    #[test]
+    fn render_event_capture_does_not_split_author_text_after_control_symbols_or_in_comments() {
+        let source = r"\author{Ada\\and Team % \and Hidden
+}\begin{document}\maketitle\end{document}";
+        let mut interner = ControlSequenceInterner::new();
+        let mut vm = Vm::new(&mut interner);
+        vm.set_entry_source_path("main.tex");
+        vm.enable_render_event_capture();
+        let outcome = vm.run_plain(source);
+        let authors = outcome
+            .render_events
+            .iter()
+            .filter_map(|event| match &event.event {
+                RenderEvent::SetDocumentMetadata(metadata)
+                    if metadata.field == MetadataField::Author =>
+                {
+                    Some(metadata.value.as_str())
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(authors, vec!["Ada and Team"]);
+    }
+
+    #[test]
     fn render_event_capture_records_authblk_optional_authors_and_affiliations() {
         let source = r"\usepackage{authblk}\title{Quantum Paper}\author[1]{Nai-Hui Chia\thanks{nc67@rice.edu}}\author[2]{Atsuya Hasegawa}\affil[1]{\textit{Department of Computer Science}}\affil[2]{Graduate School of Mathematics}\begin{document}\maketitle\end{document}";
         let mut interner = ControlSequenceInterner::new();
@@ -45989,7 +46162,10 @@ Difference Engine Lab
 
         assert_eq!(
             authors,
-            vec!["Ada Lovelace Analytical Engine Lab and Charles Babbage Difference Engine Lab"]
+            vec![
+                "Ada Lovelace Analytical Engine Lab",
+                "Charles Babbage Difference Engine Lab"
+            ]
         );
         assert!(
             visible_text.is_empty(),
