@@ -22246,7 +22246,9 @@ fn array_environment_capture_builds_table_ir_and_display_list_rules() {
     assert_eq!(horizontal_rules, 2);
     assert_eq!(vertical_rules.len(), 3, "{vertical_rules:?}");
     assert!(
-        vertical_rules.iter().all(|rule| rule.height > 40.0),
+        vertical_rules
+            .iter()
+            .all(|rule| (rule.height - 28.0).abs() < 0.001),
         "{vertical_rules:?}"
     );
 }

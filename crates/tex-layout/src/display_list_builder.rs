@@ -1717,10 +1717,12 @@ pub fn build_page_display_lists(
                 let table_line_height_pt = options.line_height_pt * table_font_scale;
                 let table_side_indent_pt = if full_width {
                     0.0
+                } else if let Some(width) = requested_table_width_pt {
+                    ((table_area_width_pt - width) / 2.0).max(0.0)
+                } else if block.caption.is_none() {
+                    options.paragraph_first_line_indent_pt
                 } else {
-                    requested_table_width_pt
-                        .map(|width| ((table_area_width_pt - width) / 2.0).max(0.0))
-                        .unwrap_or(0.0)
+                    0.0
                 };
                 let rule_text = "-".repeat(rule_width.max(3));
                 let partial_rule_text = |span: &TableRuleSpan| {
@@ -2728,18 +2730,15 @@ pub fn build_page_display_lists(
                 if !current_line.is_empty() || wrapped_lines.is_empty() {
                     wrapped_lines.push(current_line);
                 }
-                let first_vertical_rule_line = wrapped_lines.iter().position(|line| {
-                    line.iter()
-                        .any(|segment| !segment.table_vertical_rule_offsets.is_empty())
-                });
-                let last_vertical_rule_line = wrapped_lines.iter().rposition(|line| {
-                    line.iter()
-                        .any(|segment| !segment.table_vertical_rule_offsets.is_empty())
-                });
-
                 for (line_index, line_segments) in wrapped_lines.into_iter().enumerate() {
-                    if y + logical.line_height_pt
-                        > options.page_height_pt - options.margin_bottom_pt
+                    let line_is_table_rule = !line_segments.is_empty()
+                        && line_segments.iter().all(|segment| segment.table_rule);
+                    let line_advance_pt = if line_is_table_rule {
+                        0.0
+                    } else {
+                        logical.line_height_pt
+                    };
+                    if y + line_advance_pt > options.page_height_pt - options.margin_bottom_pt
                         && !pending.ops.is_empty()
                     {
                         if !full_width && column_index + 1 < column_count {
@@ -2839,7 +2838,7 @@ pub fn build_page_display_lists(
                                     if trimmed_rule_advance > 0.0 {
                                         table_rule_rects.push(Rect {
                                             x: x + prefix_advance + trim_start,
-                                            y: (y - logical.size_pt * 0.35).max(0.0),
+                                            y: (y - logical.size_pt).max(0.0),
                                             width: trimmed_rule_advance,
                                             height: 0.8,
                                         });
@@ -2900,29 +2899,17 @@ pub fn build_page_display_lists(
                             let first_shift =
                                 -((rule_count.saturating_sub(1) as f32) * rule_spacing) / 2.0;
                             for rule_index in 0..rule_count {
-                                let mut rule_y = (y - logical.size_pt).max(0.0);
-                                let mut rule_bottom = rule_y + logical.line_height_pt;
-                                if segment.table_rule {
-                                    let horizontal_rule_y = (y - logical.size_pt * 0.35).max(0.0);
-                                    let horizontal_rule_bottom = horizontal_rule_y + 0.8;
-                                    if Some(line_index) == first_vertical_rule_line {
-                                        rule_y = rule_y.max(horizontal_rule_y);
-                                    }
-                                    if Some(line_index) == last_vertical_rule_line {
-                                        rule_bottom = rule_bottom.min(horizontal_rule_bottom);
-                                    }
-                                }
-                                let rule_height = rule_bottom - rule_y;
-                                if rule_height <= 0.0 {
-                                    continue;
-                                }
                                 table_vertical_rule_rects.push(Rect {
                                     x: x + prefix_advance
                                         + first_shift
                                         + rule_index as f32 * rule_spacing,
-                                    y: rule_y,
+                                    y: (y - logical.size_pt).max(0.0),
                                     width: 0.8,
-                                    height: rule_height,
+                                    height: if segment.table_rule {
+                                        0.8
+                                    } else {
+                                        logical.line_height_pt
+                                    },
                                 });
                             }
                         }
@@ -2982,14 +2969,15 @@ pub fn build_page_display_lists(
                                 let DrawOp::Rule(previous) = op else {
                                     continue;
                                 };
-                                if previous.height <= previous.width {
-                                    continue;
-                                }
                                 if (previous.x - rect.x).abs() <= 0.01
                                     && (previous.width - rect.width).abs() <= 0.01
-                                    && (previous.y + previous.height - rect.y).abs() <= 0.01
+                                    && previous.y <= rect.y + rect.height + 0.01
+                                    && rect.y <= previous.y + previous.height + 0.01
                                 {
-                                    previous.height += rect.height;
+                                    let bottom =
+                                        (previous.y + previous.height).max(rect.y + rect.height);
+                                    previous.y = previous.y.min(rect.y);
+                                    previous.height = bottom - previous.y;
                                     merged = true;
                                     break;
                                 }
@@ -3000,7 +2988,7 @@ pub fn build_page_display_lists(
                         }
                         x += advance;
                     }
-                    y += logical.line_height_pt;
+                    y += line_advance_pt;
                 }
                 y += logical.gap_after_pt;
                 if full_width {
@@ -5210,7 +5198,7 @@ mod tests {
         assert!(
             vertical_rules
                 .iter()
-                .all(|rule| rule.height < 42.0 && rule.height > 28.0),
+                .all(|rule| rule.height < 16.0 && rule.height > 14.0),
             "{vertical_rules:?}"
         );
         assert!(lines.contains(&"A   1"), "{lines:?}");
@@ -5334,7 +5322,7 @@ mod tests {
         assert!(
             vertical_rules
                 .iter()
-                .all(|rule| (rule.height - 42.0).abs() < 0.001),
+                .all(|rule| (rule.height - 28.0).abs() < 0.001),
             "{vertical_rules:?}"
         );
     }
@@ -5425,6 +5413,8 @@ mod tests {
             .filter(|rule| {
                 rule.y <= horizontal_rule.y + horizontal_rule.height + 0.01
                     && rule.y + rule.height >= horizontal_rule.y - 0.01
+                    && rule.x >= horizontal_rule.x - 0.01
+                    && rule.x <= horizontal_rule.x + horizontal_rule.width + 0.01
             })
             .collect::<Vec<_>>();
 
@@ -5528,6 +5518,8 @@ mod tests {
             .filter(|rule| {
                 rule.y <= horizontal_rule.y + horizontal_rule.height + 0.01
                     && rule.y + rule.height >= horizontal_rule.y - 0.01
+                    && rule.x >= horizontal_rule.x - 0.01
+                    && rule.x <= horizontal_rule.x + horizontal_rule.width + 0.01
             })
             .collect::<Vec<_>>();
 
@@ -5719,6 +5711,25 @@ mod tests {
         );
         assert!(lines.contains(&"Head | Value"), "{lines:?}");
         assert!(lines.contains(&"A    | B"), "{lines:?}");
+        let row_origins = display_lists[0]
+            .ops
+            .iter()
+            .filter_map(|op| match op {
+                DrawOp::TextRun(run) if !run.text.is_empty() => {
+                    Some((run.text.as_str(), run.origin))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let head_y = row_origins
+            .iter()
+            .find_map(|(text, origin)| (*text == "Head | Value").then_some(origin.y))
+            .expect("header row origin");
+        let body_y = row_origins
+            .iter()
+            .find_map(|(text, origin)| (*text == "A    | B").then_some(origin.y))
+            .expect("body row origin");
+        assert!((body_y - head_y - 14.0).abs() < 0.001, "{row_origins:?}");
         let rules = display_lists[0]
             .ops
             .iter()
